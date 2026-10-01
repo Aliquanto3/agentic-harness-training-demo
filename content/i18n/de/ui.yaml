@@ -251,8 +251,7 @@ main:
     choose: "Szenario wählen"
     module: "Modul {n} · {title} · {minutes} Min."
     transverse: "Übergreifend und fachlich"
-    more: "Mehr anzeigen"
-    less: "Weniger anzeigen"
+    info_label: "Anleitung zum Szenario „{scenario}“"
     fill: "Feld ausfüllen: {prompt}"
     unavailable:
       one: "Baustein des Szenarios mit diesem Modell nicht verfügbar:"

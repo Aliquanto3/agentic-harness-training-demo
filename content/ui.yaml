@@ -260,8 +260,7 @@ main:
     choose: "Choisir un scénario"
     module: "Module {n} · {title} · {minutes} min"
     transverse: "Transverses et métier"
-    more: "Afficher plus"
-    less: "Réduire"
+    info_label: "Consignes du scénario « {scenario} »"
     fill: "Remplir le champ : {prompt}"
     unavailable:
       one: "Brique du scénario indisponible avec ce modèle :"
