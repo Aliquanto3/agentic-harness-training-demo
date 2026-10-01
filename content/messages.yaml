@@ -357,6 +357,8 @@ session:
       text: "Le reranking a échoué ({kind}: {cause}). Le tour continue avec les {keep} premiers extraits de l'embedding."
   compression:
     the_compressor: le compresseur
+    # The object of « charger » (the budget's refusal): the same words in French.
+    the_compressor_to_load: le compresseur
     loading: Chargement du compresseur…
     not_loaded: "Compresseur non chargé : désactivez puis réactivez la brique."
     refused_effect: "La brique « Compression » est indisponible ; rien n'est chargé. Elle se charge d'elle-même après un changement de modèle, ou en la réactivant."

@@ -354,6 +354,8 @@ session:
       text: "Reranking failed ({kind}: {cause}). The turn goes on with the first {keep} excerpts of the embedding."
   compression:
     the_compressor: the compressor
+    # The object of « load » (the budget's refusal).
+    the_compressor_to_load: the compressor
     loading: Loading the compressor…
     not_loaded: "Compressor not loaded: disable then re-enable the brick."
     refused_effect: "The “Compression” brick is unavailable; nothing is loaded. It loads by itself after a model change, or when re-enabled."

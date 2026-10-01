@@ -3267,14 +3267,19 @@ class AppSession:
         if reranker is not None:
             self._close_reranker(reranker)
 
-    def _compressor_label(self) -> str:
-        """The loaded compressor's own label; before it loads, its factory's (Headroom's)."""
+    def _compressor_label(self, *, to_load: bool = False) -> str:
+        """The loaded compressor's own label; before it loads, its factory's (Headroom's);
+        else a generic noun, in the case its sentence wants (`to_load`: the object of the
+        budget's refusal, « um den Kompressor zu laden » in German; else the subject)."""
         with self._lock:
             compressor = self._compressor
         if compressor is not None:
             return compressor.label_text
         named = getattr(self._compressor_factory, "label_text", None)
-        return str(named) if named else self._t("session.compression.the_compressor")
+        if named:
+            return str(named)
+        key = "the_compressor_to_load" if to_load else "the_compressor"
+        return self._t(f"session.compression.{key}")
 
     def _compression_unavailable(self) -> str | None:
         """Story 20: Headroom not installed (or another version), then, once wanted, loading
@@ -3341,7 +3346,7 @@ class AppSession:
         """The budget first (a refusal in figures, nothing imported), then the import and the
         warm-up call. Once imported, the library stays in memory until WaveStack stops: a
         later load costs nothing more, its memory being in the RSS measured (AD-8)."""
-        label = self._compressor_label()
+        label = self._compressor_label(to_load=True)
         cost = 0 if self._compressor_imported else self.cfg.compression_cost_bytes
         refusal = self._load_registry.check_component(label, cost, COMPRESSOR) if cost else None
         if refusal is not None:

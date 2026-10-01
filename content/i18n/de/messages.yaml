@@ -356,6 +356,8 @@ session:
       text: "Das Reranking ist fehlgeschlagen ({kind}: {cause}). Die Runde geht mit den ersten {keep} Auszügen des Embeddings weiter."
   compression:
     the_compressor: der Kompressor
+    # Akkusativ: „um den Kompressor zu laden“ (the budget's refusal).
+    the_compressor_to_load: den Kompressor
     loading: Kompressor wird geladen…
     not_loaded: "Kompressor nicht geladen: Deaktivieren und aktivieren Sie den Baustein erneut."
     refused_effect: "Der Baustein „Kompression“ ist nicht verfügbar; nichts wird geladen. Er lädt sich nach einem Modellwechsel von selbst oder wenn Sie ihn wieder aktivieren."
