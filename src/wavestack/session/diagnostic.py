@@ -426,8 +426,12 @@ class DiagnosticSession:
         entry is an older probe's or incomplete (`probe.measured`) is probed again only when
         in `reprobe` (the model about to boot, nothing loaded yet); the others are measured
         again when chosen (`AppSession._load`, after the release). A remembered failure of
-        the current probe wins over an older success: no endless reprobe."""
+        the current probe wins over an older success: no endless reprobe.
+
+        Story 3 (corrections): one `diagnostic_progress{done: 0, total}` once the cache
+        has been read (`total` = the probes actually needed), then one after each probe."""
         candidates = discovery.discover(explicit_path)
+        to_probe: list[discovery.ModelCandidate] = []
         for candidate in candidates:
             if candidate.status != "found" or not candidate.path:
                 continue
@@ -441,11 +445,19 @@ class DiagnosticSession:
                 # Remembered failure: no reprobe, same reason.
                 candidate.status, candidate.reason = "incompatible", failed.get("reason")
             elif probing and (entry is None or path in reprobe):
-                self._probe_candidate(candidate)
+                to_probe.append(candidate)
             elif entry is not None:
                 candidate.architecture = entry.get("architecture")
                 candidate.size_label = entry.get("size_label")
+        total = len(to_probe)
+        self._emit_progress(0, total)
+        for done, candidate in enumerate(to_probe, start=1):
+            self._probe_candidate(candidate)
+            self._emit_progress(done, total)
         return candidates
+
+    def _emit_progress(self, done: int, total: int) -> None:
+        get_journal().emit("diagnostic_progress", {"done": done, "total": total})
 
     def _hand_out(
         self,

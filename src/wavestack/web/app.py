@@ -511,9 +511,20 @@ def create_app(
                 **_models(candidates, cloud),
                 # Story 24: the budget the session refuses with (the diagnostic's memory line).
                 "memory_budget_bytes": app_session.memory_budget_bytes,
+                # Story 3 (corrections): the model search runs until the `model` check's
+                # first result; meanwhile, its last progress (probes done on probes needed).
+                "searching": result is None,
+                "progress": _search_progress() if result is None else None,
                 "seq": tip,
             }
         )
+
+    def _search_progress() -> dict[str, int] | None:
+        """The last `diagnostic_progress` of the journal, or None before the first one."""
+        for event in reversed(get_journal().all_events()):
+            if event.kind == "diagnostic_progress":
+                return {"done": event.payload["done"], "total": event.payload["total"]}
+        return None
 
     def _models(candidates: list, cloud: dict[str, Any]) -> dict[str, object]:
         """`models`, or nothing when it could not be built: the picker then lists the

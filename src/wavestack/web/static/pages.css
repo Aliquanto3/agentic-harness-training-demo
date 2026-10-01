@@ -8,7 +8,7 @@
   --site-nav-height: calc(var(--spacing-hit-target-min) + 2 * var(--spacing-1) + 2px);
 }
 
-/* A band across the window, whatever the page's own width (/diagnostic keeps 640 px): its
+/* A band across the window, whatever the page's own width (/diagnostic keeps 960 px): its
    margins reach from the page's centre to the window's edges, less a gutter. */
 .site-nav {
   box-sizing: border-box;
@@ -199,4 +199,213 @@
   .display-menu-word {
     display: none;
   }
+}
+
+/* ---------- Story 3 of 2026-09-30: what /diagnostic and /models share ----------
+   The page itself (`body.annex-page`), the table, the hosting badges, the buttons of
+   DESIGN.md (`button-primary`, `button-secondary`) and the fields: tokens only. Scoped by
+   `.annex-page` (their `<body>`): the main screen, /llm and /rag load this file too. */
+
+body.annex-page {
+  margin: 0;
+  padding: var(--spacing-5) var(--spacing-5) var(--spacing-6);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: var(--typography-body-font-weight) var(--typography-body-font-size) /
+    var(--typography-body-line-height) var(--typography-body-font-family);
+}
+
+.annex-page h1 {
+  margin: var(--spacing-4) 0 var(--spacing-2);
+  font: var(--typography-heading-font-weight) calc(var(--typography-heading-font-size) * 1.3) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.annex-page h2 {
+  margin: var(--spacing-5) 0 var(--spacing-2);
+  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
+    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
+}
+
+/* DESIGN.md > model-table: a raised table, its columns' names in `label`, a group's head on
+   the surface. */
+.annex-page .model-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  overflow: hidden;
+}
+
+.annex-page .model-table caption {
+  text-align: left;
+  padding: var(--spacing-2) 0;
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  text-transform: uppercase;
+}
+
+.annex-page .model-table th,
+.annex-page .model-table td {
+  padding: var(--spacing-2) var(--spacing-3);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.annex-page .model-table thead th {
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  background: var(--color-surface-raised);
+}
+
+.annex-page .model-table th[scope="rowgroup"] {
+  background: var(--color-surface);
+  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+/* A sortable column's name is a button, the whole header's width; its mark says the order
+   (`aria-sort` on the header), a soft ↕ on the others. */
+.annex-page .sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  width: 100%;
+  min-height: var(--spacing-hit-target-min);
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.annex-page .sort-button:hover,
+.annex-page th[aria-sort] .sort-button {
+  color: var(--color-ink);
+}
+
+.annex-page .sort-mark::after {
+  content: "↕";
+  color: var(--color-ink-soft);
+}
+
+.annex-page th[aria-sort="ascending"] .sort-mark::after {
+  content: "▲";
+  color: var(--color-primary);
+}
+
+.annex-page th[aria-sort="descending"] .sort-mark::after {
+  content: "▼";
+  color: var(--color-primary);
+}
+
+/* The hosting badges: local neutral, network on the yellow (story 31). */
+.annex-page .hosting-tag-local,
+.annex-page .hosting-tag-network {
+  display: inline-block;
+  margin-right: var(--spacing-1);
+  padding: 0 var(--spacing-2);
+  border-radius: var(--rounded-full);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+}
+
+.annex-page .hosting-tag-local {
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
+}
+
+.annex-page .hosting-tag-network {
+  background: var(--color-hosting-network);
+  color: var(--color-on-vivid); /* explicit on the yellow, in both themes */
+  border: 1px dashed var(--color-ink);
+}
+
+.annex-page .hosting-tag-network::before {
+  content: "🌐 ";
+}
+
+/* DESIGN.md > button-primary, button-secondary: the toy relief, flat when unavailable. */
+.annex-page .button-primary,
+.annex-page .button-secondary {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-4);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) calc(var(--typography-label-font-size) * 1.15) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.annex-page .button-primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-primary-deep);
+}
+
+.annex-page .button-secondary {
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief-active);
+}
+
+.annex-page .button-primary:active:not(:disabled),
+.annex-page .button-secondary:active:not(:disabled) {
+  transform: translateY(calc(var(--spacing-relief-offset) - var(--spacing-relief-offset-pressed)));
+  box-shadow: 0 var(--spacing-relief-offset-pressed) 0 var(--color-primary-deep);
+}
+
+.annex-page .button-primary:disabled,
+.annex-page .button-secondary:disabled {
+  cursor: not-allowed;
+  box-shadow: none;
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+  border-color: var(--color-line);
+}
+
+.annex-page .button-primary:focus-visible,
+.annex-page .button-secondary:focus-visible,
+.annex-page .sort-button:focus-visible,
+.annex-page .field-input:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* A field: its name in `label` above, the control on surface-raised, bordered ink-soft. */
+.annex-page .field {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+}
+
+.annex-page .field-input {
+  box-sizing: border-box;
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-body-font-weight) var(--typography-body-font-size) /
+    var(--typography-body-line-height) var(--typography-body-font-family);
+}
+
+.annex-page .field-input::placeholder {
+  color: var(--color-ink-soft);
 }

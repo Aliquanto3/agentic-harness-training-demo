@@ -32,6 +32,14 @@ class DiagnosticCheckPayload(BaseModel):
     output_tps: int | None = None
 
 
+class DiagnosticProgressPayload(BaseModel):
+    """Story 3 (corrections): the model search's progress. `total` counts only the
+    candidates that need a probe (cached ones cost nothing); `done` the probes finished."""
+
+    done: int = Field(ge=0)
+    total: int = Field(ge=0)
+
+
 class OutboundHeader(BaseModel):
     """Story 23: one header as sent, in order and case. Outside the public allow-list its
     value is « [masqué] » and `masked` is true: the real value never reaches the journal."""
@@ -1249,6 +1257,7 @@ class RagLabRunEndedPayload(BaseModel):
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
+    "diagnostic_progress": DiagnosticProgressPayload,
     "outbound_request": OutboundRequestPayload,
     "harness_error": HarnessErrorPayload,
     "server_cache_used": ServerCacheUsedPayload,
