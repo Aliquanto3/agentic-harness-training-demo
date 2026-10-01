@@ -97,8 +97,8 @@ stages:
     explain_text: >-
       Eine Suche nach Wörtern, ohne Embedding: Auszüge, die Wörter mit der Frage teilen,
       rücken nach vorn, wobei ein seltenes Wort mehr wiegt als ein häufiges (BM25); Akzente,
-      Umlaute und kurze französische Füllwörter (le, de, et…) werden ignoriert. Sie findet ein Kürzel, einen Code
-      oder eine exakte Zahl („HR“, „35“), die ein Embedding übersehen kann.
+      Umlaute und kurze deutsche Füllwörter (der, und, von…) werden ignoriert. Sie findet ein
+      Kürzel, einen Code oder eine exakte Zahl („HR“, „35“), die ein Embedding übersehen kann.
   fusion:
     label_text: "Fusion"
     explain_text: >-

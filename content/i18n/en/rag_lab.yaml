@@ -96,9 +96,9 @@ stages:
     label_text: "BM25 lexical search"
     explain_text: >-
       A search by words, with no embedding: excerpts that share words with the question come
-      first, a rare word weighing more than a common one (BM25); accents and a short list of
-      French function words (le, de, et…) are ignored. It finds an acronym, a code or an
-      exact number (“HR”, “35”) that an embedding may miss.
+      first, a rare word weighing more than a common one (BM25); accents and short English
+      function words (the, of, and…) are ignored. It finds an acronym, a code or an exact
+      number (“HR”, “IT”, “35”) that an embedding may miss.
   fusion:
     label_text: "Fusion"
     explain_text: >-

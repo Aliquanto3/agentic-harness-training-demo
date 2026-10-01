@@ -807,6 +807,58 @@ def test_bm25_keeps_codes_and_numbers_folds_accents_drops_stop_words():
     assert scores[0] > 0 and scores[1] > 0 and scores[2] == 0
 
 
+def test_bm25_drops_the_stop_words_of_the_sessions_language():
+    """Restes du 2026-10-01: each language its short words; acronyms and numbers kept
+    (« IT » and « US » are not English stop words: they name something)."""
+    assert rag_lab.bm25_terms("What is the HR policy for IT and US staff in 2024?", "en") == [
+        "hr",
+        "policy",
+        "it",
+        "us",
+        "staff",
+        "2024",
+    ]
+    assert rag_lab.bm25_terms("Wie viele Tage Homeoffice gibt es für die HR und IT?", "de") == [
+        "viele",
+        "tage",
+        "homeoffice",
+        "gibt",
+        "hr",
+        "it",
+    ]
+    # French by default, and for a language WaveStack does not know.
+    assert rag_lab.bm25_terms("le the der") == ["the", "der"]
+    assert rag_lab.bm25_terms("le the der", "xx") == ["the", "der"]
+    # The query's stop words never score: « the » alone finds nothing in English.
+    docs = ["The remote work policy", "The expense policy", "Other"]
+    assert rag_lab.bm25("the", docs, "en") == [0.0, 0.0, 0.0]
+    assert rag_lab.bm25("the", docs, "fr")[0] > 0
+
+
+def test_a_lexical_search_in_english_says_the_words_it_looked_for(index):
+    place_model()
+    place_reranker()
+    session, _ = lab_session(rerank_config(index) | {"language": "en"})
+    _, a, _ = chains(session)
+    lexical = a.model_copy(deep=True)
+    remove(lexical, "vector_search")
+    remove(lexical, "rerank")
+    stage(lexical, "vector_store").option = "memory"  # the brick's index is the French one
+    add(lexical, "lexical_search", "bm25", candidates=5)
+    events = run(session, "How many days of remote work are there for the HR team?", [lexical])
+    searched = ended(events, "lexical_search")
+    assert searched["status"] == "ok", searched["error_text"]
+    # « how », « of », « are », « there », « for », « the »: English stop words, left out.
+    words = "(“many”, “days”, “remote”, “work”, “hr”, “team”)"
+    assert words in searched["input_text"], searched["input_text"]
+    explain = rag_lab.load_lab_content("en").stages["lexical_search"].explain_text
+    assert "English function words" in explain and "French" not in explain
+    assert (
+        "deutsche Füllwörter"
+        in rag_lab.load_lab_content("de").stages["lexical_search"].explain_text
+    )
+
+
 def test_a_nan_score_counts_as_zero_and_counts_agree():
     assert rag_lab.top([(float("nan"), 1), (0.5, 2)], 2) == [(2, 0.5), (1, 0.0)]
     assert rag_lab.count_fr(1, "extrait") == "1 extrait"
