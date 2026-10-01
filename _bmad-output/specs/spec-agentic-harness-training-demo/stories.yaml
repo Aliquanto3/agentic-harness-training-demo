@@ -10,6 +10,28 @@
     Implémenter cli/config/models selon AD-7 (découverte + sonde GGUF), AD-20 (dossier
     de données hors dépôt), AD-21 (lancement, diagnostic bloquant terminal + navigateur).
 
+- id: "1e"
+  title: "Correctif 1e : un proxy en boucle locale ne doit pas ouvrir la garde réseau"
+  description: >-
+    Sur le PC pro, le proxy d'entreprise tourne en boucle locale (HTTPS_PROXY=
+    http://127.0.0.1:9000) : tout client qui lit l'environnement passe la garde réseau
+    par ce proxy et sort sans contrôle de destination. La garde confisque le proxy au
+    démarrage (copie, puis retrait de l'environnement et du registre) ; seule la
+    fabrique le reçoit, et un test statique interdit tout client HTTP hors de la
+    fabrique dans src/ (AD-15, seconde ligne de défense). Constaté le 2026-09-25.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Suivre stories/1e-correctif-garde-reseau-proxy-local.md après les réponses
+    d'Anaël à ses « Décisions à prendre ». guard.install copie getproxies() une seule
+    fois, retire les variables *_proxy et neutralise getproxies_registry ;
+    _proxy_hosts lit la copie. factory : trust_env=False et montages explicites
+    (règle NO_PROXY de httpx 0.28, boucle locale en direct, rien avec un transport
+    injecté). Tests sans réseau, faux proxy en boucle locale, en sous-processus pour
+    la garde ; adapter _apply_proxies de test_e2e_stack.py ; test statique AST ;
+    AD-15 amendé. Vérification manuelle sur le PC pro (diagnostic, outils réseau,
+    MCP data.gouv.fr, clés cloud, téléchargement).
+
 - id: "2"
   title: Interface à volets et journal d'événements
   description: >-

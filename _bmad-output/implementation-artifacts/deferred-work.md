@@ -6,6 +6,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/2-interface-a-volets-et-journal-devenements.md`
   summary: Le schéma d'architecture (`app.js::renderSchema`) ignore les champs `hosting`, `wanted`, `available`, `reason_fr` du payload `architecture_changed` : tout nœud est peint en violet « local » quel que soit son état réel.
   evidence: Invisible pour cette story (les deux nœuds fixes `core.harness`/`core.model` sont toujours locaux et disponibles), mais deviendra un vrai défaut dès qu'une story ultérieure (MCP, outils réseau) introduit un nœud réseau ou indisponible sans que personne n'ait branché ces styles.
+  closed: 2026-10-01 (triage) — `app.js` (`schemaNode`, `ARCH_GROUPS`, l. 6577-7092) lit `hosting`, `available` et `reason_text` : bacs par zone Local / Réseau, pastille et infobulle « indisponible » (stories 6c et 8e).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/2-interface-a-volets-et-journal-devenements.md`
   summary: `streamEvents` (`app.js`) retente la connexion SSE indéfiniment toutes les 1 s sans indicateur « hors ligne » visible dans l'interface.
@@ -14,14 +15,17 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/2-interface-a-volets-et-journal-devenements.md`
   summary: `AppSession` (`session/app_session.py`) est instanciée à la volée, sans référence partagée/singleton nulle part dans l'application.
   evidence: Suffisant pour cette story (état fixe `idle`, aucune mutation), mais la story 3 devra probablement décider où vit « la » session applicative avant de faire évoluer son état au fil d'un tour.
+  closed: 2026-10-01 (triage) — `web/app.py:276-296` (`create_app`) : une seule `AppSession`, créée par `cli.py` et rangée dans `app.state.app_session`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/2-interface-a-volets-et-journal-devenements.md`
   summary: `ArchitectureEdge` ne valide pas que `from_`/`to` référencent des identifiants de nœuds présents dans la même liste `nodes`.
   evidence: Sans conséquence ici (cette story n'émet jamais d'arête, `edges: []`) ; à ajouter avec la première story qui construit de vraies arêtes (AD-12), pour éviter une arête fantôme rendue silencieusement sans rien dessiner.
+  closed: 2026-10-01 (triage) — `trace/catalog.py:157-164` : `ArchitectureChangedPayload._edges_join_listed_nodes` refuse toute arête vers un nœud absent de `nodes`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/2-interface-a-volets-et-journal-devenements.md`
   summary: Le branchement diagnostic → `AppSession.emit_initial()` dans `cli.py` (`_run_diagnostic_then_boot`) n'est exercé par aucun test de bout en bout.
   evidence: `main()` bloque sur `uvicorn.run`, ce qui rend le test end-to-end malcommode tel qu'écrit ; chaque moitié (`DiagnosticSession.run().ready`, `AppSession.emit_initial()`) est testée isolément. Fermer l'écart demande d'extraire `_run_diagnostic_then_boot` en fonction injectable testable avec une session factice — refactor mineur, pas nécessaire pour livrer cette story (disposition déposée par la couche verification-gap elle-même).
+  closed: 2026-10-01 (triage) — `cli.py:181-187` : `_run_diagnostic_then_boot` extraite et injectable, exercée par `tests/test_cli_launch.py::test_the_launch_result_is_known_before_the_model_is_handed_out`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/3-llm-nu-compteur-de-tokens-jauge.md`
   summary: Détail de la jauge (grille de cellules façon `/context`, composant DESIGN `context-gauge-detail`) dans le volet Contexte LLM, ouvert d'un clic sur la jauge.
@@ -34,6 +38,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/5-outils-natifs.md`
   summary: Story 5b — outils réseau (`public_holidays` via calendrier.api.gouv.fr, `wikipedia_summary` via fr.wikipedia.org REST, `fetch_page` limité aux hôtes autorisés et coupé à `fetch_page_max_chars`), fabrique AD-15 complétée (`body` dans `outbound_request`, refus hors liste par `net`, redirections manuelles revérifiées, `preview_request`), `hosting-tag-network` et `outbound-payload` dans l'interface, état `not_contacted` puis `available`/`unavailable` du composant réseau selon le dernier appel.
   evidence: Scindée de la story 5 sur décision d'Anaël (2026-09-24), spec entière à ~3 800 tokens ; 5a livre l'exécuteur que 5b réutilise. Décisions déjà prises : `fetch_page` n'accepte que les hôtes des API (`fr.wikipedia.org`, `calendrier.api.gouv.fr`) ; outils réseau désactivés par défaut à l'activation de la brique ; à livrer avant la story 6 (MCP) pour éprouver la garde réseau.
+  closed: 2026-10-01 (triage) — story 5b livrée (`5b-outils-reseau.md`, status done) : `tools/network.py` (`public_holidays`, `wikipedia_summary`, `fetch_page` borné par `fetch_page_max_chars` et limité aux hôtes autorisés).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/5b-outils-reseau.md`
   summary: Repli hors ligne de `fetch_page` (FR-13) — sans réseau, un long fichier de `content/demo_files/` remplace la page, avec la mention « contenu de remplacement ».
@@ -42,10 +47,12 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/5b-outils-reseau.md`
   summary: Le rendu front de la story 5b (bloc `outbound-payload` rattaché à l'étape d'outil, nœud « non contacté », étiquette RÉSEAU) n'est vérifié par aucun test automatique.
   evidence: Le dépôt n'a aucun banc de test JS (`app.js` seulement passé à `node --check`) ; un réducteur qui rattacherait la requête à la mauvaise étape passerait inaperçu. Garde actuelle : la vérification manuelle de la spec ; à fermer si un banc de test front est introduit.
+  closed: 2026-10-01 (triage) — E2E `network_tools` (`tools/e2e/run_e2e.py`, l. 923-1183 : bloc `.outbound-payload` rattaché à l'étape d'outil, nœud « Non contacté ») et `disciplines` (l. 1371, étiquette RÉSEAU).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1b-choix-du-modele-au-diagnostic.md`
   summary: Le démarrage CLI (`_run_diagnostic_then_boot` → `app_session.boot(result.model_path)`) n'est exercé par aucun test.
   evidence: Remplacer l'appel par `boot(None)` ne ferait échouer aucun test ; la fermeture vit dans `main()`, bloqué par `uvicorn.run`. Même écart que celui déjà consigné pour la story 2 ; se ferme en extrayant la fonction pour l'injecter.
+  closed: 2026-10-01 (triage) — même preuve que l'entrée de la story 2 : `cli.py:181-187`, `tests/test_cli_launch.py::test_the_launch_result_is_known_before_the_model_is_handed_out` et `tests/test_cloud.py::test_cli_relaunch_prepares_the_saved_cloud_model_without_request`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1c-correctif-garde-reseau.md`
   summary: La garde réseau ne filtre ni `socket.gethostbyname`/`gethostbyname_ex` ni `socket.sendto` : une résolution hors liste ou un envoi UDP vers une IP quelconque lui échappent.
@@ -54,10 +61,12 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1d-correctif-cache-navigateur-et-echecs-de-sonde.md`
   summary: Permettre de forcer une nouvelle sonde d'un fichier mémorisé en échec (par exemple, un choix explicite qui contourne `failed_probes`).
   evidence: Un `ok: false` transitoire (mémoire insuffisante au chargement) resterait mémorisé jusqu'à un changement du fichier ou de llama-cpp-python. Seule issue aujourd'hui : modifier settings.json à la main. Non vérifié : il faudrait constater un échec d'allocation de llama.cpp sur un poste CPU chargé.
+  closed: 2026-10-01 (triage) — lot E — `session/diagnostic.py:355-384` : un échec passager (mémoire, contexte, délai) n'est jamais mémorisé et le fichier est resondé quand on le choisit ; seuls les refus déterministes vont dans `failed_probes`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6-mcp-local-et-public.md`
   summary: Story 6b — lazy loading MCP (CAP-22) : bascule documentation complète / lazy loading dans la carte MCP, méta-outil `load_tool_doc` (source `harness`) dont la description liste une ligne par outil MCP (un segment `tool_catalog` par outil, rendu étendu par un type `Joined` de plusieurs `Part`), réponse de type `tool_catalog`, effet `ToolDocLoaded` (`session/effects.py`, AD-23), outil appelable dans le même tour (`loaded_in_turn`) puis dans `tools` aux tours suivants, talon court dans l'historique, documentations déchargées par « Vider la conversation », appel d'un outil non documenté refusé et réinjecté ; la carte de dépassement propose alors le lazy loading.
   evidence: Scindée de la story 6 sur décision d'Anaël (2026-09-24), spec entière à ~4 100 tokens ; la story 6 livre serveurs, registre et documentation complète que 6b réutilise. Tant que 6b n'est pas livrée, data.gouv.fr en documentation complète ne sert qu'au dépassement volontaire (AD-9).
+  closed: 2026-10-01 (triage) — story 6b livrée (`6b-lazy-loading-mcp.md`, status done) : `load_tool_doc`, `_doc_catalog`, `_apply_doc_loaded` dans `session/app_session.py`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6-mcp-local-et-public.md`
   summary: Le rendu front de la story 6 (cartes de connexion MCP hors tour et leur appariement, `setOption` vers `/api/intentions/mcp_server`, badge « MCP », outils dans l'infobulle du nœud serveur) n'est vérifié par aucun test automatique.
@@ -84,6 +93,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6c-refonte-visuelle-atelier-de-construction.md`
   summary: Sous le robot, un modèle chargé depuis un blob Ollama s'affiche `sha256-…` au lieu de son nom lisible.
   evidence: `boot(model_path)` ne reçoit que le chemin ; la découverte (`models/discovery.py`) connaît le nom affiché par le sélecteur du diagnostic. Transmettre ce nom demande de le faire passer par `boot` et `settings.json`.
+  closed: 2026-10-01 (triage) — `models/load_registry.py:68-74` (`ModelChoice.label`) : le nom `model:tag` d'Ollama, jamais un blob `sha256-…`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/7-skills-dont-caveman.md`
   summary: Aucun test ne vérifie que les vraies briques `skills`, `tools` et `mcp` sont indisponibles sur un modèle sans `tool_call_parser`.
@@ -95,6 +105,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8-hooks-h1-h2-h3-h5.md`
   summary: Story 8b — hook H5, validation humaine avant tout outil réseau (outils réseau natifs et outils des serveurs MCP publics) : décision `ask_human` en `before_tool`, état `awaiting_human`, `approval_requested{approval_id, tool, destination, preview}` où `preview` est exactement ce qui sortirait (`preview_request`, ou corps JSON-RPC `tools/call` vers l'URL du serveur MCP), intention de classe (c) `approval {approval_id, approved, disable_hook}` (la première réponse l'emporte), `approval_resolved{decision: approved|refused|cancelled, hook_disabled}`, refus réinjecté et tour poursuivi, « Arrêter » pendant l'attente → `cancelled`, carte violette « En attente de votre validation » à trois boutons, indicateur « En attente de validation », `pending_approval` dans `/api/state`.
   evidence: Scindée de la story 8 sur décision d'Anaël (2026-09-24), spec entière à ~5 000 tokens. Décisions déjà prises : H5 désactivé à l'activation de la brique (Q1) ; trois boutons « Autoriser », « Refuser », « Autoriser et ne plus demander », ce dernier autorisant l'appel puis désactivant H5, y compris pour les appels réseau suivants du même tour (Q2). La story 8 livre les points d'accroche, `_run_tool` et la sous-option `h5` absente ; 8b ajoute le composant `hooks.h5` et `ask_human` à `ALLOWED`. Si l'aperçu est refusé (hôte hors liste), H5 ne demande rien.
+  closed: 2026-10-01 (triage) — story 8b livrée (`8b-hook-h5-validation-humaine.md`, status done) : `ask_human` et `approval_requested` dans `hooks.py`, `session/app_session.py`, `trace/catalog.py`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8-hooks-h1-h2-h3-h5.md`
   summary: Aucun test ne vérifie que H2 reprend, à son déclenchement suivant dans le même tour, les lignes d'une écriture d'`audit.log` échouée (échec en `after_tool`, succès en `on_turn_end`).
@@ -103,6 +114,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8-hooks-h1-h2-h3-h5.md`
   summary: Les nœuds du schéma d'architecture (dont « Journal d'audit », seul accès au journal entier) ne sont atteignables qu'à la souris : pas de `tabindex` ni de gestion du clavier sur les `<g>` SVG.
   evidence: Préexistant pour tous les nœuds de `renderSchema` (`app.js`) ; la story 8 ajoute le clic sur `file.audit` qui ouvre le tiroir du journal. À traiter pour tout le schéma (accessibilité de base), avec la refonte de disposition déjà différée en story 6c.
+  closed: 2026-10-01 (triage) — `app.js:6654-6665` (`schemaButton`) : chaque nœud du schéma est un `<button>`, atteint par Tab et activé par Entrée (FR-4).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/8b-hook-h5-validation-humaine.md`
   summary: Aucun test ne vérifie qu'un hook `before_tool` qui modifie les arguments avant H5 fait porter à l'aperçu (`approval_requested.preview`) et à l'envoi (`outbound_request`) les mêmes arguments modifiés.
@@ -145,10 +157,12 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1b-choix-du-modele-au-diagnostic.md`
   summary: Sur le PC portable cible, aucun Qwen d'Ollama ne se charge : `qwen3.5:0.8b`, `2b` et `4b` sont classés « incompatible » par le diagnostic, qui retient d'office `granite-4.0-h-1b` (famille sans parseur d'appels d'outils, AD-6), seul GGUF du cache Hugging Face.
   evidence: Constaté le 2026-09-25 au premier lancement sur le PC cible (CPU seul, 16 Go) pendant le test manuel de la story 9. Chargement verbeux : `error loading model hyperparameters: key qwen35.rope.dimension_sections has wrong array length; expected 4, got 3` avec llama-cpp-python 0.3.35 ; les GGUF `qwen35` produits par Ollama diffèrent du format amont. Contourné en téléchargeant `unsloth/Qwen3.5-2B-GGUF` (Q4_K_M, 1,28 Go) dans `%LOCALAPPDATA%\WaveStack\models`, qui se charge (parseur `qwen3_coder`). Pistes : message du diagnostic qui nomme la cause et propose le téléchargement d'un Qwen amont, ou montée de version de llama-cpp-python si elle accepte ces fichiers ; signaler aussi quand le modèle retenu d'office n'a pas de parseur d'appels d'outils.
+  closed: 2026-10-01 (triage) — lot E (E6) et stories 24-25 : raison française « llama-cpp-python 0.3.35 ne sait pas charger ce fichier… servez-le avec Ollama ou llama-server » vérifiée sur PC (`resultats-test-pc-2026-09-29.md`, N24-7, N25-5) ; `qwen3.5:2b` servi par Ollama accepté (N32-2) ; le Qwen amont (unsloth) se charge.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1-fondations-lancement-diagnostic-modele-local.md`
   summary: `uv run wavestack` peut se terminer sans rien écrire dans le terminal (code 0) : quand une instance saine occupe déjà le port, `cli.main` ouvre seulement le navigateur sur `/diagnostic`.
   evidence: Constaté le 2026-09-25 au premier lancement sur le PC cible : sortie immédiate, terminal vide, et plus rien n'écoutait sur 8420 quelques secondes après (cause exacte non confirmée ; le second lancement a fonctionné). Même hors de ce cas, un message « WaveStack tourne déjà sur le port … : ouverture du navigateur » éviterait de croire à un plantage silencieux.
+  closed: 2026-10-01 (triage) — story 1 des corrections du 2026-09-30 : `cli.py:130-143` (`_say_already_running`), `tests/test_cli_launch.py::test_the_same_folder_says_where_and_which_commit`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9-declenchement-force.md`
   summary: L'interrupteur « Afficher les actions forcées » et les boutons « Forcer l'appel » / « Déclencher le skill » sont difficiles à trouver : l'interrupteur ressemble aux interrupteurs des briques, et les boutons restent dans la liste repliée des options (« Outils : 3 activés sur 6 »).
@@ -157,6 +171,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9-declenchement-force.md`
   summary: Caveman forcé : le skill est bien chargé avant le premier appel (`load_skill`, `trigger = user`, corps attribué à skills), mais Qwen3.5-2B ne suit pas la consigne (réponses longues ou hors style, et un appel spontané à `get_datetime`). La ligne « le modèle répond en Caveman dès ce tour » de la matrice n'est donc pas démontrable avec ce modèle.
   evidence: Test manuel du 2026-09-25, tours t2 à t4 (Qwen3.5-2B Q4_K_M, CPU) : t2 répond en 211 tokens de prose après un `get_datetime` non demandé ; t3 est télégraphique mais faux sur le fond ; t4 reste en prose. Le mécanisme de la story est conforme ; à revérifier avec un modèle plus gros (option LLM cloud du palier 2) pour trancher entre limite du SLM et consigne du skill trop faible.
+  closed: 2026-10-01 (triage) — test PC du 2026-09-27 : Caveman suivi par le 2B (76 → 28 tokens), `plan-corrections-palier-2.md:15-18`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9-declenchement-force.md`
   summary: Documentation MCP forcée en lazy loading : `load_tool_doc` de `local__list_terms` est exécuté et son schéma réinjecté, mais Qwen3.5-2B n'appelle pas l'outil et répond « Je ne peux pas répondre à cette question… je n'ai pas accès … à la liste des termes du glossaire ».
@@ -165,6 +180,7 @@
 - source_spec: none
   summary: Temps de réponse sur le PC portable cible avec Qwen3.5-2B Q4_K_M (CPU seul, 16 Go, 3,3 à 4,3 Go libres au lancement) : 36 à 51 s avant le premier token pour un contexte de 1 100 à 1 400 tokens, 14 s pour 560 tokens ; tours de 20 à 84 s.
   evidence: Journal du test manuel de la story 9, 2026-09-25 : t1 649 tokens, tour arrêté par l'animateur après 22,9 s de lecture du contexte ; t2 1 392 tokens, 1er token à 51,4 s, tour de 83,5 s (dont 30 s pour générer 211 tokens) ; t3 1 104 tokens, 36,6 s / 40,2 s ; t4 1 104 tokens, 45,6 s / 54,6 s ; t5 560 tokens, 13,7 s / 19,8 s. La lecture du contexte (environ 21 à 30 tokens/s) domine. Teams, Edge et l'agent de sécurité occupent l'essentiel de la RAM. Pour la séance : fermer Teams et Edge, garder peu de briques actives, prévoir le rythme de la démonstration en conséquence.
+  closed: 2026-10-01 (triage) — mesure d'information reprise dans le protocole (`guide-test-pc-palier-2.md` : Edge, Outlook et Teams fermés pendant les mesures), temps remesurés les 27 et 29/09 ; la lenteur restante est suivie par les entrées NFR-1 de `mcp_full` et du premier tour (spec `spec-restes-differes-2026-10`).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9b-rejeu-du-dernier-prompt.md`
   summary: Le badge « Rejeu », le choix par défaut de « Comparer » et les écarts de la comparaison de tours (app.js) n'ont aucun test automatique.
@@ -177,6 +193,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/10-scenarios-par-brique-programme-reinitialisation.md`
   summary: RÉSOLU (story 10b) — le scénario « MCP en documentation complète » (serveur local + data.gouv.fr) ne débordait pas la fenêtre de 4 096 tokens : `expects_overflow` a été retiré et la consigne reformulée autour d'une jauge presque pleine.
   evidence: Test manuel du 2026-09-25 sur le PC cible : jauge à 3 018 / 3 584 tokens utiles pour `mcp_full` (pas de dépassement), contre environ 1 040 tokens pour `mcp_lazy`. Voir aussi les deux entrées ci-dessous.
+  closed: 2026-10-01 (triage) — entrée déjà marquée « RÉSOLU (story 10b) » ; `content/scenarios.yaml` ne porte plus `expects_overflow`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/10-scenarios-par-brique-programme-reinitialisation.md`
   summary: Le tour du scénario « MCP en documentation complète » dépasse largement le NFR-1 (temps de réponse) sur le PC cible.
@@ -185,6 +202,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/10-scenarios-par-brique-programme-reinitialisation.md`
   summary: Risque BH1a (navigation clavier du sélecteur de scénario sous Windows) non vérifié au test manuel.
   evidence: Test manuel du 2026-09-25 : l'animateur a utilisé la souris pour choisir les scénarios, les flèches clavier sur le `<select>` n'ont pas été testées sur le PC cible (Windows). À revérifier au clavier avant une séance qui en dépendrait.
+  closed: 2026-10-01 (triage) — risque accepté à la revue de la story 10 (`10-scenarios-par-brique-programme-reinitialisation.md:123`, BH1a rejeté : Alt+Bas ouvre la liste sans lancer, l'animateur choisit à la souris).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-10b-corrections-test-manuel-story-10.md`
   summary: Le bouton d'aide « ? » et sa bulle (`popover` natif) des cartes de briques, ainsi que le vidage de `store.openExplanations` par « ⟲ Réinitialiser », n'ont aucun test automatique.
@@ -201,6 +219,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-11b-corrections-test-manuel-story-11.md`
   summary: Le front de la story 11b (entrée « Diagnostic » du menu « Volets ▾ », bloc `#next-launch` du diagnostic, ligne « Clé fournie par la variable X » et piste `key_env`) n'a aucun test automatique.
   evidence: Même écart que pour les stories 5b à 11 : aucun banc de test JS ; retirer le lien de `renderMenu` ou le remplissage de `#next-launch` dans `loadDiagnostic` passerait pytest et `node --check`. Relevé par la couche verification-gap de la revue de la story 11b. Piste sans dépendance : `node:test` avec `node:vm`.
+  resolution: obsolète — le bloc `#next-launch` et `next_launch_fr` n'existent plus (changement de modèle à chaud, story 17) ; l'entrée « Diagnostic » du menu « Volets ▾ » est remplacée par la barre de navigation commune (story 2 des corrections du 2026-09-30, contrôlée par l'E2E sur `.site-nav`) ; la ligne « Clé fournie par la variable » reste vérifiée par l'E2E `diagnostic` (`run_e2e.py:335-342`).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-11b-corrections-test-manuel-story-11.md`
   summary: Aucune attribution visible de la source dans les réponses : quand le modèle s'appuie sur un résultat d'outil (par exemple le glossaire du serveur MCP local), rien n'indique « d'après le glossaire ». Piste : consigne du prompt système ou mise en avant, dans la Vue humain, des résultats d'outil dont la réponse s'inspire.
@@ -233,6 +252,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
   summary: Contexte LLM ne montre que le raisonnement du dernier appel du tour affiché ; la Vue humain montre, elle, un bloc par appel.
   evidence: Même périmètre que la « Sortie brute du modèle » (dernier appel seulement) ; le raisonnement des appels précédents reste dans l'étape « Appel au modèle » d'Orchestration et dans le journal. À reprendre si Contexte LLM permet un jour de choisir l'appel affiché.
+  closed: 2026-10-01 (triage) — story 32 (status done) : Contexte LLM montre chaque appel du tour (« Appel {n} sur {total} », `content/ui.yaml:330`), réflexion comprise.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
   summary: Le scénario « Mémoire globale » ouvre un module en fin de programme (après « Raisonnement ») au lieu de suivre l'ordre de FR-38 (module 1, après « Prompt système »). À réordonner à la story 21 avec les autres modules du palier 2.
@@ -254,14 +274,17 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/12-tests-prealables-headroom-embedding-et-reranking.md`
   summary: Le verdict embedding et reranking de la story 12 reste provisoire (granite-embedding-107m-multilingual Q8_0, bge-reranker-v2-m3 Q4_K_M) ; lancer sur le PC cible, avant la story 15, `uv run --with huggingface-hub --with fastembed python tools/bench/story12_bench.py embed --download`, puis `uv run --with headroom-ai==0.38.0 python tools/bench/story12_bench.py headroom`, et reporter les deux sorties `--json` dans la story 12.
   evidence: Le conteneur de développement n'atteint pas huggingface.co (`ProxyError('403 Forbidden')` pour les 7 candidats) : aucune qualité, aucun RSS de modèle n'a été mesuré ; le code du banc est seulement validé sur des GGUF synthétiques. Les mesures Headroom (+130 Mo, aucune tentative réseau) viennent de Linux, pas du HP EliteBook sous Windows 11, où `strace` manque pour voir le code natif.
+  closed: 2026-10-01 (triage) — bancs lancés sur le PC cible le 2026-09-27 (`tools/bench/results/2026-09-27-pc-cible/`), verdicts chiffrés reportés dans la story 12 (l. 218-251).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
   summary: Le budget mémoire n'est pas contrôlé au chargement du lancement (hypothèse C2) : le coût du modèle est seulement enregistré dans le `LoadRegistry` ; seuls les changements à chaud sont refusés sur budget.
   evidence: Choix gardé par la revue indépendante de la story 17 : au lancement, aucun modèle actif n'est à protéger, et un refus bloquerait la séance sans autre recours que d'éditer `wavestack.toml`. À valider au test manuel sur le PC cible ; si un modèle trop gros au lancement fait échouer la séance, refuser avec le message chiffré et renvoyer au diagnostic.
+  closed: 2026-10-01 (triage) — story 24 (budget dynamique) et lot E : budget au lancement vérifié conforme sur PC (`resultats-test-pc-2026-09-29.md`, N24-1, N24-3, N24-4).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
   summary: L'estimation du cache KV (`kv_bytes_per_token`) n'est pas mesurée sur un vrai GGUF Qwen3.5 : surestimation possible (fenêtre glissante non prise en compte) au point de refuser un 4B sous le budget de 4 Go, ou cache inconnu (0) si llama-cpp-python ne rend le tableau des têtes KV qu'en texte.
   evidence: Revue de la story 17 (blind hunter, maybe-false). Aucun GGUF dans le conteneur de développement. À mesurer sur le PC cible : sonder Qwen3.5-2B et 4B, relire `rss_bytes` et `kv_bytes_per_token` dans `settings.json` (`probed_models`), puis tenter le changement 2B vers 4B.
+  closed: 2026-10-01 (triage) — mesuré sur PC (`resultats-test-pc-2026-09-29.md`, N26-1, N26-2, anomalie A2 : coût ×4), corrigé au lot K et revérifié (`resultats-lot-k-2026-09-29.md`, point 1 : 48 / 96 / 192 Mo).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
   summary: Le critère d'acceptation 3 de la story 13 (brique Raisonnement redevenue effective sans nouveau clic avec un modèle qui raisonne) reste sans test dédié, bien que le changement à chaud existe maintenant.
@@ -274,14 +297,17 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/19-delegation-a-un-sous-agent.md`
   summary: Sur un SLM local réel (Qwen3.5 0.8B ou 2B), vérifier que le modèle délègue au lieu de lire guide_harnais.md lui-même, et que le contexte du sous-agent (guide ≈ 2 000 tokens) tient dans 4 096 − 512 tokens.
   evidence: Aucun GGUF dans le conteneur : le faux moteur compte un token par octet, le faux modèle cloud du parcours E2E donne 2 112 tokens de contexte au sous-agent. À régler au test manuel, scénario « Sous-agent ».
+  closed: 2026-10-01 (triage) — test PC du 2026-09-27 : délégation spontanée, contexte `sub1` de 419 à 2 293 tokens, dans la fenêtre (`resultats-test-pc-palier-2-2026-09-27.md:220-229`) ; reconfirmé au lot K (`resultats-lot-k-2026-09-29.md:127`).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/19-delegation-a-un-sous-agent.md`
   summary: Avec Qwen3.5, le gabarit peut réécrire l'appel d'outil du sous-agent (`prefix_not_reused` dans `sub{n}`).
   evidence: Même mécanisme qu'en contexte principal (AD-4) ; à observer sur le PC cible, sans effet sur le résultat de la délégation.
+  closed: 2026-10-01 (triage) — aucun `prefix_not_reused` dans `sub{n}` sur PC (`resultats-test-pc-palier-2-2026-09-27.md:237`, `resultats-lot-k-2026-09-29.md:127`).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
   summary: AD-9, adéquation du scénario « RAG » : l'aperçu compte les 3 extraits les plus longs de l'index (leur maximum déclaré) ; vérifier sur le PC cible, avec Qwen3.5 et la fenêtre de 4 096 tokens, que le scénario cumulatif (modules 1 à 4, MCP en lazy loading, RAG) tient, et mesurer la latence de l'étape « Recherche RAG » (NFR-1).
   evidence: Revue indépendante de la story 15. Le faux moteur compte un token par octet et le faux modèle cloud estime à 4 caractères par token : aucune mesure réelle. À relever au test manuel (jauge avant envoi, durée de l'étape dans Orchestration).
+  closed: 2026-10-01 (triage) — jauge réelle relevée sur PC (`resultats-test-pc-palier-2-2026-09-27.md`, `rag_rerank` 1 074 / 3 584) ; le RAG n'est plus reconduit après le module 3 (story 27).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
   summary: Intégrité du modèle d'embedding : l'URL de `[rag.embedding]` vise `resolve/main` et `sha256` est vide ; épingler l'URL sur un commit du dépôt bartowski et renseigner le sha256.
@@ -291,6 +317,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
   summary: Sur le PC cible (Windows, Python de uv) : chargement de l'extension sqlite-vec, pooling CLS déclaré par le GGUF granite (sonde au chargement), et `uv lock` à confirmer (entrée sqlite-vec écrite à la main faute d'accès à l'index abetlen).
   evidence: Vérifiés ici seulement sous Linux, sans vrai modèle (GGUF BERT synthétique, faux embedder). À trancher : la carte RAG ne doit pas dire « sqlite-vec ne se charge pas » ; `uv run python -m pytest -m model tests/test_rag.py` doit passer, modèle en place ; `uv lock` ne doit rien changer.
+  closed: 2026-10-01 (triage) — PC du 2026-09-27 : `rag.available: true` (sqlite-vec et pooling sondés), `uv lock --check` 91 paquets, code 0 (`resultats-test-pc-palier-2-2026-09-27.md:28-33`) ; tests `model` du RAG avec `WAVESTACK_TEST_MODELS_DIR` (lot G).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
   summary: « Arrêter » un téléchargement pendant l'établissement de la connexion ne prend effet qu'au bout du délai de connexion (10 s au plus) ; pendant l'attente des données, il agit aussitôt (la réponse est fermée).
@@ -303,10 +330,12 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
   summary: Les champs réels de llama-server (`/props`, `with_pieces`, `stop_type`, `tokens_predicted`, `default_generation_settings.n_ctx` par emplacement) et d'Ollama (`raw`, `prompt_eval_count` avec cache, `done_reason`, `/api/ps`) ne sont vérifiés que sur des doublures.
   evidence: Aucun réseau ni serveur réel pendant la story. Un tour avec `get_datetime` sur chacun des deux serveurs, sur le PC cible, tranche ; noter toute alerte « transparence réduite » et les deux comptes qu'elle cite.
+  closed: 2026-10-01 (triage) — vérifié contre de vrais serveurs (`resultats-test-pc-2026-09-29.md`, N25-6 : `n_ctx` de llama-server ; N32-2 : corps brut et `prompt_eval_count` d'Ollama).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
   summary: Le tokenizer `vocab_only` des blobs `qwen35` d'Ollama avec llama-cpp-python 0.3.35 n'est pas vérifié sur un vrai blob.
   evidence: Un GGUF synthétique étiqueté `qwen35` s'ouvre en `vocab_only` (architecture et tokenizer seuls) ; l'échec connu de ces blobs (story 9) concerne le chargement complet. Sur le PC cible : choisir un modèle Qwen3.5 servi par Ollama ; s'il est refusé, la raison doit renvoyer vers llama-server et le modèle précédent rester actif.
+  closed: 2026-10-01 (triage) — `resultats-test-pc-2026-09-29.md`, N32-2 : tokenizer de `qwen3.5:2b` servi par Ollama, égal octet pour octet.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
   summary: `keep_alive: 0` et le budget d'un modèle servi ne sont vérifiés qu'avec des doublures.
@@ -331,22 +360,27 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
   summary: Sur le PC cible : mémoire ajoutée par Headroom, absence de sortie réseau, AppLocker et WDAC face à `_core.pyd` et `ast-grep` ; le scénario « Compression » doit tenir dans la fenêtre sans compression, avec un vrai SLM, et le modèle ne doit pas appeler un outil « Retrieve more » inexistant.
   evidence: Mesures hors PC cible seulement (story 12 : 130 Mo, aucune tentative réseau). Parcours E2E : 1 865 tokens sans compression, 1 437 envoyés, pour 3 584 utilisables.
+  closed: 2026-10-01 (triage) — PC : aucun blocage AppLocker ni WDAC, `uv sync --extra compression` (`plan-corrections-palier-2.md:10-11`) ; compression 2 004 → 496 tokens sans outil inventé (l. 18) ; scénario sans compression à 3 206 / 3 584 (`resultats-test-pc-2026-09-29.md`, N27-8) ; mémoire de Headroom traitée au lot F.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
   summary: uv.lock : les entrées de headroom-ai 0.38.0 et de ses dépendances ont été écrites à la main, l'index abetlen étant injoignable.
   evidence: `uv lock --check --offline`, `uv sync --locked` et `uv sync --locked --extra compression` passent ; `uv lock` sur un poste qui joint l'index abetlen doit ne rien changer.
+  closed: 2026-10-01 (triage) — `uv lock` inchangé sur un poste qui joint l'index (`plan-corrections-palier-2.md:10`, `resultats-test-pc-palier-2-2026-09-27.md:28`).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
   summary: Scénarios métier IAM (Microsoft Learn) et Souveraineté (data.gouv.fr et Microsoft Learn) vérifiés seulement sur l'échec expliqué (aucun réseau pendant la story) ; tester sur le PC cible avec le réseau (proxy ouvert vers `learn.microsoft.com` et `mcp.data.gouv.fr`) : recherche réelle, données sortantes de chaque appel dans Orchestration, taille des résultats face à la fenêtre.
   evidence: Parcours E2E `iam` et `sovereignty` : « Service injoignable (ProxyError) », nœuds indisponibles en zone Réseau, tours terminés sans outil. `microsoft_docs_search` renvoie jusqu'à dix extraits : avec Qwen3.5 et 3 584 tokens utiles, un dépassement est possible (la consigne d'IAM le prévoit). S'il est systématique, passer IAM en lazy loading ou y ajouter la compression, et le noter ici.
+  closed: 2026-10-01 (triage) — joués avec le réseau sur PC (`resultats-test-pc-2026-09-29.md`, N27-2, N27-5, N27-6) : `outbound_request` tracé, résultats bornés à ≈ 1 150 tokens (lot B) ; le comportement du 2B relève de la story 27.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
   summary: AD-9 sur le PC cible. D'abord `uv run python scripts/snapshot_mcp.py` (réseau ouvert) pour remplacer les fixtures plausibles des serveurs publics par l'instantané réel de `content/mcp_snapshots/` (à versionner), puis relancer `uv run pytest -s tests/test_program.py -k fits`. Ensuite relever la jauge avant envoi, avec Qwen3.5 : `mcp_full` (mémoire globale de démonstration ajoutée depuis la story 10b, qui mesurait 3 018 / 3 584 sans elle), `mcp_lazy` (RAG rallumé, deux serveurs), `skills`, `subagent`, `compression`, `iam`, `sovereignty`.
   evidence: Estimation du test (4 caractères par token, facteur de sécurité 1,3, extraits RAG au maximum, mémoire de démonstration, serveur MCP local réel, fixtures plausibles) : `mcp_full` 2 228, `subagent` 1 513, `skills` 1 437, `mcp_lazy` 1 427, `compression` 1 347 tokens sur 3 584. Si `mcp_full` déborde réellement, deux choix : déclarer `expects_overflow` (le « dépassement volontaire » d'AD-9, que le test honore) et réécrire la consigne, ou éteindre la mémoire globale dans ce scénario ; si `mcp_lazy` déborde, y éteindre aussi le RAG et amender l'en-tête de `content/scenarios.yaml`.
+  closed: 2026-10-01 (triage) — instantanés réels versionnés (`content/mcp_snapshots/datagouv.json`, `mslearn.json`) ; jauges relevées sur PC les 27 et 29/09 ; test `fits` au tokenizer du GGUF (lot B).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
   summary: NFR-1 (premier token < 30 s pour la configuration la plus chargée d'un scénario fourni) non mesuré pour le programme réordonné. Scénarios à mesurer en priorité sur le poste de référence : `mcp_full` (le plus long contexte, 109 s de tour à la story 10b), `subagent` et `skills` (RAG à chaque tour plus MCP en lazy loading), `compression`, `rag_rerank` (8 passages du reranker), `reasoning` (réserve de 1 536 tokens).
   evidence: Aucun modèle réel ni poste de référence pendant la story. Relever le premier token de chaque appel et la durée des étapes « Recherche RAG » et « Reranking » dans Orchestration.
+  closed: 2026-10-01 (triage) — NFR-1 mesuré sur PC (`resultats-test-pc-palier-2-2026-09-27.md`, `resultats-test-pc-2026-09-29.md` : `mcp_full` 127,6 s, `subagent` 28,6 s au prompt 4) ; les dépassements restants sont suivis par les entrées `mcp_full` (NFR-1) et premier tour (spec `spec-restes-differes-2026-10`).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
   summary: SOC : le garde-fou sur l'inventaire des comptes à privilèges reste un blocage (H1), pas une validation humaine (H5), comme le proposait la revue indépendante.
@@ -538,6 +572,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-i18n-1-socle-et-defauts-du-llm.md`
   summary: Langues (2/5), l'interface principale en anglais et en allemand : `index.html` et `app.js` (environ 540 textes), avec un utilitaire `t()` et un catalogue `content/i18n/{lang}/ui.yaml` ; les textes des charges `*_fr` que montre l'interface principale, et les formats de nombres et de dates (`Intl`) selon la langue.
   evidence: Demande de l'utilisateur du 2026-09-29 (interface en trois langues). Découpage en cinq stories après mesure : environ 2 000 textes par langue, trop pour une story. La story 1 pose le socle et traduit les défauts du LLM.
+  closed: 2026-10-01 (triage) — Langues 2/5 fusionnée (PR #14, `a2e5ecc`) : `t()` et `content/ui.yaml` dans `index.html` et `app.js`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-i18n-1-socle-et-defauts-du-llm.md`
   summary: Langues (3/5), les contenus pédagogiques en anglais et en allemand : `bricks/*.yaml`, `scenarios.yaml` (consignes et prompts suggérés), `cloud.yaml`, `compression.yaml`, `labels/segment_kinds.yaml`, `models/publishers.yaml`, `demo_files/`.
   evidence: Même demande et même découpage ; les contenus d'interface pédagogique viennent après l'interface principale.
@@ -561,6 +596,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-endpoint-gemini-ai-studio.md`
   summary: Gemini, raisonnement allumé : la réserve de 1 536 tokens peut être mangée par la réflexion cachée (`completion_tokens` sans elle), et la coupure « à 1 536 tokens » ne dit pas que la réflexion l'a consommée. Moyenne, non vérifiée.
   evidence: Sonde réelle du 2026-09-29 : 986 tokens de réflexion à `thinking_level: "low"` sur une question de calcul. À trancher en recette réelle sur les scénarios, raisonnement allumé (`stop_reason` `length` ?) ; pistes : réserve propre à l'entrée, ou message de coupure qui nomme la réflexion.
+  closed: 2026-10-01 (triage) — recette réelle (`resultats-recette-gemini-2026-09-30.md:45`) : réflexion de 0 à 587 tokens selon `thinking_level`, jamais la réserve de 1 536 ; `wavestack.toml` garde `thinking_level = "medium"`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-i18n-1-socle-et-defauts-du-llm.md`
   summary: Textes du nouveau code de langue restés en français dans toutes les langues (repli « Disponible hors d'un tour. », « Changement de langue refusé. », refus d'enregistrement, texte du `harness_error` de `_localized`), et champs `*_fr` qui portent désormais de l'anglais ou de l'allemand (`label_fr`, `description_fr`, `intro_fr`…) : à traduire et à renommer (`*_text`) avec les stories 2 et 5.
   evidence: Revue de la story Langues (1/5), 2026-09-30.
@@ -588,6 +624,7 @@
 - source_spec: `_bmad-output/specs/spec-langues/stories/3-contenus-pedagogiques.md`
   summary: Les préfixes « Local · » et « RÉSEAU · » du sélecteur de modèles sont écrits en dur par `models/catalog.py` (:490, :561), alors que la légende traduite de `publishers.yaml` dit « NETWORK » et „NETZWERK“ ; à traduire avec les messages du backend (story 5).
   evidence: Revue de la story Langues (3/5), 2026-09-30 : en `de`, un groupe « Netzwerk · … » coiffe des entrées « RÉSEAU · Groq … ».
+  closed: 2026-10-01 (triage) — Langues 5/5 : `models/catalog.py:515,591` passent par `msg("models.catalog.prefix_local" / "prefix_network")` ; « NETWORK » et « NETZWERK » dans les surcouches.
 - source_spec: `_bmad-output/specs/spec-langues/stories/3-contenus-pedagogiques.md`
   summary: Le contrôle E2E « GreenOps : « Empreinte estimée : a–b Wh · c–d g CO₂e » dans le corps de l'appel » de `gemini_shape` échoue par intermittence : `_footprint_line` ne trouve pas le corps de l'étape « Appelle le modèle » (texte et infobulle vides).
   evidence: Vérification finale de la story Langues (3/5), 2026-09-30 : un échec sur deux passages sur `d7c87cf` (avant la story) comme sur `ef9e7d6` ; toutes les autres vérifications de la tranche passent. Probable course entre le dépliage de l'étape et l'arrivée de l'empreinte.

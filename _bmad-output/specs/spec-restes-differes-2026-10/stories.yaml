@@ -1,0 +1,90 @@
+- id: "1"
+  title: "Tests backend manquants et garde réseau"
+  description: >-
+    Ajouter les tests qui manquent sur le registre des briques, H2, H5, la disponibilité du
+    raisonnement et le moteur llama.cpp, et filtrer gethostbyname, gethostbyname_ex et sendto
+    dans la garde réseau (CAP-1).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Petite story. Entrées E008, E013, E022, E025, E027, E056, E066 de triage.md. Chaque
+    test doit échouer sur la mutation que nomme son entrée : le vérifier en appliquant la
+    mutation à la main avant de la défaire. Le test de LlamaCppEngine.complete est marqué
+    model et sauté sans WAVESTACK_TEST_GGUF ; ne pas le lancer avec un vrai GGUF sans l'accord
+    d'Anaël. pytest en quarts, l'un après l'autre.
+- id: "2"
+  title: "Robustesse : flux, serveurs locaux, appels cloud parallèles, instantanés MCP"
+  description: >-
+    Indicateur de connexion perdue, Ollama qui ne sert pas qwen35 expliqué, appels d'outils
+    parallèles gardés distincts, avertissement d'écart à l'instantané MCP, sous-agent dérivé
+    des briques, back_text retiré (CAP-2).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Entrées E003, E048, E067, E089, E119, E142. Textes en fr, en, de (ui.yaml, messages.yaml).
+    E142 touche llm_lab.yaml et rag_lab.yaml : vérifier d'abord que l'autre agent (blocs
+    deferred des stories 5 et 6 de spec-corrections-2026-09-30) a fusionné, sinon rebaser.
+    E067 ne change aucun contexte produit (test d'égalité avant/après). Tranches E2E touchées
+    seulement avec l'accord d'Anaël.
+- id: "3"
+  title: "Décisions d'Anaël appliquées"
+  description: >-
+    Appliquer chaque décision D1 à D19 (sauf D16) de la section « Décisions à prendre par
+    Anaël » de SPEC.md, et fermer les entrées correspondantes de deferred-work.md (CAP-3).
+  spec_checkpoint: true
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Ne pas lancer tant que SPEC.md ne porte pas les réponses d'Anaël (colonne décision
+    remplie ou memlog). Ne traiter que les Dn tranchés ; un Dn sans réponse reste ouvert.
+    Fermer sans code les « non ». Textes en fr, en, de ; mettre à jour EXPERIENCE.md pour D3,
+    D5, D7, ARCHITECTURE-SPINE pour D11 et D15, spec 11b (section Never) pour D6.
+- id: "4"
+  title: "Latence CPU : préremplissage du premier tour et documentation lazy en résultat d'outil"
+  description: >-
+    Évaluer le contexte d'un scénario pendant la lecture de sa consigne, et, si D16 est
+    validé, placer la documentation chargée en lazy loading dans l'historique (CAP-4).
+  spec_checkpoint: true
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Entrées E122 et, si D16 = oui, E121. Touche le cœur (app_session.py, moteur, AD-4,
+    AD-25) : lire ARCHITECTURE-SPINE et spec-lot-a-cache-entre-les-tours.md avant. Le
+    préremplissage cède la place à tout tour ou chargement et ne change ni la jauge ni le
+    contexte envoyé. Tests avec le faux moteur seulement ; mesure PC renvoyée à la story 7.
+    Story seule sur le PC (pas de suite parallèle).
+- id: "5"
+  title: "E2E : options, cartes et interrupteurs de l'atelier"
+  description: >-
+    Ajouter au parcours E2E les contrôles des interrupteurs et cartes non couverts (MCP,
+    lazy loading, skills, H5, actions forcées, raisonnement, réinitialisation) (CAP-5).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Entrées E016, E017, E023, E028, E030, E035, E043, E047, E053. Après les stories 2 et 3,
+    qui changent l'interface. Pas de banc JS ; page.evaluate autorisé. Chaque contrôle doit
+    échouer si l'on retire la ligne d'app.js qui produit le comportement (le vérifier une
+    fois à la main). E2E avec l'accord d'Anaël, tranches --only de 4 à 6 scénarios.
+- id: "6"
+  title: "E2E : schéma, rail, volets, comparaison, cas d'erreur et stabilité"
+  description: >-
+    Ajouter les contrôles E2E du schéma, du rail d'Orchestration, du redimensionnement des
+    volets, de la comparaison et des cas d'erreur simulés, et stabiliser gemini_shape et
+    le contrôle aria-expanded (CAP-5).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Entrées E020, E031, E032, E033, E042, E094, E125, E135, E141. Après la story 5 (même
+    fichier run_e2e.py). Faux fournisseur tarifé sans usage et faux échec du reranker dans
+    tools/e2e, pas dans src. gemini_shape : attendre l'empreinte, jamais un délai fixe ; cinq
+    passages de suite. E2E avec l'accord d'Anaël.
+- id: "7"
+  title: "Recette PC des restes : fournisseurs cloud, Ollama, téléchargements"
+  description: >-
+    Jouer sur le PC cible les vérifications qui demandent Groq, Mistral, Ollama ou un
+    téléchargement réel, consigner les résultats et faire suivre le code (CAP-6).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Entrées E040, E048 (après la story 2), E049, E054, E055, E057, E062 (D9), E073, E077,
+    E078, et mesures de la story 4. Demande Anaël présent : clés Groq et Mistral, Ollama
+    lancé, réseau ouvert, aucun autre test en cours. Ne rien lancer sans son accord.
+    Résultats dans resultats-restes-pc-2026-10.md.
