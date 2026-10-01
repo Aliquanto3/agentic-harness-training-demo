@@ -19,6 +19,8 @@ deferred:
     location: >-
       src/wavestack/web/static/mcp.js ; tools/e2e/run_e2e.py (s_mcp_lab)
     severity: medium
+    closed: >-
+      2026-10-01 (lot des restes, spec-restes-2026-10-01.md) — nouveau scénario E2E `mcp_lab_page` (`tools/e2e/run_e2e.py`) : `/api/mcp_lab` coupé par `page.route` (alerte « Atelier MCP indisponible (…) », puis la page se rétablit seule) ; tour réel et lent de l'atelier (bandeau « Occupé » avec la raison, « Se connecter » grisé avec son infobulle, appel direct 409, « Arrêter » de l'atelier MCP grisé) ; « Arrêter » pressé pendant la poignée de main du glossaire (connexion « Échange arrêté », `open_server` nul, `idle`, gagné au premier essai) ; préréglage « MCP » puis appel ; page rechargée : `last_session` rejoué à l'identique (messages, outils, appel, connexion ouverte) ; data.gouv.fr hors réseau : POST sortant affiché, connexion en erreur dite ; `last_session` servi par `page.route` (serveur public, paramètres texte, entier, objet, booléen, appel borné) : « servie … non traduite », un champ par type, JSON invalide dit sans requête, arguments convertis (requête interceptée), note « Borné : 512 tokens gardés sur 2 048. », requête sortante de l'appel. `mcp_lab_page` 12/12 ; capture 66.
   - summary: >-
       Arrêt pendant un appel au glossaire local (stdio) et refus des intentions de classe (b) de l'écran principal pendant un échange de l'atelier jamais testés.
     evidence: |-
@@ -26,6 +28,8 @@ deferred:
     location: >-
       tests/test_mcp_lab.py
     severity: medium
+    closed: >-
+      2026-10-01 (lot des restes, spec-restes-2026-10-01.md) — `tests/test_mcp_lab.py::test_stop_during_a_call_to_the_local_glossary_closes_its_process` (le processus du glossaire suspendu par psutil après la connexion, l'appel parti, `stop()` : `call_ended{error}` « arrêté », connexion fermée, `open_server` nul, aucun processus restant) et `::test_the_main_screens_intentions_are_refused_during_a_workshop_exchange` (pendant cet appel, 14 intentions de classe (b) par les routes web : `send`, `replay`, `scenario`, `clear_conversation`, `language`, `memory`, `context_window`, `select_model`, `llm_tokenize`, `llm_generate`, `llm_compare`, `rag_lab_run`, `mcp_lab_connect`, `mcp_lab_call` : 409 avec « Atelier MCP » dans la raison, aucun événement de démarrage, langue inchangée). `test_mcp_lab.py` 21/21.
 ---
 
 <intent-contract>

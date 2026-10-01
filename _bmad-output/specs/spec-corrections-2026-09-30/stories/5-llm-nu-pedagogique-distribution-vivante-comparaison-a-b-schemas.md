@@ -12,7 +12,9 @@ context:
   - '{project-root}/_bmad-output/specs/spec-langues/i18n-conventions.md'
 warnings: []
 deferred:
-  - 'E2E : redessin des barres au curseur avec un moteur en processus factice (logits scriptés) ; la pile E2E ne sait pas substituer LlamaCppEngine comme FakeReranker, couvert par tests/test_llm_lab.py (route, oracle, matrice).'
+  - summary: 'E2E : redessin des barres au curseur avec un moteur en processus factice (logits scriptés) ; la pile E2E ne sait pas substituer LlamaCppEngine comme FakeReranker, couvert par tests/test_llm_lab.py (route, oracle, matrice).'
+    closed: >-
+      2026-10-01 (lot des restes, spec-restes-2026-10-01.md) — sans moteur factice : le scénario E2E `llm_live` sert `/api/llm_lab/distribution` par `page.route`, calculé par la vraie fonction `candidates.distribution`, et vérifie les barres redessinées au curseur (largeurs = `p` et chance reçues). Tranche `llm_screen llm_live bare_llm annex_language` : 98/98.
   - summary: >-
       La logique de page de la distribution vivante et du schéma de fenêtre (barres redessinées au curseur, puce qui choisit le token, remplissage proportionnel, réserve qui croît) n'est pilotée par aucun test.
     evidence: |-
@@ -20,6 +22,8 @@ deferred:
     location: >-
       src/wavestack/web/static/llm.js (fetchDistribution, renderDistribution, renderWindow, windowToken) ; tools/e2e/run_e2e.py
     severity: medium
+    closed: >-
+      2026-10-01 (lot des restes, spec-restes-2026-10-01.md) — nouveau scénario E2E `llm_live` (`tools/e2e/run_e2e.py`, `_LiveLab`) : `page.route` sur `/api/llm_lab` (candidats disponibles, réglages tous permis), `/api/llm_lab/distribution` (vraie `candidates.distribution`) et `/api/stream` (un `llm_generation_started` et des `llm_token` rejoués par lots, validés par `Envelope`). Vérifié : barres du premier token (largeurs = `p` et chance), curseur top-k à 2 (trois grisés, `p` inchangé), trois mouvements rapides (le dernier gagne), température 1 → 0,3 (la chance bouge, pas `p`), prompt à 250/1 000 de sa part, réponse à 1/500 puis 3/500 de la réserve, clic sur la puce n° 3 (requête `index: 2`, en-tête, puce marquée), aucune erreur JS ; capture `65-llm-nu-distribution-vivante`. Tranche `llm_screen llm_live bare_llm annex_language` : 98/98.
   - summary: >-
       Comparaison A/B : « Arrêter » de la page jamais pressé (arrêt testé par session.stop()) et jamais de comparaison avec un modèle cloud.
     evidence: |-
@@ -27,6 +31,8 @@ deferred:
     location: >-
       tests/test_llm_lab.py ; tools/e2e/run_e2e.py (_lab_compare)
     severity: medium
+    closed: >-
+      2026-10-01 (lot des restes, spec-restes-2026-10-01.md) — `tests/test_llm_lab.py::test_stop_during_b_keeps_a_completed_and_ends_b_cancelled` (moteur local : A `completed`, B `cancelled` après ses premiers tokens, un seul retour à `idle`) et `::test_compare_with_a_cloud_model_calls_the_provider_twice_a_then_b` (`Provider` qui répond selon la température : deux requêtes, 0,2 puis 1,2, A puis B `completed`, jamais en parallèle, distribution indisponible) ; E2E `llm_screen`, `_lab_compare_stopped` : comparaison sur le faux cloud lent, bouton « Arrêter » pressé pendant B (A terminée, B arrêtée et dite dans sa colonne, boutons réactivés). `test_llm_lab.py` 62 passés ; tranche E2E 98/98.
 ---
 
 <intent-contract>
