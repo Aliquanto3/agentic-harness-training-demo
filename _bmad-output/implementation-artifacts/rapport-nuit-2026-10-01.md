@@ -51,6 +51,8 @@ Pendant une vérification de mutation de la story S1, la première version d'un 
 
 ## Reste à faire par Anaël
 
+**Mise à jour du 2026-10-03** : la story 7 des restes (`7315647`, `resultats-restes-pc-2026-10.md`) et le relevé du banc V2 S6 (`4e494fd`) sont faits ; deux défauts réels corrigés (« Arrêter » pendant un chargement Ollama, fermeture bloquée par une page ouverte). Restent : activer un plan Mistral (E049, E055, E057 et la partie Mistral d'E040, E048), quatre décisions (fichier de résultats, « Décisions »), la validation des seuils de V2 S6 puis bmad-spec sur `decision-model-candidates.md`, et la mise à jour de la PR #19 (rien n'est poussé).
+
 - **Story 1e sur le PC pro**, avec `uv run wavestack` :
   - le diagnostic affiche « Accès réseau disponible » ;
   - Wikipédia et le calendrier répondent ;
