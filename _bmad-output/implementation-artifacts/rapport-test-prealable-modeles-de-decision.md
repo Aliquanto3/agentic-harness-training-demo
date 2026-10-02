@@ -1,6 +1,6 @@
 # Rapport : test préalable des modèles de décision (V2, story 6, CAP-6)
 
-> **État au 2026-10-01 : squelette.** Le banc est prêt et testé. Aucune mesure n'a encore été faite : aucun modèle téléchargé, aucune mesure réelle. Les mesures et les verdicts viennent du relevé d'Anaël sur le PC cible. Une mesure faite ailleurs (conteneur de développement, autre poste) porte la mention « indicatif, hors PC cible » et ne vaut pas verdict.
+> **État au 2026-10-03 : relevé fait sur le PC cible** (lancé par Anaël le 02/10 au soir, joué par l'agent). Quatre candidats mesurés ; gliformer (voie torch) interrompu faute de mémoire, gliformer ONNX non installable sans compilateur. Les seuils de latence restent à valider par Anaël au vu du relevé.
 
 - Story : [6-test-prealable-des-modeles-de-decision.md](../specs/spec-wavestack-v2/stories/6-test-prealable-des-modeles-de-decision.md)
 - Candidats et critères : [decision-model-candidates.md](../specs/spec-wavestack-v2/decision-model-candidates.md). Ce fichier se met à jour par un nouveau passage de bmad-spec, à partir de ce rapport, jamais à la main.
@@ -10,11 +10,11 @@
 
 | Champ | Valeur |
 |---|---|
-| Poste | _à remplir : modèle, processeur, RAM (le banc affiche plateforme, cœurs et RAM)_ |
-| Système | _à remplir : Windows 11, session sans droits admin_ |
-| SLM par défaut chargé pendant la mesure | _à remplir : fichier GGUF_ |
-| Date du relevé | _à remplir_ |
-| Version du banc | _à remplir : commit du dépôt_ |
+| Poste | HP EliteBook x360 1030 G8, Intel Core i5-1145G7 (8 fils), 16 064 Mo de RAM |
+| Système | Windows 11 Entreprise (10.0.26200), session sans droits admin (lu par le banc : `admin: false`), proxy Zscaler |
+| SLM par défaut chargé pendant la mesure | `Qwen3.5-2B-Q4_K_M.gguf` (`%LOCALAPPDATA%\WaveStack\models`), fenêtre de 4 096, llama-cpp-python 0.3.35 ; RSS avec le SLM : ≈ 1 938 Mo |
+| Date du relevé | 2026-10-03, de 00 h 44 à 00 h 57 (Decision 1.0 : 2026-10-02) |
+| Version du banc | commit `7315647` ; empreinte du banc dans chaque JSON (`bench_sha256`) ; résultats dans `tools/bench/results/2026-10-02-pc-cible-v2s6/` |
 
 ## Ce que mesure le banc
 
@@ -109,18 +109,18 @@ Les fichiers JSON de `$OUT` se versionnent, comme ceux de la story 12 (`tools/be
 
 | Candidat | Échelon | RAM pic total / ajoutée (Mo) | Latence médiane / max (ms) | Réseau | Paquets ajoutés (licences) | torch | Révision, `trust_remote_code` | Accord indicatif (coût, spécialité) | Verdict | Raison |
 |---|---|---|---|---|---|---|---|---|---|---|
-| SLM juge | 3 | | | | aucun | | GGUF local, sans objet | | | |
-| `deberta_xsmall` (MoritzLaurer/deberta-v3-xsmall-zeroshot-v1.1-all-33, MIT) | 2 | | | | | | | | | |
-| `deberta_base` (MoritzLaurer/deberta-v3-base-zeroshot-v2.0, MIT) | 2 | | | | | | | | | |
-| `nvidia` (prompt-task-and-complexity-classifier, NVIDIA Open Model License) | 1 | | | | | | | coût seul (étiquettes fixes) | | |
-| `gliformer` (knowledgator/gliformer-base-v1, Apache-2.0) | 2 | | | | | | | | | |
-| `gliformer_onnx` (talmago/gliformer-base-v1-onnx, licence non déclarée) | 2 | | | | | | | | | |
+| SLM juge | 3 | 2 080 / 143 | 4 708 / 7 157 | aucune tentative | aucun | non | GGUF local, sans objet | 12/20, 7/20 | **repli (référence)** | tous les critères passent ; échauffement 9,1 s |
+| `deberta_xsmall` (MoritzLaurer/deberta-v3-xsmall-zeroshot-v1.1-all-33, MIT) | 2 | 2 285 / 346 (3 455 avec l'embedding et le reranker V1) | 107 / 253 | aucune tentative | 10, dont onnxruntime 1.30.0, tokenizers 0.23.2, huggingface-hub 1.33.0 (toutes compatibles) | non | `262ae02f29173eec1c250f90804dc7edc677dcff`, pas de `trust_remote_code` | 12/20, 7/20 | **retenu** | tous les critères passent ; aucune compilation (`uv`) |
+| `deberta_base` (MoritzLaurer/deberta-v3-base-zeroshot-v2.0, MIT) | 2 | 3 162 / 1 225 (**4 332** avec l'embedding et le reranker V1) | 501 / 1 241 | aucune tentative | les mêmes 10 (compatibles) | non | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8`, pas de `trust_remote_code` | 13/20, 11/20 | **retenu** | tous les critères passent ; avec le RAG V1, dépasse 4 096 Mo : routage à démontrer RAG éteint (bmad-spec) |
+| `nvidia` (prompt-task-and-complexity-classifier, NVIDIA Open Model License) | 1 | 3 640 / 1 701 (4 810 avec le RAG V1) | 437 / 711 | aucune tentative | 21, dont torch 2.14.1, transformers 5.18.0, safetensors 0.8.0 (compatibles) | **oui** | `fea1121511eafabaf7dd6fc66863dcb04f74defb` + dorsale `microsoft/deberta-v3-base` `8ccc9b6f…` ; code de la carte reproduit, `load_warnings` 0/0 | coût 11/20 (étiquettes fixes) | **à surveiller** | torch chargé ; chargement de 29 s. Verdict recalculé le 03/10 : le banc classait `BSL-1.0` (licence Boost, dans l'expression de torch) comme Business Source License, d'où un « écarté » faux ; corrigé dans `story12_bench.classify_license`, mesures inchangées (`verdict_recomputed` dans le JSON) |
+| `gliformer` (knowledgator/gliformer-base-v1, Apache-2.0) | 2 | non mesuré | — | — | gliformer et torch | (oui) | `590f9d3f…` téléchargé | — | **non mesuré** | mesure interrompue par Claude Code, faute de mémoire sur le poste : le processus de mesure tenait ≈ 4 491 Mo de RSS à l'arrêt (indicatif : au-delà de 4 096 Mo) ; avertissement Windows sur les liens symboliques du cache HF (mode développeur absent) |
+| `gliformer_onnx` (talmago/gliformer-base-v1-onnx, licence non déclarée) | 2 | non mesuré | — | — | `fast-gliner` 0.3.1 : aucune roue Windows ; `uv` compile depuis les sources (Rust) et échoue | — | — | — | **écarté sur le PC cible** | critère 1 KO : « Building fast-gliner==0.3.1 » puis « Failed to build » (pas de compilateur, pas de droits admin) |
 
 **Verdicts sans mesure :**
 
 | Candidat | Verdict | Raison |
 |---|---|---|
-| Decision 1.0 (vLLM Semantic Router) | _relevé à faire (commande 1)_ | Au 2026-09-25 : ni GGUF ni ONNX, ROCm seul. Eos, Sol, Nox et Lux (sur Qwen3.5) sont génératifs : jamais classifieurs coexistants. |
+| Decision 1.0 (vLLM Semantic Router) | **à surveiller** (`decision10.json`, relevé du 2026-10-02) | Le README de Kai 0.6B annonce désormais un chemin CPU : Transformers avec `trust_remote_code=True`, FP32, torch ; ni GGUF ni ONNX (safetensors seulement, ≈ 2,3 Go de poids). Mesurer Kai ou Lex demande une nouvelle story ; le `trust_remote_code` et torch le rendraient au mieux « à surveiller ». Nouveau : **Decision 2.0** (Kai 0.6B sur Qwen3-0.6B-Base, 2026-09-28, Apache-2.0, non génératif, contexte de 8 192, même voie Transformers + `trust_remote_code`), à ajouter aux candidats au passage de bmad-spec. Eos, Sol, Nox et Lux restent génératifs. |
 | Llama-Guard-3-1B | écarté | Génératif : jamais classifieur coexistant (règle d'un seul modèle génératif, NFR-2). Il ne servirait qu'en remplaçant le SLM (CAP-9). |
 | Qwen3Guard-Gen-0.6B | écarté | Même raison. |
 | Arch-Router-1.5B | écarté | Licence commerciale DigitalOcean exigée : incompatible avec NFR-10 (forge du 2026-09-25). |
@@ -134,7 +134,12 @@ Les fichiers JSON de `$OUT` se versionnent, comme ceux de la story 12 (`tools/be
 
 ## Décision
 
-_À remplir après le relevé : le candidat de chaque échelon, ou le repli sur le SLM juge (la leçon « où vit la règle » reste intacte avec le repli)._
+Proposée par l'agent au vu du relevé, à valider par Anaël au passage de bmad-spec :
+
+- **Échelon 2 (encodeur programmable)** : `deberta_xsmall` retenu, le plus léger (+346 Mo, 107 ms de médiane) et le seul qui tient le budget avec le RAG V1 (3 455 Mo) ; `deberta_base` retenu aussi, plus juste sur la spécialité (11/20 contre 7/20), mais 4 332 Mo avec le RAG V1. Accords faibles dans les deux cas (modèles anglais, prompts français) : une variante multilingue est à ajouter aux candidats.
+- **Échelon 1** : aucun candidat retenu ; `nvidia` à surveiller (torch, chargement de 29 s, étiquettes fixes).
+- **Échelon 3 (repli)** : le SLM juge fonctionne hors ligne dans le budget (+143 Mo), mais à 4,7 s de médiane par décision.
+- **Seuils de latence** (médiane ≤ 1 000 ms, maximum ≤ 3 000 ms) : tous les candidats mesurés les tiennent largement ; seul le SLM juge, sans seuil, les dépasse. À confirmer par Anaël.
 
 ## Suite
 

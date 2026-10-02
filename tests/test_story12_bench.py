@@ -78,6 +78,14 @@ def test_ranks_recall_and_mrr(bench):
         ("GNU General Public License v3 (GPLv3)", "forbidden"),
         ("AGPL-3.0-only", "forbidden"),
         ("Business Source License 1.1", "forbidden"),
+        ("BUSL-1.1", "forbidden"),
+        ("BSL 1.1", "forbidden"),
+        ("BSL-1.0", "ok"),  # SPDX: the Boost licence
+        (
+            "Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause"
+            " AND BSL-1.0 AND MIT",
+            "ok",
+        ),  # torch 2.14, read on the target PC (V2 S6 bench, 2026-10-03)
         ("gemma", "forbidden"),
         ("LGPL-3.0-or-later", "unknown"),
         ("?", "unknown"),

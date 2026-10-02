@@ -1,0 +1,548 @@
+{
+ "candidate": "deberta_base",
+ "tier": "2",
+ "models_dir": "C:\\Users\\anael.yahi\\.cache\\wavestack-bench",
+ "platform": "Windows-11-10.0.26200-SP0",
+ "machine": "AMD64",
+ "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+ "cpu_count": 8,
+ "python": "3.13.5",
+ "measured_at": "2026-10-03T00:48",
+ "target_pc": true,
+ "windows_release": "11",
+ "admin": false,
+ "bench_sha256": "39f249115745bb7060a06ef8fde8aeb3d346a8be609d9371dd5e895aa115c1ae",
+ "repo_commit": "731564765ed0fd25c8c6516472903d9b231b37c7",
+ "ram_total_mb": 16064,
+ "command": "uv run --with onnxruntime --with tokenizers --with huggingface-hub python tools/bench/v2s6_decision_bench.py measure deberta_base --download --slm $SLM --out \"$OUT\\deberta_base.json\"",
+ "rss_added_method": "pic",
+ "v1_rag_rss_mb": 1170,
+ "download": {
+  "guard": "wavestack.net.guard",
+  "hosts": [],
+  "revisions": {
+   "MoritzLaurer/deberta-v3-base-zeroshot-v2.0": "8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8"
+  },
+  "errors": {}
+ },
+ "id": "deberta_base",
+ "guard": "wavestack.net.guard",
+ "slm": "C:\\Users\\anael.yahi\\AppData\\Local\\WaveStack\\models\\Qwen3.5-2B-Q4_K_M.gguf",
+ "slm_n_ctx": 4096,
+ "llama_cpp_version": "0.3.35",
+ "slm_load_s": 2.09,
+ "rss_with_slm_mb": 1937,
+ "load_s": 3.83,
+ "revisions": {
+  "MoritzLaurer/deberta-v3-base-zeroshot-v2.0": "8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8"
+ },
+ "onnx_inputs": [
+  "attention_mask",
+  "input_ids"
+ ],
+ "rss_before_load_mb": 1937,
+ "peak_before_load_mb": 1937,
+ "rss_loaded_mb": 2875,
+ "rss_peak_mb": 3162,
+ "warmup_ms": 700.0,
+ "rows": [
+  {
+   "prompt": "bare_llm.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 173.9
+  },
+  {
+   "prompt": "bare_llm.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "general",
+   "ms": 430.8
+  },
+  {
+   "prompt": "reasoning.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 324.0
+  },
+  {
+   "prompt": "reasoning.0",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "general",
+   "ms": 639.5
+  },
+  {
+   "prompt": "system_prompt.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 185.6
+  },
+  {
+   "prompt": "system_prompt.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "general",
+   "ms": 479.7
+  },
+  {
+   "prompt": "global_memory.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 236.5
+  },
+  {
+   "prompt": "global_memory.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "general",
+   "ms": 555.4
+  },
+  {
+   "prompt": "native_tools.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 187.2
+  },
+  {
+   "prompt": "native_tools.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "general",
+   "ms": 515.8
+  },
+  {
+   "prompt": "caveman.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 172.0
+  },
+  {
+   "prompt": "caveman.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "general",
+   "ms": 508.2
+  },
+  {
+   "prompt": "native_tools.2",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 278.1
+  },
+  {
+   "prompt": "native_tools.2",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 639.8
+  },
+  {
+   "prompt": "rag.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 252.5
+  },
+  {
+   "prompt": "rag.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 596.0
+  },
+  {
+   "prompt": "hooks.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 276.2
+  },
+  {
+   "prompt": "hooks.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 548.0
+  },
+  {
+   "prompt": "compression.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 339.7
+  },
+  {
+   "prompt": "compression.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "documents",
+   "ms": 699.5
+  },
+  {
+   "prompt": "compression.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 248.7
+  },
+  {
+   "prompt": "compression.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 596.1
+  },
+  {
+   "prompt": "network_tools.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 199.2
+  },
+  {
+   "prompt": "network_tools.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "recherche",
+   "ms": 426.6
+  },
+  {
+   "prompt": "network_tools.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 222.5
+  },
+  {
+   "prompt": "network_tools.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "recherche",
+   "ms": 560.8
+  },
+  {
+   "prompt": "mcp_lazy.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 268.4
+  },
+  {
+   "prompt": "mcp_lazy.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "recherche",
+   "ms": 604.3
+  },
+  {
+   "prompt": "sovereignty.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 493.3
+  },
+  {
+   "prompt": "sovereignty.0",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "recherche",
+   "ms": 1155.9
+  },
+  {
+   "prompt": "rag.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 252.8
+  },
+  {
+   "prompt": "rag.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "securite",
+   "ms": 559.0
+  },
+  {
+   "prompt": "soc.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 456.6
+  },
+  {
+   "prompt": "soc.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 931.4
+  },
+  {
+   "prompt": "soc.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 657.6
+  },
+  {
+   "prompt": "soc.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 1223.6
+  },
+  {
+   "prompt": "iam.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 533.8
+  },
+  {
+   "prompt": "iam.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 1121.2
+  },
+  {
+   "prompt": "iam.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 532.3
+  },
+  {
+   "prompt": "iam.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 1241.3
+  }
+ ],
+ "decisions": 40,
+ "latency_median_ms": 500.8,
+ "latency_max_ms": 1241.3,
+ "agreement": {
+  "cost": "13/20",
+  "specialty": "11/20"
+ },
+ "rss_added_mb": 1225,
+ "versions": {
+  "onnxruntime": "1.30.0",
+  "tokenizers": "0.23.2",
+  "huggingface-hub": "1.33.0"
+ },
+ "torch_loaded": false,
+ "heavy_modules_loaded": [
+  "onnxruntime"
+ ],
+ "attempts": [],
+ "status": "measured",
+ "packages": [
+  {
+   "name": "anyio",
+   "version": "4.15.1",
+   "license": "MIT",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "certifi",
+   "version": "2026.7.22",
+   "license": "Mozilla Public License 2.0 (MPL 2.0)",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "click",
+   "version": "8.5.0",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "colorama",
+   "version": "0.4.6",
+   "license": "BSD License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "filelock",
+   "version": "4.0.3",
+   "license": "MIT",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "flatbuffers",
+   "version": "25.12.19",
+   "license": "Apache Software License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "fsspec",
+   "version": "2026.9.0",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "h11",
+   "version": "0.16.0",
+   "license": "MIT License",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "hf-xet",
+   "version": "1.6.0",
+   "license": "Apache-2.0",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "httpcore",
+   "version": "1.0.9",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "httpx",
+   "version": "0.28.1",
+   "license": "BSD License",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "huggingface_hub",
+   "version": "1.33.0",
+   "license": "Apache Software License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "idna",
+   "version": "3.20",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "numpy",
+   "version": "2.5.3",
+   "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "onnxruntime",
+   "version": "1.30.0",
+   "license": "MIT License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "packaging",
+   "version": "26.3",
+   "license": "Apache-2.0 OR BSD-2-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "protobuf",
+   "version": "7.36.2",
+   "license": "3-Clause BSD License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "PyYAML",
+   "version": "6.0.3",
+   "license": "MIT License",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "tokenizers",
+   "version": "0.23.2",
+   "license": "Apache Software License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "tqdm",
+   "version": "4.70.1",
+   "license": "MPL-2.0 AND MIT",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "typing_extensions",
+   "version": "4.16.0",
+   "license": "PSF-2.0",
+   "class": "ok",
+   "added": false
+  }
+ ],
+ "verdict": {
+  "status": "retenu",
+  "reason": "tous les critères passent",
+  "criteria": [
+   {
+    "id": "cpu_windows",
+    "label": "CPU sous Windows 11, sans droits admin",
+    "ok": true,
+    "detail": "Windows 11, session sans droits admin ; vérifier dans la sortie de uv qu'aucun paquet n'a été compilé (« Building … »)"
+   },
+   {
+    "id": "ram",
+    "label": "RAM : pic total ≤ 4096 Mo, SLM par défaut chargé (NFR-2)",
+    "ok": true,
+    "detail": "pic total 3162 Mo (SLM chargé : 1937 Mo), ajouté par le candidat 1225 Mo au pic ; avec l'embedding et le reranker V1 (1170 Mo mesurés), 4332 Mo"
+   },
+   {
+    "id": "latency",
+    "label": "Latence : médiane ≤ 1000 ms, maximum ≤ 3000 ms",
+    "ok": true,
+    "detail": "médiane 500.8 ms, maximum 1241.3 ms sur 40 décisions (échauffement 700.0 ms, chargement 3.83 s)"
+   },
+   {
+    "id": "offline",
+    "label": "Hors ligne : aucune tentative réseau sous la garde d'AD-15",
+    "ok": true,
+    "detail": "hôtes tentés : aucun"
+   },
+   {
+    "id": "pinned",
+    "label": "Code relu et figé : commit et versions consignés, pas de trust_remote_code",
+    "ok": true,
+    "detail": "commits {'MoritzLaurer/deberta-v3-base-zeroshot-v2.0': '8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8'} ; versions {'onnxruntime': '1.30.0', 'tokenizers': '0.23.2', 'huggingface-hub': '1.33.0'} ; code : aucun"
+   },
+   {
+    "id": "license",
+    "label": "Licences compatibles avec une remise du code (NFR-10)",
+    "ok": true,
+    "forbidden": false,
+    "detail": "modèle : MIT (ok) ; 10 paquet(s) ajouté(s) ; interdites : aucune ; à vérifier : aucune"
+   },
+   {
+    "id": "no_torch",
+    "label": "Sans torch",
+    "ok": true,
+    "detail": "modules lourds chargés : ['onnxruntime']"
+   }
+  ],
+  "target_pc": true
+ }
+}
