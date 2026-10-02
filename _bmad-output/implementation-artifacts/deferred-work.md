@@ -759,3 +759,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-recette-2026-10-02-markdown-diagnostic-quota.md`
   summary: Le rendu Markdown de la Vue humain balaie le paragraphe pour chaque `[` ou `*` non fermé, et refait toute l'analyse à chaque rendu du flux (coût quadratique par paragraphe).
   evidence: Non vérifié (revue du 02/10). Pour trancher, mesurer sur le PC cible le temps de `renderMarkdown` pour un paragraphe de 5 ko de JSON hors bloc de code, pendant le flux.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-r1-lenteur-models-payload.md`
+  summary: `probe._header_kv` (cache `lru_cache` par chemin, taille, mtime) relit en Python pur les en-têtes GGUF que `catalog.header_metadata` garde déjà, dans le même processus ; chaque lecture coûte 0,1 à 0,5 s sur le PC pro.
+  evidence: Revue du 02/10 (spec R1). Antérieur au correctif. Non mesuré : pour trancher, chronométrer `discovery.discover()` (6,2 s sur le PC pro, 39 candidats) et voir la part de `_header_kv` ; si elle compte, faire passer `_header_kv` par `catalog.header_metadata`. Le saut par blocs du vocabulaire (`gguf_meta._skip_strings`) l'a déjà rendu 3 fois plus rapide.

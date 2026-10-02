@@ -33,6 +33,8 @@ _SCALARS = {
     12: "<d",  # float64
 }
 _STRING, _ARRAY = 8, 9
+_U64 = struct.Struct("<Q")
+_SKIP_BLOCK = 1 << 20  # bytes read at once when skipping a long array of strings
 
 
 class GGUFError(ValueError):
@@ -60,6 +62,25 @@ def _string(f: BinaryIO, keep: bool = True) -> str | None:
     return _read(f, length).decode("utf-8", "replace")
 
 
+def _skip_strings(f: BinaryIO, count: int) -> None:
+    """Skip `count` strings (a vocabulary, its merges): their lengths walked in blocks read
+    whole, not one read and one seek each (R1: about 500 000 per file, 3 times slower)."""
+    buffer, offset = b"", 0
+    for _ in range(count):
+        if offset + 8 > len(buffer):
+            if offset > len(buffer):  # the last string ends past the block
+                f.seek(offset - len(buffer), 1)
+                buffer, offset = b"", 0
+            buffer, offset = buffer[offset:] + f.read(_SKIP_BLOCK), 0
+            if len(buffer) < 8:
+                raise GGUFError("fin de fichier inattendue")
+        length = _U64.unpack_from(buffer, offset)[0]
+        if length > MAX_STRING:
+            raise GGUFError("chaîne trop longue")
+        offset += 8 + length
+    f.seek(offset - len(buffer), 1)  # back to the end of the last string
+
+
 def _value(f: BinaryIO, kind: int, keep: bool = True) -> Any:
     if kind in _SCALARS:
         fmt = _SCALARS[kind]
@@ -75,6 +96,9 @@ def _value(f: BinaryIO, kind: int, keep: bool = True) -> Any:
         keep = keep and count <= MAX_ARRAY
         if inner in _SCALARS and not keep:  # fixed size: one seek
             f.seek(struct.calcsize(_SCALARS[inner]) * count, 1)
+            return None
+        if inner == _STRING and not keep:
+            _skip_strings(f, count)
             return None
         values = [_value(f, inner, keep) for _ in range(count)]
         return values if keep else None

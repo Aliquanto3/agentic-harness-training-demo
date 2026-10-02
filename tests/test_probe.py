@@ -312,6 +312,29 @@ def test_gguf_header_reader_on_tiny_llama_and_a_hybrid_layout(tmp_path):
     assert gguf_meta.try_read_metadata(tmp_path / "cut.gguf") is None
 
 
+def test_long_string_arrays_are_skipped_block_by_block(monkeypatch, tmp_path):
+    """R1: a vocabulary skipped from blocks read whole, one block smaller than a string
+    included; what follows it is read as before; a header cut inside it is unreadable."""
+    monkeypatch.setattr(gguf_meta, "_SKIP_BLOCK", 64)
+    tokens = [f"tok{i}" * (i % 7) for i in range(5000)] + ["x" * 300]  # 300 > one block
+    header = {
+        "general.architecture": "qwen35",
+        "tokenizer.ggml.tokens": tokens,
+        "tokenizer.ggml.merges": ["a b"] * 4097,
+        "tokenizer.chat_template": "{{ messages }}",
+        "qwen35.context_length": 4096,
+    }
+    path = write_gguf(tmp_path / "vocab.gguf", header)
+    meta = gguf_meta.read_metadata(path)
+    assert meta == {**header, "tokenizer.ggml.tokens": None, "tokenizer.ggml.merges": None}
+
+    (tmp_path / "cut.gguf").write_bytes(path.read_bytes()[:20_000])  # inside the vocabulary
+    assert gguf_meta.try_read_metadata(tmp_path / "cut.gguf") is None
+    monkeypatch.setattr(gguf_meta, "MAX_STRING", 100)
+    with pytest.raises(gguf_meta.GGUFError, match="chaîne trop longue"):
+        gguf_meta.read_metadata(path)
+
+
 # ---------- story 24: ASCII output, UTF-8 reading, garbled reasons repaired ----------
 
 REASON = "Fichier abîmé : ce modèle ne se charge pas."

@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from starlette.testclient import TestClient
 
 from wavestack import config
-from wavestack.models import discovery, probe
+from wavestack.models import catalog, discovery, probe
 from wavestack.session import diagnostic as diagnostic_module
 from wavestack.session.app_session import AppSession
 from wavestack.session.diagnostic import DiagnosticSession
@@ -949,6 +949,16 @@ def test_old_or_incomplete_probe_entries_are_probed_again(monkeypatch, tmp_path)
     assert len(calls) == 1  # no endless reprobe
     failed = next(c for c in listed if c.path == incomplete)
     assert (failed.status, failed.reason) == ("incompatible", probe.incompatible_fr())
+
+
+def test_the_search_warms_the_model_table_headers(monkeypatch, tmp_path):
+    """R1: as soon as discovery lists the candidates, their headers are read in the
+    background, not by the first `/api/diagnostic` after the search."""
+    session, _ = _build(monkeypatch, tmp_path, models=("a.gguf", "b.gguf"))
+    warmed = []
+    monkeypatch.setattr(catalog, "warm_headers", lambda candidates: warmed.append(candidates))
+    listed = session._discover(None)
+    assert warmed == [listed] and len(listed) == 2
 
 
 def test_transient_probe_failure_is_never_remembered(monkeypatch, tmp_path):

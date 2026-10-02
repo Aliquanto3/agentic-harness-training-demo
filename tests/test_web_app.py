@@ -524,6 +524,12 @@ def test_api_diagnostic_logs_its_total_wait_and_steps_in_debug(monkeypatch, tmp_
     assert re.search(r"n° 1 : \d+ ms au total \(attente avant le gestionnaire \d+ ms ; ", text)
     for step in ("active_choice", "cloud_rows", "_models", "shown"):
         assert re.search(rf"\b{step} \d+ ms", text), step
+    # R1 (spec of 02/10): `_models` detailed step by step.
+    assert re.search(
+        r"_models \d+ ms \[load_publishers \d+ ms, local_entries \d+ ms, cloud_entries \d+ ms, "
+        r"group_models \d+ ms\]",
+        text,
+    )
     assert re.search(r"\d+\.\d s après la création de l'application", text)
     assert "n° 2 :" in second.getMessage()
     # Never a journal event: it would follow the `seq` the route read, at each call.

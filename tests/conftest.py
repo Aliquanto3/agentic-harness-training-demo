@@ -112,6 +112,22 @@ def _windows_file_rules_opt_in(request):
 
 
 @pytest.fixture(autouse=True)
+def _joined_header_warm_up(monkeypatch):
+    """R1: the search's warm-up of the model table headers ends inside the test that started
+    it: no thread left reading a temporary file during another test."""
+    from wavestack.models import catalog  # here: after the proxy is removed (above)
+
+    real = catalog.warm_headers
+
+    def joined(candidates):  # noqa: ANN001, ANN202
+        thread = real(candidates)
+        thread.join(timeout=30)
+        return thread
+
+    monkeypatch.setattr(catalog, "warm_headers", joined)
+
+
+@pytest.fixture(autouse=True)
 def _no_cloud_key_variables(monkeypatch):
     """Story 11b: a key the machine's environment provides never reaches a test."""
     for name in ("GROQ_API_KEY", "MISTRAL_API_KEY", "GEMINI_API_KEY"):

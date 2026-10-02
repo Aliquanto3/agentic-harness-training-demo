@@ -625,7 +625,8 @@ def create_app(
         cloud = session.cloud_rows(active.ref if active and active.kind == "cloud" else None)
         lap("cloud_rows")
         candidates = result.candidates if result else []
-        models = _models(candidates, cloud)
+        timings = catalog.PayloadTimings()
+        models = _models(candidates, cloud, timings)
         lap("_models")
         answer = shown(
             {
@@ -658,14 +659,17 @@ def create_app(
         lap("shown")
         arrived = getattr(request.state, "diagnostic_arrived", started)
         total = time.perf_counter() - arrived
-        _log_diagnostic_timing(next(diagnostic_calls), total, started - arrived, steps)
+        _log_diagnostic_timing(
+            next(diagnostic_calls), total, started - arrived, steps, timings.summary()
+        )
         return answer
 
     def _log_diagnostic_timing(
-        call: int, total: float, wait: float, steps: dict[str, float]
+        call: int, total: float, wait: float, steps: dict[str, float], models: str
     ) -> None:
         """R1: the call's total (from its arrival), the wait before the handler and each
-        step, in ms; a warning from `SLOW_DIAGNOSTIC_S`, so a slow first call is seen."""
+        step, in ms, `_models` detailed (`catalog.PayloadTimings.summary`); a warning from
+        `SLOW_DIAGNOSTIC_S`, so a slow first call is seen."""
         level = logging.WARNING if total >= SLOW_DIAGNOSTIC_S else logging.DEBUG
         log.log(
             level,
@@ -674,7 +678,11 @@ def create_app(
             call,
             total * 1000,
             wait * 1000,
-            ", ".join(f"{name} {seconds * 1000:.0f} ms" for name, seconds in steps.items()),
+            ", ".join(
+                f"{name} {seconds * 1000:.0f} ms"
+                + (f" [{models}]" if name == "_models" and models else "")
+                for name, seconds in steps.items()
+            ),
             time.perf_counter() - created,
         )
 
@@ -685,7 +693,9 @@ def create_app(
                 return {"done": event.payload["done"], "total": event.payload["total"]}
         return None
 
-    def _models(candidates: list, cloud: dict[str, Any]) -> dict[str, object]:
+    def _models(
+        candidates: list, cloud: dict[str, Any], timings: catalog.PayloadTimings
+    ) -> dict[str, object]:
         """`models`, or nothing when it could not be built: the picker then lists the
         candidates as before (AD-16: a failure is contained)."""
         try:
@@ -696,6 +706,7 @@ def create_app(
                     cloud["models"],
                     app_session.configured_window,
                     app_session.language,
+                    timings,
                 )
             }
         except Exception:  # noqa: BLE001 - the diagnostic's answer never fails for the table

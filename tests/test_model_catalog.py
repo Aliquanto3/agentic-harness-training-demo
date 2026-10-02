@@ -8,6 +8,7 @@ simulated server, cloud entries from the configuration: no model loaded, no netw
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 
 import pytest
@@ -569,6 +570,106 @@ def test_header_read_once_per_path_size_and_mtime(tmp_path, monkeypatch):
     assert catalog.header_metadata(str(path))[1]["general.size_label"] == "4B"
     assert len(reads) == 2
     assert catalog.header_metadata(str(tmp_path / "absent.gguf")) is None
+
+
+def test_header_path_is_the_file_the_entry_reads(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    relative = ModelCandidate(source="models_dir", path="m.gguf", name="m", status="found")
+    assert catalog.header_path(relative) == str(tmp_path / "m.gguf")
+    assert catalog.header_path(_llama_server("relatif.gguf")) is None  # not this disk's
+    absolute = str(tmp_path / "served.gguf")
+    assert catalog.header_path(_llama_server(absolute)) == absolute
+    assert catalog.header_path(_llama_server(None)) is None
+
+
+def test_warm_headers_reads_each_file_once_off_the_request(tmp_path, monkeypatch):
+    """R1: the search's candidates read in the background, each file once (two tags of one
+    blob too); the table then reads nothing."""
+    path = _qwen_file(tmp_path)
+    reads = []
+    real = gguf_meta.try_read_metadata
+    monkeypatch.setattr(gguf_meta, "try_read_metadata", lambda p: reads.append(p) or real(p))
+
+    catalog.warm_headers([_file(path), _file(path), _ollama_missing()]).join(timeout=10)
+    assert reads == [str(path)]
+    catalog.local_entries([_file(path)], config.load_config())
+    assert reads == [str(path)]
+
+
+def test_a_request_during_the_warm_up_waits_instead_of_reading_again(tmp_path, monkeypatch):
+    """R1: two threads asking for the same cold header: one reads, the other waits for it
+    (on the PC pro, two concurrent requests each read every header, 21 s)."""
+    path = str(_qwen_file(tmp_path))
+    reads = []
+    started, release = threading.Event(), threading.Event()
+    real = gguf_meta.try_read_metadata
+
+    def slow(p):  # noqa: ANN001, ANN202
+        reads.append(p)
+        started.set()
+        release.wait(timeout=10)
+        return real(p)
+
+    class _Spy:
+        """`_READ_LOCK`, saying when a second thread is about to wait on it."""
+
+        def __init__(self, lock) -> None:  # noqa: ANN001
+            self.lock, self.entered, self.second = lock, 0, threading.Event()
+
+        def __enter__(self):  # noqa: ANN204
+            self.entered += 1
+            if self.entered == 2:
+                self.second.set()
+            return self.lock.__enter__()
+
+        def __exit__(self, *exc):  # noqa: ANN002, ANN204
+            return self.lock.__exit__(*exc)
+
+    spy = _Spy(catalog._READ_LOCK)
+    monkeypatch.setattr(catalog, "_READ_LOCK", spy)
+    monkeypatch.setattr(gguf_meta, "try_read_metadata", slow)
+    results = []
+    first = threading.Thread(target=lambda: results.append(catalog.header_metadata(path)))
+    first.start()
+    assert started.wait(timeout=10)
+    second = threading.Thread(target=lambda: results.append(catalog.header_metadata(path)))
+    second.start()
+    assert spy.second.wait(timeout=10)  # the cache still cold: it waits for the first read
+    release.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+    assert reads == [path]
+    assert results[0] is results[1] and results[0][0].architecture == "qwen35"
+
+
+def test_a_failing_warm_up_is_logged_and_leaves_the_reads_to_the_request(
+    tmp_path, monkeypatch, caplog
+):
+    path = _qwen_file(tmp_path)
+    real = catalog.header_metadata
+
+    def broken(p):  # noqa: ANN001, ANN202
+        raise RuntimeError("panne")
+
+    monkeypatch.setattr(catalog, "header_metadata", broken)
+    catalog.warm_headers([_file(path)]).join(timeout=10)
+    assert "Préchauffage des en-têtes GGUF interrompu" in caplog.text
+    monkeypatch.setattr(catalog, "header_metadata", real)
+    assert _entry(_file(path)).params_label == "2B"
+
+
+def test_payload_timings_detail_each_step_and_the_slow_candidates():
+    timings = catalog.PayloadTimings()
+    for step in ("load_publishers", "local_entries", "cloud_entries", "group_models"):
+        timings.lap(step)
+    timings.candidate("gemma3:1b", 0.482, 0.001)
+    timings.candidate("qwen3.5:4b", 1.335, 0.007)
+    timings.candidate("en cache", 0.0, 0.0002)  # under 1 ms: left out
+    text = timings.summary()
+    assert text.startswith("load_publishers ")
+    assert "local_entries " in text and "cloud_entries " in text and "group_models " in text
+    assert "(headers 1817 ms ; qwen3.5:4b 1335 + 7 ms ; gemma3:1b 482 + 1 ms)" in text
+    assert "en cache" not in text
 
 
 # ---------- one truth: the table says what the cards say after the load ----------
