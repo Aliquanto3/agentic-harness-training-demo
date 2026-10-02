@@ -17,7 +17,12 @@ import httpx
 import httpx2
 import pytest
 
-from wavestack.config import DEFAULT_NET_CONTACT, load_config
+from wavestack.config import (
+    DEFAULT_NET_CONTACT,
+    PUBLIC_RESPONSE_HEADERS,
+    PUBLIC_RESPONSE_PREFIXES,
+    load_config,
+)
 from wavestack.net import guard
 from wavestack.net.factory import (
     MASKED,
@@ -302,6 +307,112 @@ def test_async_client_masks_the_same_headers():
     _assert_secrets_masked(event)
     traced = {name: (value, masked) for name, value, masked in _headers_of(event)}
     assert traced["Mcp-Protocol-Version"] == ("2025-06-18", False)
+
+
+# ---------- recette du 02/10 (R2): an error response leaves its proof ----------
+
+_REFUSAL_HEADERS = [
+    ("Content-Type", "application/json"),
+    ("x-request-id", SECRET),
+    ("X-RateLimit-Limit-Req-Minute", "0"),
+    ("Set-Cookie", f"session={SECRET}"),
+    ("ratelimit-reset", "60"),
+    ("Retry-After", "60"),
+    ("Date", "Fri, 02 Oct 2026 09:00:00 GMT"),
+]
+_REFUSAL_TRACED = [
+    {"name": "Content-Type", "value": "application/json", "masked": False},
+    {"name": "x-request-id", "value": MASKED, "masked": True},
+    {"name": "X-RateLimit-Limit-Req-Minute", "value": "0", "masked": False},
+    {"name": "Set-Cookie", "value": MASKED, "masked": True},
+    {"name": "ratelimit-reset", "value": "60", "masked": False},
+    {"name": "Retry-After", "value": "60", "masked": False},
+    {"name": "Date", "value": "Fri, 02 Oct 2026 09:00:00 GMT", "masked": False},
+]
+
+
+def _refusal(request) -> httpx.Response:  # noqa: ANN001
+    return httpx.Response(429, headers=_REFUSAL_HEADERS, content=b'{"message": "Rate limit"}')
+
+
+def _assert_refusal_traced(events, origin: str) -> None:
+    assert [e.kind for e in events] == ["outbound_request", "outbound_response"]
+    response = events[1]
+    # `content-length` is added by the response itself: public, after the headers given.
+    headers = [h for h in response.payload["headers"] if h["name"].lower() != "content-length"]
+    assert {**response.payload, "headers": headers} == {
+        "origin": origin,
+        "method": "POST",
+        "url": "https://fr.wikipedia.org/x",
+        "status": 429,
+        "headers": _REFUSAL_TRACED,
+    }
+    text = response.model_dump_json()
+    for fragment in (SECRET, SECRET[:4], SECRET[-4:], "SENTINEL"):
+        assert fragment not in text
+
+
+def test_an_error_response_is_traced_with_its_quota_headers_and_the_rest_masked():
+    before = get_journal().last_seq()
+    with _client(_refusal) as client:
+        response = client.post("https://fr.wikipedia.org/x", content=b"{}")
+    assert response.status_code == 429 and response.headers["x-request-id"] == SECRET
+    _assert_refusal_traced(get_journal().events_since(before), "brick")
+
+
+def test_the_async_client_traces_an_error_response_the_same_way():
+    scope = TraceScope(component="mcp.datagouv", origin="brick")
+
+    async def handler(request):
+        return httpx2.Response(429, headers=_REFUSAL_HEADERS, content=b"{}")
+
+    async def run():
+        async with create_async_client(lambda: scope, httpx2.MockTransport(handler)) as client:
+            await client.post("https://fr.wikipedia.org/x", content=b"{}")
+
+    before = get_journal().last_seq()
+    asyncio.run(run())
+    _assert_refusal_traced(get_journal().events_since(before), "brick")
+
+
+@pytest.mark.parametrize("status", [200, 204, 302, 399])
+def test_a_response_below_400_is_not_traced(status):
+    before = get_journal().last_seq()
+    with _client(lambda r: httpx.Response(status, headers={"x-ratelimit-limit": "0"})) as client:
+        client.get("https://fr.wikipedia.org/wiki/Paris")
+    assert [e.kind for e in get_journal().events_since(before)] == ["outbound_request"]
+
+
+def test_an_error_response_from_the_loopback_is_not_traced():
+    before = get_journal().last_seq()
+    with _client(lambda r: httpx.Response(500)) as client:
+        assert client.get("http://127.0.0.1:11434/api/tags").status_code == 500
+    assert get_journal().events_since(before) == []
+
+
+def test_both_hooks_ask_the_same_predicate(monkeypatch):
+    """`_traced` decides for the request and its error response alike (the E2E graft)."""
+    from wavestack.net import factory
+
+    monkeypatch.setattr(factory, "_traced", lambda request: True)
+    before = get_journal().last_seq()
+    with _client(lambda r: httpx.Response(500)) as client:
+        client.get("http://127.0.0.1:11434/api/tags")
+    assert [e.kind for e in get_journal().events_since(before)] == [
+        "outbound_request",
+        "outbound_response",
+    ]
+
+    monkeypatch.setattr(factory, "_traced", lambda request: False)
+    before = get_journal().last_seq()
+    with _client(_refusal) as client:
+        client.post("https://fr.wikipedia.org/x", content=b"{}")
+    assert get_journal().events_since(before) == []
+
+
+def test_the_response_allow_list_is_closed():
+    assert PUBLIC_RESPONSE_HEADERS == {"content-type", "content-length", "date", "retry-after"}
+    assert PUBLIC_RESPONSE_PREFIXES == ("x-ratelimit-", "ratelimit-")
 
 
 def test_each_redirect_hop_traces_its_own_headers():

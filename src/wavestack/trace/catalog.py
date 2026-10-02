@@ -58,6 +58,18 @@ class OutboundRequestPayload(BaseModel):
     body: str = ""
 
 
+class OutboundResponsePayload(BaseModel):
+    """Recette du 02/10 (R2): an error response (status 400 or more) from a destination
+    outside the loopback range, with its headers in the order received. Outside
+    `PUBLIC_RESPONSE_HEADERS` and the quota prefixes, each value is « [masqué] »."""
+
+    origin: Literal["brick", "diagnostic", "download", "model"]
+    method: str
+    url: str
+    status: int
+    headers: list[OutboundHeader] = []
+
+
 class HarnessErrorPayload(BaseModel):
     message_text: str
     cause: str | None = None
@@ -1346,6 +1358,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
     "diagnostic_progress": DiagnosticProgressPayload,
     "outbound_request": OutboundRequestPayload,
+    "outbound_response": OutboundResponsePayload,
     "harness_error": HarnessErrorPayload,
     "server_cache_used": ServerCacheUsedPayload,
     "session_state": SessionStatePayload,

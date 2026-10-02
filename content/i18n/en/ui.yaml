@@ -648,6 +648,7 @@ main:
       diagnostic_check: "Diagnostics check"
       diagnostic_progress: "Model search"
       outbound_request: "Outbound data"
+      outbound_response: "Error response received"
       harness_error: "Harness error"
       session_state: "Session state"
       architecture_changed: "Diagram updated"
@@ -1008,6 +1009,7 @@ diagnostic:
   no_candidate: "No candidate found."
   checks_title: "Checks"
   searching: "Searching for and testing the models…"
+  loading: "Diagnostics in progress…"
   progress:
     one: "{count} of {total} models tested"
     other: "{count} of {total} models tested"

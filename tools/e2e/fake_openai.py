@@ -183,6 +183,55 @@ def system_text(messages: list[dict[str, Any]]) -> str:
 
 # ---------- the script ----------
 
+# Recette du 02/10: « [markdown] » answers this sample, which covers the rendering of the Vue
+# humain (lists, bold, italic, headings, code, links) and the injections that must stay text
+# (HTML, an unsafe link, an image, a rule, a table, a quote). Its last block stays open.
+MARKDOWN_SAMPLE = (
+    "# Calendrier\n"
+    "\n"
+    "## Jours fériés\n"
+    "\n"
+    "*   **1er janvier :** Jour de l'an\n"
+    "*   **1er mai :** Fête du travail\n"
+    "    - _sous-point_ avec `code_en_ligne`\n"
+    "\n"
+    "3. troisième\n"
+    "4. quatrième\n"
+    "\n"
+    "Une ligne en __gras souligné__\n"
+    "puis une autre : snake_case_name reste entier, \\*pas d'italique\\*.\n"
+    "\n"
+    "1) premier\n"
+    "2) second\n"
+    "\n"
+    "Un paragraphe\n"
+    "2026. Une année\n"
+    "\n"
+    "<img src=x onerror=alert(1)><b>gras HTML</b>\n"
+    "\n"
+    "[clic](javascript:alert(1)) · [relatif](/api/state) · [site](https://example.org)"
+    " · ![image](https://example.org/a.png)\n"
+    "\n"
+    "---\n"
+    "| a | b |\n"
+    "> citation ~~barré~~\n"
+    "\n"
+    "~~~text\n"
+    "bloc fermé **brut**\n"
+    "~~~\n"
+    "\n"
+    "```py\n"
+    "x = 1"
+)
+
+# Recette du 02/10 (R2): « [quota0] » refuses as Mistral did on the PC (a workspace without
+# a plan): 429, a request quota of 0, and a request id the journal must mask.
+QUOTA0_HEADERS = {
+    "x-ratelimit-limit-req-minute": "0",
+    "x-ratelimit-remaining-req-minute": "0",
+    "x-request-id": "e2e-quota0-request",
+}
+
 _LONG_HARNESS = (
     "Un harnais d'agent est tout le code qui entoure le modèle de langage. Il prépare le "
     "contexte à chaque appel : prompt système, historique de la conversation, description "
@@ -410,6 +459,10 @@ def _script(body: dict[str, Any]) -> Reply:
             error={"message": "Rate limit reached: tokens per minute (TPM) exceeded."},
             headers={"retry-after": "7"},
         )
+    if "[quota0]" in low:
+        return Reply(
+            status=429, error={"message": "Rate limit exceeded"}, headers=dict(QUOTA0_HEADERS)
+        )
     if "[erreur500]" in low:
         return Reply(status=500, error={"message": "internal fake error"})
     if "[erreur401]" in low:
@@ -447,6 +500,8 @@ def _script(body: dict[str, Any]) -> Reply:
         )
     if "[coupé]" in low:
         return Reply(text=_LONG_HARNESS, finish="length", delay_s=delay)
+    if "[markdown]" in low:
+        return Reply(text=MARKDOWN_SAMPLE, reasoning=reasoning, delay_s=delay)
 
     for name, arguments in _plan(user, offered, lazy_names(body), results):
         if name in offered and (name, arguments) not in called:

@@ -657,6 +657,7 @@ main:
       diagnostic_check: "Vérification du diagnostic"
       diagnostic_progress: "Recherche des modèles"
       outbound_request: "Données sortantes"
+      outbound_response: "Réponse d'erreur reçue"
       harness_error: "Erreur du harnais"
       session_state: "État de la session"
       architecture_changed: "Schéma mis à jour"
@@ -1019,6 +1020,7 @@ diagnostic:
   no_candidate: "Aucun candidat trouvé."
   checks_title: "Contrôles"
   searching: "Recherche et test des modèles en cours…"
+  loading: "Diagnostic en cours…"
   progress:
     one: "{count} modèle testé sur {total}"
     other: "{count} modèles testés sur {total}"

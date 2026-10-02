@@ -15,6 +15,11 @@ story 23). Only request-level headers are seen: what the transport adds below
 the event hook (proxy credentials, HTTP/2 pseudo-headers) is neither traced nor
 shown.
 
+A response of status 400 or more from the same destinations emits `outbound_response`
+(status and headers received, story recette 02/10, R2), so a provider's refusal leaves
+its proof in the journal: the same masking, against the closed allow-list
+`config.PUBLIC_RESPONSE_HEADERS` and the quota prefixes `config.PUBLIC_RESPONSE_PREFIXES`.
+
 Two clients share this setup: a synchronous `httpx.Client` and an
 `httpx2.AsyncClient` (MCP Streamable HTTP). Both reach the outside through the
 workstation's proxy, confiscated by the guard (story 1e): `trust_env=False`, and
@@ -32,7 +37,12 @@ import httpx
 import httpx2
 import truststore
 
-from wavestack.config import PUBLIC_HEADERS, load_config
+from wavestack.config import (
+    PUBLIC_HEADERS,
+    PUBLIC_RESPONSE_HEADERS,
+    PUBLIC_RESPONSE_PREFIXES,
+    load_config,
+)
 from wavestack.messages import Message
 from wavestack.net.guard import NetworkBlocked, is_host_allowed, is_loopback, office_proxies
 from wavestack.trace.journal import get_journal
@@ -55,7 +65,7 @@ def _check_and_trace(request: httpx.Request | httpx2.Request, scope: TraceScope)
     host = request.url.host
     if not is_host_allowed(host, load_config().allowed_hosts):
         raise NetworkBlocked(Message("net.host_refused", host=host))
-    if is_loopback(host):
+    if not _traced(request):
         return  # AD-15: only destinations outside the loopback range are traced
     get_journal().emit(
         "outbound_request",
@@ -70,17 +80,55 @@ def _check_and_trace(request: httpx.Request | httpx2.Request, scope: TraceScope)
     )
 
 
-def _headers(request: httpx.Request | httpx2.Request) -> list[dict[str, object]]:
-    """The headers as sent (order and case of `headers.raw`, decoded in latin-1), each value
-    outside `PUBLIC_HEADERS` replaced by `MASKED` before it can reach the journal."""
+def _traced(request: httpx.Request | httpx2.Request) -> bool:
+    """Whether the factory traces this request and its error response: any destination
+    outside the loopback range (AD-15). The one predicate of both hooks."""
+    return not is_loopback(request.url.host)
+
+
+def _trace_response(response: httpx.Response | httpx2.Response, scope: TraceScope) -> None:
+    """R2: a refusal (status 400 or more) from a traced destination, with its status and
+    headers as received, before the caller reads its body."""
+    request = response.request
+    if response.status_code < 400 or not _traced(request):
+        return
+    get_journal().emit(
+        "outbound_response",
+        {
+            "origin": scope.origin or "brick",
+            "method": request.method,
+            "url": str(request.url),
+            "status": response.status_code,
+            "headers": _masked(response.headers.raw, _public_response_header),
+        },
+        scope=scope,
+    )
+
+
+def _public_response_header(name: str) -> bool:
+    lowered = name.lower()
+    return lowered in PUBLIC_RESPONSE_HEADERS or lowered.startswith(PUBLIC_RESPONSE_PREFIXES)
+
+
+def _masked(
+    raw: list[tuple[bytes, bytes]], public: Callable[[str], bool]
+) -> list[dict[str, object]]:
+    """Headers in order and case (decoded in latin-1), each value whose name is not
+    `public` replaced by `MASKED` before it can reach the journal."""
     headers: list[dict[str, object]] = []
-    for raw_name, raw_value in request.headers.raw:
+    for raw_name, raw_value in raw:
         name = raw_name.decode("latin-1")
-        if name.lower() in PUBLIC_HEADERS:
+        if public(name):
             headers.append({"name": name, "value": raw_value.decode("latin-1"), "masked": False})
         else:
             headers.append({"name": name, "value": MASKED, "masked": True})
     return headers
+
+
+def _headers(request: httpx.Request | httpx2.Request) -> list[dict[str, object]]:
+    """The headers as sent (order and case of `headers.raw`, decoded in latin-1), each value
+    outside `PUBLIC_HEADERS` replaced by `MASKED` before it can reach the journal."""
+    return _masked(request.headers.raw, lambda name: name.lower() in PUBLIC_HEADERS)
 
 
 def _body(request: httpx.Request | httpx2.Request) -> bytes:
@@ -95,6 +143,10 @@ def _body(request: httpx.Request | httpx2.Request) -> bytes:
 
 def _trace_request(request: httpx.Request) -> None:
     _check_and_trace(request, current())
+
+
+def _trace_sync_response(response: httpx.Response) -> None:
+    _trace_response(response, current())
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -177,7 +229,7 @@ def create_client(
         transport=transport,
         mounts=mounts,
         headers={"User-Agent": user_agent()},
-        event_hooks={"request": [_trace_request]},
+        event_hooks={"request": [_trace_request], "response": [_trace_sync_response]},
     )
 
 
@@ -222,6 +274,9 @@ def create_async_client(
     async def trace(request: httpx2.Request) -> None:
         _check_and_trace(request, scope())
 
+    async def trace_response(response: httpx2.Response) -> None:
+        _trace_response(response, scope())
+
     verify = _ssl_context()
     mounts = None
     if transport is None:
@@ -233,5 +288,5 @@ def create_async_client(
         transport=transport,
         mounts=mounts,
         headers={"User-Agent": user_agent()},
-        event_hooks={"request": [trace]},
+        event_hooks={"request": [trace], "response": [trace_response]},
     )

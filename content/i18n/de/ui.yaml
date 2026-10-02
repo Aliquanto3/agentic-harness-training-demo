@@ -648,6 +648,7 @@ main:
       diagnostic_check: "Diagnoseprüfung"
       diagnostic_progress: "Modellsuche"
       outbound_request: "Ausgehende Daten"
+      outbound_response: "Fehlerantwort erhalten"
       harness_error: "Fehler des Harness"
       session_state: "Sitzungszustand"
       architecture_changed: "Schema aktualisiert"
@@ -1008,6 +1009,7 @@ diagnostic:
   no_candidate: "Kein Kandidat gefunden."
   checks_title: "Prüfungen"
   searching: "Modelle werden gesucht und getestet…"
+  loading: "Diagnose läuft…"
   progress:
     one: "{count} von {total} Modellen getestet"
     other: "{count} von {total} Modellen getestet"

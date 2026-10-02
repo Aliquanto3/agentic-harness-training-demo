@@ -111,6 +111,11 @@ PUBLIC_HEADERS = frozenset(
     }
 )
 
+# Recette du 02/10 (R2): the only response headers of an error (`outbound_response`) traced
+# in clear, lower-cased, plus the quota prefixes: the proof of a refusal, nothing else.
+PUBLIC_RESPONSE_HEADERS = frozenset({"content-type", "content-length", "date", "retry-after"})
+PUBLIC_RESPONSE_PREFIXES = ("x-ratelimit-", "ratelimit-")
+
 
 class AuthHeader(_Strict):
     name: str = "Authorization"

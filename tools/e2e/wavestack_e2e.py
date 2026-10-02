@@ -40,6 +40,30 @@ class _E2EReranker(FakeReranker):
         return super().score(query, passages, cancelled, progress)
 
 
+QUOTA_MARK = b"[quota0]"
+
+
+def _install_quota_trace() -> None:
+    """Recette du 02/10 (R2): the fake provider listens on 127.0.0.1, which the factory never
+    traces (AD-15). A request whose body carries `QUOTA_MARK` is traced all the same, here
+    only, so its refusal reaches the journal as `outbound_response`; every other request of
+    the fake model stays untraced (the data-flow counts of the other scenarios are kept)."""
+    from wavestack.net import factory
+
+    traced = factory._traced
+
+    def traced_or_marked(request) -> bool:  # noqa: ANN001
+        if traced(request):
+            return True
+        try:
+            return QUOTA_MARK in request.content
+        except Exception:  # noqa: BLE001 - a stream not read yet: not a marked model call
+            return False
+
+    factory._traced = traced_or_marked
+
+
+_install_quota_trace()
 embedding.open_embedder = lambda model: FakeEmbedder(model_id=model.id)
 reranker.open_reranker = lambda model: _E2EReranker(model_id=model.id)  # story 16
 

@@ -899,6 +899,38 @@ def test_a_429_without_any_quota_says_so_and_asks_no_wait():
     assert len(provider.requests) == 1  # never retried
 
 
+def test_a_refusal_leaves_its_status_and_quota_headers_in_the_journal():
+    """Recette du 02/10 (R2): `outbound_request`, then `outbound_response` (429, the quota
+    headers in clear, the request id masked), then the call ended in error; D6 unchanged."""
+    headers = {**_NO_QUOTA_HEADERS, "x-request-id": "abc"}
+    provider = Provider(httpx.Response(429, json=_NO_QUOTA_BODY, headers=headers))
+    session = _cloud_session("mistral", provider)
+
+    events = _turn(session, "Bonjour")
+    kinds = [e.kind for e in events]
+
+    assert (
+        kinds.index("outbound_request")
+        < kinds.index("outbound_response")
+        < kinds.index("model_call_ended")
+        < kinds.index("harness_error")
+    )
+    (response,) = _of(events, "outbound_response")
+    assert response.payload["status"] == 429
+    assert response.payload["origin"] == "model"
+    assert response.payload["method"] == "POST"
+    assert response.payload["url"].endswith("/chat/completions")
+    traced = {h["name"]: (h["value"], h["masked"]) for h in response.payload["headers"]}
+    assert traced["x-ratelimit-limit-req-minute"] == ("0", False)
+    assert traced["x-ratelimit-remaining-req-minute"] == ("0", False)
+    assert traced["retry-after"] == ("60", False)
+    assert traced["x-request-id"] == ("[masqué]", True)
+    assert _of(events, "model_call_ended")[0].payload["stop_reason"] == "error"
+    harness = _of(events, "harness_error")[0].payload
+    assert "Aucun quota actif sur ce compte" in harness["message_text"]  # D6 unchanged
+    _no_sentinel(response.model_dump_json())
+
+
 def test_a_429_with_a_quota_keeps_the_quota_message():
     headers = {**_NO_QUOTA_HEADERS, "x-ratelimit-limit-req-minute": "60"}
     answer = httpx.Response(429, json=_NO_QUOTA_BODY, headers=headers)

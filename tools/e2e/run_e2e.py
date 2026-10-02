@@ -12,6 +12,7 @@ logs to the data dir (printed with `--keep`). Exit code 1 when a check failed.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
 import json
 import os
@@ -1273,6 +1274,7 @@ def s_provider_errors(r: Run) -> None:
             r.shot("07-erreur-fournisseur-429")
         if trigger == "[erreur500]":
             _error_tile_on_vivid(r)
+    _quota0_refusal(r)
     ended = r.send("Bonjour")
     r.check(ended["payload"]["status"] == "completed", "WaveStack reste utilisable ensuite")
     seq = r.ev.mark()
@@ -1282,6 +1284,330 @@ def s_provider_errors(r: Run) -> None:
         "sortie coupée (finish_reason length)",
         ended["payload"]["status"],
     )
+
+
+_QUOTA0_LOG_ROW_JS = """() => [...document.querySelectorAll('#event-log-list .event-log-item')]
+  .filter((li) => li.querySelector('.event-log-kind').textContent === 'outbound_response')
+  .map((li) => ({
+    name: li.querySelector('.event-log-name').textContent,
+    summary: li.querySelector('.event-log-summary').textContent,
+  }))"""
+
+
+def _quota0_refusal(r: Run) -> None:
+    """Recette du 02/10 (R2): a 429 with a request quota of 0 (Mistral without a plan) leaves
+    `outbound_response` between `outbound_request` and `model_call_ended`: its status, the
+    quota headers in clear, the request id masked. The log labels and summarizes it,
+    Orchestration does not show it, and D6's message is unchanged. The `[quota0]` model call
+    is traced despite the loopback by the graft of `wavestack_e2e.py`; the conversation is
+    cleared after, so no later request carries the mark."""
+    try:
+        seq = r.ev.mark()
+        ended = r.send("Bonjour [quota0]")
+        events = r.ev.since(seq)
+        kinds = [e["kind"] for e in events]
+        responses = [e["payload"] for e in events if e["kind"] == "outbound_response"]
+        errors = [e["payload"]["message_text"] for e in r.ev.since(seq, "harness_error")]
+        r.check(ended["payload"]["status"] == "error", "[quota0] : tour en erreur")
+        ordered = (
+            "outbound_request" in kinds
+            and "outbound_response" in kinds
+            and "model_call_ended" in kinds
+            and kinds.index("outbound_request")
+            < kinds.index("outbound_response")
+            < kinds.index("model_call_ended")
+        )
+        r.check(
+            ordered and len(responses) == 1,
+            "[quota0] : outbound_response, une fois, entre outbound_request et model_call_ended",
+            str([k for k in kinds if k.startswith(("outbound", "model_call"))]),
+        )
+        headers = {
+            h["name"]: (h["value"], h["masked"]) for h in (responses or [{}])[0].get("headers", [])
+        }
+        r.check(
+            bool(responses)
+            and responses[0]["status"] == 429
+            and headers.get("x-ratelimit-limit-req-minute") == ("0", False)
+            and headers.get("x-ratelimit-remaining-req-minute") == ("0", False)
+            and headers.get("x-request-id") == ("[masqué]", True),
+            "[quota0] : statut 429, en-têtes de quota en clair, x-request-id masqué",
+            str(responses)[:400],
+        )
+        r.check(
+            "e2e-quota0-request" not in json.dumps(r.ev.since(seq), ensure_ascii=False),
+            "[quota0] : la valeur de x-request-id n'entre pas dans le journal",
+        )
+        d6 = "Aucun quota actif sur ce compte : vérifiez le plan dans la console du fournisseur."
+        r.check(
+            any(d6 in m for m in errors) and d6 in r.last_answer(),
+            "[quota0] : message D6 inchangé, dans le journal et la Vue humain",
+            " | ".join(errors)[:300],
+        )
+        rail = r.page.locator("#orch-scroll").inner_text()
+        r.check(
+            "x-ratelimit" not in rail and "e2e-quota0" not in rail,
+            "[quota0] : outbound_response n'est pas affiché dans Orchestration",
+        )
+        r.page.click("#event-log-head")
+        try:
+            expect(r.page.locator("#event-log-list")).to_be_visible(timeout=5000)
+            rows = r.page.evaluate(_QUOTA0_LOG_ROW_JS)
+            row = rows[-1] if rows else {}
+            summary = row.get("summary", "")
+            r.check(
+                row.get("name") == "Réponse d'erreur reçue"
+                and summary.startswith("429 · POST http://127.0.0.1:")
+                and "/chat/completions" in summary
+                and "x-ratelimit-limit-req-minute: 0" in summary
+                and "x-ratelimit-remaining-req-minute: 0" in summary
+                and "x-request-id" not in summary,
+                "[quota0] : journal, « Réponse d'erreur reçue » · 429 · POST url · quota en clair",
+                str(row),
+            )
+        finally:
+            r.page.click("#event-log-head")
+    finally:
+        _clear_conversation(r)
+
+
+# ---------- recette du 02/10: the Vue humain renders the answer's Markdown ----------
+
+# Watches the chat while the answer streams: once a rendered `.bubble-text` is in the last
+# answer, a mutation batch that leaves none is a loss (a flicker).
+_MD_WATCH_JS = """() => {
+  const chat = document.getElementById('chat');
+  const watch = { seen: false, lost: 0, batches: 0 };
+  const last = () => [...chat.querySelectorAll('.bubble-model')].at(-1);
+  new MutationObserver(() => {
+    watch.batches += 1;
+    const has = Boolean(last()?.querySelector('.bubble-text.is-markdown'));
+    if (has) watch.seen = true;
+    else if (watch.seen) watch.lost += 1;
+  }).observe(chat, { childList: true, subtree: true, characterData: true });
+  window.__mdWatch = watch;
+}"""
+
+_MD_DOM_JS = """() => {
+  const bubble = [...document.querySelectorAll('#chat .bubble-model')].at(-1)
+    ?.querySelector('.bubble-text.is-markdown');
+  if (!bubble) return null;
+  const q = (s) => [...bubble.querySelectorAll(s)];
+  const links = q('a');
+  return {
+    whiteSpace: getComputedStyle(bubble).whiteSpace,
+    title: q('h3').map((h) => h.textContent),
+    heading: q('h4').map((h) => h.textContent),
+    strong: q('ul > li > strong').map((s) => s.textContent),
+    underscored: q('p > strong').map((s) => s.textContent),
+    year: q('p').filter((p) => p.textContent.includes('2026. Une année'))
+      .map((p) => p.innerText),
+    nested: q('ul ul > li > em').map((e) => e.textContent),
+    inlineCode: q('li code').map((c) => c.textContent),
+    ordered: q('ol').map((o) => [o.getAttribute('start'), o.children.length]),
+    breaks: q('p br').length,
+    links: links.map((a) => [a.getAttribute('href'), a.target, a.rel, a.textContent]),
+    blocks: q('pre > code').map((c) => [c.className, c.textContent]),
+    forbidden: q('img, b, script, hr, table, blockquote, del, s, iframe').length,
+    text: bubble.innerText,
+    elsewhere: document.querySelectorAll('.is-markdown').length
+      - document.querySelectorAll('#chat .is-markdown').length,
+  };
+}"""
+
+
+def _markdown_problems(dom: dict[str, Any] | None) -> list[str]:
+    """What the rendering of `fake_openai.MARKDOWN_SAMPLE` misses, or [] when right."""
+    if not dom:
+        return ["aucune .bubble-text.is-markdown"]
+    expected = {
+        "title": ["Calendrier"],
+        "heading": ["Jours fériés"],
+        "strong": ["1er janvier :", "1er mai :"],
+        "underscored": ["gras souligné"],  # `__x__`
+        "year": ["Un paragraphe\n2026. Une année"],  # never an `ol start="2026"`
+        "nested": ["sous-point"],
+        "inlineCode": ["code_en_ligne"],
+        "ordered": [["3", 2], [None, 2]],  # `3.` then `1)`, and no other list
+        "blocks": [["language-text", "bloc fermé **brut**"], ["language-py", "x = 1"]],
+    }
+    problems = [f"{k} : {dom[k]}" for k, v in expected.items() if dom[k] != v]
+    links = dom["links"]
+    if not (
+        len(links) == 1
+        and links[0][0].startswith("https://example.org")
+        and links[0][1] == "_blank"
+        and "noopener" in links[0][2].split()
+        and links[0][3] == "site"
+    ):
+        problems.append(f"liens : {links}")
+    text = dom["text"]
+    for raw in (
+        "snake_case_name",
+        "*pas d'italique*",
+        "<img src=x onerror=alert(1)><b>gras HTML</b>",
+        "[clic](javascript:alert(1))",
+        "[relatif](/api/state)",
+        "![image](https://example.org/a.png)",
+        "---",
+        "| a | b |",
+        "> citation ~~barré~~",
+    ):
+        if raw not in text:
+            problems.append(f"texte brut manquant : {raw}")
+    if dom["forbidden"]:
+        problems.append(f"{dom['forbidden']} élément(s) interdit(s) (img, b, hr, table…)")
+    if dom["breaks"] < 1:
+        problems.append("aucun <br> pour le saut de ligne simple")
+    if dom["whiteSpace"] != "normal":
+        problems.append(f"white-space {dom['whiteSpace']}")
+    if dom["elsewhere"]:
+        problems.append(f"{dom['elsewhere']} rendu(s) Markdown hors de la Vue humain")
+    return problems
+
+
+def s_markdown(r: Run) -> None:
+    """Recette du 02/10: « [markdown] » answers `fake_openai.MARKDOWN_SAMPLE`. The Vue humain
+    renders it (lists, bold, italic, headings, code, the safe link), keeps the injections as
+    text (HTML, `javascript:`, a relative link, an image), never loses its `.bubble-text`
+    while streaming, and shows the same after a reload; Contexte LLM, the event log and the
+    screen reader's announcement keep the `**`."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    dialogs: list[str] = []
+    on_dialog = lambda d: (dialogs.append(d.message), d.dismiss())  # noqa: E731
+    page.on("dialog", on_dialog)
+    try:
+        r.launch("bare_llm")
+        page.evaluate(_MD_WATCH_JS)
+        ended = r.send("Montre le rendu [markdown]")
+        r.check(ended["payload"]["status"] == "completed", "[markdown] : tour terminé")
+        time.sleep(0.3)  # the last render after `turn_ended`
+        watch = page.evaluate("() => window.__mdWatch")
+        r.check(
+            watch["seen"] and watch["lost"] == 0 and watch["batches"] > 3,
+            "pendant le flux, la .bubble-text rendue ne disparaît jamais",
+            str(watch),
+        )
+        dom = page.evaluate(_MD_DOM_JS)
+        problems = _markdown_problems(dom)
+        r.check(
+            not problems,
+            "Vue humain : listes, gras, italique, titre h4, code, bloc ouvert, lien sûr ; "
+            "HTML, javascript:, lien relatif et image restent du texte",
+            "; ".join(problems)[:500],
+        )
+        r.check(
+            page.locator("#chat img").count() == 0 and not dialogs,
+            "aucune image ni alerte injectée",
+            str(dialogs),
+        )
+        r.shot("40-markdown-vue-humain")
+        ctx = page.locator("#ctx").inner_text()
+        live = page.locator("#chat-live").text_content() or ""
+        r.check(
+            "**1er janvier :**" in ctx and "**1er janvier :**" in live,
+            "Contexte LLM et l'annonce (#chat-live) gardent le Markdown brut",
+            f"ctx {'**1er janvier :**' in ctx} · annonce {live[:80]!r}",
+        )
+        page.click("#event-log-head")
+        try:
+            expect(page.locator("#event-log-list")).to_be_visible(timeout=5000)
+            summaries = page.evaluate(
+                "() => [...document.querySelectorAll('#event-log-list .event-log-item')]"
+                ".filter((li) => li.querySelector('.event-log-kind').textContent"
+                " === 'model_delta').map((li) =>"
+                " li.querySelector('.event-log-summary').textContent)"
+            )
+            r.check(
+                any("**1er janvier :**" in s for s in summaries),
+                "le journal garde le Markdown brut",
+                str([s[:60] for s in summaries[-2:]]),
+            )
+        finally:
+            page.click("#event-log-head")
+        rail = page.locator("#orch-scroll")
+        r.check(
+            rail.locator("strong, .is-markdown").filter(has_text="1er janvier").count() == 0,
+            "Orchestration ne rend pas le Markdown",
+        )
+        r.reload_app()
+        time.sleep(0.3)
+        again = page.evaluate(_MD_DOM_JS)
+        r.check(
+            again is not None
+            and dom is not None
+            and {k: again[k] for k in again if k != "text"}
+            == {k: dom[k] for k in dom if k != "text"},
+            "après rechargement, la Vue humain montre le même rendu",
+            "; ".join(_markdown_problems(again))[:300],
+        )
+        r.check(not errors, "aucune erreur de page", "; ".join(errors)[:300])
+    finally:
+        page.remove_listener("pageerror", listener)
+        page.remove_listener("dialog", on_dialog)
+        _clear_conversation(r)
+
+
+# ---------- recette du 02/10 (R1): the diagnostic says it waits ----------
+
+_LISTS_JS = """() => ['checks', 'candidates', 'cloud-models'].map((id) => {
+  const list = document.getElementById(id);
+  return { id, loading: list.querySelectorAll(':scope > .loading-note').length,
+    text: list.innerText.trim(), rows: list.children.length };
+})"""
+
+
+def s_diagnostic_wait(r: Run) -> None:
+    """R1: `/api/diagnostic` held 1.5 s by the browser; meanwhile, « Diagnostic en cours… » in
+    the three lists (Contrôles included: its stream opens after the answer); then each list
+    replaces it with its rows."""
+    page = r.page
+    held: list[Any] = []
+    hold = lambda route: held.append(route)  # noqa: E731 - answered below, 1.5 s later
+    page.route("**/api/diagnostic", hold)
+    try:
+        page.goto(f"{r.stack.app_url}/diagnostic", wait_until="domcontentloaded")
+        for _ in range(100):  # Playwright hands the route over while it waits, not in a sleep
+            if held:
+                break
+            page.wait_for_timeout(100)
+        r.check(bool(held), "la page demande /api/diagnostic (retenue par le test)")
+        asked_at = time.monotonic()
+        page.wait_for_timeout(300)  # the page's texts in its language (`await ready`)
+        during = page.evaluate(_LISTS_JS)
+        r.check(
+            all(x["loading"] == 1 and x["text"] == "Diagnostic en cours…" for x in during),
+            "pendant l'attente : « Diagnostic en cours… » dans Contrôles, Modèles détectés et "
+            "Modèles cloud",
+            str(during),
+        )
+        r.shot("41-diagnostic-en-cours")
+        page.wait_for_timeout(max(0, int((1.5 - (time.monotonic() - asked_at)) * 1000)))
+    finally:
+        try:
+            for route in held:
+                with contextlib.suppress(Exception):  # already handled: nothing to release
+                    route.continue_()
+        finally:
+            page.unroute("**/api/diagnostic", hold)
+
+    def replaced() -> bool:
+        lists = page.evaluate(_LISTS_JS)
+        return all(x["loading"] == 0 for x in lists) and all(
+            x["rows"] > 0 for x in lists if x["id"] != "candidates"
+        )
+
+    ok, took = r.poll(replaced, 15)
+    r.check(
+        ok,
+        "après la réponse : le texte d'attente laisse place aux lignes des trois listes",
+        f"{page.evaluate(_LISTS_JS)} · {took:.1f} s",
+    )
+    r.goto_app()
 
 
 def s_network_tools(r: Run) -> None:
@@ -2745,9 +3071,63 @@ def s_panes(r: Run) -> None:
             f"{_hidden_panes(r)} · { {p: round(refused[p]['w']) for p in top} }",
         )
         r.check(not errors, "E033 : aucune erreur de page", "; ".join(errors)[:300])
+        _reload_with_panes(r, None)
+        _focus_mode_keeps_the_page_still(r)
     finally:
         page.remove_listener("pageerror", listener)
+        page.set_viewport_size({"width": 1600, "height": 1000})
         _reload_with_panes(r, None)
+
+
+_SCROLL_TO_OUTBOUND_JS = """() => {
+  const target = [...document.querySelectorAll('#orch-scroll .outbound-payload')].at(-1)
+    || [...document.querySelectorAll('#orch-scroll .turn-step')].at(-1);
+  if (target) target.scrollIntoView({ block: 'center' });
+  return Boolean(target);
+}"""
+
+
+def _focus_mode_keeps_the_page_still(r: Run) -> None:
+    """Recette du 02/10: each pane in focus mode (⛶), at 1280×672 and 1440×900: a scroll of
+    Orchestration to its outbound data, the wheel, then End never scroll the page
+    (`document.scrollingElement.scrollTop` stays 0) and the bottom bar stays under the panes.
+    Orchestration first gets a turn with an outbound block (its failed tool step unfolds)."""
+    page = r.page
+    if page.locator("#orch-scroll .outbound-payload").count() == 0:
+        r.launch("network_tools")
+        r.send("Quels sont les jours fériés en France cette année ?")
+        time.sleep(0.5)
+    problems: list[str] = []
+    for width, height in ((1280, 672), (1440, 900)):
+        page.set_viewport_size({"width": width, "height": height})
+        for pane in _PANE_IDS:
+            focus = page.locator(f'.pane[data-pane="{pane}"] .pane-focus')
+            focus.click()
+            time.sleep(0.2)
+            reached = page.evaluate(_SCROLL_TO_OUTBOUND_JS) if pane == "orch" else True
+            box = page.locator(f'.pane[data-pane="{pane}"]').bounding_box()
+            if box:
+                page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                page.mouse.wheel(0, 3000)
+            page.keyboard.press("End")
+            time.sleep(0.3)
+            top = page.evaluate("() => document.scrollingElement.scrollTop")
+            bar = _bar_under_panes(r)
+            if top != 0 or bar or not reached:
+                problems.append(
+                    f"{pane} {width}×{height} : scrollTop {top}"
+                    + (f", {bar}" if bar else "")
+                    + ("" if reached else ", rien vers quoi défiler")
+                )
+            page.evaluate("() => window.scrollTo(0, 0)")
+            focus.click()
+            time.sleep(0.2)
+    r.check(
+        not problems,
+        "mode focus de chaque volet (1280×672, 1440×900) : défilement d'Orchestration vers ses "
+        "données sortantes, molette, Fin : la page ne défile pas, la barre reste sous les volets",
+        "; ".join(problems)[:500],
+    )
 
 
 def s_linked_view(r: Run) -> None:
@@ -11081,6 +11461,8 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("native_tools", s_native_tools),
     ("malformed", s_malformed),
     ("provider_errors", s_provider_errors),
+    ("markdown", s_markdown),  # recette du 02/10
+    ("diagnostic_wait", s_diagnostic_wait),  # recette du 02/10 (R1)
     ("network_tools", s_network_tools),
     ("disciplines", s_disciplines),
     ("themes", s_themes),

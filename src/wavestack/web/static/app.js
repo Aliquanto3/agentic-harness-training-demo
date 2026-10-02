@@ -7,6 +7,8 @@
 import { dateTimeFormat, joinList, numberFormat as intlNumber, ready as textsReady, section, t } from "./i18n.js";
 // Story 2 (2026-09-30): « Affichage ▾ » and the language picker, shared by the five pages.
 import { languageChanging, renderLanguagePicker as drawLanguagePicker, setDisplayMenu, useSessionState } from "./site-nav.js";
+// Recette du 02/10: the final answer's Markdown, rendered in the Vue humain only.
+import { renderMarkdown } from "./markdown.js";
 
 const PANES = ["bricks", "human", "ctx", "orch", "schema"];
 const PANE_LABELS = section("main.pane_titles");
@@ -688,6 +690,7 @@ const SUB_KINDS = new Set([
   "tool_started",
   "tool_ended",
   "outbound_request",
+  "outbound_response",
   "hook_decided",
   "effect_applied",
   "approval_requested",
@@ -2999,6 +3002,20 @@ function toggleShowReasoning(event) {
 // 250 ms stopwatch would otherwise swap the buttons under the pointer and lose a click.
 let approvalCards = new Map(); // approval id -> { key, node }
 
+// Recette du 02/10: each turn's rendered answer, kept while its text is unchanged (no re-parse
+// while streaming); a changed text is rendered again.
+let answerNodes = new Map(); // turn id -> { text, nodes }
+
+// The answer's Markdown as DOM nodes (never an HTML string), in a new `.bubble-text`.
+function answerText(turn, kept) {
+  const old = answerNodes.get(turn.id);
+  const entry = old?.text === turn.text ? old : { text: turn.text, nodes: [...renderMarkdown(turn.text).childNodes] };
+  kept.set(turn.id, entry);
+  const div = el("div", "bubble-text is-markdown");
+  div.append(...entry.nodes);
+  return div;
+}
+
 function renderChat() {
   const chat = document.getElementById("chat");
   const followTail = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
@@ -3006,6 +3023,7 @@ function renderChat() {
   const focusKey = chat.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
   const nodes = [];
   const cards = new Map();
+  const answers = new Map();
   const turns = shownTurns();
   if (turns.length === 0) nodes.push(emptyNote(cleared() ? clearedText() : noTurnText()));
   let shownBefore = null;
@@ -3041,7 +3059,7 @@ function renderChat() {
       const since = turn.callStartedAt ?? turn.startedAt;
       answer.appendChild(el("div", "working-indicator", `${t("main.chat.reasoning_now")} ${seconds(Date.now() - since)}`));
     }
-    if (turn.text) answer.appendChild(el("div", "bubble-text", turn.text));
+    if (turn.text) answer.appendChild(answerText(turn, answers));
     if (turn.status === null && !turn.firstToken) {
       const since = turn.callStartedAt ?? turn.startedAt;
       const label = turn.stopRequested ? t("main.chat.stop_requested") : turn.phaseLabel || t("main.chat.preparing");
@@ -3078,6 +3096,7 @@ function renderChat() {
     }
   }
   approvalCards = cards;
+  answerNodes = answers;
   const loading = modelLoadText();
   if (loading) nodes.push(el("div", "working-indicator model-load-indicator", loading));
   patchChildren(chat, nodes);
@@ -6502,6 +6521,14 @@ function eventSummary(group) {
       return `${p.status}${p.truncated ? ` · ${t("main.orch.rows.truncated")}` : ""} · ${seconds(p.duration_ms)}`;
     case "outbound_request":
       return `${p.method} ${p.url}`;
+    // Recette du 02/10 (R2): a refusal's status, then the quota headers left in clear.
+    case "outbound_response": {
+      const quota = (p.headers ?? [])
+        .filter((h) => !h.masked && /^(x-)?ratelimit-|^retry-after$/i.test(h.name))
+        .map((h) => `${h.name}: ${h.value}`)
+        .join(", ");
+      return [String(p.status), `${p.method} ${p.url}`, quota].filter(Boolean).join(" · ");
+    }
     case "mcp_connect_ended":
       return p.status === "ok"
         ? `${labelValue(mcpServerLabel(p.server), plural(p.tools.length, "tool"))} · ${seconds(p.duration_ms)}`

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import threading
+from types import SimpleNamespace
 
 from fake_engine import FakeEngine, booted_session
 from starlette.testclient import TestClient
@@ -12,6 +14,7 @@ from wavestack.models import discovery
 from wavestack.session.app_session import AppSession
 from wavestack.session.diagnostic import DiagnosticResult, DiagnosticSession
 from wavestack.trace.journal import get_journal
+from wavestack.web import app as web_app
 from wavestack.web.app import _sse_stream, create_app
 
 
@@ -495,3 +498,95 @@ def test_select_model_boots_the_found_candidate_path(monkeypatch, tmp_path):
 
     assert received == ["/fake/model.gguf"]
     assert app_session.state == "idle" and app_session.reason_text is None
+
+
+# ---------- recette du 02/10 (R1): `/api/diagnostic` times itself, in the logs only ----------
+
+
+def _diagnostic_lines(caplog) -> list[logging.LogRecord]:
+    return [
+        r
+        for r in caplog.records
+        if r.name == "wavestack.web.app" and "/api/diagnostic" in r.getMessage()
+    ]
+
+
+def test_api_diagnostic_logs_its_total_wait_and_steps_in_debug(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.DEBUG, logger="wavestack.web.app")
+    client = _client(_build(monkeypatch, tmp_path))
+    mark = get_journal().last_seq()
+    assert client.get("/api/diagnostic").status_code == 200
+    assert client.get("/api/diagnostic").status_code == 200
+
+    first, second = _diagnostic_lines(caplog)
+    assert first.levelno == logging.DEBUG  # a fast call: never in the console
+    text = first.getMessage()
+    assert re.search(r"n° 1 : \d+ ms au total \(attente avant le gestionnaire \d+ ms ; ", text)
+    for step in ("active_choice", "cloud_rows", "_models", "shown"):
+        assert re.search(rf"\b{step} \d+ ms", text), step
+    assert re.search(r"\d+\.\d s après la création de l'application", text)
+    assert "n° 2 :" in second.getMessage()
+    # Never a journal event: it would follow the `seq` the route read, at each call.
+    assert get_journal().events_since(mark) == []
+
+
+def test_a_slow_api_diagnostic_is_a_warning(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(web_app, "SLOW_DIAGNOSTIC_S", 0.0)  # every call is « slow »
+    caplog.set_level(logging.DEBUG, logger="wavestack.web.app")
+    assert _client(_build(monkeypatch, tmp_path)).get("/api/diagnostic").status_code == 200
+
+    (line,) = _diagnostic_lines(caplog)
+    assert line.levelno == logging.WARNING
+
+
+def _ms(name: str, text: str) -> int:
+    return int(re.search(rf"{name} (\d+) ms", text).group(1))
+
+
+def test_the_wait_before_the_handler_is_measured_from_the_arrival(monkeypatch, tmp_path, caplog):
+    """The middleware dates the arrival: with a clock rising 1 s at each reading, the handler
+    starts at least 1 s after it; the total counts the wait and every step."""
+    ticks = iter(range(10_000))
+    monkeypatch.setattr(web_app, "time", SimpleNamespace(perf_counter=lambda: float(next(ticks))))
+    caplog.set_level(logging.DEBUG, logger="wavestack.web.app")
+    client = _client(_build(monkeypatch, tmp_path))
+    assert client.get("/api/health").status_code == 200
+    assert _diagnostic_lines(caplog) == []  # another route: no line
+    assert client.get("/api/diagnostic").status_code == 200
+
+    (line,) = _diagnostic_lines(caplog)
+    text = line.getMessage()
+    wait = _ms("attente avant le gestionnaire", text)
+    steps = sum(_ms(step, text) for step in ("active_choice", "cloud_rows", "_models", "shown"))
+    total = int(re.search(r": (\d+) ms au total", text).group(1))
+    assert wait >= 1000
+    assert total >= wait + steps
+
+
+# ---------- recette du 02/10: the Vue humain's Markdown, built as DOM only ----------
+
+STATIC = web_app.STATIC_DIR
+
+
+def test_markdown_module_never_parses_html():
+    """No HTML string ever reaches the DOM: what a model writes in HTML shows as text."""
+    source = (STATIC / "markdown.js").read_text(encoding="utf-8")
+    code = re.sub(r"^\s*//.*$", "", source, flags=re.M)  # its comments may name them
+    for api in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "DOMParser"):
+        assert api not in code, api
+    for api in ("createElement", "createTextNode", "textContent"):
+        assert api in code, api
+    assert re.search(r'protocol === "http:" \|\| parsed\.protocol === "https:"', code)
+    assert "import " not in code and "fetch(" not in code  # no dependency, no network
+
+
+def test_the_answer_bubble_alone_uses_the_markdown_rendering():
+    app_js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert 'import { renderMarkdown } from "./markdown.js";' in app_js
+    assert app_js.count("renderMarkdown(") == 1  # one place: the Vue humain's answer
+    assert 'el("div", "bubble-text is-markdown")' in app_js
+    assert 'el("div", "bubble-text", turn.text)' not in app_js
+    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    assert re.search(
+        r"body\.focus-mode \.right:has\([^)]*\.pane\.is-focused\) \{\s*min-height: 0;", css
+    )

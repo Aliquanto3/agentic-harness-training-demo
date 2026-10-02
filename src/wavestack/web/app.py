@@ -7,9 +7,11 @@ Protected per AD-18's subset: `TrustedHostMiddleware` on
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
 import subprocess
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -39,6 +41,10 @@ from wavestack.trace.journal import get_journal
 
 STATIC_DIR = Path(__file__).parent / "static"
 log = logging.getLogger(__name__)
+
+# Recette du 02/10 (R1): from this total, `/api/diagnostic`'s timing line is a warning,
+# visible in the console of `uv run wavestack`; below, a debug line.
+SLOW_DIAGNOSTIC_S = 1.0
 
 
 class SelectModelIntention(BaseModel):
@@ -294,6 +300,8 @@ def create_app(
 
     app = FastAPI(title="WaveStack", version=version, lifespan=lifespan)
     app.state.app_session = app_session
+    created = time.perf_counter()  # R1: each diagnostic call says how long after this
+    diagnostic_calls = itertools.count(1)
 
     def t(key: str, **kw: Any) -> str:
         """Languages (5/5): an HTTP `detail` in the session's language."""
@@ -344,6 +352,14 @@ def create_app(
         if not request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-cache"
         return response
+
+    @app.middleware("http")
+    async def _diagnostic_arrival(request: Request, call_next):  # noqa: ANN001, ANN202
+        """R1: when `/api/diagnostic` reached the application (the outermost middleware), so
+        its handler can tell the wait before it ran (a sync handler waits for a thread)."""
+        if request.url.path == "/api/diagnostic":
+            request.state.diagnostic_arrived = time.perf_counter()
+        return await call_next(request)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -579,13 +595,21 @@ def create_app(
         )
 
     @app.get("/api/diagnostic")
-    def diagnostic_state() -> dict[str, object]:
+    def diagnostic_state(request: Request) -> dict[str, object]:
+        # R1 (recette du 02/10): each step timed, then one log line (never a journal event).
+        started = time.perf_counter()
+        steps: dict[str, float] = {}
+
+        def lap(name: str) -> None:
+            steps[name] = time.perf_counter() - started - sum(steps.values())
+
         # The journal's last `seq` before anything is read: the page's stream replays the
         # events up to it as history, without their side effects; a later one is live.
         tip = get_journal().last_seq()
         result = session.last_result
         # Story 17: the application session alone says which model is loaded (AD-12).
         active = app_session.active_choice()
+        lap("active_choice")
         selected = next(
             (
                 {"kind": kind, "ref": ref}
@@ -599,8 +623,11 @@ def create_app(
             None,
         )
         cloud = session.cloud_rows(active.ref if active and active.kind == "cloud" else None)
+        lap("cloud_rows")
         candidates = result.candidates if result else []
-        return shown(
+        models = _models(candidates, cloud)
+        lap("_models")
+        answer = shown(
             {
                 "version": version,
                 "ready": result.ready if result else False,
@@ -618,7 +645,7 @@ def create_app(
                 # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
                 "cloud": cloud,
                 # Story 25: the picker's groups and the `/models` table, built in Python (AD-1).
-                **_models(candidates, cloud),
+                **models,
                 # Story 24: the budget the session refuses with (the diagnostic's memory line).
                 "memory_budget_bytes": app_session.memory_budget_bytes,
                 # Story 3 (corrections): the model search runs until the `model` check's
@@ -627,6 +654,28 @@ def create_app(
                 "progress": _search_progress() if result is None else None,
                 "seq": tip,
             }
+        )
+        lap("shown")
+        arrived = getattr(request.state, "diagnostic_arrived", started)
+        total = time.perf_counter() - arrived
+        _log_diagnostic_timing(next(diagnostic_calls), total, started - arrived, steps)
+        return answer
+
+    def _log_diagnostic_timing(
+        call: int, total: float, wait: float, steps: dict[str, float]
+    ) -> None:
+        """R1: the call's total (from its arrival), the wait before the handler and each
+        step, in ms; a warning from `SLOW_DIAGNOSTIC_S`, so a slow first call is seen."""
+        level = logging.WARNING if total >= SLOW_DIAGNOSTIC_S else logging.DEBUG
+        log.log(
+            level,
+            "/api/diagnostic n° %d : %.0f ms au total (attente avant le gestionnaire %.0f ms ; "
+            "%s), %.1f s après la création de l'application",
+            call,
+            total * 1000,
+            wait * 1000,
+            ", ".join(f"{name} {seconds * 1000:.0f} ms" for name, seconds in steps.items()),
+            time.perf_counter() - created,
         )
 
     def _search_progress() -> dict[str, int] | None:

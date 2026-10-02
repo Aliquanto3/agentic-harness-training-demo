@@ -644,6 +644,32 @@ un module, `robotPose`, `moveBoundary` ou `loadPaneLayout` se lisent par ce qu'i
 - `gemini_shape` (E141) : `_footprint_line` attend que la page ait rendu le tour terminé, puis
   déplie l'étape « Appelle le modèle » jusqu'à voir son empreinte (sans délai fixe).
 
+## Suites de la recette PC du 02/10
+
+- `markdown`, scénario nouveau : « [markdown] » répond `MARKDOWN_SAMPLE` (`fake_openai.py`).
+  La Vue humain rend titre (`##` en h4), listes à puces imbriquées, liste numérotée
+  (`start="3"`), gras, italique, code en ligne, bloc `~~~` fermé et bloc ```` ``` ```` encore
+  ouvert, et un seul lien (`https://example.org`, `target="_blank"`, `rel="noopener
+  noreferrer"`) ; le HTML du modèle, `javascript:`, le lien relatif, l'image, la règle, le
+  tableau et la citation restent du texte (aucun `img`, `b`, `hr`, `table`, aucune alerte). Un
+  `MutationObserver` vérifie que la `.bubble-text` rendue ne disparaît jamais pendant le flux.
+  Contexte LLM, le journal (`model_delta`) et `#chat-live` gardent les `**` ; Orchestration ne
+  rend rien ; même rendu après rechargement.
+- `diagnostic_wait`, scénario nouveau : `page.route` retient `GET /api/diagnostic` 1,5 s ;
+  pendant ce temps, « Diagnostic en cours… » dans Contrôles, Modèles détectés et Modèles cloud,
+  puis chaque liste le remplace par ses lignes (R1).
+- `provider_errors` : « [quota0] » (429, `x-ratelimit-limit-req-minute: 0`, `x-request-id`)
+  laisse `outbound_response` entre `outbound_request` et `model_call_ended` : 429, quota en
+  clair, `x-request-id` masqué (sa valeur n'entre pas dans le journal) ; libellé « Réponse
+  d'erreur reçue » et résumé `429 · POST url · quota` dans le journal, rien dans Orchestration,
+  message D6 inchangé ; conversation vidée ensuite (R2). Le faux fournisseur écoute sur la
+  boucle locale, jamais tracée (AD-15) : `wavestack_e2e.py` remplace `factory._traced` pour
+  les seules requêtes dont le corps contient `[quota0]`.
+- `panes` : chaque volet en mode focus (⛶), à 1280×672 puis 1440×900 ; défilement
+  d'Orchestration vers son dernier bloc « Données sortantes » (un tour `network_tools` d'abord
+  s'il n'y en a pas), molette, Fin : `document.scrollingElement.scrollTop` reste à 0 et la barre
+  basse reste sous les volets (`body.focus-mode .right:has(…) { min-height: 0; }`).
+
 ## Déclencheurs du faux modèle
 
 La réponse dépend du dernier message de l'utilisateur (sans le texte ajouté par H3 ni les
@@ -668,6 +694,8 @@ d'autres (story 21) :
 | `[mal-formé]` / `[mal-formé-toujours]` / `[outil-inconnu]` | arguments JSON invalides puis correction / à chaque essai / outil inexistant |
 | `[tool_use_failed]` | 400 `tool_use_failed` (façon Groq) |
 | `[erreur429]`, `[erreur500]`, `[erreur401]`, `[flux-erreur]` | refus du fournisseur, erreur au milieu du flux |
+| `[quota0]` (recette du 02/10) | 429 `Rate limit exceeded` avec `x-ratelimit-limit-req-minute: 0`, `x-ratelimit-remaining-req-minute: 0` et `x-request-id` (Mistral sans plan) ; tracé malgré la boucle locale par `wavestack_e2e.py` |
+| `[markdown]` (recette du 02/10) | `MARKDOWN_SAMPLE` : le sous-ensemble Markdown rendu par la Vue humain et les injections qui doivent rester du texte ; son dernier bloc de code reste ouvert |
 | `[coupé]`, `[long]`, `[lent]`, `[raisonne]` | `finish_reason: length`, texte long, flux lent (pour « Arrêter »), champ `reasoning` |
 | `[sans-usage]` | réponse sans `usage` en fin de flux (tokens estimés par WaveStack) |
 | `[reranker-en-panne]` | (lu par le faux reranker de `wavestack_e2e.py`, pas par le faux modèle) le reranking lève, l'étape « Reranking » est en erreur |

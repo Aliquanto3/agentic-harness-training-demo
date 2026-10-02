@@ -90,6 +90,41 @@ cette attente, la page n'affiche aucun indicateur de chargement.
   `WAVESTACK_DATA_DIR` vers un dossier jetable dont `models\reranker` est vide (comme la séance
   du 29/09), puis lancer et annuler le téléchargement depuis la carte « RAG with reranking ».
 
+## Suites (02/10, `spec-recette-2026-10-02-markdown-diagnostic-quota.md`)
+
+- **R1, fermé.** `diagnostic.html` affiche « Diagnostic en cours… » (`diagnostic.loading`, fr,
+  en, de) dans Contrôles, Modèles détectés et Modèles cloud jusqu'au premier rendu de chaque
+  liste ; dans Contrôles, le texte part à la première ligne reçue par le flux. Côté serveur,
+  chaque `GET /api/diagnostic` écrit une ligne de log : numéro de l'appel, total, attente avant
+  le gestionnaire (middleware limité à la route), durée d'`active_choice`, `cloud_rows`,
+  `_models` et `shown` en ms, temps écoulé depuis la création de l'application. En `debug`
+  sous `SLOW_DIAGNOSTIC_S = 1.0`, en `warning` au-delà, donc visible dans la console de
+  `uv run wavestack`. Aucun événement de journal. La cause des 9,9 s reste à lire dans cette
+  ligne au prochain premier lancement lent.
+- **R2, fermé.** Nouvel événement `outbound_response` (« Réponse d'erreur reçue »), émis par
+  la fabrique HTTP (crochet `response` des clients synchrone et asynchrone) pour tout statut
+  ≥ 400 d'un hôte hors de la boucle locale : `origin`, `method`, `url`, `status`, en-têtes dans
+  l'ordre reçu. Seuls `content-type`, `content-length`, `date`, `retry-after` et les préfixes
+  `x-ratelimit-` et `ratelimit-` restent en clair (`config.PUBLIC_RESPONSE_HEADERS`) ; le reste
+  est masqué. Dans un tour Mistral : `outbound_request`, `outbound_response` (429, quota en
+  clair), `model_call_ended` en erreur, puis le message D6, inchangé. Résumé du journal :
+  `429 · POST url · x-ratelimit-limit-req-minute: 0, …`. Rien dans Orchestration.
+- **Markdown dans la Vue humain, fait.** `static/markdown.js`, rendu maison construit nœud par
+  nœud (jamais d'`innerHTML`), appliqué à la seule réponse finale : paragraphes, gras,
+  italique, listes imbriquées, titres (h3 à h6), code en ligne et blocs de code, liens
+  `http(s)` seulement. Le HTML du modèle, `javascript:`, les liens relatifs et les images
+  restent du texte. Contexte LLM, Orchestration, le journal, la comparaison et l'annonce
+  d'accessibilité gardent le texte brut.
+- **Barre basse en mode focus, confirmé puis corrigé.** Reproduit par Playwright à 1280×672,
+  1440×900 et 1280×624 : `.right`, en colonne sans `min-height: 0`, débordait du `body`.
+  Correctif :
+  `body.focus-mode .right:has(> .pane.is-focused, > .top-row > .pane.is-focused) { min-height: 0; }`.
+  La règle ne s'applique que si le volet agrandi est dans `.right` : appliquée sans condition,
+  elle faisait défiler la page de 108 px quand on agrandissait Briques (`.right`, de base 0,
+  tombait à zéro et ses en-têtes repliés débordaient). Contrôle E2E dans `panes` : chaque volet
+  agrandi, à 1280×672 et 1440×900 ; il échoue sans la règle (Vue humain, Contexte LLM et
+  Orchestration).
+
 ## État en fin de séance
 
 - `settings.json` identique à la sauvegarde : `language: "en"`, `selected_model: {kind: "cloud",

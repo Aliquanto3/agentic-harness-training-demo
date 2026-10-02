@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 
 from wavestack.config import CloudModel
 from wavestack.models.engine import CancelToken
-from wavestack.models.openai_chat import ChatBody, ChatEnd, OpenAIChatEngine
+from wavestack.models.openai_chat import ChatBody, ChatEnd, OpenAIChatEngine, ProviderError
 
 _PATH = Path(__file__).resolve().parents[1] / "tools" / "e2e" / "fake_openai.py"
 
@@ -130,6 +130,51 @@ def test_short_memory_answer_depends_on_history():
 )
 def test_error_triggers(trigger, status):
     assert fake.plan_reply(_body(_user(f"Bonjour {trigger}"))).status == status
+
+
+def test_markdown_trigger_answers_the_sample_with_its_injections():
+    """Recette du 02/10: « [markdown] » covers the rendering and the injections to keep as text."""
+    reply = fake.plan_reply(_body(_user("Montre le rendu [markdown]"), tools=("get_datetime",)))
+    assert reply.status == 200 and not reply.tool_calls
+    assert reply.text == fake.MARKDOWN_SAMPLE
+    for piece in (
+        "*   **1er janvier :**",
+        "3. ",
+        "<img src=x onerror=alert(1)>",
+        "snake_case_name",
+        "# Calendrier\n",  # a single `#`: h3
+        "__gras souligné__",
+        "1) premier\n2) second\n",
+        "Un paragraphe\n2026. Une année\n",  # stays in the paragraph
+    ):
+        assert piece in reply.text, piece
+    for link in ("[clic](javascript:alert(1))", "[relatif](/api/state)", "(https://example.org)"):
+        assert link in reply.text, link
+    assert reply.text.count("```") == 1  # its last block is still open
+
+
+def test_quota0_trigger_refuses_as_mistral_without_a_plan():
+    """Recette du 02/10 (R2): 429, a request quota of 0 and a request id, the D6 message."""
+    client = TestClient(fake.create_app())
+    headers = {"Authorization": f"Bearer {fake.EXPECTED_KEY}"}
+    answer = client.post(
+        "/v1/chat/completions", json=_body(_user("Bonjour [quota0]")), headers=headers
+    )
+    assert answer.status_code == 429
+    assert answer.headers["x-ratelimit-limit-req-minute"] == "0"
+    assert answer.headers["x-ratelimit-remaining-req-minute"] == "0"
+    assert answer.headers["x-request-id"]
+    assert answer.json() == {"error": {"message": "Rate limit exceeded"}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers=dict(answer.headers), content=answer.content)
+
+    engine = OpenAIChatEngine(
+        _entry(), SecretStr(fake.EXPECTED_KEY), transport=httpx.MockTransport(handler)
+    )
+    with pytest.raises(ProviderError) as refused:
+        list(engine.complete(ChatBody(b"{}"), CancelToken()))
+    assert "Aucun quota actif sur ce compte" in refused.value.message_text
 
 
 def test_http_routes_and_key():

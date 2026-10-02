@@ -755,3 +755,7 @@
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/6-e2e-schema-rail-volets-comparaison-cas-d-erreur-et-stabilite.md`
   summary: Le résumé du journal (`eventSummary`) n'est exécuté par l'E2E que pour les types émis pendant `native_tools` ; pour les autres (`model_load_step`, `model_load_ended`, `mcp_connect_ended`, `llm_*`, `mcp_lab_*`…), `_log_catalog` ne vérifie que la présence d'un `case "…":` dans le source.
   evidence: Revue (verification-gap) de la story 6 des restes différés : un `case` qui tombe dans le suivant, rend `""` ou lève sur un champ absent passerait les deux contrôles. Fermer demanderait d'ouvrir le journal dans les scénarios qui émettent ces types (`model_switch`, `mcp_full`, `llm_screen`, `mcp_lab`) et d'y appliquer le contrôle « chaque ligne résume », ou un banc JS (exclu par CAP-5).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-recette-2026-10-02-markdown-diagnostic-quota.md`
+  summary: Le rendu Markdown de la Vue humain balaie le paragraphe pour chaque `[` ou `*` non fermé, et refait toute l'analyse à chaque rendu du flux (coût quadratique par paragraphe).
+  evidence: Non vérifié (revue du 02/10). Pour trancher, mesurer sur le PC cible le temps de `renderMarkdown` pour un paragraphe de 5 ko de JSON hors bloc de code, pendant le flux.
