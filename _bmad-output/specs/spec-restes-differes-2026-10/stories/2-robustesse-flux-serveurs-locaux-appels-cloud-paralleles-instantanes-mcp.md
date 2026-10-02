@@ -118,6 +118,7 @@ deferred: []
 ## Spec Change Log
 
 - 2026-10-01 -- validé en mode nuit (Anaël absent, autorisation du 01/10 au soir) : point d'arrêt 1 (spec) approuvé, « Approve and continue » ; spec conforme au SPEC (CAP-2) et au triage (E003, E048, E067, E089, E119, E142). Choix du plan : seuil 0,2, retour au modèle précédent après le tour pour E119 (pas de refus au chargement), N = 3 pour E003.
+- 2026-10-02 -- confirmé par Anaël : choix du mode nuit (retour au modèle précédent après le tour pour E119, N = 3 essais pour E003, seuil d'écart MCP de 0,2) gardés tels quels.
 
 ## Review Triage Log
 

@@ -102,6 +102,7 @@ Préalable vérifié : `SPEC.md:67-89`, « Tranchées le 2026-10-01 : Anaël sui
 
 - 2026-10-01 -- validé en mode nuit (Anaël absent, autorisation du 01/10 au soir) : spec approuvée (option « Approve and continue ») ; elle suit les décisions D1 à D19 consignées dans `SPEC.md`. Choix produits non couverts par les décisions, pris au plus prudent et réversible : (1) D5 ne liste que les outils dont le résultat informe la réponse (natifs, MCP, délégation au sous-agent), pas `load_skill`, `load_tool_doc` ni `remember` ; un nom par étape ; (2) D3 déplie les listes au seul passage à vrai, l'animateur peut les replier ; (3) D7 : date et heure courtes. Taille au-dessus de 1 600 tokens, sous 4 000 : pas de question (fait persistant du projet).
 - 2026-10-01 -- validé en mode nuit (Anaël absent, autorisation du 01/10 au soir) : D18 appliqué en deux modes (cumul au tokenizer du GGUF, échange précédent seul en estimation à 2 caractères par token), parce que le cumul déborde en estimation pour une raison qui n'est pas l'historique (contexte de `subagent` compté 40 % trop haut). Réponses mesurées par échange (500 puis 250) plutôt qu'une taille unique de 500 : « la taille relevée au lot K ». Tâche et critère d'acceptation amendés en conséquence (hors bloc gelé). Réversible : une ligne de `test_program.py`.
+- 2026-10-02 -- confirmé par Anaël : choix produits du mode nuit D3 (déplier au seul passage à vrai), D5 (outils terminés `ok`, hors outils du harnais, un nom par étape) et D7 (date et heure courtes) gardés tels quels.
 
 ## Review Triage Log
 

@@ -112,6 +112,7 @@ deferred: []
 
 - 2026-10-01 -- validé en mode nuit (Anaël absent, autorisation du 01/10 au soir) : spec conforme au SPEC (CAP-4, Assumptions), à D16 = oui et à AD-4 / AD-25 ; décisions D16-a à D16-c et E122-a à E122-c prises comme options les plus prudentes et réversibles (voir l'intention) ; approuvée et poursuivie dans la même session.
 - 2026-10-02 -- validé en mode nuit (Anaël absent, autorisation du 01/10 au soir) : constat de revue « préremplissage terminé après une conversation antérieure → `prefix_not_reused{reset}` faux », en contradiction avec l'Always « aucun `prefix_not_reused` » ; E122-a (décision du mode nuit, pas d'Anaël) amendée : `_main_cache` suit le cache du moteur après le préremplissage quand une conversation a précédé, reste `None` sinon. État évité : un texte « le cache contient encore l'ancienne » alors que le moteur tient le préfixe prérempli. KEEP : le chemin `reset` sans préremplissage reste épinglé (`test_a_scenario_change_is_a_reset` sur un moteur sans `prefill`).
+- 2026-10-02 -- confirmé par Anaël : détails D16-a à D16-c (ligne d'un outil chargé gardée au catalogue de `load_tool_doc`, appel MCP forcé en lazy défini dans `tools` seulement en mode chat) gardés tels quels.
 
 ## Review Triage Log
 

@@ -35,6 +35,8 @@ L'extension Claude in Chrome n'était pas reliée à la session : Chrome a été
 
 Chaque spec les consigne dans son Spec Change Log, sous la mention « validé en mode nuit ».
 
+**Confirmés par Anaël le 2026-10-02, tels quels :** D3, D5, D7, D16, S2 et 1e (entrée datée dans chaque Spec Change Log, « confirmé par Anaël » dans `deferred-work.md`). Les seuils de V2 S6 se valident sur le relevé du banc.
+
 - **D3** : la liste d'options se déplie quand « Afficher les actions forcées » passe à vrai, mais pas au rechargement ni après « Réinitialiser ».
 - **D5** : « Outils consultés » ne cite que les outils terminés `ok` (natifs, MCP, délégation), sans les outils du harnais. Un outil appelé deux fois apparaît deux fois.
 - **D7** : date et heure courtes.

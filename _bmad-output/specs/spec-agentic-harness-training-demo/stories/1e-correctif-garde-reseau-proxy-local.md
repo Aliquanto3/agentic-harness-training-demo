@@ -192,6 +192,7 @@ Revue du 2026-10-01 (couches Blind Hunter, Edge Case Hunter, Verification Gap).
 - 2026-10-01 -- Décisions 1 à 4 tranchées par Anaël (recommandations suivies). Statut passé à `ready-for-dev`.
 - 2026-10-01 -- Implémentation : en plus de la Code Map, `tools/bench/story12_bench.py` remet la copie du proxy dans l'environnement du banc quand `strip_proxy` est faux (le banc télécharge par `huggingface_hub` et `fastembed`, hors fabrique). `tests/conftest.py` retire le proxy dès son chargement, car l'import de `wavestack.cli` à la collecte installe la garde avant la fixture de session.
 - 2026-10-01 -- Revue triée (18 constats : 12 corrigés, 5 rejetés, 1 reporté dans `deferred-work.md`). Vérification : `ruff` propre ; pytest en quarts avec `HTTPS_PROXY=http://127.0.0.1:9000` : 3569 + 682 + 314 + 327 passés, un échec étranger (`test_rag_lab::test_nothing_is_written_under_the_repository`, écritures d'un autre agent dans `.claude/worktrees/`). Statut `done` ; les vérifications manuelles sur le PC pro restent à faire par Anaël.
+- 2026-10-02 -- confirmé par Anaël : `tools/bench/story12_bench.py` remet le proxy du poste dans l'environnement du banc, qui télécharge hors fabrique.
 
 ## Verification
 
