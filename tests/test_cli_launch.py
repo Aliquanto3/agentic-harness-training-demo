@@ -327,3 +327,106 @@ def test_a_status_other_than_200_is_no_instance(monkeypatch):
     )
 
     assert cli._existing_instance_health(8888) is None
+
+
+# ---------- story 7 of the deferred leftovers (E077): Ctrl+C with a page still open ----------
+
+
+def test_main_gives_uvicorn_the_shutdown_grace(monkeypatch):
+    """`main` hands uvicorn `SHUTDOWN_GRACE_S`: without it, an open page's stream holds the
+    shutdown forever."""
+    runs: list[dict] = []
+
+    class _Session:
+        def __init__(self, cfg, port) -> None:
+            pass
+
+        def first_launch(self) -> bool:
+            return False
+
+    class _Reserved:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "_try_reserve_port", lambda port: _Reserved())
+    monkeypatch.setattr(cli, "DiagnosticSession", _Session)
+    monkeypatch.setattr(cli, "AppSession", lambda cfg: object())
+    monkeypatch.setattr(cli, "create_app", lambda *args, **kwargs: "app")
+    monkeypatch.setattr(
+        cli, "get_journal", lambda: type("J", (), {"subscribe": lambda s, f: None})()
+    )
+    monkeypatch.setattr(cli, "_run_diagnostic_then_boot", lambda *args: None)
+    monkeypatch.setattr(cli, "_open_browser", lambda *args: None)
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kwargs: runs.append(kwargs))
+
+    assert cli.main(["--port", "8888"]) == 0
+
+    assert runs[0]["timeout_graceful_shutdown"] == cli.SHUTDOWN_GRACE_S
+    assert runs[0]["host"] == "127.0.0.1" and runs[0]["port"] == 8888
+
+
+def test_shutdown_with_an_open_stream_ends_and_runs_the_lifespan():
+    """A real uvicorn with `SHUTDOWN_GRACE_S` and a stream that never ends (the page's SSE):
+    asked to stop, it stops within the grace and still runs the lifespan's close."""
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    import httpx
+    import uvicorn
+    from fastapi import FastAPI
+    from fastapi.responses import StreamingResponse
+
+    closed = threading.Event()
+
+    @asynccontextmanager
+    async def lifespan(_):
+        yield
+        closed.set()
+
+    app = FastAPI(lifespan=lifespan)
+
+    @app.get("/stream")
+    async def stream() -> StreamingResponse:
+        async def forever():
+            while True:
+                yield b": keep-alive\n\n"
+                await asyncio.sleep(0.2)
+
+        return StreamingResponse(forever(), media_type="text/event-stream")
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=0,
+            log_level="warning",
+            timeout_graceful_shutdown=cli.SHUTDOWN_GRACE_S,
+        )
+    )
+    serving = threading.Thread(target=server.run, daemon=True)
+    serving.start()
+    deadline = time.monotonic() + 10
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert server.started, "uvicorn did not start"
+    port = server.servers[0].sockets[0].getsockname()[1]
+    opened = threading.Event()
+
+    def read() -> None:
+        try:
+            with httpx.Client(trust_env=False, timeout=httpx.Timeout(5, read=None)) as client:
+                with client.stream("GET", f"http://127.0.0.1:{port}/stream") as response:
+                    for _ in response.iter_raw():
+                        opened.set()
+        except httpx.HTTPError:
+            pass
+
+    threading.Thread(target=read, daemon=True).start()
+    assert opened.wait(5)
+    started = time.monotonic()
+    server.should_exit = True  # what uvicorn's own handler sets at Ctrl+C
+    serving.join(cli.SHUTDOWN_GRACE_S + 5)
+
+    assert not serving.is_alive()
+    assert time.monotonic() - started < cli.SHUTDOWN_GRACE_S + 3
+    assert closed.is_set()

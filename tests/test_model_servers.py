@@ -1435,6 +1435,51 @@ def test_stop_unblocks_a_real_socket_read():
     engine.close()
 
 
+def test_stop_unblocks_a_server_silent_before_its_headers():
+    """Story 7 of the deferred leftovers (E078): the real Ollama sends nothing, headers
+    included, until its model is loaded (7.6 s on the target PC). « Arrêter » shuts the
+    connection's socket down all the same; the call ends `cancelled`, not in error, well
+    before the read timeout."""
+    import socket as socket_module
+
+    server = socket_module.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    release = threading.Event()
+    requests: list[bytes] = []
+
+    def serve() -> None:
+        conn, _ = server.accept()
+        requests.append(conn.recv(65536))
+        release.wait(15)  # loading: not a byte back
+        conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    engine = servers.OllamaRawEngine(
+        f"http://127.0.0.1:{port}",
+        OLLAMA_NAME,
+        None,
+        4096,
+        tokenizer=ByteTokenizer(),
+        unload=False,
+        read_timeout_s=10.0,
+        transport=httpx.HTTPTransport(),
+    )
+    cancel = CancelToken()
+    threading.Timer(0.3, cancel.cancel).start()
+    started = time.monotonic()
+    try:
+        fragments = list(engine.complete(tokenize("Bonjour"), [], 10, cancel))
+    finally:
+        release.set()
+        server.close()
+    assert time.monotonic() - started < 3
+    assert fragments[-1].stop_reason == "cancelled"
+    assert b"connection: close" in requests[0].lower()  # no connection is ever reused
+    engine.close()
+
+
 # ---------- lot E: llama-server's context (E1), the refusal with a served model (E3) ----------
 
 TINY = str(Path(__file__).parent / "fixtures" / "tiny-llama.gguf")

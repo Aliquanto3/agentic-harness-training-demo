@@ -37,6 +37,7 @@
   summary: `LlamaCppEngine.complete` (arrêt sur EOG, sortie coupée à `max_tokens`, séquence d'arrêt, annulation, décodage UTF-8 incrémental) n'est testé sur aucun vrai modèle : les tests du tour passent par le moteur factice, qui réimplémente cette logique.
   evidence: Un décalage d'un token sur `count >= max_tokens`, ou un préfixe d'arrêt émis après coup, passerait inaperçu. À ajouter au test opt-in marqué `model` (`tests/test_render_reference.py`, `WAVESTACK_TEST_GGUF`) avec un petit GGUF.
   closed: 2026-10-01 (story 1 des restes différés) — `tests/test_llama_engine.py` : cinq tests (EOG, `max_tokens`, séquence d'arrêt et son préfixe, annulation, caractère coupé entre deux tokens) joués sur le vrai `LlamaCppEngine.complete`, avec un `llama_cpp` scripté (`stub`, toujours lancé) et avec un vrai GGUF (`gguf`, marqué `model`, sauté sans `WAVESTACK_TEST_GGUF`, pas encore lancé sur un vrai modèle).
+  recette: 2026-10-02 (story 7 des restes) — variante `gguf` jouée sur Qwen3.5-2B-Q4_K_M : 5 passés en 19 s (`resultats-restes-pc-2026-10.md`:15 (R2)).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/5-outils-natifs.md`
   summary: Story 5b — outils réseau (`public_holidays` via calendrier.api.gouv.fr, `wikipedia_summary` via fr.wikipedia.org REST, `fetch_page` limité aux hôtes autorisés et coupé à `fetch_page_max_chars`), fabrique AD-15 complétée (`body` dans `outbound_request`, refus hors liste par `net`, redirections manuelles revérifiées, `preview_request`), `hosting-tag-network` et `outbound-payload` dans l'interface, état `not_contacted` puis `available`/`unavailable` du composant réseau selon le dernier appel.
@@ -195,6 +196,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9-declenchement-force.md`
   summary: Documentation MCP forcée en lazy loading : `load_tool_doc` de `local__list_terms` est exécuté et son schéma réinjecté, mais Qwen3.5-2B n'appelle pas l'outil et répond « Je ne peux pas répondre à cette question… je n'ai pas accès … à la liste des termes du glossaire ».
   evidence: Test manuel du 2026-09-25, tour t5 (contexte de 560 tokens) : le harnais est conforme (appelabilité couverte par `tests/test_forced.py::test_forced_mcp_documentation_makes_the_tool_callable_in_the_same_turn`). Deux facteurs possibles : le SLM, et l'injection H3 « n'utilise que les fichiers du dossier de démonstration », qui peut pousser au refus. À revérifier avec un modèle plus gros, puis avec H3 décoché.
+  closed: 2026-10-02 (story 7 des restes) — Groq appelle `local__define_term` après `load_tool_doc` (`resultats-restes-pc-2026-10.md`:16 (R3)) ; le 2B ne le fait pas (`resultats-restes-pc-2026-10.md`:17 (R4)) : limite du SLM, déjà dite par la consigne de `mcp_lazy`. Mistral non joué (compte sans quota, `resultats-restes-pc-2026-10.md`:18 (R5)).
 
 - source_spec: none
   summary: Temps de réponse sur le PC portable cible avec Qwen3.5-2B Q4_K_M (CPU seul, 16 Go, 3,3 à 4,3 Go libres au lancement) : 36 à 51 s avant le premier token pour un contexte de 1 100 à 1 400 tokens, 14 s pour 560 tokens ; tours de 20 à 84 s.
@@ -235,10 +237,12 @@
   summary: Non vérifié (medium si réel) — deux appels d'outils parallèles d'une même réponse seraient fusionnés si le fournisseur envoie le même `index` (ou aucun) pour chacun ; l'accumulation de `openai_chat._channels` se fait par `index`, puis `id`.
   evidence: Relevé par la revue de la story 11 (couche aveugle). À trancher au test manuel : demander à Groq puis à Mistral deux outils en un tour (ex. `get_datetime` et `calculator`) et lire `model_call_ended.tool_calls` ; si un seul appel aux noms collés apparaît, ouvrir un nouvel appel dès qu'un `id` différent arrive sur une clé déjà prise.
   closed: 2026-10-01 (story 2 des restes différés) — `openai_chat._channels` : appels rangés par `(index ou id, n)` ; un fragment qui porte un nom de fonction sous un autre `id` que l'appel ouvert sur la même clé ouvre un nouvel appel ; un fragment sans `id`, au même `id` ou sous un `id` neuf sans nom prolonge l'appel ouvert ; tri par `index` puis ordre d'ouverture. Vérifié avec doublure (`tests/test_cloud.py::test_two_parallel_calls_under_one_index_stay_two_calls`, qui échoue sans le correctif, et `::test_fragments_of_one_call_stay_one_call`), réel en story 7 (Groq, Mistral).
+  recette: 2026-10-02 (story 7 des restes) — Groq (`gpt-oss-120b`) fait les deux appels l'un après l'autre, même sur demande explicite ; le harnais n'impose rien (`resultats-restes-pc-2026-10.md`:19 (R6)). Mistral non joué (compte sans quota, `resultats-restes-pc-2026-10.md`:18 (R5)) : l'appel parallèle réel reste à voir.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/11-modeles-cloud-via-api-groq-mistral.md`
   summary: Non vérifié (medium si réel) — en mode chat, un échange d'historique sans texte (réponse de raisonnement seul) part en message `assistant` au `content` vide et sans `tool_calls`, que Mistral pourrait refuser (400) aux tours suivants.
   evidence: Relevé par la revue de la story 11 (couche cas limites), `AppSession._messages`. À trancher : obtenir un tour terminé sans texte avec Mistral, puis envoyer un second message et lire la réponse du fournisseur ; si 400, omettre `content` vide ou sauter l'échange dans le corps chat.
+  recette: 2026-10-02 (story 7 des restes) — non jouée : le compte Mistral n'a aucun plan actif (`x-ratelimit-limit-req-minute: 0`, `resultats-restes-pc-2026-10.md`:21 (R8)). Reste ouverte.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-11b-corrections-test-manuel-story-11.md`
   summary: Le front de la story 11b (entrée « Diagnostic » du menu « Volets ▾ », bloc `#next-launch` du diagnostic, ligne « Clé fournie par la variable X » et piste `key_env`) n'a aucun test automatique.
@@ -263,10 +267,12 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
   summary: Non vérifié (medium si réel) — renvoi du raisonnement (`reasoning.resend = true`) au format `field` sous la clé `reasoning` du message assistant : aucun préréglage ne le déclare, forme jamais essayée contre un fournisseur réel.
   evidence: Forme tirée d'AD-4 (« dans la forme reçue ») ; tests avec MockTransport seulement. À trancher en déclarant `resend = true` dans settings.json pour une entrée `field` puis en menant un tour avec outil : si le fournisseur refuse (400), renvoyer sous le nom de champ reçu (`reasoning` ou `reasoning_content`).
+  closed: 2026-10-02 (story 7 des restes) — Groq accepte le raisonnement renvoyé sous `reasoning` (format `field`), dans le tour et l'historique, 4 appels en 200 (`resultats-restes-pc-2026-10.md`:20 (R7)).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
   summary: Écart H6 de la story 13 — le préréglage Mistral garde `reasoning.resend = false`, alors qu'AD-20 et le Deferred du spine disent « vrai pour Mistral » (renvoi des blocs `thinking`).
   evidence: Laissé à faux faute de test réel : renvoyer un bloc `thinking` à mistral-small-latest n'a jamais été essayé et pourrait valoir un 400. À trancher sur le PC cible, brique Raisonnement active : déclarer `resend = true` pour `mistral` dans settings.json, mener un tour avec outil puis un second tour ; si Mistral accepte, passer le préréglage à vrai, sinon amender AD-20.
+  recette: 2026-10-02 (story 7 des restes) — non jouée : compte Mistral sans quota (`resultats-restes-pc-2026-10.md`:21 (R8)). Reste ouverte.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
   summary: Critère d'acceptation 3 de la story 13 (brique Raisonnement voulue, indisponible avec un modèle qui ne raisonne pas, redevenue effective sans nouveau clic avec un modèle qui raisonne) non testé.
@@ -276,6 +282,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
   summary: `_resend()` est lu dans la configuration courante à chaque rendu plutôt que figé dans le `TurnState`, et le raisonnement d'un tour passé repart (avec `resend = true`) même quand la brique Raisonnement est éteinte.
   evidence: Comportement non spécifié par AD-4 ni AD-17 ; sans effet tant qu'aucun préréglage ne déclare `resend` (la déclaration ne change pas pendant une session). À trancher si un préréglage passe `resend = true` : figer le format au début du tour, et décider si l'historique renvoie le raisonnement brique éteinte.
+  recette: 2026-10-02 (story 7 des restes) — sans objet tant qu'E055 n'est pas tranchée (Mistral non joué, `resultats-restes-pc-2026-10.md`:21 (R8)) ; aucun préréglage ne passe `resend = true`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/13-raisonnement.md`
   summary: Contexte LLM ne montre que le raisonnement du dernier appel du tour affiché ; la Vue humain montre, elle, un bloc par appel.
@@ -301,6 +308,7 @@
   summary: Une mémoire globale pleine (20 entrées de 300 caractères) prend environ 1 550 tokens estimés, soit près de 60 % de l'espace utilisable d'une fenêtre de 4 096 tokens avec la réserve du raisonnement ; elle tient avec les briques du scénario (test), mais laisse peu de place au reste.
   evidence: Revue indépendante de la story 14 ; mesure de `test_a_full_memory_fits_the_smallest_window_with_the_scenario_bricks` (estimation à 4 caractères par token). La borne de 300 caractères est dans le contrat d'intention de la story (non modifiable par l'implémentation). À trancher au test manuel sur le PC cible avec Qwen : si une mémoire chargée fait déborder le scénario, abaisser `MAX_CHARS` (par exemple à 200) en amendant la spec.
   resolution: décision d'Anaël du 2026-10-01 (D9) — garder `MAX_CHARS` à 300 ; la story 7 des restes différés mesure `mcp_full` mémoire pleine sur le PC cible et n'abaisse à 200 que s'il déborde.
+  recette: 2026-10-02 (story 7 des restes) — mémoire pleine + configuration de `mcp_full` : 4 550 / 3 584 (127 %), tour refusé et expliqué ; 200 caractères ne suffiraient pas (≈ 113 %) ; lancer `mcp_full` restaure la mémoire de démonstration (89 %) (`resultats-restes-pc-2026-10.md`:26 (R13)). Décision d'Anaël attendue (fichier de résultats, « Décisions »).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/12-tests-prealables-headroom-embedding-et-reranking.md`
   summary: Le verdict embedding et reranking de la story 12 reste provisoire (granite-embedding-107m-multilingual Q8_0, bge-reranker-v2-m3 Q4_K_M) ; lancer sur le PC cible, avant la story 15, `uv run --with huggingface-hub --with fastembed python tools/bench/story12_bench.py embed --download`, puis `uv run --with headroom-ai==0.38.0 python tools/bench/story12_bench.py headroom`, et reporter les deux sorties `--json` dans la story 12.
@@ -355,6 +363,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/15-corpus-de-demonstration-et-rag-simple.md`
   summary: « Arrêter » un téléchargement pendant l'établissement de la connexion ne prend effet qu'au bout du délai de connexion (10 s au plus) ; pendant l'attente des données, il agit aussitôt (la réponse est fermée).
   evidence: Revue indépendante de la story 15 (edge cases). httpx ne permet pas d'interrompre proprement un `connect` depuis un autre fil ; le délai a été ramené de 30 à 10 s. À rouvrir si le test manuel montre une attente gênante sur le réseau du client.
+  recette: 2026-10-02 (story 7 des restes) — proxy muet : « Arrêter » rend la main en 9,3 s (à 1 s) et 6,2 s (à 4 s), soit le délai de connexion de 10 s ; réseau normal : 0,65 s (`resultats-restes-pc-2026-10.md`:32 (R19)). Conforme ; gênant ou non : décision d'Anaël attendue.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/17-changement-de-modele-a-chaud.md`
   summary: Page de diagnostic, « Choisir » un modèle : quand `/api/diagnostic/stream` rejoue un long journal depuis le début, le repli de la page (« Le modèle choisi est actif. », après 3 s) s'affiche avant le `model_load_ended` et son texte « {modèle} est actif. ».
@@ -373,10 +382,12 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
   summary: `keep_alive: 0` et le budget d'un modèle servi ne sont vérifiés qu'avec des doublures.
   evidence: Sur le PC cible, `ollama ps` doit être vide après un changement de modèle et après la fermeture de WaveStack, pour un modèle que WaveStack a fait charger ; un modèle déjà chargé par un autre programme doit y rester. La taille rapportée par `/api/ps` après le premier appel doit correspondre au coût compté.
+  closed: 2026-10-02 (story 7 des restes) — changement de modèle : `qwen3.5:2b` déchargé, `gemma3:1b` d'un autre programme gardé (`resultats-restes-pc-2026-10.md`:27 (R14)) ; `/api/ps` 2 252 Mio contre ≈ 2,6 Go comptés (`resultats-restes-pc-2026-10.md`:28 (R15)) ; fermeture : déchargé après le correctif de `cli.py` (délai de grâce d'uvicorn, page ouverte), 2,55 s (`resultats-restes-pc-2026-10.md`:29 (R16)).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/18-serveur-local-deja-lance-ollama-llama-server.md`
   summary: La coupure de la socket à l'annulation (`shutdown` depuis un fil de veille) n'est vérifiée que sous Linux, contre une socket de test.
   evidence: Sous Windows, face à un vrai Ollama qui charge un modèle, « Arrêter » et la fermeture de WaveStack doivent rendre la main en moins d'une seconde ; sinon, l'arrêt attend le premier token ou le délai de lecture (`[model_servers] read_timeout_s`).
+  recette: 2026-10-02 (story 7 des restes) — « Arrêter » : 12,2 s avant correctif (Ollama n'envoie ses en-têtes qu'une fois le modèle chargé), 0,11 s après (veille démarrée avant la requête, socket coupée puis fermée, `tests/test_model_servers.py::test_stop_unblocks_a_server_silent_before_its_headers`) (`resultats-restes-pc-2026-10.md`:30 (R17)) ; fermeture pendant le chargement : 2,89 s, dont 2 s de délai de grâce avec une page ouverte (`resultats-restes-pc-2026-10.md`:31 (R18), décision d'Anaël sur ce délai). « Arrêter » est réglé ; l'entrée reste ouverte pour la fermeture, la seconde n'étant pas tenue avec une page ouverte.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
   summary: AD-13 : `transform_context` n'est pas un point d'accroche de hook. La compression agit sur les parties du tour avant l'assemblage (réponses d'outils, extraits RAG), à la place de l'étape d'AD-4, sans qu'un hook puisse l'observer ni la modifier.
@@ -719,6 +730,7 @@
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/3-decisions-d-anael-appliquees.md`
   summary: Le test `fits` (`tests/test_program.py`) ne cumule l'historique, à réponses mesurées (D18), qu'avec `WAVESTACK_TEST_GGUF` ; la course par défaut (2 caractères par token) n'ajoute que l'échange précédent. Medium, non vérifié.
   evidence: Revue de la story 3 (couche écarts de vérification) : l'estimation compte le contexte de `subagent` 40 % trop haut (1 848 contre 1 326), un cumul y déborderait pour cette raison. À trancher par `WAVESTACK_TEST_GGUF=<2B> uv run pytest -s tests/test_program.py -k fits` sur le PC cible (story 7) : chaque prompt tient avec l'historique cumulé.
+  closed: 2026-10-02 (story 7 des restes) — `WAVESTACK_TEST_GGUF=<2B> uv run pytest -s tests/test_program.py -k fits` : passé, chaque prompt tient avec l'historique cumulé (`resultats-restes-pc-2026-10.md`:14 (R1)).
 
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/2-robustesse-flux-serveurs-locaux-appels-cloud-paralleles-instantanes-mcp.md`
   summary: E119, retour au modèle précédent qui échoue lui-même (fichier disparu, budget, « Arrêter » pendant ce rechargement) : `_load_failed` ou `_load_cancelled` réinstallent le modèle refusé par Ollama, alors que l'effet affiché annonçait le retour au modèle précédent ; le tour suivant échoue de nouveau (expliqué).
@@ -767,3 +779,23 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-r1-lenteur-models-payload.md`
   summary: R3 (vérification 4 du 02/10) — un arrêt volontaire du téléchargement d'un modèle du RAG s'affiche sur la carte en rouge, comme un échec (« Cause: download stopped »), avec la consigne de copier le fichier à la main.
   evidence: `resultats-test-pc-2026-10-02.md`, section « Cause de R1 mesurée et corrigée, vérification 4 ». Le `.part` est bien supprimé et l'état revient à `idle` ; seul le message est en cause. Piste : distinguer l'arrêt demandé (`StopToken`) d'une panne dans le `harness_error` du téléchargement.
+
+- source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/7-recette-pc-des-restes-fournisseurs-cloud-ollama-telechargements.md`
+  summary: E048 (fermée sur doublure) : deux appels d'outils parallèles d'une même réponse n'ont jamais été vus d'un fournisseur réel ; Groq les enchaîne un par un, Mistral n'a pas pu être joué.
+  evidence: Recette du 2026-10-02 (`resultats-restes-pc-2026-10.md` R5, R6). À trancher avec un compte Mistral actif : `native_tools`, « get_datetime et calculator dans le même tour », lire `model_call_ended.tool_calls`.
+
+- source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/7-recette-pc-des-restes-fournisseurs-cloud-ollama-telechargements.md`
+  summary: Un second Ctrl+C pendant le délai de grâce (2 s), ou la fermeture de la fenêtre de console (`CTRL_CLOSE_EVENT`), sort sans `lifespan` : `close()` ne tourne pas et un modèle Ollama chargé par WaveStack reste chargé (jusqu'au `keep_alive` d'Ollama).
+  evidence: Revue de la story 7 (cas limites, aveugle) ; uvicorn saute `lifespan.shutdown` quand `force_exit` est vrai (lu dans `Server.shutdown`). Fermeture de la fenêtre non mesurée. Piste : un repli `atexit` ou un gestionnaire de `CTRL_CLOSE_EVENT` qui appelle `app_session.close()` ; à mesurer d'abord sur le PC cible.
+
+- source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/7-recette-pc-des-restes-fournisseurs-cloud-ollama-telechargements.md`
+  summary: Premier lancement depuis un dossier de données vide, sur un poste qui a beaucoup de modèles Ollama : le diagnostic sonde chaque GGUF dans un processus enfant, environ 10 minutes ici (18 modèles), avant de proposer un choix.
+  evidence: Recette du 2026-10-02 (E073, `WAVESTACK_DATA_DIR` jetable ; piles relevées : `diagnostic._run_probe` par candidat). Les sondes sont ensuite en cache (`probed_models`). À mesurer au lancement depuis l'archive zip ; piste : sonder à la demande ou en arrière-plan après l'affichage de la liste.
+
+- source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/7-recette-pc-des-restes-fournisseurs-cloud-ollama-telechargements.md`
+  summary: Scénario `subagent`, prompt 1, avec Qwen3.5-2B : la réponse finale du modèle principal (résumé en cinq points) atteint la réserve de sortie de 512 tokens et le tour finit en `limit`, réponse coupée.
+  evidence: Recette du 2026-10-02 (`resultats-restes-pc-2026-10.md` R12 : `output_tokens` 512, `stop_reason` `length`). À trancher : consigne « résumé court » dans le scénario, ou réserve plus grande pour ce scénario.
+
+- source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/7-recette-pc-des-restes-fournisseurs-cloud-ollama-telechargements.md`
+  summary: `_stream` (`servers.py`) : aucun test ne couvre une annulation pendant la connexion TCP (veille sans socket encore connue), ni une erreur HTTP réelle avalée parce que l'appel était annulé, ni le chemin llama-server (`/completion`) d'un appel arrêté avant toute réponse.
+  evidence: Revue de la story 7 (écarts de vérification) : les tests d'annulation ont tous une socket ou une réponse connue au moment de l'annulation. Sur la boucle locale, la fenêtre de connexion est de quelques millisecondes ; un test demande un transport qui retarde `connect_tcp.complete`.
