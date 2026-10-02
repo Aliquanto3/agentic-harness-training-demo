@@ -26,8 +26,22 @@ from fake_reranker import FakeReranker  # noqa: E402
 
 from wavestack.models import embedding, reranker  # noqa: E402
 
+RERANK_FAILURE_MARK = "[reranker-en-panne]"
+
+
+class _E2EReranker(FakeReranker):
+    """Restes différés, story 6 (E094): the fake reranker breaks down on a question that
+    carries `RERANK_FAILURE_MARK`, as a reranker that raises while it scores (AD-16: the
+    turn goes on, with the embedding's order)."""
+
+    def score(self, query, passages, cancelled=None, progress=None):  # noqa: ANN001, ANN201
+        if RERANK_FAILURE_MARK in query:
+            raise RuntimeError("reranker en panne (e2e)")
+        return super().score(query, passages, cancelled, progress)
+
+
 embedding.open_embedder = lambda model: FakeEmbedder(model_id=model.id)
-reranker.open_reranker = lambda model: FakeReranker(model_id=model.id)  # story 16
+reranker.open_reranker = lambda model: _E2EReranker(model_id=model.id)  # story 16
 
 if os.environ.get("WAVESTACK_E2E_NO_HEADROOM") == "1":
     # Story 20 (`run_e2e.py --no-headroom`): as a machine without the `compression` extra.

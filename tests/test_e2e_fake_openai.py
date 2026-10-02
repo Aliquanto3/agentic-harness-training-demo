@@ -149,6 +149,16 @@ def test_http_routes_and_key():
     assert client.get("/_e2e/requests").json()[-1]["messages"][0]["content"] == "Bonjour"
 
 
+def test_reranker_file_fails_while_armed_then_is_served_again():
+    """Restes différés, story 6 (E094): a failed download of the reranker, then a good one."""
+    client = TestClient(fake.create_app())
+    assert client.get("/_e2e/reranker.gguf").content == b"\1" * fake.RERANKER_FILE_SIZE
+    assert client.post("/_e2e/reranker_fail", json={"fail": True}).json() == {"fail": True}
+    assert client.get("/_e2e/reranker.gguf").status_code == 503
+    assert client.post("/_e2e/reranker_fail", json={"fail": False}).json() == {"fail": False}
+    assert client.get("/_e2e/reranker.gguf").status_code == 200
+
+
 def test_without_usage_trigger_omits_the_usage_chunk():
     reply = fake.plan_reply(_body(_user("Bonjour [sans-usage]")))
     chunks = fake.sse_chunks(reply, {"stream_options": {"include_usage": True}}, "c1")

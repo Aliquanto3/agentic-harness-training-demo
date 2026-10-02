@@ -23,7 +23,9 @@ Gemini mode, when the body's `model` starts with `gemini`, in the shapes the rea
 Debug routes: `GET /_e2e/requests` (the bodies received, newest last) and
 `POST /_e2e/reset` (forget them). Story 15: `GET /_e2e/model.gguf` is the fake embedding
 model's file, a 503 until `POST /_e2e/model_ready` (a failed, then a successful download);
-story 16: `GET /_e2e/reranker.gguf` is the fake reranker's, always served.
+story 16: `GET /_e2e/reranker.gguf` is the fake reranker's, served unless
+`POST /_e2e/reranker_fail` (`{"fail": true}`) armed a failure (restes différés, story 6:
+a 503 until `{"fail": false}`).
 
 Run: `uv run python tools/e2e/fake_openai.py --port 8765`.
 """
@@ -614,7 +616,7 @@ def create_app() -> Starlette:
         received.clear()
         return JSONResponse({"ok": True})
 
-    model = {"ready": False}
+    model = {"ready": False, "reranker_fails": False}
 
     async def model_file(_: Request) -> Response:
         if not model["ready"]:
@@ -622,7 +624,13 @@ def create_app() -> Starlette:
         return Response(b"\0" * MODEL_FILE_SIZE, media_type="application/octet-stream")
 
     async def reranker_file(_: Request) -> Response:
+        if model["reranker_fails"]:
+            return JSONResponse({"error": "fichier indisponible (e2e)"}, status_code=503)
         return Response(b"\1" * RERANKER_FILE_SIZE, media_type="application/octet-stream")
+
+    async def reranker_fail(request: Request) -> JSONResponse:
+        model["reranker_fails"] = bool(json.loads(await request.body()).get("fail"))
+        return JSONResponse({"fail": model["reranker_fails"]})
 
     async def model_ready(_: Request) -> JSONResponse:
         model["ready"] = True
@@ -637,6 +645,7 @@ def create_app() -> Starlette:
             Route("/_e2e/model.gguf", model_file),
             Route("/_e2e/model_ready", model_ready, methods=["POST"]),
             Route("/_e2e/reranker.gguf", reranker_file),
+            Route("/_e2e/reranker_fail", reranker_fail, methods=["POST"]),
         ]
     )
 

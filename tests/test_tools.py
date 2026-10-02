@@ -95,6 +95,21 @@ def test_two_tools_in_one_turn():
     assert events["turn_ended"][0]["status"] == "completed"
 
 
+def test_tool_started_names_the_tool_component_for_the_schema():
+    """Restes différés, story 6 (E032): the schema lights the node of the tool running from
+    the `tool_started` envelope's `component` (`tools.<name>`), its brick `tools`."""
+    _, session = tool_session([call("get_datetime"), call("calculator", expression="2+2"), "Ok."])
+    mark = get_journal().last_seq()
+
+    _run(session, "Quelle heure est-il, et combien font 2 + 2 ?")
+
+    started = [e for e in get_journal().events_since(mark) if e.kind == "tool_started"]
+    assert [(e.brick, e.component) for e in started] == [
+        ("tools", "tools.get_datetime"),
+        ("tools", "tools.calculator"),
+    ]
+
+
 def test_malformed_call_retries_then_stops_at_the_third_failure():
     engine, session = tool_session(["<tool_call>\n<function=calculator\n12*37\n</tool_call>"])
 

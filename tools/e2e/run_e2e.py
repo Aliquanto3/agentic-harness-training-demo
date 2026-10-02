@@ -34,6 +34,9 @@ from stack import (  # noqa: E402
     GEMINI_MODEL,
     GEMINI_PROVIDER,
     MODEL_ENTRY_ID,
+    PRICED_ENTRY_ID,
+    PRICED_MODEL,
+    PRICED_PROVIDER,
     REASONING_ENTRY_ID,
     REASONING_MODEL,
     SECOND_ENTRY_ID,
@@ -618,6 +621,7 @@ def s_system_prompt(r: Run) -> None:
     r.check(heading.is_visible(), "« Comparer » ouvre la comparaison de tours")
     r.shot("04-prompt-systeme-rejeu-comparer")
     r.page.locator("#ctx").get_by_role("button", name="Fermer").click()
+    _default_compare_pair(r)
 
     # Story 22: « Rétablir le prompt par défaut » confirms too.
     r.page.click("#edit-system-prompt")
@@ -633,6 +637,31 @@ def s_system_prompt(r: Run) -> None:
         status.inner_text() or "(aucun message)",
     )
     r.page.click("#drawer-close")
+
+
+def _default_compare_pair(r: Run) -> None:
+    """E042 (restes différés, story 6): one more turn after the replay; « Comparer » still
+    opens on the replayed turn and its origin (the origin on the left), not on the two last
+    turns."""
+    page = r.page
+    r.send("Merci.")
+    replays = [e for e in r.ev.since(0, "turn_started") if e["payload"].get("replay_of")]
+    origin, replay = (
+        (replays[-1]["payload"]["replay_of"], replays[-1]["turn_id"]) if replays else ("", "")
+    )
+    _turn_rendered_ended(r)
+    page.click("#compare-turns")
+    selects = page.locator("#ctx .turn-compare-head select")
+    expect(selects).to_have_count(2, timeout=5000)
+    pair = (selects.nth(0).input_value(), selects.nth(1).input_value())
+    last = r.ev.since(0, "turn_started")[-1]["turn_id"]
+    r.check(
+        bool(replays) and pair == (origin, replay),
+        "« Comparer » après un tour de plus : le tour rejoué face à son origine (l'origine à "
+        "gauche), pas les deux derniers tours",
+        f"paire {pair} · attendu {(origin, replay)} · dernier tour {last}",
+    )
+    page.locator("#ctx").get_by_role("button", name="Fermer").click()
 
 
 # ---------- story 32: Contexte LLM, each call what it read then what it produced ----------
@@ -847,6 +876,323 @@ def s_native_tools(r: Run) -> None:
     orch = r.page.locator("#orch-scroll").inner_text()
     r.check("Demande un outil" in orch, "Orchestration montre la demande d'outil")
     r.shot("05-outils-natifs-orchestration")
+    _slow_tool_turn(r)
+
+
+# ---------- restes différés, story 6: the schema at work, the rail and the event log ----------
+
+SLOW_TOOL_PATH = "confidentiel/outil-lent-e2e"  # as `launch_app.SLOW_TOOL_PATH`
+
+# Every state of the schema while a turn runs: the robot's accessible name (its pose), the
+# components lit (`is-active`) and the paths drawn while `read_file` is lit; a mutation
+# observer, so no frame is missed and no delay is needed.
+_SCHEMA_RECORDER_JS = """() => {
+  const rec = { poses: [], active: [], paths: 0 };
+  const note = () => {
+    const robot = document.querySelector('#schema .robot[data-component="core.model"]');
+    const label = robot?.getAttribute('aria-label') ?? '';
+    if (rec.poses.at(-1) !== label) rec.poses.push(label);
+    for (const node of document.querySelectorAll('#schema .is-active:not(.robot)')) {
+      const id = node.dataset.component;
+      if (id && !rec.active.includes(id)) rec.active.push(id);
+      if (id === 'tools.read_file') {
+        const paths = document.querySelectorAll('#schema .arch-wires .arch-path').length;
+        rec.paths = Math.max(rec.paths, paths);
+      }
+    }
+  };
+  note();
+  const observer = new MutationObserver(note);
+  observer.observe(document.getElementById('schema'), {
+    subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'aria-label'],
+  });
+  window.__e2eSchema = { rec, observer };
+}"""
+
+_GROUP_ROWS_JS = """g => [...g.querySelectorAll('.turn-step')].map((s) => ({
+  name: s.querySelector('.turn-step-name')?.textContent ?? '',
+  expanded: s.querySelector('.turn-step-line')?.getAttribute('aria-expanded') ?? '',
+  body: Boolean(s.querySelector(':scope > .turn-step-body')),
+  sticky: s.classList.contains('tone-error'),
+  links: s.dataset.links ?? '',
+}))"""
+
+
+def _rows(group) -> list[dict[str, Any]]:  # noqa: ANN001
+    return group.evaluate(_GROUP_ROWS_JS) if group.count() == 1 else []
+
+
+def _row_names(rows: list[dict[str, Any]]) -> str:
+    return " | ".join(f"{x['name']}{'▾' if x['expanded'] == 'true' else '▸'}" for x in rows)
+
+
+def _slow_tool_turn(r: Run) -> None:
+    """E020, E031, E032 (restes différés, story 6), on a fourth turn whose `read_file` lasts
+    1.5 s (`launch_app.py`) and whose calls stream slowly (« [lent] »): the robot's poses, the
+    tool's halo and path; the previous turn, opened by hand, folded by the new one in live
+    mode; the current line unfolded in live; a click freezes the view, the line clicked stays
+    unfolded and the lines that come after it do not; « Suivre le direct »; then the event
+    log."""
+    page = r.page
+    ui = _ui_catalogue("fr")
+    poses = {k: ui[f"main.schema.poses.{k}"] for k in ("idle", "thinking", "tool")}
+    catalog_name, runs_tool = ui["main.orch.rows.catalog"], ui["main.orch.rows.runs_tool"]
+    if page.locator("#follow-live").is_visible():
+        page.click("#follow-live")
+    r.wait_idle()
+    previous = _turn_group(r, r.ev.since(0, "turn_ended")[-1]["turn_id"])
+    head = previous.locator(":scope > .turn-group-head")
+    head.click()  # folded, then opened again by hand: kept open by `turnOpen`
+    head.click()
+    opened = head.get_attribute("aria-expanded") == "true"
+    page.evaluate(_SCHEMA_RECORDER_JS)
+    seq = r.ev.mark()
+    page.fill("#composer-input", f"Lis le fichier {SLOW_TOOL_PATH} [lent]")
+    page.press("#composer-input", "Enter")
+    r.wait_turn_started(seq, "l'envoi")
+    turn_id = r.ev.since(seq, "turn_started")[0]["turn_id"]
+    group = _turn_group(r, turn_id)
+    expect(group).to_have_count(1, timeout=10_000)
+    r.check(
+        opened and head.get_attribute("aria-expanded") == "false",
+        "E031 : en direct, le nouveau tour replie le précédent, même ouvert à la main",
+        f"ouvert avant : {opened} · après : {head.get_attribute('aria-expanded')}",
+    )
+
+    # Live: the first call streams; its line, the current one, is the only one unfolded.
+    r.poll(lambda: len(_rows(group)) >= 2, 10)
+    rows = _rows(group)
+    r.check(
+        len(rows) >= 2
+        and rows[-1]["expanded"] == "true"
+        and all(x["expanded"] == "false" for x in rows[:-1] if not x["sticky"]),
+        "E031 : en direct, seule la ligne courante (la dernière) est dépliée",
+        _row_names(rows),
+    )
+
+    # The tool runs (1.5 s): the robot « utilise un outil » before any click on the rail (a
+    # click selects, which rebuilds the schema whatever its key says).
+    tool_row = group.locator(".turn-step").filter(
+        has=page.locator(".turn-step-name", has_text=runs_tool)
+    )
+    expect(tool_row).to_have_count(1, timeout=15_000)
+
+    def recorded() -> dict[str, Any]:
+        return page.evaluate("() => window.__e2eSchema.rec")
+
+    r.poll(lambda: any(poses["tool"] in p for p in recorded()["poses"]), 1)
+    before_click = len(recorded()["poses"])
+
+    # A click on the catalog line freezes the view: it stays unfolded, so does the line
+    # current at the click; the lines that come after are not unfolded.
+    catalog = group.locator(".turn-step").filter(
+        has=page.locator(".turn-step-name", has_text=catalog_name)
+    )
+    catalog.locator(".turn-step-line").click()
+    clicked = _rows(group)
+    frozen = page.locator("#follow-live").is_visible()
+    ended = r.ev.wait("turn_ended", seq)
+    _turn_rendered_ended(r, turn_id)
+    rows = _rows(group)
+    at = next((i for i, x in enumerate(rows) if x["name"] == runs_tool), len(rows))
+    later = [x for x in rows[at + 1 :] if not x["sticky"]]
+    r.check(
+        frozen
+        and page.locator("#follow-live").is_visible()
+        and rows[0]["name"] == catalog_name
+        and rows[0]["expanded"] == "true"
+        and rows[0]["body"]
+        and bool(later)
+        and all(x["expanded"] == "false" for x in later),
+        "E031 : un clic fige la vue ; la ligne cliquée reste dépliée jusqu'à la fin du tour, "
+        "les lignes venues après restent repliées",
+        f"au clic : {_row_names(clicked)} · à la fin : {_row_names(rows)}",
+    )
+    scroll = page.locator("#orch-scroll")
+    page.click("#follow-live")
+    rows = _rows(group)
+    at_bottom = scroll.evaluate("s => s.scrollHeight - s.scrollTop - s.clientHeight < 2")
+    r.check(
+        page.locator("#follow-live").is_hidden()
+        and rows[-1]["expanded"] == "true"
+        and all(x["expanded"] == "false" for x in rows[:-1] if not x["sticky"])
+        and at_bottom,
+        "E031 : « Suivre le direct » : vue en direct, seule la dernière ligne dépliée, "
+        "Orchestration défilée en bas",
+        f"{_row_names(rows)} · en bas : {at_bottom}",
+    )
+
+    # The schema while it ran (E020, E032).
+    rec = page.evaluate(
+        "() => { window.__e2eSchema.observer.disconnect(); return window.__e2eSchema.rec; }"
+    )
+    shown = rec["poses"][:before_click]
+    thinking = next((i for i, p in enumerate(shown) if poses["thinking"] in p), -1)
+    tool = next((i for i, p in enumerate(shown) if poses["tool"] in p), -1)
+    r.check(
+        0 <= thinking < tool and poses["idle"] in rec["poses"][-1],
+        "E020 : le robot « réfléchit » pendant l'appel, « utilise un outil » pendant l'outil "
+        "(sans reconstruction du schéma), puis revient « au repos »",
+        " → ".join(rec["poses"]),
+    )
+    r.check(
+        "tools.read_file" in rec["active"] and rec["paths"] >= 1,
+        "E032 : pendant l'outil, halo sur le nœud « Lecture de fichier » et chemin tracé vers lui",
+        f"allumés {rec['active']} · chemins {rec['paths']}",
+    )
+    links = tool_row.get_attribute("data-links") or ""
+    r.check(
+        "tools.read_file" in links.split(),
+        "E032 : l'étape de l'outil garde le composant de son enveloppe (tools.read_file)",
+        links,
+    )
+    r.check(ended["payload"]["status"] == "completed", "tour à l'outil lent terminé")
+    _event_log(r, seq)
+
+
+_DELTAS = re.compile(r"^Morceaux de réponse × ([\d   ]+)$")
+# Defects found by story 6 (2026-10-02), noted in deferred-work.md, not fixed (the story
+# changes no behaviour of the interface): kinds of the catalog without a label in
+# `main.log.kinds`, and without a case in `eventSummary` (nor a `message_text` to fall back on).
+_KNOWN_LABEL_GAPS = {
+    "consumption_updated",
+    "context_reconciled",
+    "context_window_state",
+    "rag_lab_run_started",
+    "rag_lab_stage_started",
+    "rag_lab_stage_progress",
+    "rag_lab_stage_ended",
+    "rag_lab_run_ended",
+}
+_KNOWN_SUMMARY_GAPS = {
+    "context_reconciled",
+    "context_window_state",
+    "language_changed",
+    "rag_lab_run_started",
+    "rag_lab_stage_started",
+    "rag_lab_stage_progress",
+    "rag_lab_stage_ended",
+    "rag_lab_run_ended",
+}
+_NOTHING_TO_SUMMARIZE = {"model_first_token"}  # an empty payload: its label says it all
+_LOG_ROWS_JS = """() => [...document.querySelectorAll('#event-log-list .event-log-item')].map(
+  (li) => ({
+    name: li.querySelector('.event-log-name').textContent,
+    kind: li.querySelector('.event-log-kind').textContent,
+    summary: li.querySelector('.event-log-summary').textContent,
+  }))"""
+
+
+def _digits(text: str) -> int:
+    found = re.sub(r"\D", "", text)
+    return int(found) if found else -1
+
+
+def _event_log(r: Run, seq: int) -> None:
+    """E031 (restes différés, story 6): the event log under Orchestration. Its title counts
+    the events the page received; consecutive `model_delta` of one call share a row
+    (« Morceaux de réponse × N », N their number); each row says its kind by the label of
+    `main.log.kinds` and summarizes it; every kind of the catalog has a label in the three
+    languages and a summary (a case of `eventSummary`, or the payload's `message_text`)."""
+    page = r.page
+    ui = _ui_catalogue("fr")
+    page.click("#event-log-head")
+    expect(page.locator("#event-log-list")).to_be_visible(timeout=5000)
+    try:
+        resets = r.ev.since(0, "harness_reset")
+        start = resets[-1]["seq"] if resets else 0  # the log restarts after a reset
+        expected = len(r.ev.since(start))
+        title = page.locator("#event-log-title")
+        ok, _ = r.poll(lambda: _digits(title.inner_text()) == expected, 10)
+        r.check(
+            ok,
+            "E031 : le titre du journal compte les événements reçus",
+            f"{title.inner_text()} · attendu {expected}",
+        )
+        rows = page.evaluate(_LOG_ROWS_JS)
+        merged = [(x, _DELTAS.match(x["name"])) for x in rows]
+        total = sum(_digits(m.group(1)) if m else 1 for _, m in merged)
+        calls = [e for e in r.ev.since(seq, "model_call_ended")]
+        last_call = calls[-1]["call_id"] if calls else None
+        deltas = [e for e in r.ev.since(seq, "model_delta") if e["call_id"] == last_call]
+        last_merged = next((m for _, m in reversed(merged) if m), None)
+        r.check(
+            total == _digits(title.inner_text())
+            and last_merged is not None
+            and _digits(last_merged.group(1)) == len(deltas) > 1,
+            "E031 : les model_delta d'un appel forment une ligne « Morceaux de réponse × N » ; "
+            "les lignes et leurs morceaux font le compte du titre",
+            f"Σ lignes {total} · titre {title.inner_text()} · dernière fusion "
+            f"{last_merged.group(0) if last_merged else None} · deltas du dernier appel "
+            f"{len(deltas)}",
+        )
+        labels = {k.split(".")[-1]: v for k, v in ui.items() if k.startswith("main.log.kinds.")}
+        wrong = [
+            f"{x['kind']} : {x['name']}"
+            for x, m in merged
+            if not m and x["kind"] in labels and x["name"] != labels[x["kind"]]
+        ]
+        r.check(
+            not wrong and any(x["kind"] in labels for x in rows),
+            "E031 : chaque ligne du journal dit son type par son libellé (main.log.kinds)",
+            "; ".join(wrong[:8]),
+        )
+        empty = sorted(
+            {
+                x["kind"]
+                for x in rows
+                if not x["summary"].strip()
+                and x["kind"] not in _NOTHING_TO_SUMMARIZE | _KNOWN_SUMMARY_GAPS
+            }
+        )
+        r.check(not empty, "E031 : chaque ligne du journal résume son événement", str(empty))
+        _log_catalog(r)
+    finally:
+        page.click("#event-log-head")
+
+
+def _log_catalog(r: Run) -> None:
+    """E031: every kind of the catalog (`trace/catalog.py`) has its label in `fr`, `en` and
+    `de`, and a summary in the `eventSummary` the page loaded; the gaps already noted are
+    reported `KNOWN`, any other fails."""
+    from wavestack.trace.catalog import PAYLOAD_MODELS
+
+    unlabelled: set[str] = set()
+    for lang in ("fr", "en", "de"):
+        labels = {k.split(".")[-1] for k in _ui_catalogue(lang) if k.startswith("main.log.kinds.")}
+        unlabelled |= {f"{k} ({lang})" for k in PAYLOAD_MODELS if k not in labels}
+    source = httpx.get(f"{r.stack.app_url}/static/app.js", trust_env=False, timeout=10).text
+    source = source.replace("\r\n", "\n")  # a Windows checkout serves it with CRLF
+    body = source[source.index("function eventSummary(group) {") :]
+    cases = set(re.findall(r'case "([a-z_]+)":', body[: body.index("\n}\n")]))
+    unsummarized = {
+        k
+        for k, model in PAYLOAD_MODELS.items()
+        if k not in cases and "message_text" not in model.model_fields
+    } - _NOTHING_TO_SUMMARIZE
+    known_labels = {f"{k} ({lang})" for k in _KNOWN_LABEL_GAPS for lang in ("fr", "en", "de")}
+    r.check(
+        not unlabelled - known_labels,
+        "E031 : chaque type du catalogue a son libellé dans main.log.kinds (fr, en, de)",
+        str(sorted(unlabelled - known_labels)),
+    )
+    r.check(
+        not unlabelled & known_labels,
+        "E031 : libellés de journal manquants déjà notés",
+        str(sorted({k.split(" ")[0] for k in unlabelled & known_labels})),
+        known="deferred-work : libellés du journal",
+    )
+    r.check(
+        not unsummarized - _KNOWN_SUMMARY_GAPS,
+        "E031 : chaque type du catalogue a un résumé (eventSummary ou message_text)",
+        str(sorted(unsummarized - _KNOWN_SUMMARY_GAPS)),
+    )
+    r.check(
+        not unsummarized & _KNOWN_SUMMARY_GAPS,
+        "E031 : résumés de journal manquants déjà notés",
+        str(sorted(unsummarized & _KNOWN_SUMMARY_GAPS)),
+        known="deferred-work : résumés du journal",
+    )
 
 
 def s_malformed(r: Run) -> None:
@@ -2241,6 +2587,198 @@ def _step(r: Run, name: str):
     )
 
 
+_TURN_GROUPS = "#orch-scroll .turn-group:not(.harness-prep)"
+
+
+def _turn_group(r: Run, turn_id: str):
+    """Orchestration's group of turn `turn_id` (its « Tour N » names the id in its tooltip)."""
+    title = _ui_catalogue("fr")["main.turn.id_title"].format(id=turn_id)
+    return r.page.locator(_TURN_GROUPS).filter(
+        has=r.page.locator(f'.turn-group-title[title="{title}"]')
+    )
+
+
+def _turn_rendered_ended(r: Run, turn_id: str | None = None, timeout: float = 10) -> None:
+    """Restes différés, story 6: the page rendered the turn (by default the last one the
+    stream thread saw end) as ended, its group no longer `is-live`: the stream thread may
+    read `turn_ended` before the page renders it."""
+    if turn_id is None:
+        turn_id = r.ev.since(0, "turn_ended")[-1]["turn_id"]
+    group = _turn_group(r, turn_id)
+    expect(group).to_have_count(1, timeout=timeout * 1000)
+    expect(group).not_to_have_class(re.compile(r"\bis-live\b"), timeout=timeout * 1000)
+
+
+# ---------- restes différés, story 6 (E033): resizing the panes, their layout remembered ----------
+
+_PANES_KEY = "wavestack.panes"
+_PANE_IDS = ["bricks", "human", "ctx", "orch", "schema"]
+_PANE_SIZES_JS = """() => {
+  const box = (node) => {
+    const rect = node.getBoundingClientRect();
+    return { w: rect.width, h: rect.height };
+  };
+  const sizes = { top: box(document.querySelector('.top-row')) };
+  for (const pane of document.querySelectorAll('.pane[data-pane]')) {
+    sizes[pane.dataset.pane] = box(pane);
+  }
+  return sizes;
+}"""
+
+
+def _pane_sizes(r: Run) -> dict[str, dict[str, float]]:
+    return r.page.evaluate(_PANE_SIZES_JS)
+
+
+def _stored_panes(r: Run) -> Any:
+    raw = r.page.evaluate(f"() => localStorage.getItem('{_PANES_KEY}')")
+    try:
+        return json.loads(raw) if raw else {}
+    except ValueError:
+        return raw
+
+
+def _reload_with_panes(r: Run, value: str | None) -> None:
+    """`localStorage["wavestack.panes"]` set to `value` (removed when `None`), then a reload."""
+    r.page.evaluate(
+        "([key, value]) => value === null ? localStorage.removeItem(key)"
+        " : localStorage.setItem(key, value)",
+        [_PANES_KEY, value],
+    )
+    r.reload_app()
+    r.wait_idle()
+
+
+def _hidden_panes(r: Run) -> list[str]:
+    return r.page.evaluate(
+        "() => [...document.querySelectorAll('.pane.is-hidden')].map((p) => p.dataset.pane)"
+    )
+
+
+def _near(a: float, b: float) -> bool:
+    return abs(a - b) < 1.5
+
+
+def _press(r: Run, key: str, times: int = 1) -> None:
+    for _ in range(times):
+        r.page.keyboard.press(key)
+
+
+def s_panes(r: Run) -> None:
+    """E033 (restes différés, story 6): the gutter handles by keyboard (16 px a press): only
+    the two neighbours move, each stops at its minimum, the schema's handle moves its height
+    the right way; a double click goes back to the default proportions; hiding a pane is
+    stored at once; a stored layout comes back, a corrupt one or five hidden panes leave the
+    defaults. `app.js` is a module: `moveBoundary` and `loadPaneLayout` are read from what
+    they lay out."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    top = ["bricks", "human", "ctx", "orch"]
+    try:
+        _reload_with_panes(r, None)
+        base = _pane_sizes(r)
+        handle = page.locator('.pane-resize-handle[data-handle="human"]')
+        handle.focus()
+        _press(r, "ArrowRight")
+        r.poll(lambda: _near(_pane_sizes(r)["human"]["w"], base["human"]["w"] + 16), 3)
+        moved = {p: round(_pane_sizes(r)[p]["w"] - base[p]["w"], 1) for p in top}
+        stored = _stored_panes(r)
+        r.check(
+            _near(moved["human"], 16)
+            and _near(moved["ctx"], -16)
+            and _near(moved["orch"], 0)
+            and _near(moved["bricks"], 0)
+            and {"human", "ctx"} <= set(stored.get("sizes", {})),
+            "E033 : → sur la poignée Vue humain | Contexte LLM : +16 px d'un côté, −16 px de "
+            "l'autre, les autres volets immobiles, mémorisé",
+            f"{moved} · {stored}",
+        )
+        _press(r, "ArrowLeft", 40)
+        low = _pane_sizes(r)
+        _press(r, "ArrowRight")  # the boundary was stopped at the minimum, not pushed past it
+        back = _pane_sizes(r)
+        r.check(
+            _near(low["human"]["w"], 240)
+            and _near(back["human"]["w"], 256)
+            and _near(low["orch"]["w"], base["orch"]["w"]),
+            "E033 : ← répété : la Vue humain s'arrête à sa largeur minimale (240 px) ; un → "
+            "la rend aussitôt à 256 px",
+            f"Vue humain {low['human']['w']:.1f} puis {back['human']['w']:.1f} · "
+            f"Orchestration {low['orch']['w']:.1f}",
+        )
+        _press(r, "ArrowRight", 80)
+        high = _pane_sizes(r)
+        r.check(
+            _near(high["ctx"]["w"], 240) and _near(high["orch"]["w"], base["orch"]["w"]),
+            "E033 : → répété : le Contexte LLM s'arrête à sa largeur minimale (240 px)",
+            f"Contexte LLM {high['ctx']['w']:.1f} · Orchestration {high['orch']['w']:.1f}",
+        )
+        handle.dblclick()
+        reset = _pane_sizes(r)
+        stored = _stored_panes(r)
+        r.check(
+            all(_near(reset[p]["w"], base[p]["w"]) for p in top)
+            and not {"human", "ctx", "orch"} & set(stored.get("sizes", {})),
+            "E033 : double clic sur la poignée : proportions par défaut, oubliées du stockage",
+            f"{ {p: round(reset[p]['w']) for p in top} } · {stored}",
+        )
+
+        schema = page.locator('.pane-resize-handle[data-handle="schema"]')
+        schema.focus()
+        _press(r, "ArrowDown")
+        r.poll(lambda: _near(_pane_sizes(r)["schema"]["h"], base["schema"]["h"] - 16), 3)
+        lower = _pane_sizes(r)
+        r.check(
+            _near(lower["schema"]["h"], base["schema"]["h"] - 16)
+            and _near(lower["top"]["h"], base["top"]["h"] + 16),
+            "E033 : ↓ sur la poignée du schéma : la frontière descend, le schéma perd 16 px, la "
+            "rangée du haut les gagne",
+            f"schéma {base['schema']['h']:.0f} → {lower['schema']['h']:.0f} · rangée du haut "
+            f"{base['top']['h']:.0f} → {lower['top']['h']:.0f}",
+        )
+        schema.dblclick()
+
+        page.locator('.pane[data-pane="ctx"] [data-action="hide"]').click()
+        stored = _stored_panes(r)
+        r.check(
+            "ctx" in stored.get("hidden", []),
+            "E033 : masquer un volet l'inscrit aussitôt dans le stockage",
+            str(stored),
+        )
+        _reload_with_panes(r, json.dumps({"hidden": ["ctx"], "sizes": {"bricks": 300}}))
+        kept = _pane_sizes(r)
+        r.check(
+            _hidden_panes(r) == ["ctx"] and _near(kept["bricks"]["w"], 300),
+            "E033 : au rechargement, le volet masqué et la largeur mémorisés reviennent",
+            f"{_hidden_panes(r)} · briques {kept['bricks']['w']:.1f}",
+        )
+        _reload_with_panes(r, "{pas du json")
+        corrupt = _pane_sizes(r)
+        r.check(
+            _hidden_panes(r) == [] and all(_near(corrupt[p]["w"], base[p]["w"]) for p in top),
+            "E033 : stockage illisible : disposition par défaut",
+            f"{_hidden_panes(r)} · { {p: round(corrupt[p]['w']) for p in top} }",
+        )
+        invalid = {"hidden": _PANE_IDS, "sizes": {"bricks": -5, "human": "x", "schema": 1e9}}
+        _reload_with_panes(r, json.dumps(invalid))
+        refused = _pane_sizes(r)
+        r.check(
+            _hidden_panes(r) == []
+            and all(_near(refused[p]["w"], base[p]["w"]) for p in top)
+            and _near(refused["schema"]["h"], base["schema"]["h"]),
+            "E033 : cinq volets masqués et tailles invalides refusés : tout visible, tailles "
+            "par défaut",
+            f"{_hidden_panes(r)} · { {p: round(refused[p]['w']) for p in top} }",
+        )
+        r.check(not errors, "E033 : aucune erreur de page", "; ".join(errors)[:300])
+    finally:
+        page.remove_listener("pageerror", listener)
+        _reload_with_panes(r, None)
+
+
 def s_linked_view(r: Run) -> None:
     """Story 34: hover, focus and click light what is linked in every pane, Escape clears;
     the numbered panes, the frieze of the rail, the outbound summary, the projection mode."""
@@ -2690,14 +3228,101 @@ def s_linked_view(r: Run) -> None:
     )
 
 
+# ---------- restes différés, story 6 (E032): the schema's bins, H5's wait, H1's block ----------
+
+_SCHEMA_NODES_JS = """() => [...document.querySelectorAll('#schema .arch-node')].map((n) => {
+  const bin = n.closest('.arch-group');
+  return {
+    id: n.dataset.component,
+    zone: n.closest('.arch-zone-network') ? 'network'
+      : n.closest('.arch-zone-local') ? 'local' : '',
+    bin: [...(bin?.classList ?? [])].find((c) => c.startsWith('arch-group-'))?.slice(11) ?? '',
+    network: n.classList.contains('is-network'),
+    count: bin?.querySelector('.arch-group-title')?.textContent.split(' · ').at(-1) ?? '',
+    members: bin?.querySelectorAll('.arch-node').length ?? 0,
+  };
+})"""
+_BINS = {"tools": "tool", "mcp": "mcp", "file": "file", "skills": "skill"}
+
+
+def _schema_bins(r: Run, what: str, wanted: set[tuple[str, str]]) -> None:
+    """E032: each node of the schema in the bin of its kind and the zone of its hosting (a
+    network node in the network zone only), each bin's count its nodes'; `wanted`: the
+    (zone, bin) pairs this scenario must draw."""
+    nodes = r.page.evaluate(_SCHEMA_NODES_JS)
+    wrong = [
+        n
+        for n in nodes
+        if n["zone"] != ("network" if n["network"] else "local")
+        or n["bin"] != _BINS.get(n["id"].split(".")[0])
+        or n["count"] != str(n["members"])
+    ]
+    drawn = {(n["zone"], n["bin"]) for n in nodes}
+    r.check(
+        bool(nodes) and not wrong and wanted <= drawn,
+        f"E032 ({what}) : chaque nœud dans le bac de son type et la zone de son hébergement",
+        f"mal rangés {wrong[:4]} · bacs {sorted(drawn)}",
+    )
+
+
+def _schema_h5_pending(r: Run) -> None:
+    """E032: H5 waits for the user: H5 lit, the path stopped before the boundary on ✋."""
+    page = r.page
+    hook = page.locator('#schema .arch-hook[data-component="hooks.h5"]')
+    stop = page.locator("#schema .arch-wires .arch-marker.is-stop")
+    ok, _ = r.poll(
+        lambda: stop.count() == 1 and "is-active" in (hook.get_attribute("class") or ""), 5
+    )
+    paths = page.locator("#schema .arch-wires .arch-path").count()
+    marker = stop.text_content() if stop.count() == 1 else ""
+    r.check(
+        ok and marker == "✋" and paths >= 1,
+        "E032 : H5 attend : halo sur H5, chemin arrêté avant la frontière sur ✋",
+        f"marqueur {marker!r} · chemins {paths} · H5 {hook.get_attribute('class')}",
+    )
+
+
+def _schema_blocked_while_running(r: Run) -> None:
+    """E032: H1 blocked the tool: while the turn goes on, H1 lit and the path stopped at the
+    strip on ✖."""
+    page = r.page
+    hook = page.locator('#schema .arch-hook[data-component="hooks.h1"]')
+    block = page.locator("#schema .arch-wires .arch-marker.is-block")
+    ok, _ = r.poll(
+        lambda: block.count() == 1 and "is-active" in (hook.get_attribute("class") or ""), 20
+    )
+    marker = block.text_content() if block.count() == 1 else ""
+    r.check(
+        ok and marker == "✖",
+        "E032 : H1 a bloqué, le tour continue : halo sur H1, chemin arrêté à la bande sur ✖",
+        f"marqueur {marker!r} · H1 {hook.get_attribute('class')}",
+    )
+
+
+def _hook_strip_state(r: Run, hook_id: str, cls: str, said: str) -> None:
+    """E032: a hook of the strip « Points d'accroche » marked off or blocked, and saying so."""
+    node = r.page.locator(f'#schema .arch-hook[data-component="hooks.{hook_id}"]')
+    ok, _ = r.poll(
+        lambda: node.count() == 1 and cls in (node.get_attribute("class") or "").split(), 5
+    )
+    text = node.inner_text() if node.count() == 1 else ""
+    r.check(
+        ok and said in text,
+        f"E032 : bande des hooks, {hook_id.upper()} « {said.strip('· ')} » ({cls})",
+        f"{node.get_attribute('class') if node.count() else None} · {text!r}",
+    )
+
+
 def s_h5(r: Run) -> None:
     r.launch("network_tools")
     r.set_brick("Hooks", True)
     r.set_option("Hooks", "Validation humaine", True)
+    _schema_bins(r, "h5", {("local", "tool"), ("network", "tool")})
     asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
     r.check(
         asked["payload"]["tool"] == "public_holidays", "H5 suspend le tour avant l'outil réseau"
     )
+    _schema_h5_pending(r)
     card = r.page.locator("#chat .approval-card").last
     expect(card).to_be_visible(timeout=10_000)
     r.check(
@@ -2800,6 +3425,7 @@ def s_h5(r: Run) -> None:
     r.check(resolved["payload"]["hook_disabled"], "« ne plus demander » désactive H5")
     h5 = [o for o in r.bricks()["hooks"]["options"] if o["id"] == "h5"]
     r.check(bool(h5) and not h5[0]["enabled"], "H5 apparaît désactivé dans la carte Hooks")
+    _hook_strip_state(r, "h5", "is-off", f"· {_ui_catalogue('fr')['main.schema.hook_off']}")
     _h5_cleared(r)
 
 
@@ -3327,8 +3953,17 @@ def s_caveman(r: Run) -> None:
 
 def s_hooks(r: Run) -> None:
     r.launch("hooks")
+    # « [lent] » (restes différés, story 6, E032): the answer after the block streams slowly,
+    # while the schema shows the path stopped at the strip.
+    r.wait_idle()
     seq = r.ev.mark()
-    ended = r.send("Lis le fichier confidentiel/budget_projet.txt et résume-le.")
+    r.page.fill(
+        "#composer-input", "Lis le fichier confidentiel/budget_projet.txt et résume-le. [lent]"
+    )
+    r.page.press("#composer-input", "Enter")
+    r.wait_turn_started(seq, "l'envoi")
+    _schema_blocked_while_running(r)
+    ended = r.ev.wait("turn_ended", seq)
     decided = [e["payload"] for e in r.ev.since(seq, "hook_decided")]
     blocks = [d for d in decided if d["hook"] == "h1" and d["decision"] == "block"]
     r.check(
@@ -3338,6 +3973,16 @@ def s_hooks(r: Run) -> None:
     )
     r.check(any(d["hook"] == "h2" for d in decided), "H2 journalise")
     r.check(ended["payload"]["status"] == "completed", "le tour se termine")
+    _turn_rendered_ended(r, ended["turn_id"])
+    blocked = f"· ✖ {_ui_catalogue('fr')['main.schema.hook_blocked']}"
+    _hook_strip_state(r, "h1", "is-blocked", blocked)
+    row = _step(r, "Hook H1")
+    links = (row.get_attribute("data-links") or "") if row.count() else ""
+    r.check(
+        "hooks.h1" in links.split(),
+        "E032 : l'étape « Hook H1 » du blocage garde le composant de son enveloppe (hooks.h1)",
+        links,
+    )
     r.check(
         "budget" not in r.last_answer().lower() or "bloqu" in r.last_answer().lower(),
         "le contenu confidentiel n'atteint pas la réponse",
@@ -3542,13 +4187,16 @@ def s_subagent(r: Run) -> None:
     delegate = page.get_by_role("button", name="Déléguer au sous-agent")
     form = page.locator(".force-form")
     page.set_viewport_size({"width": 1280, "height": 650})
-    delegate.click()
+    # Lot K (A8), E125 (restes différés, story 6): the button says the form is open at once,
+    # read on the node clicked in the same task as the click, before the next frame rebuilds
+    # the panel (whose new button says it anyway); then on the rebuilt button.
+    at_click = delegate.evaluate("b => { b.click(); return b.getAttribute('aria-expanded'); }")
     expect(form).to_be_visible(timeout=5000)
-    # Lot K (A8): the button says the form is open.
     r.check(
-        delegate.get_attribute("aria-expanded") == "true",
-        "1280 × 650 : formulaire « Déléguer au sous-agent » ouvert, aria-expanded=true",
-        str(delegate.get_attribute("aria-expanded")),
+        at_click == "true" and delegate.get_attribute("aria-expanded") == "true",
+        "1280 × 650 : formulaire « Déléguer au sous-agent » ouvert, aria-expanded=true lu "
+        "juste après le clic (avant la reconstruction du panneau), puis après",
+        f"au clic : {at_click} · après : {delegate.get_attribute('aria-expanded')}",
     )
     page.set_viewport_size({"width": 1600, "height": 1000})
     form.get_by_role("button", name="Annuler").click()
@@ -3679,6 +4327,7 @@ def s_data_flows(r: Run) -> None:
         "le serveur MCP local reste sur le poste",
         str(local)[:200],
     )
+    _schema_bins(r, "data_flows", {("local", "mcp"), ("network", "mcp")})
     _datagouv_node_reveals_its_connection(r)
     _datagouv_connection_outbound(r, seq)
     r.shot("15-ou-vont-mes-donnees-schema")
@@ -4774,6 +5423,82 @@ def _rerank_wait_failure(r: Run, seq: int) -> str:
     return " ".join(text.split())
 
 
+RERANK_FAILURE_MARK = "[reranker-en-panne]"  # as `wavestack_e2e.RERANK_FAILURE_MARK`
+
+
+def _fake_post(r: Run, path: str, body: dict[str, Any]) -> None:
+    """A debug route of the fake OpenAI server (`fake_openai.py`)."""
+    with httpx.Client(trust_env=False, timeout=5) as client:
+        client.post(f"{r.stack.fake_url}{path}", json=body).raise_for_status()
+
+
+def _rerank_download_fails(r: Run, card, download) -> None:  # noqa: ANN001
+    """E094 (restes différés, story 6): the reranker's file refused by the fake server (503):
+    the failure said under the « Reranking » switch, « Télécharger » offered again."""
+    _fake_post(r, "/_e2e/reranker_fail", {"fail": True})
+    try:
+        seq = r.ev.mark()
+        download.click()
+
+        def failed() -> list[dict[str, Any]]:
+            errors = r.ev.since(seq, "harness_error")
+            return [e["payload"] for e in errors if e.get("component") == "rag.reranker"]
+
+        r.poll(lambda: bool(failed()), 30)
+        errors = failed()
+        notice = card.locator(".brick-suboption .force-error")
+        r.poll(lambda: notice.count() == 1 and notice.is_visible(), 10)
+        text = notice.inner_text() if notice.count() == 1 else ""
+        r.check(
+            bool(errors) and errors[0]["message_text"] in text,
+            "E094 : téléchargement du reranker refusé (503) : l'échec dit sous l'interrupteur "
+            "« Reranking »",
+            f"{text[:200]} · harness_error {[e['message_text'] for e in errors]}",
+        )
+        expect(download).to_be_visible(timeout=10_000)
+        rerank = r.bricks()["rag"].get("rerank") or {}
+        r.check(
+            not rerank.get("available") and download.is_enabled(),
+            "après l'échec : « Télécharger le modèle de reranking » de nouveau proposé",
+            str(rerank)[:200],
+        )
+    finally:
+        _fake_post(r, "/_e2e/reranker_fail", {"fail": False})
+
+
+def _rerank_step_failed(r: Run) -> None:
+    """E094: the fake reranker breaks down while it scores (`RERANK_FAILURE_MARK` in the
+    question): the « Reranking » step in error, unfolded and kept so, its error said; the
+    turn goes on with the embedding's first excerpts."""
+    seq = r.ev.mark()
+    ended = r.send(f"{RERANK_QUESTION} {RERANK_FAILURE_MARK}")
+    reranked = [e["payload"] for e in r.ev.since(seq, "rag_rerank_ended")]
+    error_text = (reranked[0].get("error_text") or "") if reranked else ""
+    r.check(
+        ended["payload"]["status"] == "completed"
+        and len(reranked) == 1
+        and reranked[0]["status"] == "error"
+        and "reranker en panne (e2e)" in error_text,
+        "reranker en panne : le tour continue, rag_rerank_ended en erreur",
+        f"{ended['payload']['status']} · {error_text[:160]}",
+    )
+    _turn_rendered_ended(r, ended["turn_id"])
+    step = _rerank_step(r)
+    line = step.locator(".turn-step-line")
+    body = step.locator(".turn-step-body")
+    figure = step.locator(".turn-step-figure").inner_text()
+    said = body.inner_text() if body.count() else ""
+    r.check(
+        "tone-error" in (step.get_attribute("class") or "")
+        and line.get_attribute("aria-expanded") == "true"
+        and figure == _ui_catalogue("fr")["main.orch.error"]
+        and "reranker en panne (e2e)" in said,
+        "E094 : étape « Reranking » en erreur dans le rail (ton d'erreur, dépliée, l'erreur dite)",
+        f"{step.get_attribute('class')} · {line.get_attribute('aria-expanded')} · {figure} · "
+        f"{said[:160]}",
+    )
+
+
 def s_rag_rerank(r: Run) -> None:
     """Story 16, after `rag` (index built, embedding model there): the « Reranking »
     sub-option of the RAG card, its model absent (the RAG goes on without it), then
@@ -4822,6 +5547,8 @@ def s_rag_rerank(r: Run) -> None:
         and not r.ev.since(seq, "rag_rerank_started"),
         "sans modèle de reranking : recherche de 3 extraits, aucune étape « Reranking »",
     )
+
+    _rerank_download_fails(r, card, download)
 
     # « Télécharger le modèle de reranking »: the file, then the reranker loads.
     seq = r.ev.mark()
@@ -4934,6 +5661,7 @@ def s_rag_rerank(r: Run) -> None:
         is not None,
         "après rechargement, l'étape « Reranking » est toujours là",
     )
+    _rerank_step_failed(r)
 
     # Switched off: « Prend effet au prochain tour », no reranker in the schema, no step.
     seq = r.ev.mark()
@@ -8658,13 +9386,25 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
 
 
 def _footprint_line(r: Run) -> tuple[str, str]:
-    """GreenOps: the « Empreinte estimée » line of the last call's body, and its tooltip."""
-    _unfold_step(r, "Appelle le modèle")
-    line = _step(r, "Appelle le modèle").locator(".turn-step-body .footprint")
-    try:
-        line.first.wait_for(timeout=5000)
-    except Exception:  # noqa: BLE001 - said in the check's detail
-        body = _step(r, "Appelle le modèle").locator(".turn-step-body")
+    """GreenOps: the « Empreinte estimée » line of the last call's body, and its tooltip.
+
+    E141 (restes différés, story 6): `Run.send` returns on the `turn_ended` the stream thread
+    read, maybe before the page rendered it. The step « Appelle le modèle », still current
+    there, was unfolded by the live view: `_unfold_step` did not click, then the live view
+    folded it. So: the turn rendered ended first, then the step unfolded (clicked again if a
+    render folds it) until its footprint is rendered; no fixed delay."""
+    _turn_rendered_ended(r)
+    step = _step(r, "Appelle le modèle")
+    line = step.locator(".turn-step-body .footprint")
+
+    def rendered() -> bool:
+        if not step.locator(".turn-step-body").count():
+            step.locator(".turn-step-line").click()
+        return line.count() > 0
+
+    ok, _ = r.poll(rendered, 10)
+    if not ok:
+        body = step.locator(".turn-step-body")
         return "", " | ".join(body.all_inner_texts())
     return line.first.inner_text(), line.first.get_attribute("title") or ""
 
@@ -8876,6 +9616,73 @@ def s_gemini_shape(r: Run) -> None:
         r.check("<thought>" not in answer and "444" in answer, "bulle sans balise", answer[:160])
         r.shot("59-gemini-raisonnement")
         r.set_brick("Raisonnement", False)
+    finally:
+        # Entry A back whatever happened: the scenarios after this one play on it.
+        if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+            r.goto_app()
+            _pick_model(r, A_LABEL)
+    r.check(
+        (r.state().get("active_model") or {}).get("ref") == MODEL_ENTRY_ID,
+        "retour à l'entrée A",
+    )
+
+
+PRICED_LABEL = f"RÉSEAU · {PRICED_PROVIDER} · {PRICED_MODEL}"
+
+
+def s_priced_estimate(r: Run) -> None:
+    """E135 (restes différés, story 6): `fake_m`, priced (the Mistral preset's prices) and
+    never asking for `usage` (`stream_usage = false`): its cost is an estimate, said « ≈ » on
+    the call's line, in the turn's head and in the top bar. Alone, it starts from the fake
+    cloud A and goes back to it, even after a failure."""
+    r.goto_app()
+    r.launch("bare_llm")
+    try:
+        _pick_model(r, PRICED_LABEL)
+        active = r.state().get("active_model") or {}
+        r.check(active.get("ref") == PRICED_ENTRY_ID, "fake_m actif", str(active.get("ref")))
+        before = len(r.fake_calls())
+        seq = r.ev.mark()
+        ended = r.send("Bonjour")
+        bodies = r.fake_calls()[before:]
+        calls = [e["payload"] for e in r.ev.since(seq, "model_call_ended")]
+        r.check(
+            ended["payload"]["status"] == "completed"
+            and len(bodies) == 1
+            and "stream_options" not in bodies[0]
+            and len(calls) == 1
+            and calls[0].get("cost_source") == "estimate"
+            and calls[0].get("usage_source") == "estimate",
+            "fake_m : aucun usage demandé (stream_usage = false), coût et tokens estimés",
+            f"{sorted(k for k in (bodies or [{}])[0] if k != 'messages')} · "
+            f"{[(c.get('cost_source'), c.get('usage_source')) for c in calls]}",
+        )
+        _turn_rendered_ended(r, ended["turn_id"])
+        _unfold_step(r, "Appelle le modèle")
+        counters = (
+            _step(r, "Appelle le modèle")
+            .locator(".turn-step-body .token-counter")
+            .all_inner_texts()
+        )
+        cost = next((t for t in counters if t.startswith("Coût estimé : ")), "")
+        r.check(
+            cost.startswith("Coût estimé : entrée ≈ ") and " $ · sortie ≈ " in cost,
+            "E135 : « ≈ » devant chaque montant sur la ligne de coût de l'appel",
+            cost or str(counters),
+        )
+        head = _turn_group(r, ended["turn_id"]).locator(".turn-group-figures").inner_text()
+        r.check(
+            "coût estimé entrée ≈ " in head and " $ · sortie ≈ " in head,
+            "E135 : « ≈ » dans le total du tour, en tête de son groupe",
+            head,
+        )
+        spend = r.state().get("consumption_updated") or {}
+        money = r.page.locator("#consumption-money").inner_text()
+        r.check(
+            spend.get("approx") is True and money.startswith("≈ "),
+            "E135 : « ≈ » devant la dépense de la séance dans la barre de l'atelier",
+            f"{money!r} · approx {spend.get('approx')}",
+        )
     finally:
         # Entry A back whatever happened: the scenarios after this one play on it.
         if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
@@ -10300,6 +11107,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("disciplines", s_disciplines),
     ("themes", s_themes),
     ("linked_view", s_linked_view),
+    ("panes", s_panes),  # restes différés, story 6 (E033)
     ("h5", s_h5),
     ("mcp_full", s_mcp_full),
     ("mcp_lazy", s_mcp_lazy),
@@ -10333,6 +11141,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     # GreenOps: the served model before the first priced call (the footprint alone).
     ("local_server", s_local_server),
     ("gemini_shape", s_gemini_shape),
+    ("priced_estimate", s_priced_estimate),  # restes différés, story 6 (E135)
     ("model_catalog", s_model_catalog),
     ("context_window", s_context_window),
     ("llm_screen", s_llm_screen),
@@ -10346,6 +11155,10 @@ def main() -> int:
     parser.add_argument("--only", nargs="*", help="scénarios à jouer (diagnostic toujours)")
     parser.add_argument("--keep", action="store_true", help="garder le dossier de données")
     parser.add_argument("--headed", action="store_true")
+    parser.add_argument(
+        "--channel",
+        help="navigateur installé à piloter à la place du Chromium de Playwright (msedge, chrome)",
+    )
     parser.add_argument(
         "--no-rag-alt",
         action="store_true",
@@ -10373,10 +11186,14 @@ def main() -> int:
     console: list[str] = []
     with running_stack(keep=args.keep) as stack, sync_playwright() as p:
         print(f"WaveStack {stack.app_url} · faux modèle {stack.fake_url} · {stack.data_dir}")
-        try:
-            browser = p.chromium.launch(headless=not args.headed)
-        except Exception:  # noqa: BLE001 - another Playwright revision: the preinstalled one
-            browser = p.chromium.launch(headless=not args.headed, executable_path=CHROMIUM)
+        if args.channel:  # E125 (restes différés, story 6): e.g. Edge, as on the target PC
+            browser = p.chromium.launch(headless=not args.headed, channel=args.channel)
+            print(f"Navigateur : {args.channel} {browser.version}")
+        else:
+            try:
+                browser = p.chromium.launch(headless=not args.headed)
+            except Exception:  # noqa: BLE001 - another Playwright revision: the preinstalled
+                browser = p.chromium.launch(headless=not args.headed, executable_path=CHROMIUM)
         page = browser.new_page(viewport={"width": 1600, "height": 1000}, locale="fr-FR")
         page.on(
             "console",
