@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 from playwright.sync_api import Page, expect, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stack import (  # noqa: E402
@@ -278,9 +279,17 @@ class Run:
             time.sleep(0.3)
 
     def open_options(self, brick: str) -> None:
+        """Unfolds the card's option list. D3 (2026-10-01): « Afficher les actions forcées »
+        unfolds it too, at the next render; a click landing just after that render folds it
+        back, so the list is checked open, and clicked again if not."""
         details = self.card(brick).locator("details.brick-options")
-        if details.get_attribute("open") is None:
-            details.locator("summary").click()
+        for _ in range(3):
+            if details.get_attribute("open") is None:
+                details.locator("summary").click()
+            opened, _ = self.poll(lambda: details.get_attribute("open") is not None, 1)
+            if opened:
+                return
+        raise AssertionError(f"la liste d'options de la carte {brick} reste repliée")
 
     def set_option(self, brick: str, option: str, on: bool) -> None:
         self.open_options(brick)
@@ -446,7 +455,42 @@ def s_bare_llm(r: Run) -> None:
     )
     total = r.page.locator("#ctx .ctx-total").inner_text()
     r.check(re.match(r"Tour \d+ · ", total) is not None, "« Tour N · » toujours en tête", total)
+    _show_reasoning_option(r)
     _braces_stay_text(r, "mode chat")
+
+
+def _show_reasoning_option(r: Run) -> None:
+    """E053 (story 5 of the deferred leftovers): « Afficher le raisonnement » unticked hides
+    the reasoning block of the Vue humain, never Contexte LLM's; the choice survives a reload;
+    ticked again, the block comes back."""
+    toggle = r.page.locator("#show-reasoning")
+    chat_blocks = r.page.locator("#chat .bubble-model").last.locator("details.reasoning-block")
+    ctx_reasoning = r.page.locator("#ctx .ctx-call").last.locator(".ctx-produced.is-reasoning")
+    toggle.uncheck()
+    try:
+        hidden, _ = r.poll(lambda: chat_blocks.count() == 0, 5)
+        r.check(
+            hidden and ctx_reasoning.count() >= 1,
+            "E053 : « Afficher le raisonnement » décoché, plus de bloc dans la Vue humain ; "
+            "Contexte LLM garde la réflexion",
+            f"blocs Vue humain {chat_blocks.count()}, "
+            f"réflexions Contexte LLM {ctx_reasoning.count()}",
+        )
+        stored = r.page.evaluate("() => localStorage.getItem('wavestack.showReasoning')")
+        r.reload_app()
+        still, _ = r.poll(
+            lambda: r.page.locator("#chat .bubble-model").count() > 0 and chat_blocks.count() == 0,
+            10,
+        )
+        r.check(
+            stored == "0" and still and not toggle.is_checked(),
+            "E053 : le choix est gardé au rechargement (option décochée, aucun bloc)",
+            f"localStorage {stored!r}, case {'cochée' if toggle.is_checked() else 'décochée'}",
+        )
+    finally:
+        toggle.check()  # the next scenarios show the reasoning, as by default
+    shown, _ = r.poll(lambda: chat_blocks.count() == 1, 5)
+    r.check(shown, "E053 : recoché, le bloc de raisonnement revient dans la Vue humain")
 
 
 def _parent_off_at_launch(r: Run) -> None:
@@ -2674,12 +2718,28 @@ def s_h5(r: Run) -> None:
         f"manque {missing}" if missing else "",
     )
     preview.locator("summary").click()  # folded again, as the card opens
+    _awaiting_indicator(r)
     r.shot("09-h5-validation-humaine")
     seq = r.ev.mark()
-    card.get_by_role("button", name="Refuser", exact=True).click()
-    resolved = r.ev.wait("approval_resolved", seq, timeout=10)
-    ended = r.ev.wait("turn_ended", seq)
+    posts = _approval_posts(r)
+    try:
+        # E030: two clicks on the same node, at once: the second must send nothing (the
+        # button is not disabled yet; only the card's `answering` guard stops it).
+        card.get_by_role("button", name="Refuser", exact=True).evaluate(
+            "b => { b.click(); b.click(); }"
+        )
+        resolved = r.ev.wait("approval_resolved", seq, timeout=10)
+        ended = r.ev.wait("turn_ended", seq)
+        r.page.evaluate("() => 0")  # a round trip: the page's queued `request` events arrive
+    finally:
+        r.page.remove_listener("request", posts.listener)
+    r.check(
+        len(posts) == 1,
+        "E030 : deux clics sur « Refuser » n'envoient qu'une réponse",
+        f"{len(posts)} requête(s) POST /api/intentions/approval",
+    )
     r.check(resolved["payload"]["decision"] == "refused", "« Refuser » : décision refused")
+    _card_decision(r, "Décision : Refusé")
     r.check(not r.ev.since(seq, "outbound_request"), "refusé : rien ne sort du poste")
     r.check(
         ended["payload"]["status"] == "completed",
@@ -2702,6 +2762,7 @@ def s_h5(r: Run) -> None:
     )
     # A reload while the turn waits: the card comes back (AD-1); « Arrêter » cancels it.
     asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
+    _buttons_off_outside_awaiting(r)
     r.page.reload()
     card = r.page.locator("#chat .approval-card").last
     ok, took = r.poll(
@@ -2726,6 +2787,8 @@ def s_h5(r: Run) -> None:
         f"{resolved['payload']['decision']} / {ended['payload']['status']}",
     )
     r.check(not r.ev.since(seq, "outbound_request"), "annulé : rien ne sort du poste")
+    _card_decision(r, "Décision : Annulé : tour arrêté")
+    _approval_refused_409(r)
     # « Autoriser et ne plus demander » turns H5 off.
     asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
     seq = r.ev.mark()
@@ -2737,6 +2800,185 @@ def s_h5(r: Run) -> None:
     r.check(resolved["payload"]["hook_disabled"], "« ne plus demander » désactive H5")
     h5 = [o for o in r.bricks()["hooks"]["options"] if o["id"] == "h5"]
     r.check(bool(h5) and not h5[0]["enabled"], "H5 apparaît désactivé dans la carte Hooks")
+    _h5_cleared(r)
+
+
+class _Requests(list):
+    """The requests a page sent to one intention, while `listener` is attached."""
+
+    listener: Callable[[Any], None]
+
+
+def _approval_posts(r: Run) -> _Requests:
+    posts = _Requests()
+
+    def listener(request) -> None:  # noqa: ANN001
+        if request.method == "POST" and request.url.endswith("/api/intentions/approval"):
+            posts.append(request)
+
+    posts.listener = listener
+    r.page.on("request", listener)
+    return posts
+
+
+def _card_decision(r: Run, decision: str) -> None:
+    """E028: once answered, the last H5 card of the Vue humain says its decision."""
+    card = r.page.locator("#chat .approval-card").last
+    ok, _ = r.poll(lambda: card.count() == 1 and decision in card.inner_text(), 5)
+    r.check(
+        ok,
+        f"E028 : la carte répondue affiche « {decision} », sans bouton",
+        card.inner_text()[:200] if card.count() else "aucune carte",
+    )
+    r.check(card.locator("button").count() == 0, f"E028 : « {decision} » : boutons retirés")
+
+
+def _awaiting_indicator(r: Run) -> None:
+    """E028 (story 5 of the deferred leftovers): while H5 waits, the turn's indicator says
+    « En attente de validation », in the Vue humain and in Orchestration's header."""
+    chat = r.page.locator("#chat .bubble-model").last.locator(".working-indicator")
+    orch = r.page.locator("#orch-working-label")
+    ok, _ = r.poll(
+        lambda: (
+            chat.count() == 1
+            and "En attente de validation" in chat.inner_text()
+            and "En attente de validation" in orch.inner_text()
+        ),
+        5,
+    )
+    r.check(
+        ok,
+        "E028 : indicateur « En attente de validation » (Vue humain et Orchestration)",
+        f"{chat.inner_text() if chat.count() else 'aucun indicateur'} · {orch.inner_text()}",
+    )
+
+
+_SESSION_NOT_AWAITING = "turn"
+
+
+def _buttons_off_outside_awaiting(r: Run) -> None:
+    """E028: the card's three buttons only act in `awaiting_human`. The real session never
+    shows a pending validation in another state for long: `/api/state` is rewritten for one
+    reload (`state: turn`, the journal's older `session_state` are not replayed), then the
+    page is reloaded as it is."""
+
+    rewritten: list[str] = []
+
+    def rewrite(route) -> None:  # noqa: ANN001
+        response = route.fetch()
+        body = response.json()
+        if isinstance(body.get("session_state"), dict):
+            rewritten.append(body["session_state"].get("state"))
+            body["session_state"]["state"] = _SESSION_NOT_AWAITING
+        route.fulfill(response=response, json=body)
+
+    r.page.route("**/api/state", rewrite)
+    try:
+        r.reload_app()
+        card = r.page.locator("#chat .approval-card").last
+        names = ["Autoriser", "Refuser", "Autoriser et ne plus demander"]
+        buttons = [card.get_by_role("button", name=name, exact=True) for name in names]
+        ok, _ = r.poll(
+            lambda: card.count() == 1 and all(b.count() == 1 and b.is_disabled() for b in buttons),
+            10,
+        )
+        pending = card.count() == 1 and "Décision" not in card.inner_text()
+        r.check(
+            ok and pending and "awaiting_human" in rewritten,
+            "E028 : hors `awaiting_human`, la carte en attente garde ses trois boutons inactifs",
+            f"état réécrit {rewritten}, carte {'en attente' if pending else 'répondue ?'}, "
+            + str(
+                [(n, b.count() and b.is_disabled()) for n, b in zip(names, buttons, strict=True)]
+            ),
+        )
+    finally:
+        r.page.unroute("**/api/state", rewrite)
+
+
+_REASONS_JS = """() => {
+  window.__composerReasons = [];
+  const node = document.getElementById('composer-reason');
+  const note = () => {
+    if (!node.hidden && node.textContent) window.__composerReasons.push(node.textContent);
+  };
+  new MutationObserver(note).observe(node, {
+    childList: true, characterData: true, subtree: true, attributes: true,
+  });
+}"""
+
+
+def _approval_refused_409(r: Run) -> None:
+    """E030: an answer the session refuses (409) is said under the composer. The validation is
+    answered by the API first, then the page's own request goes through: a real 409."""
+    asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
+    approval_id = asked["payload"]["approval_id"]
+    answers: list[int] = []
+
+    def answer_first(route) -> None:  # noqa: ANN001
+        try:
+            answers.append(
+                r.api(
+                    "POST",
+                    "/api/intentions/approval",
+                    {"approval_id": approval_id, "approved": False, "disable_hook": False},
+                ).status_code
+            )
+        finally:
+            route.continue_()
+
+    r.page.evaluate(_REASONS_JS)
+    seq = r.ev.mark()
+    r.page.route("**/api/intentions/approval", answer_first)
+    try:
+        with r.page.expect_response("**/api/intentions/approval") as info:
+            r.page.locator("#chat .approval-card").last.get_by_role(
+                "button", name="Refuser", exact=True
+            ).click()
+        status = info.value.status
+        r.ev.wait("turn_ended", seq)
+    finally:
+        r.page.unroute("**/api/intentions/approval", answer_first)
+    # `session.approval.answered`: the first answer counts (not « unknown »).
+    answered = "Cette validation a déjà reçu une réponse : la première compte."
+    reasons = "() => window.__composerReasons || []"
+    ok, _ = r.poll(lambda: answered in r.page.evaluate(reasons), 5)
+    r.check(
+        answers == [200] and status == 409 and ok,
+        "E030 : réponse refusée par la session (409) affichée sous le champ de saisie",
+        f"API {answers}, page {status}, textes {sorted(set(r.page.evaluate(reasons)))}",
+    )
+
+
+def _h5_cleared(r: Run) -> None:
+    """E030: after « Vider la conversation », no H5 card in the Vue humain, no trace in
+    Orchestration or Contexte LLM, and the schema keeps no state of the hidden turns."""
+    node = _schema_node(r, "Jours fériés")
+    before = node.get_attribute("title") or ""
+    seq = r.ev.mark()
+    r.page.click("#clear-conversation")
+    r.ev.wait("conversation_cleared", seq, timeout=10)
+    ok, _ = r.poll(
+        lambda: (
+            r.page.locator("#chat .approval-card").count() == 0
+            and r.page.locator("#orch-scroll .turn-step").count() == 0
+            and r.page.locator("#ctx .ctx-call").count() == 0
+        ),
+        5,
+    )
+    r.check(
+        ok,
+        "E030 : après « Vider la conversation », aucune carte H5 (Vue humain), aucune étape "
+        "(Orchestration), aucun appel (Contexte LLM)",
+        f"cartes {r.page.locator('#chat .approval-card').count()}, "
+        f"étapes {r.page.locator('#orch-scroll .turn-step').count()}, "
+        f"appels {r.page.locator('#ctx .ctx-call').count()}",
+    )
+    gone, _ = r.poll(lambda: "Au tour" not in (node.get_attribute("title") or ""), 5)
+    r.check(
+        "Au tour" in before and gone,
+        "E030 : le schéma ne dit plus l'état du tour masqué (Jours fériés sans « Au tour »)",
+        f"avant : {before!r} · après : {node.get_attribute('title')!r}",
+    )
 
 
 def s_mcp_full(r: Run) -> None:
@@ -2796,6 +3038,84 @@ def s_mcp_full(r: Run) -> None:
         button.inner_text() if button.count() else "absent",
     )
     r.show_forced(False)
+    _mcp_server_switch(r)
+
+
+def _intention_toggle(r: Run, path: str, brick: str, option: str, on: bool) -> Any:
+    """Clicks an option's switch in its card; returns the body the page posted to `path`, or
+    why none came (the check that reads it then fails with that reason)."""
+    try:
+        with r.page.expect_request(
+            lambda q: q.method == "POST" and q.url.endswith(path), timeout=10_000
+        ) as info:
+            r.set_option(brick, option, on)
+    except (TimeoutError, PlaywrightTimeout) as error:
+        return f"pas de requête {path} suivie de bricks_changed : {error}".splitlines()[0]
+    return info.value.post_data_json
+
+
+def _mcp_server_switch(r: Run) -> None:
+    """E016 (story 5 of the deferred leftovers): the server's switch in the MCP card posts to
+    `/api/intentions/mcp_server`; switched back on, the server is contacted again and its new
+    connection line, after the turn, is paired with its own end (« connecté », with the « MCP »
+    badge); the server's node lists its tools in its tooltip. E030: « Vider la conversation »
+    hides that line too."""
+    label = "Glossaire WaveStack"
+    off = _intention_toggle(r, "/api/intentions/mcp_server", "MCP", label, False)
+    seq = r.ev.mark()
+    on = _intention_toggle(r, "/api/intentions/mcp_server", "MCP", label, True)
+    r.check(
+        off == {"server": "local", "enabled": False} and on == {"server": "local", "enabled": True},
+        "E016 : l'interrupteur du serveur poste `/api/intentions/mcp_server` (décoché, recoché)",
+        f"{off} puis {on}",
+    )
+    r.ev.wait("mcp_connect_ended", seq, lambda p: p["server"] == "local", 45)
+    lines = r.page.locator("#orch-scroll .turn-off .turn-step").filter(
+        has=r.page.locator(".turn-step-title", has_text=label)
+    )
+    connecting = r.page.locator("#orch-scroll .turn-step-figure", has_text="connexion…")
+    ok, _ = r.poll(
+        lambda: (
+            lines.count() == 1
+            and "connecté" in lines.last.locator(".turn-step-figure").inner_text()
+            and connecting.count() == 0
+        ),
+        5,
+    )
+    r.check(
+        ok,
+        "E016 : la nouvelle connexion, après le tour, reçoit sa propre fin (« connecté », "
+        "aucune ligne « connexion… »)",
+        f"{lines.count()} ligne(s) ; « connexion… » : {connecting.count()}",
+    )
+    if lines.count():
+        lines.last.locator(".turn-step-line").click()
+        badge = lines.last.locator(".turn-step-body .step-badge.is-mcp")
+        shown, _ = r.poll(lambda: badge.count() == 1, 5)
+        r.check(
+            shown and badge.inner_text() == "MCP",
+            "E016 : la ligne de connexion dépliée porte le badge « MCP »",
+            f"{badge.count()} badge(s) « MCP »",
+        )
+    follow = r.page.locator("#follow-live")
+    if follow.is_visible():
+        follow.click()  # back to the live view the click on the line froze
+    node = r.page.locator(".arch-node-mcp").filter(has_text=label).first
+    title = node.get_attribute("title") or ""
+    r.check(
+        "Outils : " in title and "define_term" in title and "list_terms" in title,
+        "E016 : l'infobulle du nœud du serveur liste ses outils",
+        title,
+    )
+    seq = r.ev.mark()
+    r.page.click("#clear-conversation")
+    r.ev.wait("conversation_cleared", seq, timeout=10)
+    gone, _ = r.poll(lambda: r.page.locator("#orch-scroll .turn-step").count() == 0, 5)
+    r.check(
+        gone,
+        "E030 : après « Vider la conversation », la connexion MCP d'après le tour est masquée",
+        r.page.locator("#orch-scroll").inner_text()[:200],
+    )
 
 
 def s_mcp_lazy(r: Run) -> None:
@@ -2806,6 +3126,20 @@ def s_mcp_lazy(r: Run) -> None:
         not r.bricks()["rag"]["wanted"] and "le RAG, laissé éteint" in guide,
         "lazy loading : RAG non voulu (story 27), la consigne le dit",
         guide[:200],
+    )
+    # E017 (story 5 of the deferred leftovers): the « Lazy loading » switch of the MCP card.
+    off = _intention_toggle(r, "/api/intentions/mcp_mode", "MCP", "Lazy loading", False)
+    mode_off = r.bricks()["mcp"].get("mode")
+    on = _intention_toggle(r, "/api/intentions/mcp_mode", "MCP", "Lazy loading", True)
+    mode_on = r.bricks()["mcp"].get("mode")
+    r.check(
+        off == {"lazy": False}
+        and on == {"lazy": True}
+        and mode_off != "lazy"
+        and mode_on == "lazy",
+        "E017 : l'interrupteur « Lazy loading » poste `/api/intentions/mcp_mode` (décoché, "
+        "recoché)",
+        f"{off} → {mode_off} ; {on} → {mode_on}",
     )
     body_tools = None
     seq = r.ev.mark()
@@ -2826,6 +3160,20 @@ def s_mcp_lazy(r: Run) -> None:
         str(body_tools),
     )
     r.check(ended["payload"]["status"] == "completed", "tour lazy terminé")
+    # E017: the harness's step that loads the documentation, unfolded, carries the MCP badge.
+    title = "Chargement de la documentation"
+    if not _step(r, title).locator(".turn-step-body").count():
+        _step(r, title).locator(".turn-step-line").click()
+    badge = _step(r, title).locator(".turn-step-body .step-badge.is-mcp")
+    shown, _ = r.poll(lambda: badge.count() == 1, 5)
+    r.check(
+        shown and badge.inner_text() == "MCP",
+        "E017 : l'étape « Chargement de la documentation » porte le badge « MCP »",
+        f"{badge.count()} badge(s) « MCP »" if _step(r, title).count() else "étape absente",
+    )
+    follow = r.page.locator("#follow-live")
+    if follow.is_visible():
+        follow.click()
     seq = r.ev.mark()
     ended = r.send(second)
     r.check(
@@ -2907,6 +3255,28 @@ def s_skills(r: Run) -> None:
         "consigne des skills : l'action forcée de secours ; RAG non voulu",
         guide[:200],
     )
+    # E023 (story 5 of the deferred leftovers): the skill's switch, then its node « chargé ».
+    label = "Compte rendu de réunion"
+    off = _intention_toggle(r, "/api/intentions/skill", "Skills", label, False)
+    on = _intention_toggle(r, "/api/intentions/skill", "Skills", label, True)
+    r.check(
+        off == {"skill": "meeting_minutes", "enabled": False}
+        and on == {"skill": "meeting_minutes", "enabled": True},
+        "E023 : l'interrupteur du skill poste `/api/intentions/skill` (décoché, recoché)",
+        f"{off} puis {on}",
+    )
+    node = r.page.locator(".arch-node-skill").filter(has_text=label).first
+
+    def loaded() -> bool:
+        return "is-loaded" in (node.get_attribute("class") or "").split() and (
+            "Chargé dans la conversation." in (node.get_attribute("title") or "")
+        )
+
+    r.check(
+        node.count() == 1 and not loaded() and "Non chargé." in (node.get_attribute("title") or ""),
+        "E023 : avant le tour, le skill est « Non chargé » dans le schéma",
+        node.get_attribute("title") if node.count() else "nœud absent",
+    )
     seq = r.ev.mark()
     ended = r.send(_prompts("skills")[0])
     tools = [e["payload"]["tool"] for e in r.ev.since(seq, "tool_started")]
@@ -2914,6 +3284,12 @@ def s_skills(r: Run) -> None:
     r.check(ended["payload"]["status"] == "completed", "tour terminé")
     sent = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
     r.check("compte rendu de réunion structuré" in sent, "le contenu du skill rejoint le contexte")
+    ok, _ = r.poll(loaded, 5)
+    r.check(
+        ok,
+        "E023 : après le tour, le nœud du skill est marqué chargé (classe et infobulle)",
+        f"{node.get_attribute('class')} · {node.get_attribute('title')}",
+    )
 
 
 def s_caveman(r: Run) -> None:
@@ -3787,9 +4163,51 @@ def _consulted_tools(r: Run) -> None:
     r.check(after.count() == 0, "D5 : un tour sans outil n'affiche aucune ligne d'outils")
 
 
+def _forced_kept_after_reload(r: Run) -> None:
+    """E035 (story 5 of the deferred leftovers): « Afficher les actions forcées », turned on,
+    is remembered by the browser: after a reload, the switch is on and the Forcer buttons are
+    there without a click."""
+    r.show_forced(True)
+    stored = r.page.evaluate("() => localStorage.getItem('wavestack.forcedActions')")
+    r.reload_app()
+    toggle = r.page.locator("label.force-toggle input")
+    # In the option list, folded after a reload: by its focus key, not by role (hidden).
+    button = r.page.locator('#bricks .force-button[data-focus-key="force:tools:get_datetime"]')
+    ok, _ = r.poll(lambda: toggle.count() == 1 and toggle.is_checked() and button.count() == 1, 10)
+    r.check(
+        stored == "1" and ok,
+        "E035 : « Afficher les actions forcées » gardé après rechargement (bouton « Forcer » là)",
+        f"localStorage {stored!r}, case {'cochée' if toggle.is_checked() else 'décochée'}, "
+        f"{button.count()} bouton(s) « Forcer l'appel » de l'heure",
+    )
+
+
+def _forced_dropped(r: Run) -> None:
+    """E035: an armed action whose tool is unticked before the turn is dropped, said by its
+    line « Action forcée abandonnée · … » in Orchestration."""
+    r.open_options("Outils")
+    r.arm("Forcer l'appel : Heure et date")
+    try:
+        r.set_option("Outils", "Heure et date", False)
+        seq = r.ev.mark()
+        r.send("Bonjour")
+        dropped = r.ev.since(seq, "action_dropped")
+        line = _step(r, "Action forcée abandonnée")
+        ok, _ = r.poll(lambda: line.count() == 1 and "Heure et date" in line.inner_text(), 5)
+        r.check(
+            bool(dropped) and ok,
+            "E035 : ligne « Action forcée abandonnée · Heure et date » dans Orchestration",
+            f"{len(dropped)} action_dropped ; "
+            + (line.inner_text()[:160] if line.count() else "ligne absente"),
+        )
+    finally:
+        r.set_option("Outils", "Heure et date", True)
+
+
 def s_forced_native(r: Run) -> None:
     r.launch("native_tools")
     _forced_section(r)
+    _forced_kept_after_reload(r)
     r.open_options("Outils")
     r.arm("Forcer l'appel : Heure et date")
     expect(r.page.locator("#armed-chips")).to_be_visible(timeout=5000)
@@ -3814,6 +4232,7 @@ def s_forced_native(r: Run) -> None:
     tile = _step(r, "Calculatrice").locator(".turn-step-tile").inner_text()
     r.check(tile == "U", "l'étape forcée porte la pastille « U »", tile)
     _consulted_tools(r)
+    _forced_dropped(r)
     r.show_forced(False)
 
 
@@ -5450,8 +5869,40 @@ new MutationObserver((records) => {
 """
 
 
+def _connect_local_mcp(r: Run) -> None:
+    """E043: the local MCP server contacted before the turns, for the harness preparation the
+    reset keeps (a connection made before the turns, not the last one)."""
+    seq = r.ev.mark()
+    r.api("POST", "/api/intentions/mcp_server", {"server": "local", "enabled": True})
+    r.api("POST", "/api/intentions/brick", {"brick": "mcp", "wanted": True})
+    r.ev.wait("mcp_connect_ended", seq, lambda p: p["server"] == "local", 45)
+    for started in r.ev.since(seq, "mcp_connect_started"):  # data.gouv.fr too, if enabled
+        server = started["payload"].get("server")
+        r.ev.wait("mcp_connect_ended", seq, lambda p, s=server: p["server"] == s, 45)
+
+
+def _reset_keeps_prep_and_folds(r: Run) -> None:
+    """E043 and E047 (story 5 of the deferred leftovers), after « Réinitialiser »: the harness
+    preparation keeps the MCP connection seen before the turns; no option list stays open."""
+    prep = r.page.locator("#orch-scroll .harness-prep")
+    ok, _ = r.poll(lambda: prep.count() == 1 and "Glossaire WaveStack" in prep.inner_text(), 5)
+    r.check(
+        ok,
+        "E043 : après « Réinitialiser », la préparation du harnais garde la connexion MCP",
+        prep.inner_text()[:200] if prep.count() else "aucune préparation",
+    )
+    opened = r.page.locator("#bricks details.brick-options[open]")
+    folded, _ = r.poll(lambda: opened.count() == 0, 5)
+    r.check(
+        folded,
+        "E047 : « Réinitialiser » referme les listes d'options ouvertes",
+        f"{opened.count()} liste(s) ouverte(s)",
+    )
+
+
 def s_reload_and_reset(r: Run) -> None:
     r.launch("hooks")
+    _connect_local_mcp(r)
     seq = r.ev.mark()
     for _ in range(3):  # past turns: `session_state` « turn » then « idle » in the journal
         r.send("Bonjour")
@@ -5479,6 +5930,11 @@ def s_reload_and_reset(r: Run) -> None:
         " return [Math.round(b.width), Math.round(b.height)]; })"
     )
     before = r.page.evaluate(measure)
+    r.open_options("Hooks")  # E047: an option list open before the reset
+    r.check(
+        r.card("Hooks").locator("details.brick-options").get_attribute("open") is not None,
+        "E047 : liste d'options des Hooks ouverte avant « Réinitialiser »",
+    )
     seq = r.ev.mark()
     r.page.click("#reset-button")
     r.ev.wait("harness_reset", seq, timeout=10)
@@ -5508,6 +5964,7 @@ def s_reload_and_reset(r: Run) -> None:
             f"{pane} : « Aucun tour »",
             r.page.locator(pane).inner_text()[:120],
         )
+    _reset_keeps_prep_and_folds(r)
     title = r.page.locator("#event-log-title").inner_text()
     r.shot("17-reinitialisation")
     r.page.reload()

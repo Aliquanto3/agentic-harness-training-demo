@@ -559,6 +559,40 @@ Vérifications ajoutées aux scénarios existants :
   est refusé sur la carte dès la saisie (« Lancer » grisé), et le 409 donne la même raison.
   Retour à `/` en fin de scénario, thème « Système ».
 
+## Options, cartes et interrupteurs (story 5 des restes différés)
+
+Contrôles préfixés de leur entrée de `deferred-work.md` ; chacun échoue si l'on retire de
+`app.js` la ligne qui produit le comportement (vérifié à la main le 2026-10-02). `app.js` est un
+module : les contrôles lisent le DOM, `localStorage`, les requêtes (`expect_request`) et, pour
+deux états difficiles à atteindre, réécrivent une réponse par `page.route`.
+
+- `mcp_full` (E016, E030) : serveur « Glossaire WaveStack » décoché puis recoché dans la carte
+  MCP (corps postés à `/api/intentions/mcp_server`) ; la nouvelle connexion, après le tour, dit
+  « connecté », aucune ligne « connexion… », badge « MCP » une fois dépliée ; outils du serveur
+  dans l'infobulle de son nœud ; « Vider la conversation » masque cette connexion.
+- `mcp_lazy` (E017) : « Lazy loading » décoché puis recoché (`/api/intentions/mcp_mode`) ; étape
+  « Chargement de la documentation » avec le badge « MCP ».
+- `skills` (E023) : skill décoché puis recoché (`/api/intentions/skill`) ; nœud du schéma
+  « Non chargé », puis `is-loaded` et « Chargé dans la conversation. » après le tour.
+- `h5` (E028, E030) : « En attente de validation » dans la Vue humain et Orchestration ; carte
+  répondue : « Décision : Refusé » puis « Décision : Annulé : tour arrêté », sans bouton ; deux
+  clics synchrones sur « Refuser » = une requête ; rechargement avec `/api/state` réécrit en
+  `state: turn` : trois boutons inactifs ; validation répondue par l'API puis par la page : 409
+  affiché sous le champ (un `MutationObserver` garde chaque texte de `#composer-reason`) ;
+  « Vider la conversation » : aucune carte, étape ni appel, nœud « Jours fériés » sans « Au tour ».
+- `forced_native` (E035) : « Afficher les actions forcées » gardé après rechargement ; action
+  armée puis outil décoché : « Action forcée abandonnée · Heure et date ».
+- `reload_and_reset` (E043, E047) : serveur MCP local connecté avant les tours, gardé dans la
+  préparation du harnais après « Réinitialiser » ; liste d'options ouverte refermée.
+- `bare_llm` (E053) : « Afficher le raisonnement » décoché (Vue humain sans bloc, Contexte LLM
+  avec la réflexion), gardé au rechargement, puis recoché.
+- `Run.open_options` vérifie que la liste est ouverte et reclique sinon : depuis D3,
+  « Afficher les actions forcées » la déplie au rendu suivant, et un clic juste après la
+  repliait (`mcp_full`, « Forcer l'appel · local__define_term » absent).
+
+Sous Windows, une sortie redirigée vers un fichier demande `PYTHONIOENCODING=utf-8` (sinon
+`UnicodeEncodeError` sur « ℹ »).
+
 ## Déclencheurs du faux modèle
 
 La réponse dépend du dernier message de l'utilisateur (sans le texte ajouté par H3 ni les
