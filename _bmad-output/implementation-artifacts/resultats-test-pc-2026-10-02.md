@@ -133,3 +133,28 @@ cette attente, la page n'affiche aucun indicateur de chargement.
 - L'interrupteur des actions forcées est remis à faux (stockage local du navigateur).
 - La conversation du scénario network_tools a été vidée pour pouvoir changer de langue. La
   mémoire globale n'a pas changé.
+
+## Recette des suites sur le PC pro (02/10 au soir, commit `31ec98f`)
+
+Pilotage par Claude in Chrome (extension reliée, fenêtre visible, 1 696 × 675 px de page),
+`uv run wavestack` lancé depuis la racine du dépôt, console capturée dans un fichier. Dossier de
+données réel ; `settings.json` sauvegardé avant et identique après (`en`, cloud `gemma`).
+
+| Point | Geste | Observé | Verdict |
+|---|---|---|---|
+| R1, attente | `/diagnostic` ouvert dès la réponse de `/api/health` | À 1,3 s : « Diagnostic en cours… » dans les trois listes, aucun `/api/*` encore répondu. Puis `/api/ui_texts` en 515 ms, `/api/diagnostic` en 252 ms ; les listes se remplissent. | OK |
+| R1, mesure | Console du serveur | Une seule ligne : `/api/diagnostic n° 2 : 14719 ms au total (attente avant le gestionnaire 3 ms ; active_choice 0 ms, cloud_rows 13 ms, _models 14700 ms, shown 2 ms), 27.3 s après la création de l'application`. Les appels suivants : 75 à 88 ms. | OK, cause localisée |
+| R2 | Diagnostic, « Test » de Mistral | Message D6 inchangé (« No active quota on this account… Rate limit exceeded »). Journal : `outbound_request` (Authorization masqué), `outbound_response` 429 avec `x-ratelimit-limit-req-minute: 0` et `x-ratelimit-remaining-req-minute: 0` en clair, 15 autres en-têtes masqués (`set-cookie`, `mistral-correlation-id`, `CF-RAY`…), puis `model_call_ended` en erreur. Journal de la page : « Error response received » · `429 · POST https://api.mistral.ai/v1/chat/completions · x-ratelimit-limit-req-minute: 0, x-ratelimit-remaining-req-minute: 0`. | OK |
+| Markdown | `network_tools`, « What are the public holidays in France this year? » (gemma) | `p` puis `ul` de 11 `li`, dates en `strong` : plus aucun `*   **…**` brut. | OK |
+| Markdown | Deux questions sans outil (titre, liste numérotée, code) | `h3`, `ol` de 4 étapes, `code` en ligne, `pre > code` ; le Contexte LLM garde `**` et les clôtures de code. Pendant le flux, la `.bubble-text` du tour ne disparaît jamais (21 lots de mutations) et le rendu progresse (liste, puis code, puis bloc). | OK |
+| Mode focus | Orchestration agrandie, défilement vers le bloc « Données sortantes » (lien « Public holidays » du tour 1), molette (10 crans), Fin | Seul Orchestration défile (jusqu'à 1 043 px) ; `scrollTop` de la page à 0, hauteur du document égale à la fenêtre, barre basse à 612 px (bas de la fenêtre). Briques, Vue humain et Contexte LLM agrandis : idem. | OK |
+
+**Cause de R1, localisée par la mesure.** Le temps se passe dans `_models`
+(`catalog.models_payload`), au premier appel qui suit la fin de la recherche des modèles
+(appel n° 2, après le contrôle `model`), puis plus jamais. Ni l'attente d'un thread, ni
+`active_choice`, ni `cloud_rows`. Le 02/10 au matin, la page s'était ouverte après la fin de la
+recherche : c'est sans doute pourquoi le premier appel portait les 9,9 s. Prochaine étape :
+mesurer l'intérieur de `models_payload` (par candidat : lecture des métadonnées GGUF, éditeurs,
+fenêtres) avant tout correctif.
+
+Reste à faire : la vérification 4 (téléchargement HF avec un `WAVESTACK_DATA_DIR` jetable).
