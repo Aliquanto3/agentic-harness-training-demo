@@ -2,7 +2,7 @@
 title: "E2E : schéma, rail, volets, comparaison, cas d'erreur et stabilité"
 type: 'chore'
 created: '2026-10-01'
-status: 'in-progress'
+status: 'done'
 route: 'dispatch'
 baseline_commit: 'f36cc98848163cca19eccb66e4b3d6ba0db25cc5'
 review_loop_iteration: 0
@@ -146,8 +146,48 @@ Mutations faites à la main dans `app.js` (script local `mutate.py`, ancres uniq
 
 Tranches propres (faux modèle, réseau coupé, une à la fois, `diagnostic` compris) : `native_tools system_prompt h5 hooks` 94 réussies, 1 échec (`substring not found` sur l'`app.js` servi en CRLF, corrigé) ; `native_tools data_flows panes subagent` 114 réussies, 0 échec, 2 `KNOWN` ; `rag rag_rerank gemini_shape priced_estimate` 103 réussies, 0 échec ; `gemini_shape` seul cinq fois de suite : 41 réussies, 0 échec à chaque passage ; `model_switch reasoning_locked local_server model_catalog context_window` (non-régression de `fake_m`) 165 réussies, 0 échec ; `annex_language llm_screen relaunch hooks panes` 95 réussies, 0 échec ; `subagent --channel msedge` (Edge 154.0.4258.37) 47 réussies, 0 échec. Pytest : `tests/test_tools.py tests/test_e2e_fake_openai.py tests/test_e2e_stack.py` 77 réussis.
 
+Après les correctifs de revue : `native_tools subagent rag rag_rerank` 139 réussies, 0 échec, 2 `KNOWN` ; `priced_estimate` seul 15 réussies, 0 échec ; `gemini_shape` seul, cinq nouveaux passages de suite à 41 réussies, 0 échec ; mutation des gardes de taille de `loadPaneLayout` : « cinq volets masqués et tailles invalides refusés » échoue ; `--channel chrome-canary` (absent) : message et code 2.
+
 ## Spec Change Log
 
 - 2026-10-01 -- validé en mode nuit (Anaël absent, autorisation du 01/10 au soir) : point d'arrêt 1 de bmad-build, « Approve and continue » ; la spec respecte CAP-5, la contrainte « pas de banc JS » et le triage (E020, E031, E032, E033, E042, E094, E125, E135, E141). Bloc d'intention repris tel quel du brouillon ; l'approche « `page.evaluate` sur les fonctions globales » est inapplicable (module ES) et remplacée par la lecture de ce qu'elles produisent (Design Notes). Spec d'environ 3 600 tokens, sous le seuil de 4 000 du projet : pas de découpage.
 
 ## Review Triage Log
+
+Passe 1 (2026-10-02), trois couches : blind-hunter (BH), edge-case-hunter (EC), verification-gap (VG).
+
+| # | Couche | Constat | Verdict | Preuve / suite |
+|---|---|---|---|---|
+| 1 | BH | `mutate.py` non commité : mutations non rejouables | low | Vrai ; la spec demande un constat à la main (même choix que la story 5), ancres et lignes listées dans Auto Run Result ; rejeté. |
+| 2 | BH | « la ligne courante au clic reste dépliée » annoncée, non vérifiée | low | Vrai ; le contrôle lit la ligne courante au clic et ne compte comme « venues après » que les lignes nées après le clic (patch). |
+| 3 | BH | E094 : la suite du tour avec l'ordre de l'embedding non vérifiée | low | Vrai ; 3 extraits envoyés, ceux de la recherche dans leur ordre (patch, tranche `v1` 0 échec). |
+| 4 | BH, EC | compte attendu du journal figé avant le `poll` | low | Vrai ; recompté à chaque tour du `poll` (patch). |
+| 5 | EC | un `scenario_changed` de rafraîchissement compté au titre sans ligne | medium | Vrai (`syncLogGroups` le saute) : faux échec dans un parcours où un chargement de modèle précède `native_tools` ; ajouté à la somme des lignes (patch). |
+| 6 | EC | ligne `model_delta` isolée faite de blancs : faux « sans résumé » | low | Vrai en principe ; `model_delta` exclu du contrôle des résumés (patch). |
+| 7 | BH, EC | `--channel` sans navigateur : trace Playwright brute | medium | Vrai, contraire à « sinon le noter » ; message et code 2 (patch, vérifié avec `chrome-canary`). |
+| 8 | EC | clic par `evaluate` sans attente d'activabilité | low | Vrai ; `expect(...).to_be_enabled` avant (patch). |
+| 9 | EC | délais de `_footprint_line` portés de 5 à 10 s | low | Vrai à la lettre (bornes, pas des pauses) ; bornes remises à 5 s, cinq passages rejoués après le patch (patch). |
+| 10 | BH | contrôle de taille invalide jamais muté | low | Vrai ; mutation des gardes de taille de `loadPaneLayout` rejouée : le contrôle échoue (briques 240, Vue humain 0) ; pas de code. |
+| 11 | BH | `priced_estimate` jamais joué seul | low | Vrai ; `--only priced_estimate` : 15 réussies, 0 échec. |
+| 12 | VG | résumés du journal exécutés seulement pour les types de `native_tools` | medium | Vrai (pré-vérifié) ; `closed:` d'E031 reformulé, entrée nouvelle dans `deferred-work.md` (defer). |
+| 13 | BH | `_log_catalog` lit le source par regex, fragile | low | Échec bruyant (`ValueError`) sur un source inattendu ; rejeté. |
+| 14 | BH | un `case` peut rendre `""` (`consumption_updated` à zéro) | low | Le contrôle par ligne le verrait ; aucun cas observé ; rejeté. |
+| 15 | BH | lecture des tailles sans attente après les flèches | false | `keydown` → `moveBoundary` → variables CSS synchrones ; `getBoundingClientRect` force la mise en page. |
+| 16 | BH | envoi manuel recopié (`s_hooks`, `_slow_tool_turn`) | low | Refactorisation sans défaut ; rejeté. |
+| 17 | BH | constantes recopiées (`SLOW_TOOL_PATH`, `RERANK_FAILURE_MARK`) | low | Les commentaires nomment la source ; rejeté. |
+| 18 | BH | capture 14 change de message | low | Toutes les captures sont réécrites à chaque parcours et restaurées ; rejeté. |
+| 19 | BH | `/_e2e/reranker_fail` fragile sur un corps vide | low | Route de test appelée par le seul parcours ; rejeté. |
+| 20 | BH | textes français en dur, 240 px en dur | low | Comme les contrôles voisins (parcours en `fr`) ; rejeté. |
+| 21 | BH | numéros de ligne du Code Map | false | Édition de la spec ; rejeté. |
+| 22 | BH | journal de triage vide dans le diff | false | Rempli à cette étape. |
+| 23 | EC | « Suivre le direct » absent sous régression : exception | low | Échec bruyant, seulement sous régression (constaté) ; rejeté. |
+| 24 | EC | lignes et défilement lus juste après le clic | false | `followLive` et `toggleStep` rendent de façon synchrone (`renderSteps`). |
+| 25 | EC | `is_visible("#follow-live")` juste après le clic | false | Même raison : `hidden` posé dans `renderSteps` synchrone. |
+| 26 | EC | lignes `llm_token` fusionnées non comptées | false | `llm_screen` vient après `native_tools` dans `SCENARIOS`. |
+| 27 | EC | `message_text` optionnel à `None` | false | Seul `llm_generation_ended` l'a optionnel, et il a son `case`. |
+| 28 | EC | `_footprint_line` reclique avant le rendu du corps | false | `toggleStep` rend le corps de façon synchrone. |
+| 29 | EC | `_turn_group` en `fr` seulement | low | Appelé par des scénarios en `fr` seulement ; échec bruyant sinon ; rejeté. |
+| 30 | EC | `_stored_panes` sur un JSON non objet | false | Aucun appel après un stockage illisible. |
+| 31 | EC | `.turn-step-figure` absente ou double | false | Une seule par ligne (`stepNode`). |
+| 32 | EC | `_fake_post` qui lève dans le `finally` | low | Faux serveur arrêté : panne bruyante ; rejeté. |
+| 33 | EC | résultat du `poll` de la pose ignoré | false | Voulu : le contrôle E020 dit l'absence de pose. |

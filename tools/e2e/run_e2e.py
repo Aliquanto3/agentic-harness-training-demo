@@ -994,14 +994,16 @@ def _slow_tool_turn(r: Run) -> None:
     ended = r.ev.wait("turn_ended", seq)
     _turn_rendered_ended(r, turn_id)
     rows = _rows(group)
-    at = next((i for i, x in enumerate(rows) if x["name"] == runs_tool), len(rows))
-    later = [x for x in rows[at + 1 :] if not x["sticky"]]
+    # The lines that came after the click; the one current at the click stays unfolded.
+    later = [x for x in rows[len(clicked) :] if not x["sticky"]]
+    current = rows[len(clicked) - 1] if clicked and len(rows) >= len(clicked) else {}
     r.check(
         frozen
         and page.locator("#follow-live").is_visible()
         and rows[0]["name"] == catalog_name
         and rows[0]["expanded"] == "true"
         and rows[0]["body"]
+        and current.get("expanded") == "true"
         and bool(later)
         and all(x["expanded"] == "false" for x in later),
         "E031 : un clic fige la vue ; la ligne cliquée reste dépliée jusqu'à la fin du tour, "
@@ -1101,17 +1103,21 @@ def _event_log(r: Run, seq: int) -> None:
     try:
         resets = r.ev.since(0, "harness_reset")
         start = resets[-1]["seq"] if resets else 0  # the log restarts after a reset
-        expected = len(r.ev.since(start))
         title = page.locator("#event-log-title")
-        ok, _ = r.poll(lambda: _digits(title.inner_text()) == expected, 10)
+        # Recounted at each poll: events may still land after `turn_ended`.
+        ok, _ = r.poll(lambda: _digits(title.inner_text()) == len(r.ev.since(start)), 10)
         r.check(
             ok,
             "E031 : le titre du journal compte les événements reçus",
-            f"{title.inner_text()} · attendu {expected}",
+            f"{title.inner_text()} · attendu {len(r.ev.since(start))}",
         )
         rows = page.evaluate(_LOG_ROWS_JS)
         merged = [(x, _DELTAS.match(x["name"])) for x in rows]
         total = sum(_digits(m.group(1)) if m else 1 for _, m in merged)
+        # A model load's refreshing `scenario_changed` is counted, but has no row (lot E).
+        total += sum(
+            1 for e in r.ev.since(start, "scenario_changed") if e["payload"].get("refresh")
+        )
         calls = [e for e in r.ev.since(seq, "model_call_ended")]
         last_call = calls[-1]["call_id"] if calls else None
         deltas = [e for e in r.ev.since(seq, "model_delta") if e["call_id"] == last_call]
@@ -1142,6 +1148,7 @@ def _event_log(r: Run, seq: int) -> None:
                 x["kind"]
                 for x in rows
                 if not x["summary"].strip()
+                and x["kind"] != "model_delta"  # a chunk of text, maybe only blanks
                 and x["kind"] not in _NOTHING_TO_SUMMARIZE | _KNOWN_SUMMARY_GAPS
             }
         )
@@ -4190,6 +4197,7 @@ def s_subagent(r: Run) -> None:
     # Lot K (A8), E125 (restes différés, story 6): the button says the form is open at once,
     # read on the node clicked in the same task as the click, before the next frame rebuilds
     # the panel (whose new button says it anyway); then on the rebuilt button.
+    expect(delegate).to_be_enabled(timeout=5000)
     at_click = delegate.evaluate("b => { b.click(); return b.getAttribute('aria-expanded'); }")
     expect(form).to_be_visible(timeout=5000)
     r.check(
@@ -5473,13 +5481,19 @@ def _rerank_step_failed(r: Run) -> None:
     seq = r.ev.mark()
     ended = r.send(f"{RERANK_QUESTION} {RERANK_FAILURE_MARK}")
     reranked = [e["payload"] for e in r.ev.since(seq, "rag_rerank_ended")]
+    searched = r.ev.since(seq, "rag_search_ended")
+    first = [e["title_text"] for e in searched[0]["payload"]["excerpts"][:3]] if searched else []
+    body = json.dumps(r.fake_calls()[-1]["messages"], ensure_ascii=False)
     error_text = (reranked[0].get("error_text") or "") if reranked else ""
     r.check(
         ended["payload"]["status"] == "completed"
         and len(reranked) == 1
         and reranked[0]["status"] == "error"
-        and "reranker en panne (e2e)" in error_text,
-        "reranker en panne : le tour continue, rag_rerank_ended en erreur",
+        and "reranker en panne (e2e)" in error_text
+        and body.count("Extrait ") == 3
+        and all(f"Extrait {i} — {t}" in body for i, t in enumerate(first, 1)),
+        "reranker en panne : le tour continue avec les 3 premiers extraits de l'embedding, "
+        "dans leur ordre ; rag_rerank_ended en erreur",
         f"{ended['payload']['status']} · {error_text[:160]}",
     )
     _turn_rendered_ended(r, ended["turn_id"])
@@ -9393,7 +9407,7 @@ def _footprint_line(r: Run) -> tuple[str, str]:
     there, was unfolded by the live view: `_unfold_step` did not click, then the live view
     folded it. So: the turn rendered ended first, then the step unfolded (clicked again if a
     render folds it) until its footprint is rendered; no fixed delay."""
-    _turn_rendered_ended(r)
+    _turn_rendered_ended(r, timeout=5)
     step = _step(r, "Appelle le modèle")
     line = step.locator(".turn-step-body .footprint")
 
@@ -9402,7 +9416,7 @@ def _footprint_line(r: Run) -> tuple[str, str]:
             step.locator(".turn-step-line").click()
         return line.count() > 0
 
-    ok, _ = r.poll(rendered, 10)
+    ok, _ = r.poll(rendered, 5)  # the former `wait_for`'s bound, no longer
     if not ok:
         body = step.locator(".turn-step-body")
         return "", " | ".join(body.all_inner_texts())
@@ -11187,7 +11201,15 @@ def main() -> int:
     with running_stack(keep=args.keep) as stack, sync_playwright() as p:
         print(f"WaveStack {stack.app_url} · faux modèle {stack.fake_url} · {stack.data_dir}")
         if args.channel:  # E125 (restes différés, story 6): e.g. Edge, as on the target PC
-            browser = p.chromium.launch(headless=not args.headed, channel=args.channel)
+            try:
+                browser = p.chromium.launch(headless=not args.headed, channel=args.channel)
+            except Exception as exc:  # noqa: BLE001 - E125: said, then no run
+                print(
+                    f"Navigateur « {args.channel} » introuvable sur ce poste : {exc}".splitlines()[
+                        0
+                    ]
+                )
+                return 2
             print(f"Navigateur : {args.channel} {browser.version}")
         else:
             try:

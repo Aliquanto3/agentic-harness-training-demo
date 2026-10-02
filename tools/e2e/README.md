@@ -16,7 +16,7 @@ uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py
   `fake_openai.log`, `settings.json`, `audit.log`) ; son chemin s'affiche au début.
 - `--headed` : navigateur visible.
 - `--channel msedge` (story 6 des restes différés) : un navigateur installé (Edge, Chrome) au
-  lieu du Chromium de Playwright.
+  lieu du Chromium de Playwright ; absent du poste, le parcours le dit et sort avec le code 2.
 - `--no-rag-alt` (story 30) : WaveStack comme sur un poste sans l'extra `rag-alt` (FAISS et
   LanceDB indisponibles) ; le scénario `rag_lab` prend alors la branche « sans l'extra ».
 - `--no-headroom` : WaveStack comme sur un poste sans l'extra `compression` ; le scénario
