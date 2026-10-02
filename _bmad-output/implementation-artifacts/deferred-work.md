@@ -763,3 +763,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-r1-lenteur-models-payload.md`
   summary: `probe._header_kv` (cache `lru_cache` par chemin, taille, mtime) relit en Python pur les en-têtes GGUF que `catalog.header_metadata` garde déjà, dans le même processus ; chaque lecture coûte 0,1 à 0,5 s sur le PC pro.
   evidence: Revue du 02/10 (spec R1). Antérieur au correctif. Non mesuré : pour trancher, chronométrer `discovery.discover()` (6,2 s sur le PC pro, 39 candidats) et voir la part de `_header_kv` ; si elle compte, faire passer `_header_kv` par `catalog.header_metadata`. Le saut par blocs du vocabulaire (`gguf_meta._skip_strings`) l'a déjà rendu 3 fois plus rapide.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-r1-lenteur-models-payload.md`
+  summary: R3 (vérification 4 du 02/10) — un arrêt volontaire du téléchargement d'un modèle du RAG s'affiche sur la carte en rouge, comme un échec (« Cause: download stopped »), avec la consigne de copier le fichier à la main.
+  evidence: `resultats-test-pc-2026-10-02.md`, section « Cause de R1 mesurée et corrigée, vérification 4 ». Le `.part` est bien supprimé et l'état revient à `idle` ; seul le message est en cause. Piste : distinguer l'arrêt demandé (`StopToken`) d'une panne dans le `harness_error` du téléchargement.

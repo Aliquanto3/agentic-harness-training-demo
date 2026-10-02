@@ -158,3 +158,45 @@ mesurer l'intérieur de `models_payload` (par candidat : lecture des métadonné
 fenêtres) avant tout correctif.
 
 Reste à faire : la vérification 4 (téléchargement HF avec un `WAVESTACK_DATA_DIR` jetable).
+
+## Cause de R1 mesurée et corrigée, vérification 4 (02/10, nuit, commit `a263d30`)
+
+**R1.** Spec `spec-r1-lenteur-models-payload.md` (`done`). La ligne de log R1 détaille désormais
+`_models` : `load_publishers`, `local_entries` (avec `headers` et chaque candidat d'au moins
+1 ms : lecture d'en-tête + reste), `cloud_entries`, `group_models`. Reproduit sur ce PC avec le
+vrai serveur (`uv run wavestack` sans navigateur, dossier de données réel, 39 candidats dont
+21 fichiers GGUF distincts, Ollama compris) :
+
+| Premier `/api/diagnostic` après la recherche | Total | `_models` | dont en-têtes GGUF | Appel suivant |
+|---|---|---|---|---|
+| Avant (`d1ea42b` + instrumentation) | 21 009 ms | 20 988 ms | 20 893 ms (0,3 à 2,2 s par fichier) | — |
+| Après (`a263d30`) | 1 753 ms | 1 368 ms | 1 186 ms (attente du préchauffage) | 54 ms |
+
+Cause : `gguf_meta.read_metadata` sautait le vocabulaire et les fusions du tokenizer chaîne
+par chaîne (environ 500 000 lectures par fichier), une fois par lancement (cache en mémoire).
+Deux requêtes concurrentes (dont un onglet Edge resté ouvert sur 8420) relisaient chacune tous
+les en-têtes : d'où 21 s ici et 14,7 s pendant la recette. Correctif : saut par blocs (3 fois
+plus rapide), préchauffage des en-têtes en arrière-plan dès que la recherche connaît ses
+candidats, lectures sérialisées (une requête attend le fichier en cours au lieu de le relire).
+Le reste (1,2 s) n'apparaît que si toutes les sondes sont en cache : la recherche finit alors
+juste après la découverte, avant la fin du préchauffage. Un cache des en-têtes sur disque le
+supprimerait (non fait).
+
+**Vérification 4 (téléchargement Hugging Face).** `WAVESTACK_DATA_DIR` vers un dossier jetable
+du scratchpad (`settings.json` et modèle d'embedding copiés, `models\reranker` vide, sans clés),
+serveur sur le port 8421. Le cloud gemma n'ayant pas de clé, le modèle choisi a été
+`granite4:350m` (Ollama) pour atteindre l'état `idle`. Pilotage par Claude in Chrome ; la
+fenêtre est passée en arrière-plan, donc clics par `element.click()`.
+
+| Geste | Observé | Verdict |
+|---|---|---|
+| Carte RAG, « Download the reranking model (≈ 438 MB) » | Le chemin indiqué est celui du dossier jetable. État `download`, « Downloading the reranking model: 4% (21 / 438 MB) » à 5 s, puis 22 % (101 / 438 MB) ; `bge-reranker-v2-m3-Q4_K_M.gguf.part` de 73 Mo sur le disque ; bouton Stop actif. | OK |
+| Stop | État `idle` ; `models\reranker` vide (le `.part` est supprimé) ; le bouton de téléchargement revient. Message de la carte : « Download of the reranking model stopped. Cause: download stopped. Nothing is installed. To continue, copy the file by hand into … then click “Download” again. » | OK |
+
+- Onglet masqué : la carte est restée sur « 22 % » et « Stop the download » jusqu'à ce que
+  l'onglet redevienne visible. Le rendu passe par `requestAnimationFrame`, suspendu dans un
+  onglet masqué. Ce n'est pas un défaut de l'application.
+- **R3 (ergonomie, mineur).** Un arrêt volontaire s'affiche en rouge, comme un échec
+  (« Cause: download stopped »), avec la consigne de copier le fichier à la main. Un arrêt
+  demandé pourrait dire seulement « Téléchargement arrêté, rien n'est installé ».
+- Dossier de données réel non touché (`settings.json` du 02/10 à 07:43, reranker présent).
