@@ -6376,6 +6376,17 @@ const SESSION_STATES = section("main.log.session_states");
 
 // Story 29: how a generation of the « LLM nu » screen ended.
 const LAB_STATUS = section("main.log.lab_status");
+// Correctif du 2026-10-02: how a RAG workshop's stage or run ended, and the language names.
+const RAG_LAB_STATUS = section("main.log.rag_lab_status");
+const LANGUAGE_NAMES = section("main.log.languages");
+
+// A RAG workshop stage, « Chaîne A · Recherche vectorielle »: its label is in the run's
+// `rag_lab_run_started`, its kind when that event is not on the page.
+function ragLabStage(p) {
+  const run = store.journal.findLast((e) => e.kind === "rag_lab_run_started" && e.payload.run_id === p.run_id);
+  const stage = run?.payload.lanes.find((l) => l.lane === p.lane)?.stages.find((s) => s.stage_id === p.stage_id);
+  return `${t("rag.chain", { label: p.lane.toUpperCase() })} · ${stage?.label_text ?? p.kind}`;
+}
 
 // Story 29: « T 0,7 · top-k 20 · top-p 0,8 · min-p 0 », a value not sent as « — ».
 function samplingSummary(s) {
@@ -6399,9 +6410,16 @@ function eventSummary(group) {
       return t("main.log.bricks_wanted", { wanted: String(p.bricks.filter((b) => b.wanted).length), total: String(p.bricks.length) });
     case "context_rendered":
     case "context_preview":
+    case "context_reconciled":
       return `${t("main.orch.overflow.figures", { used: p.used, usable: p.usable })} · ${plural(p.segments.length, "segment")}`;
     case "context_overflow":
       return t("main.orch.overflow.figures", { used: p.used, usable: p.usable });
+    case "context_window_state": {
+      const chosen = p.configured !== p.window ? t("main.window.chosen", { window: p.configured }) : "";
+      return [p.model_label, `${t("main.window.choice", { window: p.window })}${chosen}`].filter(Boolean).join(" · ");
+    }
+    case "language_changed":
+      return LANGUAGE_NAMES[p.language] ?? p.language;
     case "turn_started":
       return quote(p.message);
     case "turn_ended":
@@ -6427,7 +6445,36 @@ function eventSummary(group) {
     case "mcp_connect_started":
     case "model_load_started":
     case "llm_generation_started":
+    case "rag_lab_run_started":
       return p.phase_label;
+    // Correctif du 2026-10-02: the RAG workshop's run, in the log only.
+    case "rag_lab_stage_started":
+      return `${t("rag.chain", { label: p.lane.toUpperCase() })} · ${p.phase_label}`;
+    case "rag_lab_stage_progress":
+      return `${ragLabStage(p)} · ${t("main.log.rag_lab_progress", { done: p.done, total: p.total })}`;
+    case "rag_lab_stage_ended":
+      return [
+        ragLabStage(p),
+        RAG_LAB_STATUS[p.status] ?? p.status,
+        p.status === "ok" && p.items.length ? plural(p.items.length, "excerpt") : null,
+        ["ok", "error", "cancelled"].includes(p.status) ? seconds(p.duration_ms) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "rag_lab_run_ended":
+      return [
+        RAG_LAB_STATUS[p.status] ?? p.status,
+        seconds(p.duration_ms),
+        p.comparison
+          ? t("main.log.rag_lab_compared", {
+              common: p.comparison.common.length,
+              only_a: p.comparison.only_a.length,
+              only_b: p.comparison.only_b.length,
+            })
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
     case "llm_token":
       return group.events
         .filter((x) => x.kind === "llm_token")

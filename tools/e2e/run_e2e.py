@@ -1053,29 +1053,6 @@ def _slow_tool_turn(r: Run) -> None:
 
 
 _DELTAS = re.compile(r"^Morceaux de réponse × ([\d   ]+)$")
-# Defects found by story 6 (2026-10-02), noted in deferred-work.md, not fixed (the story
-# changes no behaviour of the interface): kinds of the catalog without a label in
-# `main.log.kinds`, and without a case in `eventSummary` (nor a `message_text` to fall back on).
-_KNOWN_LABEL_GAPS = {
-    "consumption_updated",
-    "context_reconciled",
-    "context_window_state",
-    "rag_lab_run_started",
-    "rag_lab_stage_started",
-    "rag_lab_stage_progress",
-    "rag_lab_stage_ended",
-    "rag_lab_run_ended",
-}
-_KNOWN_SUMMARY_GAPS = {
-    "context_reconciled",
-    "context_window_state",
-    "language_changed",
-    "rag_lab_run_started",
-    "rag_lab_stage_started",
-    "rag_lab_stage_progress",
-    "rag_lab_stage_ended",
-    "rag_lab_run_ended",
-}
 _NOTHING_TO_SUMMARIZE = {"model_first_token"}  # an empty payload: its label says it all
 _LOG_ROWS_JS = """() => [...document.querySelectorAll('#event-log-list .event-log-item')].map(
   (li) => ({
@@ -1149,7 +1126,7 @@ def _event_log(r: Run, seq: int) -> None:
                 for x in rows
                 if not x["summary"].strip()
                 and x["kind"] != "model_delta"  # a chunk of text, maybe only blanks
-                and x["kind"] not in _NOTHING_TO_SUMMARIZE | _KNOWN_SUMMARY_GAPS
+                and x["kind"] not in _NOTHING_TO_SUMMARIZE
             }
         )
         r.check(not empty, "E031 : chaque ligne du journal résume son événement", str(empty))
@@ -1160,8 +1137,8 @@ def _event_log(r: Run, seq: int) -> None:
 
 def _log_catalog(r: Run) -> None:
     """E031: every kind of the catalog (`trace/catalog.py`) has its label in `fr`, `en` and
-    `de`, and a summary in the `eventSummary` the page loaded; the gaps already noted are
-    reported `KNOWN`, any other fails."""
+    `de`, and a summary in the `eventSummary` the page loaded (the gaps noted by story 6 were
+    closed on 2026-10-02)."""
     from wavestack.trace.catalog import PAYLOAD_MODELS
 
     unlabelled: set[str] = set()
@@ -1177,28 +1154,15 @@ def _log_catalog(r: Run) -> None:
         for k, model in PAYLOAD_MODELS.items()
         if k not in cases and "message_text" not in model.model_fields
     } - _NOTHING_TO_SUMMARIZE
-    known_labels = {f"{k} ({lang})" for k in _KNOWN_LABEL_GAPS for lang in ("fr", "en", "de")}
     r.check(
-        not unlabelled - known_labels,
+        not unlabelled,
         "E031 : chaque type du catalogue a son libellé dans main.log.kinds (fr, en, de)",
-        str(sorted(unlabelled - known_labels)),
+        str(sorted(unlabelled)),
     )
     r.check(
-        not unlabelled & known_labels,
-        "E031 : libellés de journal manquants déjà notés",
-        str(sorted({k.split(" ")[0] for k in unlabelled & known_labels})),
-        known="deferred-work : libellés du journal",
-    )
-    r.check(
-        not unsummarized - _KNOWN_SUMMARY_GAPS,
+        not unsummarized,
         "E031 : chaque type du catalogue a un résumé (eventSummary ou message_text)",
-        str(sorted(unsummarized - _KNOWN_SUMMARY_GAPS)),
-    )
-    r.check(
-        not unsummarized & _KNOWN_SUMMARY_GAPS,
-        "E031 : résumés de journal manquants déjà notés",
-        str(sorted(unsummarized & _KNOWN_SUMMARY_GAPS)),
-        known="deferred-work : résumés du journal",
+        str(sorted(unsummarized)),
     )
 
 
