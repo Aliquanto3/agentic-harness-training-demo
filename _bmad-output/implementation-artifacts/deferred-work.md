@@ -803,6 +803,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-recette-2026-10-02-markdown-diagnostic-quota.md`
   summary: Le rendu Markdown de la Vue humain balaie le paragraphe pour chaque `[` ou `*` non fermé, et refait toute l'analyse à chaque rendu du flux (coût quadratique par paragraphe).
   evidence: Non vérifié (revue du 02/10). Pour trancher, mesurer sur le PC cible le temps de `renderMarkdown` pour un paragraphe de 5 ko de JSON hors bloc de code, pendant le flux.
+  closed: 2026-10-04 (nuit de finition V1, 1-D, #18) — mesuré dans Edge (Playwright, `renderMarkdown` seul, 250 rendus de flux par pas de 20 caractères) : 5 000 caractères de JSON hors bloc, compact ou indenté, au pire 2,9 ms par rendu (sous le seuil de 50 ms) ; mais un paragraphe de `*` non fermés montait à 553 ms (rendu complet) et 356 ms (pire rendu du flux), et de `[` non fermés à 62 ms. Corrigé dans `markdown.js` (`emphasisAt`) : la ligne vide cherchée une fois au lieu d'un `slice` par fermeture candidate (coût cubique), et un opener qui a essayé toutes les fermetures jusqu'à la fin dispense les suivants du même type (`misses`). Après : `*` 0,6 ms au pire, JSON ≤ 1,8 ms, `[` non fermés 19,5 ms au pire (laissés tels quels, sous le seuil). E2E `markdown` 16/16.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-r1-lenteur-models-payload.md`
   summary: `probe._header_kv` (cache `lru_cache` par chemin, taille, mtime) relit en Python pur les en-têtes GGUF que `catalog.header_metadata` garde déjà, dans le même processus ; chaque lecture coûte 0,1 à 0,5 s sur le PC pro.
