@@ -740,6 +740,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-restes-2026-10-01.md`
   summary: La réponse simulée de `/api/llm_lab/distribution` (E2E `llm_live`) recopie la forme de `AppSession.llm_distribution` sans y être comparée ; la garde du ticket de `fetchDistribution` (réponses dans le désordre) n'est éprouvée par aucun test. Basse.
   evidence: Revue du lot des restes (IA1, BH9, VG2), bloc `deferred` de sa spec. Pistes : constructeur partagé ou test de forme ; une réponse retenue par `_LiveLab`.
+  closed: 2026-10-04 (nuit de finition V1, 1-C, #8) — limite connue, décision d'Anaël du 2026-10-03 (plan de la nuit, [A]) : la forme simulée n'est pas comparée à `AppSession.llm_distribution` ; aucun changement.
 - source_spec: `_bmad-output/implementation-artifacts/spec-restes-2026-10-01.md`
   summary: Refus de budget de l'atelier RAG sans article (« pour charger modèle d'embedding X », « um Embedding-Modell X zu laden »), fr, en, de. Basse.
   evidence: Revue du lot des restes (BH8) : `rag/lab.py:938` compose le libellé ; même phrase que le compresseur, autre libellé.
@@ -748,6 +749,7 @@
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/1e-correctif-garde-reseau-proxy-local.md`
   summary: `test_the_test_session_holds_no_proxy` ne prouve l'ordre de `conftest.py` (proxy retiré avant la collecte) que sur un poste qui a un proxy.
   evidence: Remettre le retrait dans la fixture de session ne fait échouer aucun test sur un poste sans proxy ; il faudrait un pytest imbriqué lancé avec un faux `HTTPS_PROXY`.
+  closed: 2026-10-04 (nuit de finition V1, 1-C, #10) — limite connue, décision d'Anaël du 2026-10-03 (plan de la nuit, [A]) : la preuve de l'ordre de `conftest.py` reste conditionnée à un poste qui a un proxy (le PC cible en a un).
 
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/3-decisions-d-anael-appliquees.md`
   summary: Le test `fits` (`tests/test_program.py`) ne cumule l'historique, à réponses mesurées (D18), qu'avec `WAVESTACK_TEST_GGUF` ; la course par défaut (2 caractères par token) n'ajoute que l'échange précédent. Medium, non vérifié.
@@ -762,9 +764,11 @@
   summary: Contrôles E2E de la story 2 des restes différés à jouer ou à écrire : `stream_lost` (écrit, jamais lancé : indicateur « Connexion au serveur perdue, nouvel essai… ») et l'avertissement `.brick-drift` de la carte MCP (aucun contrôle E2E : il faut un faux serveur MCP public qui s'écarte de son instantané dans la pile E2E) ; la priorité de l'indicateur sur le texte de chargement (garde de `setInterval`) n'est pas couverte.
   evidence: Revue de la story 2 (verification-gap) ; le mode nuit interdisait l'E2E. À faire dans la batterie finale ou avec les stories 5 et 6 des restes (E2E de l'atelier).
   progress: 2026-10-04 (nuit de finition V1, phase 0) — partie `stream_lost` faite : `s_stream_lost` joué dans la batterie du 2026-10-03, tranche T9 (`resultats-batterie-2026-10-03.md`, §3 ; seul échec de T9, `stream_resync`, corrigé par `9795197`). Reste `.brick-drift` et la priorité de l'indicateur (phase 1-C).
+  closed: 2026-10-04 (nuit de finition V1, 1-C, #12) — `stream_lost` joué vert dans la batterie du 2026-10-03 (voir `progress`) ; `.brick-drift` et la priorité de l'indicateur sur le texte de chargement : limite connue, décision d'Anaël du 2026-10-03 (plan de la nuit, [A]), faute d'un faux serveur MCP public qui s'écarte de son instantané.
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/2-robustesse-flux-serveurs-locaux-appels-cloud-paralleles-instantanes-mcp.md`
   summary: Seul l'atelier dit « Connexion au serveur perdue » ; les pages LLM nu (`llm.js`), RAG (`rag.js`) et MCP (`mcp.js`) ont leur propre boucle `/api/stream`, sans indicateur, et le champ de saisie de l'atelier reste actif pendant la coupure. Basse.
   evidence: Revue de la story 2 (blind) ; E003 ne nommait que la barre de l'atelier. Piste : partager la boucle et son indicateur entre les pages.
+  closed: 2026-10-04 (nuit de finition V1, 1-C, #13) — limite connue, décision d'Anaël du 2026-10-03 (plan de la nuit, [A]) : seul l'atelier dit « Connexion au serveur perdue » ; les pages LLM nu, RAG et MCP gardent leur boucle sans indicateur.
 
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/1-tests-backend-manquants-et-garde-reseau.md`
   summary: La garde réseau ne filtre ni `socket.gethostbyaddr` ni `socket.getnameinfo` : une résolution inverse d'une IP quelconque, ou la résolution directe d'un nom hors liste passé à `gethostbyaddr`, part sans refus.
@@ -774,10 +778,12 @@
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/1-tests-backend-manquants-et-garde-reseau.md`
   summary: Un nom d'hôte passé directement à `socket.connect` ou `socket.sendto` est résolu par la couche C avant l'événement d'audit : la requête DNS d'un nom hors liste part avant que la garde refuse la connexion ou le datagramme.
   evidence: Revue de la story 1 des restes différés ; préexistant pour `connect`, consigné dans la docstring de `net/guard.py` et AD-15. Vérifié sous Python 3.13.5 : `sock_sendto` appelle `getsockaddrarg` (résolution) avant `PySys_Audit("socket.sendto")`. Fermer demanderait d'envelopper `socket.socket.connect`/`sendto` pour vérifier le nom avant l'appel C ; les clients HTTP de WaveStack passent par `getaddrinfo`, donc pas par ce chemin.
+  closed: 2026-10-04 (nuit de finition V1, 1-C, #15) — limite connue, décision d'Anaël du 2026-10-03 (plan de la nuit, [A]) : la requête DNS d'un nom passé à `connect`/`sendto` part avant l'événement d'audit, la connexion et le datagramme restent refusés ; déjà dit par la docstring de `net/guard.py`.
 
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/5-e2e-options-cartes-et-interrupteurs-de-l-atelier.md`
   summary: Une part du rendu H5 de la story 8c reste sans contrôle E2E : la carte gardée entre deux rendus, le focus rendu à la carte une fois ses boutons retirés, la trace d'Orchestration sans bouton, le libellé de l'outil (« Outil : Jours fériés » et non `public_holidays`), la puce « + Vue humain » liée pendant l'attente et le filet rouge d'un blocage H1 après « Vider la conversation ».
   evidence: Revue (verification-gap) de la story 5 des restes différés : le triage supposait ces points couverts par `h5`, mais aucun contrôle de `run_e2e.py` ne lit le libellé, `document.activeElement` après une réponse ni l'étape H5 d'Orchestration ; remplacer `toolLabel(a.tool)` par `a.tool` (`app.js`, `approvalCard`) ou retirer le repli du focus sur la carte passerait tout le parcours. Hors du périmètre gelé de la story 5 (E030 : masquage après vidage, clic unique, 409).
+  closed: 2026-10-04 (nuit de finition V1, 1-C, #16) — E2E `h5` : `_h5_rendering` (libellé « Outil : Jours fériés », jamais `public_holidays` ; carte gardée d'un rendu à l'autre pendant que les secondes de la bulle avancent ; trace d'Orchestration sans bouton, « Jours fériés (public_holidays) » ; volet Vue humain masqué : puce « + Vue humain » liée ●), `_focus_back_on_the_card` (focus sur la carte `approval:<id>` une fois ses boutons retirés) ; E2E `hooks` : `_h1_block_cleared` (après « Vider la conversation », H1 ne dit plus « ✖ a bloqué »). T3 et T4 rejoués : 90 vérifications réussies. Mutations vérifiées : `a.tool` au lieu de `toolLabel(a.tool)` et carte reconstruite à chaque rendu font échouer leur contrôle.
 
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/6-e2e-schema-rail-volets-comparaison-cas-d-erreur-et-stabilite.md`
   summary: Huit types du catalogue d'événements n'ont pas de libellé dans `main.log.kinds` (`content/ui.yaml` et ses surcouches `en`, `de`) : `consumption_updated`, `context_reconciled`, `context_window_state`, `rag_lab_run_started`, `rag_lab_stage_started`, `rag_lab_stage_progress`, `rag_lab_stage_ended`, `rag_lab_run_ended`. Le journal des événements affiche alors le nom technique (`context_reconciled` après chaque appel cloud avec `usage`, `consumption_updated` après chaque appel tarifé).
@@ -792,6 +798,7 @@
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/6-e2e-schema-rail-volets-comparaison-cas-d-erreur-et-stabilite.md`
   summary: Le résumé du journal (`eventSummary`) n'est exécuté par l'E2E que pour les types émis pendant `native_tools` ; pour les autres (`model_load_step`, `model_load_ended`, `mcp_connect_ended`, `llm_*`, `mcp_lab_*`…), `_log_catalog` ne vérifie que la présence d'un `case "…":` dans le source.
   evidence: Revue (verification-gap) de la story 6 des restes différés : un `case` qui tombe dans le suivant, rend `""` ou lève sur un champ absent passerait les deux contrôles. Fermer demanderait d'ouvrir le journal dans les scénarios qui émettent ces types (`model_switch`, `mcp_full`, `llm_screen`, `mcp_lab`) et d'y appliquer le contrôle « chaque ligne résume », ou un banc JS (exclu par CAP-5).
+  closed: 2026-10-04 (nuit de finition V1, 1-C, #17) — limite connue, décision d'Anaël du 2026-10-03 (plan de la nuit, [A]) : `eventSummary` n'est exécuté que pour les types émis par les scénarios joués (le contrôle du catalogue lit le source pour les autres) ; `reasoning_dropped` s'y ajoute (scénario `reasoning_dropped`).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-recette-2026-10-02-markdown-diagnostic-quota.md`
   summary: Le rendu Markdown de la Vue humain balaie le paragraphe pour chaque `[` ou `*` non fermé, et refait toute l'analyse à chaque rendu du flux (coût quadratique par paragraphe).
@@ -828,6 +835,7 @@
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/7-recette-pc-des-restes-fournisseurs-cloud-ollama-telechargements.md`
   summary: `_stream` (`servers.py`) : aucun test ne couvre une annulation pendant la connexion TCP (veille sans socket encore connue), ni une erreur HTTP réelle avalée parce que l'appel était annulé, ni le chemin llama-server (`/completion`) d'un appel arrêté avant toute réponse.
   evidence: Revue de la story 7 (écarts de vérification) : les tests d'annulation ont tous une socket ou une réponse connue au moment de l'annulation. Sur la boucle locale, la fenêtre de connexion est de quelques millisecondes ; un test demande un transport qui retarde `connect_tcp.complete`.
+  closed: 2026-10-04 (nuit de finition V1, 1-C, #24) — limite connue, décision d'Anaël du 2026-10-03 (plan de la nuit, [A]) : la fenêtre de connexion TCP sur la boucle locale est de quelques millisecondes ; pas de transport qui retarde `connect_tcp.complete`.
 
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/7-recette-pc-des-restes-fournisseurs-cloud-ollama-telechargements.md`
   summary: Le préréglage Mistral (`wavestack.toml`, commentaire et `notes_text`) dit « plan gratuit toujours actif » et « coût réel nul », mais le compte d'Anaël répondait 429 sur tout appel (`x-ratelimit-limit-req-minute: 0`) jusqu'à l'activation d'un plan (paiement à l'usage, 2026-10-03).

@@ -3666,6 +3666,103 @@ def _hook_strip_state(r: Run, hook_id: str, cls: str, said: str) -> None:
     )
 
 
+def _h5_rendering(r: Run, card: Any) -> None:
+    """Finition V1 (#16): the part of story 8c's rendering left unchecked by `h5`. While the
+    validation waits: the tool by its label (« Jours fériés », never `public_holidays`); the
+    card kept from one rendering to the next (the bubble's seconds tick meanwhile); its trace
+    in Orchestration, read only (no button), the tool by its label and its name; the chip
+    « + Vue humain » linked (●) when that pane is hidden."""
+    page = r.page
+    text = card.inner_text()
+    r.check(
+        "Outil : Jours fériés · Destination : " in text and "public_holidays" not in text,
+        "#16 : la carte nomme l'outil par son libellé (« Jours fériés »)",
+        text[:160],
+    )
+    card.evaluate("n => { n.dataset.e2eKept = '1'; }")
+    ticking = page.locator("#chat .working-indicator").last
+    before = ticking.inner_text() if ticking.count() else ""
+    ticked, _ = r.poll(lambda: ticking.count() == 1 and ticking.inner_text() != before, 5)
+    kept = page.locator('#chat .approval-card[data-e2e-kept="1"]').count() == 1
+    r.check(
+        ticked and kept,
+        "#16 : la carte de validation est gardée d'un rendu à l'autre",
+        f"rendu {ticked} ({before!r} → {ticking.inner_text() if ticking.count() else None!r})"
+        f" · gardée {kept}",
+    )
+    line = page.locator("#orch-scroll .turn-step-line", has_text="Validation humaine").last
+    line.click()
+    body = line.locator("xpath=following-sibling::div[contains(@class,'turn-step-body')]")
+    try:
+        expect(body).to_contain_text("En attente de votre réponse dans la Vue humain", timeout=5000)
+        trace = body.inner_text()
+        r.check(
+            body.get_by_role("button").count() == 0 and "Jours fériés (public_holidays)" in trace,
+            "#16 : Orchestration montre la validation sans bouton, l'outil par son libellé et "
+            "son nom",
+            trace[:200],
+        )
+    finally:
+        line.click()
+        follow = page.locator("#follow-live")
+        if follow.is_visible():
+            follow.click()  # back to the live view
+    page.locator('[data-pane="human"] .pane-hide').click()
+    try:
+        chip = page.locator("#pane-chips .pane-chip", has_text="Vue humain")
+        expect(chip).to_be_visible(timeout=5000)
+        r.check(
+            "is-linked" in (chip.get_attribute("class") or "").split()
+            and chip.locator(".pane-chip-dot").count() == 1
+            and (chip.get_attribute("title") or "").startswith(
+                "Une validation humaine attend votre réponse"
+            ),
+            "#16 : volet masqué pendant l'attente, la puce « + Vue humain » est liée (●)",
+            f"{chip.get_attribute('class')} · {chip.get_attribute('title')}",
+        )
+        chip.click()
+    finally:
+        if page.locator('[data-pane="human"]').evaluate("p => p.offsetParent === null"):
+            page.locator("#pane-chips .pane-chip", has_text="Vue humain").click()
+    expect(card).to_be_visible(timeout=5000)
+
+
+def _focus_back_on_the_card(r: Run) -> None:
+    """Finition V1 (#16): once its buttons are gone, the focus goes back to the card."""
+    focused, _ = r.poll(
+        lambda: (
+            re.fullmatch(
+                r"approval:[^:]+",
+                r.page.evaluate("() => document.activeElement?.dataset?.focusKey || ''"),
+            )
+            is not None
+        ),
+        5,
+    )
+    r.check(
+        focused,
+        "#16 : le focus revient à la carte une fois ses boutons retirés",
+        r.page.evaluate("() => document.activeElement?.outerHTML?.slice(0, 120) || ''"),
+    )
+
+
+def _h1_block_cleared(r: Run) -> None:
+    """Finition V1 (#16): after « Vider la conversation », the strip no longer says H1
+    blocked (the red line of a hidden turn)."""
+    seq = r.ev.mark()
+    r.page.click("#clear-conversation")
+    r.ev.wait("conversation_cleared", seq, timeout=10)
+    node = r.page.locator('#schema .arch-hook[data-component="hooks.h1"]')
+    gone, _ = r.poll(
+        lambda: node.count() == 1 and "is-blocked" not in (node.get_attribute("class") or ""), 5
+    )
+    r.check(
+        gone and "✖" not in node.inner_text(),
+        "#16 : après « Vider la conversation », H1 ne dit plus « ✖ a bloqué »",
+        f"{node.get_attribute('class')} · {node.inner_text()!r}",
+    )
+
+
 def s_h5(r: Run) -> None:
     r.launch("network_tools")
     r.set_brick("Hooks", True)
@@ -3697,6 +3794,7 @@ def s_h5(r: Run) -> None:
     )
     preview.locator("summary").click()  # folded again, as the card opens
     _awaiting_indicator(r)
+    _h5_rendering(r, card)
     r.shot("09-h5-validation-humaine")
     seq = r.ev.mark()
     posts = _approval_posts(r)
@@ -3731,6 +3829,7 @@ def s_h5(r: Run) -> None:
     ).click()
     r.ev.wait("approval_resolved", seq, timeout=10)
     r.ev.wait("turn_ended", seq)
+    _focus_back_on_the_card(r)
     r.check(bool(r.ev.since(seq, "outbound_request")), "« Autoriser » : la requête part")
     results = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
     r.check(
@@ -4378,6 +4477,7 @@ def s_hooks(r: Run) -> None:
         text.strip().splitlines()[-1][:200] if text.strip() else str(audit.status_code),
     )
     r.show_forced(False)
+    _h1_block_cleared(r)
 
 
 def s_subagent(r: Run) -> None:
