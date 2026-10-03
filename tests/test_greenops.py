@@ -128,6 +128,16 @@ def test_a_known_cloud_model_gets_a_range_and_its_warnings_in_french():
     assert "fourchette" in impact.note_text
 
 
+def test_every_enabled_entry_with_impacts_gets_a_footprint():
+    """Native providers 4/5: no preset declares names EcoLogits does not know."""
+    valid, _ = config.load_config().cloud_models
+    declared = [e for e in valid if e.enabled and e.impacts is not None]
+    assert {"openai_luna", "claude_haiku", "claude_sonnet"} <= {e.id for e in declared}
+    for entry in declared:
+        impact = greenops.cloud_impacts(entry, 1000, 5.0)
+        assert impact.estimated, (entry.id, impact.note_text)
+
+
 def test_groq_is_estimated_as_gpt_oss_at_hugging_face():
     entry = config.load_config().cloud_model("groq")
     assert (entry.impacts.provider, entry.impacts.model) == (

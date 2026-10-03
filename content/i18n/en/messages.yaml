@@ -461,6 +461,7 @@ session:
         min_p: min-p
       by_provider: "Set by {provider}: WaveStack sends no sampling setting."
       not_settable: "{names} cannot be set at {provider}."
+      with_reasoning: "{provider} refuses temperature and top-p while the model thinks: WaveStack sends no sampling setting. Turn off “Reason before answering” to set them."
       local: "Sent to the engine at each generation of the screen; the workshop keeps the harness's values."
       no_api: "{label} cannot be set at {provider}: the OpenAI-compatible API does not provide for it."
       not_declared: "{label} cannot be set at {provider}: the model does not declare it (sampling) in the configuration; the provider keeps its value."
@@ -1167,6 +1168,7 @@ models:
     another_address: another address
     quota_refused: "The provider refuses the call: {quota}."
     no_quota: "{provider} refuses the call. No active quota on this account: check the plan in the provider's console."
+    no_credit: "{provider} refuses the call: the account's credit is exhausted. Add credit in the provider's console."
     quota:
       second: quota exceeded per second
       minute: quota exceeded per minute
@@ -1182,6 +1184,14 @@ models:
     unreadable_stream: "Unreadable answer: a line of {provider}'s stream is not in the expected format (SSE)."
     interrupted: "{provider} interrupted the answer on an error."
     stopped: "{provider} stopped the answer ({finish})."
+    refusal: "{provider} declined to answer (the model's safety refusal)."
+    refusal_category: "{provider} declined to answer (the model's safety refusal, category “{category}”)."
+    reasoning_dropped:
+      prefix_binding_mismatch: "{provider} threw away the reasoning of an earlier turn ({path}): the harness rewrote the history since it was produced (window, a tool result cut short, compression, memory or a brick changed during the session), and a signed reasoning holds only for the exact history that produced it. The model goes on without it."
+      model_binding_mismatch: "{provider} threw away the reasoning of an earlier turn ({path}): another model produced it, and only that model can read it again. The model goes on without it."
+      organization_binding_mismatch: "{provider} threw away the reasoning of an earlier turn ({path}): it was produced under another organization (another API key). The model goes on without it."
+    # Native providers 2/5 (CAP-4): a priced call refused before it is sent, `[finops] max_session_usd`.
+    session_cap: "Session spending cap reached: {total} spent against a cap of {cap}. The call was not sent and costs nothing. To raise the cap, change [finops] max_session_usd in settings.json with WaveStack stopped, then restart it (the session total only goes back to zero on restart)."
     hint:
       slow_provider: "Run the turn again: a busy provider sometimes answers slowly."
       test_network: "Check the workstation's network with “Test” in the diagnostics."
@@ -1200,6 +1210,7 @@ models:
       retry_later: Try again in a few minutes.
       retry_turn: Run the turn again.
       rephrase: Rephrase the message.
+      free_models: "A model without declared prices, such as the local model or Gemma, remains usable."
     # Why a cloud model's tool calls cannot run (AD-10), read by the model.
     call:
       no_name: "a tool call has no name"

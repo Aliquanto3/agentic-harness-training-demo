@@ -1,0 +1,553 @@
+{
+ "candidate": "tev1",
+ "tier": "2",
+ "models_dir": "C:\\Users\\anael.yahi\\.cache\\wavestack-bench",
+ "platform": "Windows-11-10.0.26200-SP0",
+ "machine": "AMD64",
+ "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+ "cpu_count": 8,
+ "python": "3.13.5",
+ "measured_at": "2026-10-03T17:37",
+ "target_pc": true,
+ "windows_release": "11",
+ "admin": false,
+ "bench_sha256": "597a511b4b1b89d671dc132e8d7ca55924c024883b779d01e2b6558a58a9217a",
+ "repo_commit": "b80097f8947edb4a25dbead3950a7f5f93972025",
+ "ram_total_mb": 16064,
+ "command": "uv run python tools/bench/v2s6_decision_bench.py measure tev1 --slm $SLM --out \"$OUT\\tev1.json\"",
+ "rss_added_method": "pic",
+ "v1_rag_rss_mb": 1170,
+ "ollama": {
+  "base_url": "http://127.0.0.1:11434",
+  "version": "0.35.1",
+  "model": {
+   "name": "tev1:0.8b",
+   "digest": "8d11b3146b7f3f4f4d5e9a64665ab2bdaf8b46e4ec42a5880b60a716ae50e3fb",
+   "blob_sha256": "fa9732e3924db99f614181a7a28384a0891ae17f478db228a47c989462b2405a",
+   "capabilities": [
+    "decision"
+   ],
+   "details": {
+    "parent_model": "Tev1-0.8B-Q8_0.gguf",
+    "format": "gguf",
+    "family": "qwen35",
+    "families": [
+     "qwen35"
+    ],
+    "parameter_size": "752.39M",
+    "quantization_level": "Q8_0"
+   },
+   "parameters": "num_ctx                        2050",
+   "requires": "0.35.0",
+   "modified_at": "2026-10-03T17:16:21.8955604+02:00",
+   "license_markers": [
+    "Apache License",
+    "Version 2.0, January 2004",
+    "Copyright 2026 Alibaba Cloud",
+    "MIT License",
+    "Copyright (c) 2026 open-jev contributors"
+   ],
+   "license_sha256": "653938df652bc8cdb1c09b9546c54724479cbd7860a6c43729b1691a1219e723"
+  },
+  "loaded_before": [],
+  "other_models_loaded": []
+ },
+ "id": "tev1",
+ "guard": "wavestack.net.guard",
+ "slm": "C:\\Users\\anael.yahi\\AppData\\Local\\WaveStack\\models\\Qwen3.5-2B-Q4_K_M.gguf",
+ "slm_n_ctx": 4096,
+ "llama_cpp_version": "0.3.35",
+ "slm_load_s": 1.97,
+ "rss_with_slm_mb": 1940,
+ "load_s": 5.39,
+ "systemone_api": {
+  "doc": "https://docs.ollama.com/api/systemone",
+  "read_on": "2026-10-03",
+  "server": "Ollama 0.35 (requis : 0.35.0 ou plus), API Jev de TypeSafe",
+  "request": "POST /v1/systemone {model, state, questions: {<id>: {type: choice | noul | score, instructions, criteria}}, keep_alive?} ; choice : 2 à 26 critères {clé: texte} ; 1 à 64 questions ; 64 Kio sans image",
+  "response": "{model, answers: {<id>: {type, choice, probabilities: {clé: p}, confidence}}, usage} ; erreur : HTTP 400, 404 (modèle non téléchargé, jamais tiré implicitement), 413 ou 500 avec {\"error\": <texte>}",
+  "label": "une question choice par tâche, options = étiquettes du banc ; étiquette retenue = option de plus forte probabilité"
+ },
+ "server_url": "http://127.0.0.1:11434",
+ "server_model": "tev1:0.8b",
+ "blob_sha256": "fa9732e3924db99f614181a7a28384a0891ae17f478db228a47c989462b2405a",
+ "first_answer": {
+  "model": "tev1:0.8b",
+  "answers": {
+   "cost": {
+    "type": "choice",
+    "choice": "simple",
+    "probabilities": {
+     "simple": 0.6128365591552326,
+     "complexe": 0.38716344084476734
+    },
+    "confidence": 0.037055401084069906
+   }
+  },
+  "usage": {
+   "input_tokens": 151,
+   "output_tokens": 1
+  }
+ },
+ "first_request_s": 4.29,
+ "ollama_rss_peak_mb": 2220,
+ "ollama_rss": {
+  "server_peak_mb": 45,
+  "runner_peak_mb": 2175,
+  "runner_peak_wset_mb": 2175,
+  "peak_of_sum_mb": 2180,
+  "runner_series_mb": [
+   7,
+   949,
+   996,
+   1080,
+   1122,
+   1162,
+   1204,
+   1285,
+   1326,
+   1408,
+   1449,
+   1490,
+   1571,
+   1572,
+   1613,
+   1695,
+   1736,
+   1777,
+   1800,
+   1860,
+   1900,
+   1982,
+   2023,
+   2024,
+   2026,
+   2076,
+   2067,
+   2109,
+   2109,
+   2111,
+   2111,
+   2112,
+   2113,
+   2135
+  ],
+  "method": "somme des pics (majorant) du serveur et du processus du modèle, RSS lue toutes les 0.25 s, pic de l'ensemble de travail du processus du modèle (Windows)"
+ },
+ "ollama_processes": {
+  "app": [
+   26552
+  ],
+  "server": [
+   33592
+  ],
+  "runner": [
+   27704
+  ]
+ },
+ "ollama_network": {
+  "before": [],
+  "during": [],
+  "after": [],
+  "other_processes": [],
+  "listen": [
+   "127.0.0.1:11434"
+  ],
+  "samples": 391,
+  "full_scans": 52,
+  "method": "connexions TCP (psutil) du serveur et du processus du modèle, par PID, avant, pendant (toutes les 0.25 s) et après la mesure ; une connexion plus brève que la période peut échapper au relevé ; liste complète des processus toutes les 8 lectures",
+  "errors": []
+ },
+ "rss_before_load_mb": 1940,
+ "peak_before_load_mb": 1940,
+ "rss_loaded_mb": 1951,
+ "rss_peak_mb": 1951,
+ "warmup_ms": 3115.4,
+ "rows": [
+  {
+   "prompt": "bare_llm.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 165.6
+  },
+  {
+   "prompt": "bare_llm.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "general",
+   "ms": 178.3
+  },
+  {
+   "prompt": "reasoning.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 2331.8
+  },
+  {
+   "prompt": "reasoning.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "general",
+   "ms": 3499.8
+  },
+  {
+   "prompt": "system_prompt.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 2224.8
+  },
+  {
+   "prompt": "system_prompt.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "general",
+   "ms": 2852.1
+  },
+  {
+   "prompt": "global_memory.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 2036.1
+  },
+  {
+   "prompt": "global_memory.1",
+   "task": "specialty",
+   "label": "general",
+   "expected": "general",
+   "ms": 2914.1
+  },
+  {
+   "prompt": "native_tools.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 2002.0
+  },
+  {
+   "prompt": "native_tools.1",
+   "task": "specialty",
+   "label": "general",
+   "expected": "general",
+   "ms": 2914.5
+  },
+  {
+   "prompt": "caveman.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 1976.3
+  },
+  {
+   "prompt": "caveman.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "general",
+   "ms": 2970.2
+  },
+  {
+   "prompt": "native_tools.2",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 2158.2
+  },
+  {
+   "prompt": "native_tools.2",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 2929.4
+  },
+  {
+   "prompt": "rag.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 1995.3
+  },
+  {
+   "prompt": "rag.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "documents",
+   "ms": 2981.8
+  },
+  {
+   "prompt": "hooks.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 1959.5
+  },
+  {
+   "prompt": "hooks.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 2900.3
+  },
+  {
+   "prompt": "compression.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 2415.9
+  },
+  {
+   "prompt": "compression.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "documents",
+   "ms": 3269.3
+  },
+  {
+   "prompt": "compression.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 2060.5
+  },
+  {
+   "prompt": "compression.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 3005.0
+  },
+  {
+   "prompt": "network_tools.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 1948.4
+  },
+  {
+   "prompt": "network_tools.0",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "recherche",
+   "ms": 2879.3
+  },
+  {
+   "prompt": "network_tools.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 1911.5
+  },
+  {
+   "prompt": "network_tools.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "recherche",
+   "ms": 2887.8
+  },
+  {
+   "prompt": "mcp_lazy.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 2008.6
+  },
+  {
+   "prompt": "mcp_lazy.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "recherche",
+   "ms": 2961.1
+  },
+  {
+   "prompt": "sovereignty.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 2613.0
+  },
+  {
+   "prompt": "sovereignty.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "recherche",
+   "ms": 3503.1
+  },
+  {
+   "prompt": "rag.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 1929.7
+  },
+  {
+   "prompt": "rag.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 2974.6
+  },
+  {
+   "prompt": "soc.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 2500.6
+  },
+  {
+   "prompt": "soc.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 3589.9
+  },
+  {
+   "prompt": "soc.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 2497.7
+  },
+  {
+   "prompt": "soc.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 3467.8
+  },
+  {
+   "prompt": "iam.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 2497.5
+  },
+  {
+   "prompt": "iam.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 3926.0
+  },
+  {
+   "prompt": "iam.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 2697.6
+  },
+  {
+   "prompt": "iam.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 3615.1
+  }
+ ],
+ "decisions": 40,
+ "latency_median_ms": 2655.3,
+ "latency_max_ms": 3926.0,
+ "agreement": {
+  "cost": "13/20",
+  "specialty": "15/20"
+ },
+ "error_rows": 0,
+ "rss_added_mb": 11,
+ "ram_total_peak_mb": 4171,
+ "versions": {
+  "ollama": "0.35.1"
+ },
+ "torch_loaded": false,
+ "heavy_modules_loaded": [],
+ "attempts": [
+  [
+   "socket.getaddrinfo",
+   "127.0.0.1"
+  ],
+  [
+   "socket.connect",
+   "127.0.0.1"
+  ],
+  [
+   "socket.getaddrinfo",
+   "127.0.0.1"
+  ],
+  [
+   "socket.connect",
+   "127.0.0.1"
+  ]
+ ],
+ "ram_watchdog": {
+  "status": "active",
+  "budget_mb": 4096,
+  "period_s": 0.5
+ },
+ "status": "measured",
+ "ollama_unload": {
+  "command": "ollama stop tev1:0.8b",
+  "returncode": 0,
+  "still_loaded": false,
+  "loaded_after": []
+ },
+ "revisions": {
+  "ollama/tev1:0.8b": "8d11b3146b7f3f4f4d5e9a64665ab2bdaf8b46e4ec42a5880b60a716ae50e3fb"
+ },
+ "packages": [],
+ "verdict": {
+  "status": "écarté",
+  "reason": "RAM : pic total ≤ 4096 Mo, SLM par défaut chargé (NFR-2); Latence : médiane ≤ 1000 ms, maximum ≤ 3000 ms",
+  "criteria": [
+   {
+    "id": "cpu_windows",
+    "label": "CPU sous Windows 11, sans droits admin",
+    "ok": true,
+    "detail": "Windows 11, session sans droits admin ; vérifier dans la sortie de uv qu'aucun paquet n'a été compilé (« Building … ») ; Ollama 0.35.1 est déjà installé sur le poste, sans droits admin (installation par utilisateur) ; aucun paquet Python ajouté"
+   },
+   {
+    "id": "ram",
+    "label": "RAM : pic total ≤ 4096 Mo, SLM par défaut chargé (NFR-2)",
+    "ok": false,
+    "detail": "pic total 4171 Mo = enfant de mesure 1951 Mo (SLM chargé : 1940 Mo, ajouté dans l'enfant 11 Mo) + processus Ollama 2220 Mo (serveur 45 Mo, processus du modèle 2175 Mo) ; avec l'embedding et le reranker V1 (1170 Mo mesurés), 5341 Mo"
+   },
+   {
+    "id": "latency",
+    "label": "Latence : médiane ≤ 1000 ms, maximum ≤ 3000 ms",
+    "ok": false,
+    "detail": "médiane 2655.3 ms, maximum 3926.0 ms sur 40 décisions (échauffement 3115.4 ms, chargement 5.39 s)"
+   },
+   {
+    "id": "offline",
+    "label": "Hors ligne : aucune tentative réseau sous la garde d'AD-15, et aucune connexion sortante des processus Ollama",
+    "ok": true,
+    "detail": "hôtes tentés : aucun ; côté Ollama (serveur et processus du modèle, connexions TCP avant, pendant et après la mesure) : aucune connexion hors boucle locale ; écoute : ['127.0.0.1:11434']"
+   },
+   {
+    "id": "pinned",
+    "label": "Code relu et figé : commit et versions consignés, pas de trust_remote_code",
+    "ok": true,
+    "detail": "commits {'ollama/tev1:0.8b': '8d11b3146b7f3f4f4d5e9a64665ab2bdaf8b46e4ec42a5880b60a716ae50e3fb'} ; versions {'ollama': '0.35.1'} ; code : aucun code du modèle exécuté par le banc ; moteur : Ollama (llama-server embarqué), installé hors projet, version et empreinte du modèle consignées"
+   },
+   {
+    "id": "license",
+    "label": "Licences compatibles avec une remise du code (NFR-10)",
+    "ok": false,
+    "forbidden": false,
+    "detail": "modèle : non déclarée pour les poids affinés (carte HF togethercomputer/Tev1-0.8B-experimental, lue le 2026-10-03 : « The release license for these fine-tuned weights is being finalized ») ; le paquet Ollama porte Apache-2.0 (base Qwen3.5, Alibaba Cloud) et MIT (open-jev, scripts d'entraînement) (unknown) ; textes du paquet Ollama : ['Apache License', 'Version 2.0, January 2004', 'Copyright 2026 Alibaba Cloud', 'MIT License', 'Copyright (c) 2026 open-jev contributors'] (sha256 653938df652bc8cdb1c09b9546c54724479cbd7860a6c43729b1691a1219e723) ; 0 paquet(s) ajouté(s) ; interdites : aucune ; à vérifier : aucune"
+   },
+   {
+    "id": "no_torch",
+    "label": "Sans torch",
+    "ok": true,
+    "detail": "modules lourds chargés : aucun"
+   },
+   {
+    "id": "single_generative",
+    "label": "Règle d'un seul modèle génératif (NFR-2)",
+    "ok": false,
+    "detail": "modèle causal (tête de langage conservée, il répond en prose en chat ordinaire) : au mieux « à surveiller » tant que la règle n'est pas revue (décision d'Anaël du 2026-10-03)"
+   }
+  ],
+  "target_pc": true
+ }
+}

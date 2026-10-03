@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tomllib
 import urllib.request
 from pathlib import Path
 
@@ -127,10 +128,23 @@ def _joined_header_warm_up(monkeypatch):
     monkeypatch.setattr(catalog, "warm_headers", joined)
 
 
+# Every `key_env` the presets of wavestack.toml declare: a new preset's variable is removed
+# without anyone having to think of it.
+_KEY_ENVS = sorted(
+    {
+        model["key_env"]
+        for model in tomllib.loads(
+            (Path(__file__).resolve().parents[1] / "wavestack.toml").read_text("utf-8")
+        )["cloud"]["models"]
+        if model.get("key_env")
+    }
+)
+
+
 @pytest.fixture(autouse=True)
 def _no_cloud_key_variables(monkeypatch):
     """Story 11b: a key the machine's environment provides never reaches a test."""
-    for name in ("GROQ_API_KEY", "MISTRAL_API_KEY", "GEMINI_API_KEY"):
+    for name in _KEY_ENVS:
         monkeypatch.delenv(name, raising=False)
 
 

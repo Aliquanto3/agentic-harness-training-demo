@@ -636,6 +636,7 @@ function applyEnvelope(envelope) {
       break;
     case "tool_call_malformed":
     case "prefix_not_reused":
+    case "reasoning_dropped": // native providers 3/5 (CAP-5): the provider threw a reasoning away
       if (turn) turn.steps.push({ type: envelope.kind, payload: p });
       break;
     case "limit_reached":
@@ -698,6 +699,7 @@ const SUB_KINDS = new Set([
   "tool_call_malformed",
   "prefix_not_reused",
   "reasoning_cut",
+  "reasoning_dropped",
   "limit_reached",
   "output_truncated",
   "special_token_neutralized",
@@ -834,6 +836,7 @@ function applySubEnvelope(turn, sub, envelope) {
       break;
     case "tool_call_malformed":
     case "prefix_not_reused":
+    case "reasoning_dropped":
       sub.steps.push({ type: envelope.kind, payload: p });
       break;
     case "limit_reached":
@@ -5146,6 +5149,8 @@ const APPROVAL_FIGURES = section("main.orch.approval_figures");
 // Lot A: why the engine reads the context again (`prefix_not_reused.cause`); the full
 // explanation is its `message_text`.
 const PREFIX_CAUSES = section("main.orch.prefix_causes");
+// Native providers 3/5 (CAP-5): why the provider threw a reasoning away.
+const DROP_REASONS = section("main.log.drop_reasons");
 
 // « 3 appels », « 1 appel »: `noun` names a pair of `common.count` (`call`, `tool`…).
 function plural(count, noun) {
@@ -5469,6 +5474,18 @@ function stepRows(turn, step, i, calls, rows) {
         tone: "hook",
         sig: 1,
         body: () => [harnessEvent(t("main.orch.rows.reasoning_cut"), "info", [el("p", "", step.payload.message_text)])],
+      });
+    } else if (step.type === "reasoning_dropped") {
+      // Native providers 3/5 (CAP-5): a reasoning of an earlier turn thrown away by the provider.
+      rows.push({
+        key,
+        icon: "ℹ",
+        title: t("main.orch.rows.reasoning_dropped"),
+        actor: "harness",
+        figure: DROP_REASONS[step.payload.reason] || step.payload.reason,
+        tone: "hook",
+        sig: 1,
+        body: () => [harnessEvent(t("main.orch.rows.reasoning_dropped"), "info", [el("p", "", step.payload.message_text)])],
       });
     }
   }
@@ -6593,6 +6610,8 @@ function eventSummary(group) {
       return t("main.orch.overflow.figures", { used: p.output_tokens, usable: p.max_tokens });
     case "reasoning_cut":
       return t("main.log.reasoning_cut", { tokens: p.reasoning_tokens, budget: p.budget, reserve: p.answer_reserve });
+    case "reasoning_dropped":
+      return t("main.log.reasoning_dropped", { reason: DROP_REASONS[p.reason] || p.reason, path: p.path });
     case "diagnostic_check":
       return `${labelValue(p.check, p.status)} · ${p.message_text}`;
     case "diagnostic_progress":

@@ -212,10 +212,20 @@ mslearn = "https://learn.microsoft.com/api/mcp"
 # de 0,5 à 2 ; une valeur illisible, nan ou inf, vaut 0,86). Taux relevé le 2026-09-30, à
 # mettre à jour avec les prix.
 # Un appel arrêté (« Arrêter ») compte son entrée telle qu'envoyée, et la sortie reçue avant
-# l'arrêt. L'estimation suit le prix catalogue : remises sur l'entrée en cache, prix par palier
+# l'arrêt. L'estimation suit le prix catalogue. Les tokens d'entrée lus ou écrits dans le cache
+# du fournisseur sont comptés à leurs prix quand l'entrée les déclare (pricing :
+# cache_read_usd_per_mtok, cache_write_usd_per_mtok), au prix d'entrée sinon. Prix par palier
 # ou pour les longs contextes, prix du traitement par lots (batch) et offres gratuites ne sont
 # pas pris en compte.
 eur_per_usd = 0.86
+# Plafond de dépense de la séance, en dollars (5 par défaut ; une valeur illisible, nan, inf,
+# négative ou booléenne vaut 5 ; aucune valeur ne le désactive, et 0 refuse tout appel tarifé).
+# Quand le total de la séance (tous les appels tarifés : tours, sous-agent, « Tester », « LLM
+# nu ») l'a atteint, un appel à un modèle qui déclare ses prix n'est pas envoyé ; les modèles
+# sans prix (local, Gemma) restent utilisables. Les appels déjà en cours ne sont jamais
+# interrompus : le total peut dépasser le plafond du coût de chacun d'eux. Pour le relever :
+# settings.json, WaveStack arrêté, puis relancer (le total ne revient à zéro qu'au relancement).
+max_session_usd = 5
 
 [greenops]
 # Estimateur GreenOps : l'énergie (Wh) et les émissions (g CO₂e) estimées de chaque appel au
@@ -334,9 +344,11 @@ impacts = { provider = "mistralai", model = "mistral-small-latest" }
 # gemini-3.5-flash-lite (stable) : 1 048 576 tokens en entrée, 65 536 en sortie ; niveaux de
 # raisonnement minimal (par défaut), low, medium et high ; 0,30 $ / 2,50 $ par million de
 # tokens (entrée / sortie), aucune hausse annoncée pour ce modèle.
-# Raisonnement : allumé, thinking_level "medium" avec include_thoughts, seule façon de
+# Raisonnement : allumé, thinking_level "high" avec include_thoughts, seule façon de
 # recevoir le texte du raisonnement (à "low", le modèle ne réfléchit pas sur des questions
-# simples ni sur le prompt du scénario Raisonnement : recette réelle du 2026-09-30), que
+# simples ni sur le prompt du scénario Raisonnement : recette réelle du 2026-09-30 ; à
+# "medium", le résumé de la réflexion manque souvent en streaming quand elle reste courte :
+# sonde du 2026-10-03, 3 fois sur 8 contre 4 sur 4 à "high"), que
 # Gemini écrit dans content entre <thought> et </thought> (relevé sur l'API réelle le
 # 2026-09-29 ; s'il change, changez tags ou format dans settings.json) ; éteint,
 # reasoning_effort "minimal". reasoning_effort et thinking_config ne se combinent pas. Son
@@ -383,7 +395,7 @@ impacts = { provider = "google_genai", model = "gemini-3.5-flash-lite" }
 [cloud.models.reasoning]
 format = "think_tags"
 tags = ["<thought>", "</thought>"]
-on = { extra_body = { google = { thinking_config = { thinking_level = "medium", include_thoughts = true } } } }
+on = { extra_body = { google = { thinking_config = { thinking_level = "high", include_thoughts = true } } } }
 off = { reasoning_effort = "minimal" }
 always = false
 resend = false
@@ -432,6 +444,174 @@ off = { reasoning_effort = "minimal" }
 always = false
 resend = false
 
+# Fournisseurs natifs 3/5 : Claude d'Anthropic par l'API Messages (api = "anthropic_messages",
+# HTTP brut, sans SDK ; la couche compatible OpenAI d'Anthropic ne renvoie pas la réflexion).
+# Prix relevés sur platform.claude.com/docs/en/about-claude/pricing le 2026-10-03 : cache lu
+# à 0,1 fois l'entrée, écrit (5 minutes) à 1,25 fois ; WaveStack n'active jamais le cache de
+# prompt (pas de cache_control), ces prix ne servent qu'à compter juste si Anthropic en fait.
+# Conditions relevées le 2026-10-03 : les données de l'API ne servent pas à l'entraînement
+# sans permission expresse ; suppression sous 30 jours ; inférence « global » par défaut (ou
+# « us » à 1,1 fois le prix, inference_geo, Claude 4.6 et après seulement), stockage aux
+# États-Unis : pas de résidence dans l'UE.
+# En-têtes fixes : anthropic-version, et la bêta thinking-binding-controls-2026-08-01 qui
+# permet block_binding. WaveStack réécrit l'historique par conception (fenêtre, troncature,
+# compression, mémoire, briques changées) : avec prefix_mismatch_behavior = "drop_block",
+# Anthropic jette la réflexion devenue invalide au lieu de refuser l'appel (400), et le journal
+# le dit (événement reasoning_dropped). Haiku 4.5 et Sonnet 5 ne font pas ce contrôle
+# d'historique (propre à Opus 5.5 et Fable 5.1, seuls à pouvoir produire cet
+# événement) : l'en-tête leur est envoyé quand même.
+# block_binding n'est déclaré que dans reasoning.on : avec { type = "disabled" }, Anthropic le
+# refuse (400 « thinking.disabled.block_binding: Extra inputs are not permitted », mesuré sur
+# les deux modèles le 2026-10-03), et sans réflexion aucun bloc n'est renvoyé.
+# Réflexion : renvoyée telle quelle, signature comprise (resend, format thinking_blocks), au
+# seul modèle qui l'a produite ; sans elle, une boucle d'outils avec réflexion est refusée.
+# La clé vient de ANTHROPIC_API_KEY ou se saisit au diagnostic (en-tête x-api-key).
+# Haiku 4.5 : réflexion manuelle, budget de 1 024 tokens, sous la réserve de 1 536 (512 restent
+# à la réponse) ; température réglable au « LLM nu », réflexion éteinte seulement (Anthropic
+# la refuse avec la réflexion). Pas de top-p : Haiku 4.5 refuse temperature et top_p ensemble
+# (400, guide de migration d'Anthropic relu le 2026-10-03).
+[[cloud.models]]
+id = "claude_haiku"
+provider = "Anthropic"
+base_url = "https://api.anthropic.com/v1"
+model = "claude-haiku-4-5"
+api = "anthropic_messages"
+auth_header = { name = "x-api-key", scheme = "" }
+extra_headers = { "anthropic-version" = "2023-06-01", "anthropic-beta" = "thinking-binding-controls-2026-08-01" }
+tools = true
+context = 200000
+hosting_text = "Anthropic, États-Unis (inférence « global » par défaut ; pas de résidence dans l'UE)"
+training = "no"
+notes_text = "Les données envoyées par l'API ne servent pas à l'entraînement sans permission expresse et sont supprimées sous 30 jours (conditions relevées le 2026-10-03). Prix et quotas à lire dans la console Anthropic."
+key_env = "ANTHROPIC_API_KEY"
+sampling = ["temperature"]
+pricing = { input_usd_per_mtok = 1.0, output_usd_per_mtok = 5.0, cache_read_usd_per_mtok = 0.10, cache_write_usd_per_mtok = 1.25, checked = "2026-10-03" }
+# GreenOps : EcoLogits 0.11.2 connaît claude-haiku-4-5 chez anthropic.
+impacts = { provider = "anthropic", model = "claude-haiku-4-5" }
+
+[cloud.models.reasoning]
+format = "thinking_blocks"
+on = { thinking = { type = "enabled", budget_tokens = 1024, block_binding = { prefix_mismatch_behavior = "drop_block" } } }
+off = { thinking = { type = "disabled" } }
+always = false
+resend = true
+
+# Sonnet 5 : réflexion adaptative (le modèle décide s'il réfléchit et combien), résumée
+# (display "summarized" : sans elle, le texte de la réflexion arrive vide) ; budget_tokens est
+# refusé (400). Fenêtre native de 1 000 000 tokens au prix standard. Aucun réglage
+# d'échantillonnage (température et top-p refusés par Sonnet 5).
+[[cloud.models]]
+id = "claude_sonnet"
+provider = "Anthropic"
+base_url = "https://api.anthropic.com/v1"
+model = "claude-sonnet-5"
+api = "anthropic_messages"
+auth_header = { name = "x-api-key", scheme = "" }
+extra_headers = { "anthropic-version" = "2023-06-01", "anthropic-beta" = "thinking-binding-controls-2026-08-01" }
+tools = true
+context = 1000000
+hosting_text = "Anthropic, États-Unis (inférence « global » par défaut, ou « us » ; pas de résidence dans l'UE)"
+training = "no"
+notes_text = "Les données envoyées par l'API ne servent pas à l'entraînement sans permission expresse et sont supprimées sous 30 jours (conditions relevées le 2026-10-03). Prix et quotas à lire dans la console Anthropic."
+key_env = "ANTHROPIC_API_KEY"
+pricing = { input_usd_per_mtok = 2.0, output_usd_per_mtok = 10.0, cache_read_usd_per_mtok = 0.20, cache_write_usd_per_mtok = 2.50, checked = "2026-10-03" }
+# GreenOps : EcoLogits 0.11.2 connaît claude-sonnet-5 chez anthropic.
+impacts = { provider = "anthropic", model = "claude-sonnet-5" }
+
+[cloud.models.reasoning]
+format = "thinking_blocks"
+on = { thinking = { type = "adaptive", display = "summarized", block_binding = { prefix_mismatch_behavior = "drop_block" } } }
+off = { thinking = { type = "disabled" } }
+always = false
+resend = true
+
+# Claude Opus 5.5 (non activé : à recopier dans settings.json, enabled = true) : 4 $ / 20 $ par
+# million de tokens, cache lu 0,20 $, écrit 5 $ ; 1 000 000 tokens. Sa réflexion ne s'éteint
+# pas (disabled et budget_tokens refusés, 400) : always = true, l'effort seul la règle
+# (output_config.effort, medium ici). Une entrée always n'envoie que on, brique Raisonnement
+# éteinte comprise : pas de bloc off. Il fait le contrôle
+# d'historique de la réflexion conservée : block_binding et l'en-tête bêta y sont nécessaires.
+# impacts : vérifier qu'EcoLogits connaît claude-opus-5-5 (sinon le retirer, ou estimer par
+# un modèle proche avec note_text).
+# {"id": "claude_opus", "provider": "Anthropic", "base_url": "https://api.anthropic.com/v1",
+#  "model": "claude-opus-5-5", "api": "anthropic_messages",
+#  "auth_header": {"name": "x-api-key", "scheme": ""},
+#  "extra_headers": {"anthropic-version": "2023-06-01",
+#    "anthropic-beta": "thinking-binding-controls-2026-08-01"},
+#  "enabled": true, "tools": true, "context": 1000000, "key_env": "ANTHROPIC_API_KEY",
+#  "hosting_text": "Anthropic, États-Unis (inférence « global » par défaut ; pas de résidence dans l'UE)",
+#  "training": "no",
+#  "notes_text": "Les données envoyées par l'API ne servent pas à l'entraînement sans permission expresse et sont supprimées sous 30 jours (conditions relevées le 2026-10-03). Prix et quotas à lire dans la console Anthropic.",
+#  "impacts": {"provider": "anthropic", "model": "claude-opus-5-5"},
+#  "pricing": {"input_usd_per_mtok": 4.0, "output_usd_per_mtok": 20.0,
+#    "cache_read_usd_per_mtok": 0.20, "cache_write_usd_per_mtok": 5.0, "checked": "2026-10-03"},
+#  "reasoning": {"format": "thinking_blocks", "always": true, "resend": true,
+#    "on": {"thinking": {"type": "adaptive", "display": "summarized",
+#      "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
+#      "output_config": {"effort": "medium"}}}}
+
+# Fournisseurs natifs 4/5 : GPT-6 Luna d'OpenAI par l'API Responses (api = "openai_responses",
+# HTTP brut, sans SDK). Par Chat Completions, GPT-6 n'appelle d'outils que raisonnement éteint
+# (Luna ; Sol jamais) et ne renvoie jamais son raisonnement : d'où l'API Responses, sans état
+# (store = false toujours, jamais previous_response_id) ; l'historique entier part à chaque
+# appel, comme pour les autres fournisseurs. Clé dans l'en-tête Authorization: Bearer (défaut).
+# Prix lus sur la fiche du modèle le 2026-10-03 (la page des prix d'OpenAI a répondu 403 : à
+# revérifier sur celle-ci) : 0,10 $ / 0,50 $ par million
+# de tokens, cache lu 0,01 $ (le cache d'OpenAI est automatique, sans écriture facturée) ; les
+# tokens de raisonnement sont facturés comme sortie.
+# Conditions relevées le 2026-10-03 : les données de l'API ne servent pas à l'entraînement par
+# défaut ; journaux de lutte contre les abus gardés jusqu'à 30 jours, même avec store = false ;
+# cache de prompt gardé 24 heures par défaut (prompt_cache_retention = "24h" relevé sur l'API) ;
+# résidence dans l'UE seulement par un projet dédié et l'hôte eu.api.openai.com (non préréglé).
+# Raisonnement : les items reasoning reçus (chiffrés, encrypted_content, demandés par include)
+# repartent tels quels au seul modèle qui les a produits (resend, format reasoning_items) ; le
+# résumé (summary = "auto") s'affiche au canal Raisonnement. Luna n'a pas d'effort « minimal » :
+# éteint, effort « none ».
+[[cloud.models]]
+id = "openai_luna"
+provider = "OpenAI"
+base_url = "https://api.openai.com/v1"
+model = "gpt-6-luna"
+api = "openai_responses"
+max_tokens_field = "max_output_tokens"
+tools = true
+context = 1050000
+hosting_text = "OpenAI, États-Unis (résidence dans l'UE seulement par un projet dédié et eu.api.openai.com)"
+training = "no"
+notes_text = "Les données envoyées par l'API ne servent pas à l'entraînement par défaut ; journaux de lutte contre les abus gardés jusqu'à 30 jours, même sans stockage des réponses ; cache de prompt gardé 24 heures par défaut (conditions relevées le 2026-10-03). Prix et quotas à lire dans la console OpenAI."
+key_env = "OPENAI_API_KEY"
+# Température et top-p réglables au « LLM nu », raisonnement éteint seulement : mesuré le
+# 2026-10-03, OpenAI les accepte avec l'effort « none » et les refuse avec « low » (400
+# « Unsupported parameter: 'temperature' is not supported with this model »).
+sampling = ["temperature", "top_p"]
+pricing = { input_usd_per_mtok = 0.10, output_usd_per_mtok = 0.50, cache_read_usd_per_mtok = 0.01, checked = "2026-10-03" }
+# GreenOps : EcoLogits 0.11.2 connaît gpt-6-luna chez openai.
+impacts = { provider = "openai", model = "gpt-6-luna" }
+
+[cloud.models.reasoning]
+format = "reasoning_items"
+on = { reasoning = { effort = "low", summary = "auto" } }
+off = { reasoning = { effort = "none" } }
+always = false
+resend = true
+
+# GPT-6.1 Sol (non activé : à recopier dans settings.json, enabled = true) : 2 $ / 10 $ par
+# million de tokens, cache lu 0,10 $ ; 1 050 000 tokens. Il raisonne toujours (always = true) :
+# effort « medium », brique Raisonnement allumée ou éteinte (une entrée always n'envoie que on,
+# pas de bloc off). impacts : vérifier qu'EcoLogits connaît
+# gpt-6.1-sol (sinon le retirer, ou estimer par un modèle proche avec note_text).
+# {"id": "openai_sol", "provider": "OpenAI", "base_url": "https://api.openai.com/v1",
+#  "model": "gpt-6.1-sol", "api": "openai_responses", "max_tokens_field": "max_output_tokens",
+#  "enabled": true, "tools": true, "context": 1050000, "key_env": "OPENAI_API_KEY",
+#  "hosting_text": "OpenAI, États-Unis (résidence dans l'UE seulement par un projet dédié et eu.api.openai.com)",
+#  "training": "no",
+#  "notes_text": "Les données envoyées par l'API ne servent pas à l'entraînement par défaut ; journaux de lutte contre les abus gardés jusqu'à 30 jours, même sans stockage des réponses ; cache de prompt gardé 24 heures par défaut (conditions relevées le 2026-10-03). Prix et quotas à lire dans la console OpenAI.",
+#  "impacts": {"provider": "openai", "model": "gpt-6.1-sol"},
+#  "pricing": {"input_usd_per_mtok": 2.0, "output_usd_per_mtok": 10.0,
+#    "cache_read_usd_per_mtok": 0.10, "checked": "2026-10-03"},
+#  "reasoning": {"format": "reasoning_items", "always": true, "resend": true,
+#    "on": {"reasoning": {"effort": "medium", "summary": "auto"}}}}
+
 # Exemples à recopier dans settings.json (entrée complète, enabled = true), avec leur
 # avertissement. Leur hôte rejoint alors la liste d'adresses autorisées.
 # Champs facultatifs de toute entrée : key_env (nom d'une variable d'environnement qui
@@ -440,8 +620,11 @@ resend = false
 # l'écran « LLM nu » peut envoyer, parmi "temperature" et "top_p" ; vide par défaut, réglés
 # par le fournisseur) et tool_call_extra (ce qu'ajoute à chaque appel d'outil fabriqué par
 # le harnais un fournisseur qui l'exige, comme Gemini ci-dessus) et pricing (FinOps : prix
-# d'entrée et de sortie en dollars par million de tokens, avec la date du relevé ; sans lui,
-# aucun coût n'est estimé ni affiché pour ce modèle) et impacts (GreenOps : provider et model
+# d'entrée et de sortie en dollars par million de tokens, avec la date du relevé, et, facultatifs,
+# cache_read_usd_per_mtok et cache_write_usd_per_mtok, prix des tokens d'entrée lus ou écrits
+# dans le cache du fournisseur, au prix d'entrée s'ils manquent ; sans pricing, aucun coût n'est
+# estimé ni affiché pour ce modèle, et le plafond [finops] max_session_usd ne le bloque jamais)
+# et impacts (GreenOps : provider et model
 # tels qu'EcoLogits les connaît, zone facultative, code ISO à trois lettres du mix électrique,
 # par défaut celui du fournisseur dans EcoLogits ; note_text facultative, ajoutée à l'infobulle ;
 # sans lui, aucune empreinte n'est estimée).

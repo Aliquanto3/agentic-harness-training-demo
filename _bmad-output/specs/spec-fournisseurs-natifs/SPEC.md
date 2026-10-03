@@ -47,7 +47,7 @@ Les briques Outils, MCP, Skills, Sous-agent et Raisonnement exigent donc leurs A
   - Une nouvelle décision AD-26 fixe le champ `api` et le format pivot. `ARCHITECTURE-SPINE.md` est mis à jour en story 1.
 - **Raisonnement conservé d'Anthropic.**
   - Sur un compte créé après le 2026-08-31, un historique réécrit rend un 400. WaveStack réécrit l'historique par conception : fenêtre, troncature des résultats d'outils, compression, mémoire, briques changées en séance.
-  - Toute requête `anthropic_messages` envoie donc l'en-tête `thinking-binding-controls-2026-08-01` avec `prefix_mismatch_behavior: "drop_block"`, et trace `input_transformations` (CAP-4).
+  - Toute requête `anthropic_messages` envoie donc l'en-tête `thinking-binding-controls-2026-08-01` avec `prefix_mismatch_behavior: "drop_block"`, et trace `input_transformations` (CAP-4). Mesuré en story 3 (2026-10-03) : `block_binding` est refusé (400) avec `{type: "disabled"}`, il ne part donc qu'avec la réflexion allumée ; l'en-tête part toujours.
 - **Renvoi verbatim.**
   - Les signatures des blocs `thinking` et les items `reasoning` chiffrés repartent tels quels, à leur seul fournisseur, comme `extra_content` de Gemini.
   - Ils ne sont masqués que dans les événements (AD-15).
@@ -80,8 +80,9 @@ Les briques Outils, MCP, Skills, Sous-agent et Raisonnement exigent donc leurs A
 
 ## Open Questions
 
-- Avec la réflexion active, Anthropic accepte-t-il un tour assistant `tool_use` fabriqué par le harnais (actions forcées) sans bloc `thinking` en tête ? À mesurer en story 3 : éteindre la réflexion pour ce tour, ou trouver une autre parade.
-- Sonnet 5 sans réflexion écrit-il ses appels d'outils en texte, défaut connu d'Opus 5 ? À mesurer en story 3. Sinon, garder la réflexion à faible effort.
-- EcoLogits 0.11 connaît-il `gpt-6-luna`, `claude-haiku-4-5` et `claude-sonnet-5` ? Sinon, estimer par un modèle proche avec `note_text`, comme pour Groq.
-- `gpt-6-luna` accepte-t-il `temperature` et `top_p` par l'API Responses ? Le champ `sampling` reste vide tant que ce n'est pas mesuré.
-- Le proxy du PC pro laisse-t-il passer `api.anthropic.com` et `api.openai.com` ? À tester en story 5.
+- Avec la réflexion active, Anthropic accepte-t-il un tour assistant `tool_use` fabriqué par le harnais (actions forcées) sans bloc `thinking` en tête ? À mesurer en story 3 : éteindre la réflexion pour ce tour, ou trouver une autre parade. **Réponse (story 3, mesuré le 2026-10-03) :** oui, Haiku et Sonnet l'acceptent ; Haiku ne réfléchit simplement pas sur cet appel. Aucune parade.
+- Sonnet 5 sans réflexion écrit-il ses appels d'outils en texte, défaut connu d'Opus 5 ? À mesurer en story 3. Sinon, garder la réflexion à faible effort. **Réponse (story 3) :** non, appels d'outils natifs ; `off = {type: "disabled"}` gardé.
+- EcoLogits 0.11 connaît-il `gpt-6-luna`, `claude-haiku-4-5` et `claude-sonnet-5` ? Sinon, estimer par un modèle proche avec `note_text`, comme pour Groq. **Réponse :** oui, EcoLogits 0.11.2 connaît les trois (vérifié le 2026-10-03).
+- `gpt-6-luna` accepte-t-il `temperature` et `top_p` par l'API Responses ? Le champ `sampling` reste vide tant que ce n'est pas mesuré. **Réponse (story 4, mesuré le 2026-10-03 à la validation, le compte n'ayant plus de crédit) :** oui avec l'effort « none », non avec l'effort « low » (400 « Unsupported parameter »). `sampling = ["temperature", "top_p"]`, envoyés raisonnement éteint seulement.
+- Avec `store: false`, OpenAI accepte-t-il les items `reasoning` renvoyés avec leur `id`, et quel effort montre un résumé sans gonfler le coût ? **Réponse (story 4, mesuré le 2026-10-03 au soir, crédit rechargé, 0,0024 $) :** oui, les items `reasoning` renvoyés avec leur `id` sous `store: false` sont acceptés, avant un `function_call` comme avant un `message`, et les items reconstruits n'ont pas besoin de leurs `id` `fc_`/`msg_`. L'effort ne force pas le raisonnement (0 token sur une tâche simple, en « low » comme en « medium ») ; sur une énigme, « low » montre déjà le résumé (71 tokens de raisonnement contre 96 en « medium », moins de 0,0001 $ l'appel) : `on` garde l'effort « low ». Le résumé s'affiche sans vérification d'organisation (en anglais), et reste parfois vide (`summary: "auto"`). Tour Outils et tour Raisonnement réels réussis par `AppSession`.
+- Le proxy du PC pro laisse-t-il passer `api.anthropic.com` et `api.openai.com` ? À tester en story 5. **Réponse (story 5, recette du 2026-10-03) :** oui, les deux. Les sockets du serveur ne vont qu'au proxy Zscaler du poste (127.0.0.1:9000). Les 34 requêtes vers Anthropic répondent 200. La requête vers OpenAI reçoit la réponse d'OpenAI lui-même (crédit épuisé), pas un refus du proxy. Voir `resultats-fournisseurs-natifs-pc-2026-10.md`.

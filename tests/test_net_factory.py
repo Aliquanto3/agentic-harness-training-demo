@@ -412,7 +412,8 @@ def test_both_hooks_ask_the_same_predicate(monkeypatch):
 
 def test_the_response_allow_list_is_closed():
     assert PUBLIC_RESPONSE_HEADERS == {"content-type", "content-length", "date", "retry-after"}
-    assert PUBLIC_RESPONSE_PREFIXES == ("x-ratelimit-", "ratelimit-")
+    # Native providers 3/5: Anthropic's quota headers.
+    assert PUBLIC_RESPONSE_PREFIXES == ("x-ratelimit-", "ratelimit-", "anthropic-ratelimit-")
 
 
 def test_each_redirect_hop_traces_its_own_headers():

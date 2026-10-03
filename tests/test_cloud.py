@@ -377,7 +377,14 @@ def test_cloud_models_merge_by_id_and_invalid_entries_are_left_out():
     cfg = config.load_config()
     valid, errors = cfg.cloud_models
 
-    assert [m.id for m in valid] == ["groq", "gemini", "gemma"]
+    assert [m.id for m in valid] == [
+        "groq",
+        "gemini",
+        "gemma",
+        "claude_haiku",
+        "claude_sonnet",
+        "openai_luna",
+    ]
     assert valid[0].tpm == 6000 and valid[0].model == "openai/gpt-oss-120b"
     assert len(errors) == 1 and "Bad-Id" in errors[0]
     assert "api.groq.com" in cfg.allowed_hosts and "api.mistral.ai" not in cfg.allowed_hosts
@@ -397,6 +404,27 @@ def test_a_key_header_traced_in_clear_is_refused_at_load(name):
     assert "groq" not in [m.id for m in valid]
     (error,) = [e for e in errors if "groq" in e]
     assert "auth_header.name" in error and "tracé en clair dans le journal" in error
+
+
+@pytest.mark.parametrize(
+    ("name", "reason"),
+    [
+        ("Accept", "tracé en clair dans le journal"),
+        ("Content-Type", "posé par l'adaptateur"),
+        ("authorization", "posé par l'adaptateur"),
+    ],
+)
+def test_a_reserved_extra_header_is_refused_at_load(name, reason):
+    """Native providers 1/5 (AD-5): the loader names `extra_headers` and gives the reason."""
+    settings = {"cloud": {"models": [{"id": "groq", "extra_headers": {name: "x"}}]}}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+
+    valid, errors = config.load_config().cloud_models
+
+    assert "groq" not in [m.id for m in valid]
+    (error,) = [e for e in errors if "groq" in e]
+    assert "extra_headers" in error and reason in error and f"« {name} »" in error
 
 
 def test_cloud_window_sources_and_unavailable_quota():
@@ -437,7 +465,15 @@ def test_without_key_test_and_choose_are_disabled_with_the_reason(monkeypatch):
 
     rows = {r["id"]: r for r in client.get("/api/diagnostic").json()["cloud"]["models"]}
 
-    assert set(rows) == {"groq", "mistral", "gemini", "gemma"}
+    assert set(rows) == {
+        "groq",
+        "mistral",
+        "gemini",
+        "gemma",
+        "claude_haiku",
+        "claude_sonnet",
+        "openai_luna",
+    }
     # The first preset on a free tier only: the diagnostic says « offre d'essai ».
     assert rows["gemma"]["disclosure"]["trial"] is True
     assert rows["gemini"]["disclosure"]["trial"] is False
@@ -1255,7 +1291,7 @@ def test_gemini_reasoning_on_reads_the_thought_tags():
 
     body = json.loads(provider.requests[0].content)
     assert body["extra_body"] == {
-        "google": {"thinking_config": {"thinking_level": "medium", "include_thoughts": True}}
+        "google": {"thinking_config": {"thinking_level": "high", "include_thoughts": True}}
     }
     assert "reasoning_effort" not in body and body["max_tokens"] == 1536
     ended = _of(events, "model_call_ended")[0].payload

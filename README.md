@@ -762,7 +762,8 @@ NVIDIA et OpenRouter y figurent en exemples commentés, avec leur avertissement.
 
    **Ou par variable d'environnement.** Chaque préréglage nomme une variable (`key_env`) :
    `GROQ_API_KEY` pour Groq, `MISTRAL_API_KEY` pour Mistral, `GEMINI_API_KEY` pour Gemini et
-   Gemma (même clé). Sous Windows, sans droits administrateur :
+   Gemma (même clé), `ANTHROPIC_API_KEY` pour Claude (Haiku et Sonnet, même clé) et
+   `OPENAI_API_KEY` pour GPT-6 Luna. Sous Windows, sans droits administrateur :
 
    ```bat
    setx GROQ_API_KEY votre-clé
@@ -798,7 +799,7 @@ payante les contenus ne servent pas à l'entraînement. Ces règles de données 
 aux utilisateurs de l'EEE sur le quota gratuit. Les prix se vérifient dans la
 console (relevé le 2026-09-29 : 0,30 $ / 2,50 $ par million de tokens pour
 `gemini-3.5-flash-lite`, sans hausse annoncée ; hausse au 2027-01-01 pour les 3.6 à 3.8 Flash). Le raisonnement s'allume et s'éteint avec la
-brique : allumé, `thinking_level` « medium » et le texte de la réflexion (entre `<thought>` et
+brique : allumé, `thinking_level` « high » et le texte de la réflexion (entre `<thought>` et
 `</thought>`) ; éteint, `reasoning_effort` « minimal ». Gemini 3.x signe une réponse qui appelle
 des outils (sur le premier appel seulement quand il y en a plusieurs en parallèle) et refuse un
 appel rejoué sans cette signature : WaveStack la lui renvoie telle quelle, et à lui seul. Si la forme réelle diffère (balises, `minimal` ou `extra_body` refusés), corrigez
@@ -829,12 +830,54 @@ sur la ligne Gemma, ou posez `GEMINI_API_KEY`, qui sert aux deux préréglages. 
 `{"id": "gemma", "model": "gemma-4-31b-it", "impacts": {"provider": "google_genai", "model":
 "gemma-4-31b-it"}}`.
 
+**Claude (Anthropic, API Messages).** `claude_haiku` (`claude-haiku-4-5`, 200 000 tokens,
+1 $ / 5 $ par million de tokens) et `claude_sonnet` (`claude-sonnet-5`, 1 000 000 tokens,
+2 $ / 10 $) passent par l'API native d'Anthropic (`api = "anthropic_messages"`), pas par une
+couche compatible OpenAI : elle seule renvoie le raisonnement et accepte les outils avec lui.
+Clé : `ANTHROPIC_API_KEY` ou saisie au diagnostic (envoyée dans l'en-tête `x-api-key`).
+Conditions relevées le 2026-10-03 : les données de l'API ne servent pas à l'entraînement sans
+permission expresse et sont supprimées sous 30 jours ; inférence « global » par défaut (ou
+« us »), stockage aux États-Unis, pas de résidence dans l'UE. Brique Raisonnement allumée :
+Haiku raisonne avec un budget de 1 024 tokens, Sonnet en mode adaptatif (il décide s'il
+raisonne), raisonnement résumé ; le résumé s'affiche au canal Raisonnement. Les blocs de
+raisonnement reçus repartent tels quels, signature comprise, au seul modèle qui les a produits.
+WaveStack réécrivant l'historique par conception (fenêtre, troncature, compression, mémoire,
+briques changées), chaque requête demande à Anthropic de jeter un raisonnement devenu invalide
+plutôt que de refuser l'appel ; quand il le fait, le journal le dit (« Raisonnement jeté », avec
+la cause). Seuls les modèles qui font ce contrôle d'historique (Opus 5.5, Fable 5.1) peuvent
+produire cette ligne : avec les préréglages actifs, Haiku 4.5 et Sonnet 5, elle n'apparaît pas.
+La température (écran « LLM nu », Haiku seulement) ne part que raisonnement éteint : Anthropic la
+refuse avec le raisonnement. Pas de top-p : Haiku 4.5 refuse la température et le top-p
+ensemble. Le cache de prompt d'Anthropic
+n'est jamais activé. Opus 5.5 figure en commentaire dans `wavestack.toml` (son raisonnement ne
+s'éteint pas).
+
+**GPT-6 Luna (OpenAI, API Responses).** `openai_luna` (`gpt-6-luna`, 1 050 000 tokens,
+0,10 $ / 0,50 $ par million de tokens, cache lu 0,01 $) passe par l'API Responses d'OpenAI
+(`api = "openai_responses"`) : par Chat Completions, GPT-6 n'appelle d'outils que raisonnement
+éteint et ne renvoie jamais son raisonnement. WaveStack l'utilise sans état (`store: false`,
+jamais `previous_response_id`) : tout l'historique part à chaque appel, comme pour les autres
+fournisseurs. Clé : `OPENAI_API_KEY` ou saisie au diagnostic (en-tête `Authorization: Bearer`).
+Conditions relevées le 2026-10-03 : les données de l'API ne servent pas à l'entraînement par
+défaut ; OpenAI garde des journaux de lutte contre les abus jusqu'à 30 jours, même sans
+stockage des réponses, et le cache de prompt 24 heures par défaut (`prompt_cache_retention`
+relevé sur l'API) ; la résidence dans l'UE demande un projet dédié et l'hôte
+`eu.api.openai.com` (non préréglé). Brique Raisonnement allumée : effort « low » et résumé
+automatique, affiché au canal Raisonnement ; éteinte : effort « none » (Luna n'a pas
+« minimal »). Le raisonnement reçu (items `reasoning` chiffrés) repart tel quel au seul modèle
+qui l'a produit. OpenAI peut exiger la vérification de l'organisation (console OpenAI) avant
+d'envoyer les résumés de raisonnement : sans elle, le canal Raisonnement reste vide. Température
+et top-p (écran « LLM nu ») ne partent que raisonnement éteint : OpenAI les refuse avec le
+raisonnement. Un compte sans crédit est refusé avec « le crédit du compte est épuisé » :
+ajoutez du crédit dans la console OpenAI.
+GPT-6.1 Sol figure en commentaire dans `wavestack.toml` (il raisonne toujours).
+
 **Revenir au modèle local.** Choisissez un fichier GGUF dans le sélecteur de la barre haute, ou
 cliquez sur « Choisir » en face d'un fichier sur la page de diagnostic : le modèle local est
 rechargé sans relance, conversation gardée.
 
-**Hôtes à autoriser** sur le réseau de l'entreprise : `api.groq.com`, `api.mistral.ai` et
-`generativelanguage.googleapis.com` (plus l'hôte de tout modèle ajouté dans `settings.json`).
+**Hôtes à autoriser** sur le réseau de l'entreprise : `api.groq.com`, `api.mistral.ai`,
+`generativelanguage.googleapis.com`, `api.anthropic.com` et `api.openai.com` (plus l'hôte de tout modèle ajouté dans `settings.json`).
 
 **Ajouter un modèle.** Les exemples NVIDIA et OpenRouter de `wavestack.toml` sont en TOML :
 recopiez-en les champs, en JSON, dans `settings.json` (dossier de données, WaveStack arrêté). Une
@@ -910,9 +953,21 @@ viennent de `usage` quand le fournisseur le renvoie ; sinon ils sont estimés, e
 (« ≈ »). Ce sont toujours des estimations : ni les en-têtes de facturation ni la console du
 fournisseur ne sont lus. Un appel arrêté (« Arrêter ») compte son entrée telle qu'envoyée, et la
 sortie reçue avant l'arrêt ; un appel refusé avant toute réponse ne compte rien. L'estimation
-suit le prix catalogue : les remises sur l'entrée en cache, les prix par palier ou pour les longs
-contextes, les prix du traitement par lots (batch) et les offres gratuites ne sont pas pris en
-compte.
+suit le prix catalogue. Les tokens d'entrée lus dans le cache du fournisseur ou écrits dans ce
+cache sont comptés à leurs propres prix quand l'entrée les déclare dans `pricing`
+(`cache_read_usd_per_mtok`, `cache_write_usd_per_mtok`, facultatifs), au prix d'entrée sinon. Les
+prix par palier ou pour les longs contextes, les prix du traitement par lots (batch) et les
+offres gratuites ne sont pas pris en compte.
+
+**Plafond de la séance.** `[finops] max_session_usd` (5 $ par défaut) borne la dépense de la
+séance : quand le total de la séance l'a atteint, un appel à un modèle qui déclare ses prix n'est
+pas envoyé, et le message dit le plafond, le total et comment le relever. Les modèles sans
+`pricing` (local, Gemma) restent utilisables. Les appels déjà en cours ne sont jamais
+interrompus : le total peut dépasser le plafond du coût de chacun d'eux. Une valeur illisible,
+`nan`, `inf`, négative ou booléenne vaut 5 ; aucune valeur ne désactive le plafond, et `0` refuse
+tout appel tarifé. Pour le relever, modifiez-le dans `settings.json`, par exemple
+`{"finops": {"max_session_usd": 10}}`, WaveStack arrêté, puis relancez : le total de la séance ne
+revient à zéro qu'au relancement.
 
 **Affichage.** « Coût estimé : entrée … $ · sortie … $ » dans le détail de chaque appel
 (Orchestration), le total du tour dans son en-tête (« coût estimé … $ »), et « Dépense
@@ -927,7 +982,8 @@ plus.
 
 **Mettre les prix à jour.** Relevez les prix sur la page du fournisseur, puis surchargez l'entrée
 dans `settings.json`, par exemple `{"id": "gemini", "pricing": {"input_usd_per_mtok": 0.3,
-"output_usd_per_mtok": 2.5, "checked": "2027-01-02"}}`, et relancez WaveStack. Le taux de
+"output_usd_per_mtok": 2.5, "cache_read_usd_per_mtok": 0.03, "checked": "2027-01-02"}}`, et
+relancez WaveStack (`cache_read_usd_per_mtok` et `cache_write_usd_per_mtok` sont facultatifs). Le taux de
 conversion se règle dans `[finops] eur_per_usd` (euros pour un dollar, 0,86 par défaut, borné de
 0,5 à 2 ; une valeur illisible, `nan` ou `inf`, vaut 0,86). Ce taux par défaut a été relevé le
 2026-09-30 : mettez-le à jour. Un prix négatif rend l'entrée invalide : elle est écartée au lancement, avec la raison.

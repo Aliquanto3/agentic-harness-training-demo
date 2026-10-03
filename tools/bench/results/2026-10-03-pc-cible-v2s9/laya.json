@@ -1,0 +1,798 @@
+{
+ "candidate": "laya",
+ "tier": "2",
+ "models_dir": "C:\\Users\\anael.yahi\\.cache\\wavestack-bench",
+ "platform": "Windows-11-10.0.26200-SP0",
+ "machine": "AMD64",
+ "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+ "cpu_count": 8,
+ "python": "3.13.5",
+ "measured_at": "2026-10-03T18:07",
+ "target_pc": true,
+ "windows_release": "11",
+ "admin": false,
+ "bench_sha256": "89674b22d246c7efc132fee6fc03195a3ddc666f4a19aa23ec9c93742359d12e",
+ "repo_commit": "598e44fcdc90f7a604fb3faac99137324d7f2584",
+ "ram_total_mb": 16064,
+ "command": "uv run --with huggingface-hub python tools/bench/v2s6_decision_bench.py measure laya --download --slm $SLM --out \"$OUT\\laya.json\"",
+ "rss_added_method": "pic",
+ "v1_rag_rss_mb": 1170,
+ "llama_server": {
+  "exe": "C:\\Users\\anael.yahi\\AppData\\Local\\WaveStack\\bench\\llama-b11378\\llama-server.exe",
+  "source": "dossier par défaut",
+  "version_line": "version: 0.5.0-dev (build 11378, commit edd6e2bbd)",
+  "version": "0.5.0-dev",
+  "build": "11378",
+  "commit": "edd6e2bbd",
+  "exe_sha256": "6d2e001e3e366dd64f24578bad2ff461bcfdea4a0c86b134c280a952401eee20",
+  "impl_sha256": "68f82bb0491f057728f5c4b1f0036b0b4e50113a1fd2bb16eda14fd4a41bd62e",
+  "archive": {
+   "path": "C:\\Users\\anael.yahi\\AppData\\Local\\WaveStack\\bench\\llama-b11378-bin-win-cpu-x64.zip",
+   "sha256": "11bcb3aea659bce73f62305e3812764f935d90f44de1e70cd2b68aa3c9f41b8d",
+   "expected_sha256": "11bcb3aea659bce73f62305e3812764f935d90f44de1e70cd2b68aa3c9f41b8d",
+   "sha256_ok": true
+  }
+ },
+ "gguf": {
+  "repo": "ggml-org/Laya-GGUF",
+  "file": "Laya-Q8_0.gguf",
+  "revision": "da4b4753d62197659d8c90103cd4c43bef9afea6",
+  "path": "C:\\Users\\anael.yahi\\.cache\\wavestack-bench\\hf\\models--ggml-org--Laya-GGUF\\snapshots\\da4b4753d62197659d8c90103cd4c43bef9afea6\\Laya-Q8_0.gguf",
+  "size_mb": 428,
+  "sha256": "c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2",
+  "expected_sha256": "c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2",
+  "sha256_ok": true
+ },
+ "revisions": {
+  "ggml-org/Laya-GGUF": "da4b4753d62197659d8c90103cd4c43bef9afea6"
+ },
+ "versions": {
+  "llama-server": "version: 0.5.0-dev (build 11378, commit edd6e2bbd)"
+ },
+ "llama_server_launch": {
+  "argv": [
+   "C:\\Users\\anael.yahi\\AppData\\Local\\WaveStack\\bench\\llama-b11378\\llama-server.exe",
+   "-m",
+   "C:\\Users\\anael.yahi\\.cache\\wavestack-bench\\hf\\models--ggml-org--Laya-GGUF\\snapshots\\da4b4753d62197659d8c90103cd4c43bef9afea6\\Laya-Q8_0.gguf",
+   "--host",
+   "127.0.0.1",
+   "--port",
+   "54913",
+   "--offline",
+   "--no-webui",
+   "-np",
+   "1",
+   "-a",
+   "Laya"
+  ],
+  "url": "http://127.0.0.1:54913",
+  "port": 54913,
+  "log": "C:\\Users\\anael.yahi\\.cache\\wavestack-bench\\llama-server\\laya.log",
+  "pid": 13836,
+  "start_s": 0.5,
+  "startup_remotes": [],
+  "startup_listen": [
+   "127.0.0.1:54913"
+  ],
+  "startup_errors": [],
+  "log_excerpt": [
+   "0.00.240.741 I decision model reads the embeddings output, enabling embedding mode",
+   "0.00.387.878 I srv          init: decision model type: laya",
+   "0.00.387.898 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'"
+  ]
+ },
+ "id": "laya",
+ "guard": "wavestack.net.guard",
+ "slm": "C:\\Users\\anael.yahi\\AppData\\Local\\WaveStack\\models\\Qwen3.5-2B-Q4_K_M.gguf",
+ "slm_n_ctx": 4096,
+ "llama_cpp_version": "0.3.35",
+ "slm_load_s": 1.77,
+ "rss_with_slm_mb": 1942,
+ "load_s": 1.25,
+ "systemone_api": {
+  "doc": "https://github.com/ggml-org/llama.cpp/blob/b11378/tools/server/README.md (« POST /v1/systemone: TypeSafe-compatible System One API »)",
+  "code": "tools/server/server-decision.cpp et tools/server/tests/unit/test_systemone.py au tag b11378 (commit edd6e2bbdad5930899a93db8fa73c3b61c7b9bcc), qui contient la PR #29818 (fusion a4cb4c61fd9d9c2066c7c1747821d3d65b8943bd)",
+  "read_on": "2026-10-03",
+  "server": "llama-server b11378 (CPU, Windows x64), API TypeSafe",
+  "request": "POST /v1/systemone {state, questions: {<id>: {type: choice | score | noul, instructions, criteria}}, images?} ; choice : {option: description ou null}, au plus 255 options pour le type laya ; pas de flux ; questions répondues indépendamment",
+  "response": "{model, answers: {<id>: {type, choice, probabilities: {option: p}, confidence}}, usage: {input_tokens, output_tokens: 0}} ; erreur : 400 (requête invalide), 501 (modèle qui n'est pas un modèle de décision)",
+  "model_type": "Julia-1 et Laya : type laya (journal du serveur « decision model type: laya ») : tout le prompt d'une question en un lot, qui doit tenir dans --ubatch-size (512 par défaut)",
+  "label": "une question choice par tâche, options = étiquettes du banc ; étiquette retenue = option de plus forte probabilité (même règle que la story 8)"
+ },
+ "server_url": "http://127.0.0.1:54913",
+ "server_pid": 13836,
+ "server_model": "Laya",
+ "first_answer": {
+  "model": "Laya",
+  "answers": {
+   "cost": {
+    "type": "choice",
+    "choice": "simple",
+    "probabilities": {
+     "simple": 0.5329384413320338,
+     "complexe": 0.4670615586679662
+    },
+    "confidence": 0.06587688266406766
+   }
+  },
+  "usage": {
+   "input_tokens": 90,
+   "output_tokens": 0
+  }
+ },
+ "first_request_s": 0.69,
+ "llama_server_rss_peak_mb": 491,
+ "llama_server_ceiling": null,
+ "llama_server_rss": {
+  "server_peak_mb": 491,
+  "server_peak_wset_mb": 491,
+  "peak_of_sum_mb": 490,
+  "abort_threshold_mb": 6144,
+  "server_series_mb": [
+   423,
+   450,
+   470,
+   470,
+   476,
+   478,
+   478,
+   478,
+   478,
+   478,
+   478,
+   478,
+   478,
+   478,
+   480,
+   481,
+   481,
+   481,
+   481,
+   481,
+   481,
+   488,
+   489,
+   489,
+   489,
+   490,
+   490,
+   490,
+   490,
+   490,
+   490
+  ],
+  "method": "pic du processus llama-server, RSS lue toutes les 0.25 s, pic de l'ensemble de travail du processus du modèle (Windows)"
+ },
+ "llama_server_processes": {
+  "server": [
+   13836
+  ]
+ },
+ "llama_server_network": {
+  "before": [],
+  "during": [],
+  "after": [],
+  "other_processes": [],
+  "listen": [
+   "127.0.0.1:54913"
+  ],
+  "samples": 240,
+  "full_scans": 31,
+  "method": "connexions TCP (psutil) du processus llama-server, par PID, avant, pendant (toutes les 0.25 s) et après la mesure ; une connexion plus brève que la période peut échapper au relevé ; liste complète des processus toutes les 8 lectures",
+  "errors": []
+ },
+ "rss_before_load_mb": 1942,
+ "peak_before_load_mb": 1942,
+ "rss_loaded_mb": 1950,
+ "rss_peak_mb": 1950,
+ "warmup_ms": 2909.7,
+ "rows": [
+  {
+   "prompt": "bare_llm.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 815.1,
+   "probabilities": {
+    "simple": 0.5329384413320338,
+    "complexe": 0.4670615586679662
+   },
+   "choice": "simple"
+  },
+  {
+   "prompt": "bare_llm.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "general",
+   "ms": 1517.8,
+   "probabilities": {
+    "securite": 0.11073101625585241,
+    "documents": 0.3469488403249924,
+    "recherche": 0.24296013088325338,
+    "general": 0.2993600125359019
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "reasoning.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 1156.1,
+   "probabilities": {
+    "simple": 0.48591947208868036,
+    "complexe": 0.5140805279113195
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "reasoning.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "general",
+   "ms": 1736.2,
+   "probabilities": {
+    "securite": 0.13283358210211477,
+    "documents": 0.33545850632188884,
+    "recherche": 0.2754248706893613,
+    "general": 0.25628304088663506
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "system_prompt.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 777.5,
+   "probabilities": {
+    "simple": 0.6497016246703636,
+    "complexe": 0.3502983753296364
+   },
+   "choice": "simple"
+  },
+  {
+   "prompt": "system_prompt.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "general",
+   "ms": 1476.3,
+   "probabilities": {
+    "securite": 0.13062160491984187,
+    "documents": 0.3424289095713266,
+    "recherche": 0.25580069918163567,
+    "general": 0.27114878632719597
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "global_memory.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 1034.7,
+   "probabilities": {
+    "simple": 0.4326278654372941,
+    "complexe": 0.5673721345627059
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "global_memory.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "general",
+   "ms": 1715.6,
+   "probabilities": {
+    "securite": 0.1337267124519429,
+    "documents": 0.3364594357207346,
+    "recherche": 0.2825190800283237,
+    "general": 0.24729477179899875
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "native_tools.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 829.1,
+   "probabilities": {
+    "simple": 0.3495062800491928,
+    "complexe": 0.6504937199508072
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "native_tools.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "general",
+   "ms": 1478.7,
+   "probabilities": {
+    "securite": 0.14970059253102241,
+    "documents": 0.338015912359817,
+    "recherche": 0.2616916235631879,
+    "general": 0.2505918715459726
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "caveman.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 868.7,
+   "probabilities": {
+    "simple": 0.4749566478153439,
+    "complexe": 0.525043352184656
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "caveman.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "general",
+   "ms": 1687.8,
+   "probabilities": {
+    "securite": 0.13142787459018984,
+    "documents": 0.33863227184590905,
+    "recherche": 0.26415486987204617,
+    "general": 0.265784983691855
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "native_tools.2",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 956.6,
+   "probabilities": {
+    "simple": 0.4283921884980458,
+    "complexe": 0.5716078115019543
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "native_tools.2",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 1577.9,
+   "probabilities": {
+    "securite": 0.12914437805751636,
+    "documents": 0.42872704525505523,
+    "recherche": 0.2749898816927205,
+    "general": 0.16713869499470788
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "rag.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 948.5,
+   "probabilities": {
+    "simple": 0.41630508427908536,
+    "complexe": 0.5836949157209146
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "rag.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "documents",
+   "ms": 1791.7,
+   "probabilities": {
+    "securite": 0.1541969186392656,
+    "documents": 0.3149427080659004,
+    "recherche": 0.4256752958599668,
+    "general": 0.1051850774348672
+   },
+   "choice": "recherche"
+  },
+  {
+   "prompt": "hooks.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 971.7,
+   "probabilities": {
+    "simple": 0.5241268611172377,
+    "complexe": 0.4758731388827622
+   },
+   "choice": "simple"
+  },
+  {
+   "prompt": "hooks.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 1577.0,
+   "probabilities": {
+    "securite": 0.17048094320903165,
+    "documents": 0.40718722997672085,
+    "recherche": 0.20540793399883453,
+    "general": 0.2169238928154129
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "compression.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 1041.6,
+   "probabilities": {
+    "simple": 0.40724708870788334,
+    "complexe": 0.5927529112921167
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "compression.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 1936.1,
+   "probabilities": {
+    "securite": 0.24142396530997826,
+    "documents": 0.28483632252358304,
+    "recherche": 0.26673444772879,
+    "general": 0.20700526443764858
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "compression.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 974.8,
+   "probabilities": {
+    "simple": 0.44189365776090117,
+    "complexe": 0.5581063422390987
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "compression.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 1640.2,
+   "probabilities": {
+    "securite": 0.22720498937790878,
+    "documents": 0.3404884460997241,
+    "recherche": 0.2337469236941276,
+    "general": 0.19855964082823938
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "network_tools.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 844.1,
+   "probabilities": {
+    "simple": 0.5562115759541957,
+    "complexe": 0.4437884240458043
+   },
+   "choice": "simple"
+  },
+  {
+   "prompt": "network_tools.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "recherche",
+   "ms": 1686.7,
+   "probabilities": {
+    "securite": 0.11208730886849565,
+    "documents": 0.30442836168834453,
+    "recherche": 0.18705990719809668,
+    "general": 0.3964244222450632
+   },
+   "choice": "general"
+  },
+  {
+   "prompt": "network_tools.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 888.2,
+   "probabilities": {
+    "simple": 0.5177382999025436,
+    "complexe": 0.48226170009745645
+   },
+   "choice": "simple"
+  },
+  {
+   "prompt": "network_tools.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "recherche",
+   "ms": 1698.6,
+   "probabilities": {
+    "securite": 0.13913030010886668,
+    "documents": 0.38263001308441946,
+    "recherche": 0.23852268574297605,
+    "general": 0.23971700106373775
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "mcp_lazy.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 1052.9,
+   "probabilities": {
+    "simple": 0.5352963120249195,
+    "complexe": 0.4647036879750806
+   },
+   "choice": "simple"
+  },
+  {
+   "prompt": "mcp_lazy.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "recherche",
+   "ms": 1900.9,
+   "probabilities": {
+    "securite": 0.19137456776944148,
+    "documents": 0.2023711113586166,
+    "recherche": 0.5009517066927176,
+    "general": 0.10530261417922428
+   },
+   "choice": "recherche"
+  },
+  {
+   "prompt": "sovereignty.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 1464.1,
+   "probabilities": {
+    "simple": 0.2926693242893174,
+    "complexe": 0.7073306757106826
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "sovereignty.0",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "recherche",
+   "ms": 2122.4,
+   "probabilities": {
+    "securite": 0.15120481078174047,
+    "documents": 0.18850868449737024,
+    "recherche": 0.5483000240007943,
+    "general": 0.11198648072009504
+   },
+   "choice": "recherche"
+  },
+  {
+   "prompt": "rag.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 1076.5,
+   "probabilities": {
+    "simple": 0.4902460043758656,
+    "complexe": 0.5097539956241345
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "rag.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 1587.8,
+   "probabilities": {
+    "securite": 0.2976277400933273,
+    "documents": 0.25503378262519966,
+    "recherche": 0.26753199743693473,
+    "general": 0.1798064798445383
+   },
+   "choice": "securite"
+  },
+  {
+   "prompt": "soc.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 1292.6,
+   "probabilities": {
+    "simple": 0.30523362225955203,
+    "complexe": 0.694766377740448
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "soc.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 2010.3,
+   "probabilities": {
+    "securite": 0.3314030675771666,
+    "documents": 0.20785984016891115,
+    "recherche": 0.23201624821702785,
+    "general": 0.22872084403689436
+   },
+   "choice": "securite"
+  },
+  {
+   "prompt": "soc.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 1643.3,
+   "probabilities": {
+    "simple": 0.3268880487148973,
+    "complexe": 0.6731119512851027
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "soc.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 2071.7,
+   "probabilities": {
+    "securite": 0.2844457543533998,
+    "documents": 0.25272279066326725,
+    "recherche": 0.2647110944479556,
+    "general": 0.19812036053537735
+   },
+   "choice": "securite"
+  },
+  {
+   "prompt": "iam.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 1305.3,
+   "probabilities": {
+    "simple": 0.37982115637107666,
+    "complexe": 0.6201788436289233
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "iam.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "securite",
+   "ms": 2169.5,
+   "probabilities": {
+    "securite": 0.189434123897737,
+    "documents": 0.30834063353340824,
+    "recherche": 0.2828394964316289,
+    "general": 0.21938574613722586
+   },
+   "choice": "documents"
+  },
+  {
+   "prompt": "iam.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 1431.2,
+   "probabilities": {
+    "simple": 0.34542595194173664,
+    "complexe": 0.6545740480582635
+   },
+   "choice": "complexe"
+  },
+  {
+   "prompt": "iam.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "securite",
+   "ms": 2137.9,
+   "probabilities": {
+    "securite": 0.2117065252635729,
+    "documents": 0.2686789064308869,
+    "recherche": 0.29231158263593804,
+    "general": 0.22730298566960208
+   },
+   "choice": "recherche"
+  }
+ ],
+ "decisions": 40,
+ "latency_median_ms": 1477.5,
+ "latency_max_ms": 2169.5,
+ "agreement": {
+  "cost": "12/20",
+  "specialty": "9/20"
+ },
+ "error_rows": 0,
+ "rss_added_mb": 8,
+ "ram_total_peak_mb": 2441,
+ "torch_loaded": false,
+ "heavy_modules_loaded": [],
+ "attempts": [
+  [
+   "socket.getaddrinfo",
+   "127.0.0.1"
+  ],
+  [
+   "socket.connect",
+   "127.0.0.1"
+  ]
+ ],
+ "ram_watchdog": {
+  "status": "active",
+  "budget_mb": 4096,
+  "period_s": 0.5
+ },
+ "status": "measured",
+ "llama_server_stop": {
+  "started": true,
+  "pid": 13836,
+  "returncode": 1,
+  "killed": false,
+  "remaining_pids": [],
+  "still_running": false
+ },
+ "packages": [],
+ "verdict": {
+  "status": "écarté",
+  "reason": "Latence : médiane ≤ 1000 ms, maximum ≤ 3000 ms",
+  "criteria": [
+   {
+    "id": "cpu_windows",
+    "label": "CPU sous Windows 11, sans droits admin",
+    "ok": true,
+    "detail": "Windows 11, session sans droits admin ; vérifier dans la sortie de uv qu'aucun paquet n'a été compilé (« Building … ») ; llama-server version: 0.5.0-dev (build 11378, commit edd6e2bbd) : binaire portable décompressé hors du dépôt (C:\\Users\\anael.yahi\\AppData\\Local\\WaveStack\\bench\\llama-b11378\\llama-server.exe), ni installé ni lancé en admin, démarré et arrêté par le banc ; « sans exécutable à installer » : constat pour décision d'Anaël, pas un échec ; aucun paquet Python ajouté"
+   },
+   {
+    "id": "ram",
+    "label": "RAM : pic total ≤ 4096 Mo, SLM par défaut chargé (NFR-2)",
+    "ok": true,
+    "detail": "pic total 2441 Mo = enfant de mesure 1950 Mo (SLM chargé : 1942 Mo, ajouté dans l'enfant 8 Mo) + llama-server 491 Mo (modèle chargé, pic de l'ensemble de travail) ; avec l'embedding et le reranker V1 (1170 Mo mesurés), 3611 Mo"
+   },
+   {
+    "id": "latency",
+    "label": "Latence : médiane ≤ 1000 ms, maximum ≤ 3000 ms",
+    "ok": false,
+    "detail": "médiane 1477.5 ms, maximum 2169.5 ms sur 40 décisions (échauffement 2909.7 ms, chargement 1.25 s, démarrage de llama-server 0.5 s)"
+   },
+   {
+    "id": "offline",
+    "label": "Hors ligne : aucune tentative réseau sous la garde d'AD-15, aucune connexion sortante des processus llama-server, écoute sur la boucle locale seule",
+    "ok": true,
+    "detail": "hôtes tentés : aucun ; côté llama-server (processus llama-server, lancé avec --offline, relevé par PID dès son démarrage, connexions TCP avant, pendant et après la mesure) : aucune connexion hors boucle locale ; écoute : ['127.0.0.1:54913']"
+   },
+   {
+    "id": "pinned",
+    "label": "Code relu et figé : commit et versions consignés, pas de trust_remote_code",
+    "ok": true,
+    "detail": "commits {'ggml-org/Laya-GGUF': 'da4b4753d62197659d8c90103cd4c43bef9afea6'} ; versions {'llama-server': 'version: 0.5.0-dev (build 11378, commit edd6e2bbd)'} ; code : aucun code du modèle exécuté par le banc ; moteur : llama-server b11378 (binaire portable hors dépôt, version et sha256 consignés), GGUF servi par chemin local (-m) ; GGUF Laya-Q8_0.gguf sha256 c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2 (conforme à c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2)"
+   },
+   {
+    "id": "license",
+    "label": "Licences compatibles avec une remise du code (NFR-10)",
+    "ok": true,
+    "forbidden": false,
+    "detail": "modèle : Apache-2.0 (carte GGUF ggml-org/Laya-GGUF et carte source convaiinnovations/laya, relues le 2026-10-03) (ok) ; moteur : llama.cpp b11378 (MIT ; l'archive porte aussi LICENSE-LLVM-OpenMP pour libomp), binaire de mesure hors projet ; 0 paquet(s) ajouté(s) ; interdites : aucune ; à vérifier : aucune"
+   },
+   {
+    "id": "no_torch",
+    "label": "Sans torch",
+    "ok": true,
+    "detail": "modules lourds chargés : aucun"
+   }
+  ],
+  "target_pc": true
+ }
+}

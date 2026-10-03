@@ -31,6 +31,7 @@ from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from wavestack.context.segments import Joined, Part, Segment, SegmentKind
 from wavestack.messages import msg
+from wavestack.models.cloud_base import FOLLOWS  # native providers 4/5
 from wavestack.models.engine import Engine
 from wavestack.trace.journal import get_journal
 
@@ -358,7 +359,7 @@ def _attribute(
                 text=text,
                 compressed_from=None if owner is None else parts[owner].compressed_from,
             ),
-            [parts[i] for i in owners],
+            [parts[i] for i in dict.fromkeys(owners)],  # a part split in pieces counts once
         )
         for n, (owner, text, owners) in enumerate(_merge_groups(pieces, parts), start=1)
     ]
@@ -409,7 +410,218 @@ def render_context(
     return RenderedContext(prompt=prompt, ids=ids, segments=segments)
 
 
-# ---------- chat mode (AD-4, `openai_chat`) ----------
+# ---------- chat mode (AD-4, AD-26: one translator per provider API) ----------
+
+# A translator writes the native body of one API from the pivot (the session's messages in
+# the Chat Completions format, AD-26): `(model, messages, tools, tail) -> body`, as a dict
+# serialized once by `render_chat_body`. It must keep every text of the pivot as one JSON
+# string of its own (the sentinel method attributes the bytes sent, AD-4).
+Translator = Callable[[dict[str, Any], list[dict[str, Any]], Any, dict[str, Any]], dict[str, Any]]
+
+
+def _openai_chat(
+    model: dict[str, Any], messages: list[dict[str, Any]], tools: Any, tail: dict[str, Any]
+) -> dict[str, Any]:
+    """`openai_chat`: the pivot as it is, `model`, `messages`, `tools` when any, the rest."""
+    return {**model, "messages": messages, **({"tools": tools} if tools else {}), **tail}
+
+
+_OWNED = re.compile("\ue000(\\d+)\ue001(.*)\ue002", re.DOTALL)
+
+
+def _tool_input(arguments: Any) -> dict[str, Any]:
+    """`tool_use.input`: the object `arguments` holds (the string emitted, AD-4), parsed
+    without the sentinels. In the marked render, each string value is wrapped again in the
+    sentinels of `arguments`' part, so it stays attributed to the call; the rest of the
+    object (keys, numbers, JSON syntax) goes to `template`, the bytes sent unchanged."""
+    if isinstance(arguments, dict):
+        return arguments
+    if not isinstance(arguments, str):
+        return {}
+    owned = _OWNED.fullmatch(arguments)
+    try:
+        value = json.loads(_MARKER.sub("", arguments) or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    if owned is None:
+        return value
+    owner = owned.group(1)
+
+    def wrap(item: Any) -> Any:
+        if isinstance(item, str):
+            return f"{_START}{owner}{_MID}{item}{_END}" if item else item
+        if isinstance(item, dict):
+            return {key: wrap(v) for key, v in item.items()}
+        if isinstance(item, list):
+            return [wrap(v) for v in item]
+        return item
+
+    return wrap(value)
+
+
+def _text_of(content: Any) -> str:
+    """A pivot message's `content` as one string (the parts joined by `_attribute`)."""
+    return content if isinstance(content, str) else ""
+
+
+def _anthropic_messages(
+    model: dict[str, Any], messages: list[dict[str, Any]], tools: Any, tail: dict[str, Any]
+) -> dict[str, Any]:
+    """`anthropic_messages` (native providers 3/5): the system messages joined in `system`;
+    an assistant message as blocks, its reasoning blocks first (`thinking_blocks`, verbatim,
+    in the order received), then its text (an empty one left out), then one `tool_use` per
+    call (`input`: the object of `arguments`); consecutive `tool` messages as one `user`
+    message of `tool_result` blocks; `tools` as `{name, input_schema, description}`. An
+    assistant message left with no text nor call is left out (the provider refuses it;
+    two `user` messages in a row are one turn for it)."""
+    system = [_text_of(m.get("content")) for m in messages if m["role"] == "system"]
+    sent: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] | None = None  # the `tool_result` blocks being gathered
+    for message in messages:
+        role = message["role"]
+        if role == "system":
+            continue
+        if role == "tool":
+            result = {
+                "type": "tool_result",
+                "tool_use_id": message.get("tool_call_id"),
+                "content": _text_of(message.get("content")),
+            }
+            if results is None:
+                results = [result]
+                sent.append({"role": "user", "content": results})
+            else:
+                results.append(result)
+            continue
+        results = None
+        if role != "assistant":
+            sent.append({"role": role, "content": _text_of(message.get("content"))})
+            continue
+        blocks = list(message.get("thinking_blocks") or [])
+        thought = len(blocks)
+        if text := _text_of(message.get("content")):
+            blocks.append({"type": "text", "text": text})
+        for call in message.get("tool_calls") or []:
+            function = call.get("function") or {}
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": call.get("id"),
+                    "name": function.get("name"),
+                    "input": _tool_input(function.get("arguments")),
+                }
+            )
+        if len(blocks) > thought:
+            sent.append({"role": "assistant", "content": blocks})
+    body: dict[str, Any] = {**model}
+    if joined := "\n\n".join(text for text in system if text):
+        body["system"] = joined
+    body["messages"] = sent
+    if tools:
+        body["tools"] = [
+            {
+                ("input_schema" if key == "parameters" else key): value
+                for key, value in (tool.get("function") or {}).items()
+            }
+            for tool in tools
+        ]
+    return body | tail
+
+
+def _openai_responses(
+    model: dict[str, Any], messages: list[dict[str, Any]], tools: Any, tail: dict[str, Any]
+) -> dict[str, Any]:
+    """`openai_responses` (native providers 4/5): the system messages joined in
+    `instructions`; each other message as items of `input`: a `user` message or an
+    assistant's text as `{type: "message", role, content}` (a string), then one
+    `function_call` per call (`arguments`, the string emitted); an assistant's reasoning items
+    (`reasoning_items`, verbatim, in the order received) each right before the item that
+    followed it in the output (`FOLLOWS`, removed), or before the turn's first item when that
+    one is gone (OpenAI refuses a reasoning item not followed by the item it preceded); a
+    `tool` message as `function_call_output`; `tools` as `{type: "function", name,
+    description, parameters, strict: false}` (strict by default, which would refuse or force
+    a schema with optional fields); always `store: false` and the encrypted reasoning asked
+    back. An assistant message left with no text nor call is left out (its reasoning items
+    with it: an item `reasoning` alone is refused)."""
+    system = [_text_of(m.get("content")) for m in messages if m["role"] == "system"]
+    items: list[dict[str, Any]] = []
+    for message in messages:
+        role = message["role"]
+        if role == "system":
+            continue
+        if role == "tool":
+            items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": message.get("tool_call_id"),
+                    "output": _text_of(message.get("content")),
+                }
+            )
+            continue
+        text = _text_of(message.get("content"))
+        if role != "assistant":
+            items.append({"type": "message", "role": role, "content": text})
+            continue
+        turn: list[tuple[str, dict[str, Any]]] = []  # (the key `FOLLOWS` names, the item)
+        if text:
+            turn.append(("message", {"type": "message", "role": "assistant", "content": text}))
+        for n, call in enumerate(message.get("tool_calls") or []):
+            function = call.get("function") or {}
+            arguments = function.get("arguments")
+            item = {
+                "type": "function_call",
+                "call_id": call.get("id"),
+                "name": function.get("name"),
+                "arguments": arguments if isinstance(arguments, str) else json.dumps(arguments),
+            }
+            turn.append((f"call:{n}", item))
+        if not turn:
+            continue
+        present = {key for key, _ in turn}
+        before: dict[str, list[dict[str, Any]]] = {}
+        for received in message.get("reasoning_items") or []:
+            reasoning = {k: v for k, v in received.items() if k != FOLLOWS}
+            follows = received.get(FOLLOWS)
+            before.setdefault(follows if follows in present else turn[0][0], []).append(reasoning)
+        for key, item in turn:
+            items.extend(before.get(key, []))
+            items.append(item)
+    body: dict[str, Any] = {**model}
+    if joined := "\n\n".join(text for text in system if text):
+        body["instructions"] = joined
+    body["input"] = items
+    if tools:
+        body["tools"] = [
+            {"type": "function", **(tool.get("function") or {}), "strict": False} for tool in tools
+        ]
+    # Stateless (never `previous_response_id`), the encrypted reasoning asked back.
+    return body | tail | {"store": False, "include": ["reasoning.encrypted_content"]}
+
+
+# `api` → its translator; an adapter adds its own here, with its engine (`models/cloud_api`).
+TRANSLATORS: dict[str, Translator] = {
+    "openai_chat": _openai_chat,
+    "anthropic_messages": _anthropic_messages,  # native providers 3/5
+    "openai_responses": _openai_responses,  # native providers 4/5
+}
+
+
+def verbatim(part: Part, markers: list[str] | tuple[str, ...]) -> Part | Joined | str:
+    """A text the provider must get back byte for byte (a signed reasoning, native providers
+    3/5): attributed like `part` when step 2 leaves it whole, its outer blanks then going to
+    `template`; else (a private-use character, a marker) a plain string, all `template`."""
+    text = part.text
+    core = text.strip()
+    special = _special_pattern(markers)
+    if not core or _PRIVATE_USE.search(core) or (special and special.search(core)):
+        return text
+    lead, trail = text[: len(text) - len(text.lstrip())], text[len(text.rstrip()) :]
+    if not lead and not trail:
+        return part
+    template = SegmentKind.TEMPLATE
+    return Joined((Part(template, lead), part._replace(text=core), Part(template, trail)), "")
 
 
 @dataclass
@@ -439,18 +651,21 @@ def render_chat_body(
     estimate: Callable[[str], int],
     provider_label_text: str,
     lang: str = "fr",
+    api: str = "openai_chat",
 ) -> RenderedChat:
     """AD-4, chat mode: `context` alone writes the whole body, serialized once, cut into
     segments by the sentinel method (the JSON syntax is `template`, 0 token). `fields`:
     `model`, then what follows `messages` and `tools` (`stream`, output limit,
     `stream_options`, reasoning parameters). A last `template` segment without text,
-    « chez le fournisseur », carries the gap once a total is known (`with_total`)."""
+    « chez le fournisseur », carries the gap once a total is known (`with_total`). `api`
+    (AD-26): the entry's, which picks the translator of the pivot into its native body."""
     model = {"model": fields["model"]}
     tail = {key: value for key, value in fields.items() if key != "model"}
+    translate = TRANSLATORS[api]
 
     def render(plain: list[dict[str, Any]], plain_tools: Any) -> str:
-        body = {**model, "messages": plain, **({"tools": plain_tools} if plain_tools else {})}
-        return json.dumps({**body, **tail}, ensure_ascii=False, separators=(",", ":"))
+        body = translate(model, plain, plain_tools, tail)
+        return json.dumps(body, ensure_ascii=False, separators=(",", ":"))
 
     body, pairs = _attribute(render, messages, tools, _special_pattern(markers), call_id, lang)
     estimates = [

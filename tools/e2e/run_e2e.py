@@ -8081,6 +8081,11 @@ def s_stream_resync(r: Run) -> None:
             navigations.append(frame.url)
 
     def other_instance(route: Any) -> None:
+        # Every `/api/state` reader of the first load (site-nav.js and app.js) gets the other
+        # instance; the reload's own read gets the real one.
+        if len(navigations) > 1:
+            route.fallback()
+            return
         route.fulfill(json=route.fetch().json() | {"instance_id": "autre-instance"})
 
     r.page.on("framenavigated", on_nav)
@@ -8096,7 +8101,7 @@ def s_stream_resync(r: Run) -> None:
         ]:
             navigations.clear()
             if handler:
-                r.page.route("**/api/state", handler, times=1)
+                r.page.route("**/api/state", handler)
             r.page.goto(f"{r.stack.app_url}/")
             # Not time.sleep: the sync API delivers `framenavigated` only while it runs.
             # The page is usable from `/api/state` on; the reload follows the stream's first event.
@@ -8104,6 +8109,7 @@ def s_stream_resync(r: Run) -> None:
             r.wait_idle()
             r.page.wait_for_timeout(1000)
             r.check(len(navigations) == expected, label, f"{len(navigations)} navigation(s)")
+            r.page.unroute("**/api/state")
         ended = r.send("Bonjour")
         r.check(ended["payload"]["status"] == "completed", "puis un tour aboutit")
     finally:
@@ -9021,7 +9027,7 @@ def s_model_catalog(r: Run) -> None:
     labels = [g["label"] for g in groups]
     # Three fake cloud models have no known publisher; the fourth is named as Gemini, with
     # the Gemini preset; the presets of wavestack.toml (Gemma, Gemini, Mistral, Groq's
-    # gpt-oss),
+    # gpt-oss, Claude since native providers 3/5, GPT since 4/5),
     # declared without a key, come in the table's order before.
     expected = [
         "Sur ce poste · Qwen (Alibaba)",
@@ -9029,6 +9035,8 @@ def s_model_catalog(r: Run) -> None:
         "Réseau · Gemini (Google)",
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
+        "Réseau · Claude (Anthropic)",
+        "Réseau · GPT (OpenAI)",
         "Réseau · Autres éditeurs",
     ]
     if "Sur ce poste · Autres éditeurs" in labels:
@@ -9953,7 +9961,7 @@ def s_gemini_shape(r: Run) -> None:
         first = bodies[0] if bodies else {}
         thinking = ((first.get("extra_body") or {}).get("google") or {}).get("thinking_config")
         r.check(
-            thinking == {"thinking_level": "medium", "include_thoughts": True}
+            thinking == {"thinking_level": "high", "include_thoughts": True}
             and "reasoning_effort" not in first
             and first.get("max_tokens") == 1536,
             "raisonnement allumé : extra_body…include_thoughts, sans reasoning_effort, 1 536",

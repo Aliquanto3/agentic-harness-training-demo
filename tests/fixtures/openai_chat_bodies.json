@@ -1,0 +1,42 @@
+{
+  "groq": {
+    "on": {
+      "sha256": "bbb7a0f24bfdba92f404325d0b2c71ecc0ccfca4dc308026d98c96517ebf1ffc",
+      "length": 942
+    },
+    "off": {
+      "sha256": "bbb7a0f24bfdba92f404325d0b2c71ecc0ccfca4dc308026d98c96517ebf1ffc",
+      "length": 942
+    }
+  },
+  "mistral": {
+    "on": {
+      "sha256": "c12333065406160e2f1091eef08066583f1c9285592c2b8379fdbf20a4a5cdd9",
+      "length": 1029
+    },
+    "off": {
+      "sha256": "7fcce23b606010100a174dd9bd2ab0d33c344b0da8d22ea9a1d329ba7ee05d06",
+      "length": 1028
+    }
+  },
+  "gemini": {
+    "on": {
+      "sha256": "80382e85d52116c6639613c5a136cb43228bc7fc33b4ce4d0e22387ebb589d1b",
+      "length": 1120
+    },
+    "off": {
+      "sha256": "0cc7010d9d820e73108339e3a6c7b839425ba017276bb3133a3932ebafba7065",
+      "length": 1052
+    }
+  },
+  "gemma": {
+    "on": {
+      "sha256": "533c4ab4c63192e2c7beefdca254826a277cb5e1f98feb4e0ceb44c6a4075d17",
+      "length": 1091
+    },
+    "off": {
+      "sha256": "c02c0055b5cd376c1dd401c31bd044b0c1c6355c5bf5ee937ea979a483bc4b74",
+      "length": 1049
+    }
+  }
+}

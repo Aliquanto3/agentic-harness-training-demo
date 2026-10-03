@@ -29,6 +29,7 @@ from pydantic import (
     Field,
     SecretStr,
     ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -114,7 +115,8 @@ PUBLIC_HEADERS = frozenset(
 # Recette du 02/10 (R2): the only response headers of an error (`outbound_response`) traced
 # in clear, lower-cased, plus the quota prefixes: the proof of a refusal, nothing else.
 PUBLIC_RESPONSE_HEADERS = frozenset({"content-type", "content-length", "date", "retry-after"})
-PUBLIC_RESPONSE_PREFIXES = ("x-ratelimit-", "ratelimit-")
+# Native providers 3/5: Anthropic's quota headers (`anthropic-ratelimit-*`).
+PUBLIC_RESPONSE_PREFIXES = ("x-ratelimit-", "ratelimit-", "anthropic-ratelimit-")
 
 
 class AuthHeader(_Strict):
@@ -136,9 +138,13 @@ class AuthHeader(_Strict):
 class CloudReasoning(_Strict):
     """What the reasoning brick adds to the body (AD-6). `resend`: the reasoning received goes
     back to the provider in the form of `format` (AD-4). `tags`: the opening and closing tags
-    `think_tags` reads in `content` (Gemini writes `<thought>`)."""
+    `think_tags` reads in `content` (Gemini writes `<thought>`). `thinking_blocks` (native
+    providers 3/5, Anthropic): the provider's own blocks, sent back verbatim, signature
+    included, to the entry that produced them only. `reasoning_items` (native providers 4/5,
+    OpenAI's Responses API): the `reasoning` items received, `encrypted_content` and `summary`
+    included, sent back verbatim the same way."""
 
-    format: Literal["field", "content_blocks", "think_tags"]
+    format: Literal["field", "content_blocks", "think_tags", "thinking_blocks", "reasoning_items"]
     on: dict[str, Any] = {}
     off: dict[str, Any] = {}
     always: bool = False
@@ -151,10 +157,15 @@ class CloudReasoning(_Strict):
 
 class CloudPricing(_Strict):
     """FinOps: a cloud model's list prices, in US dollars per million tokens, and the day they
-    were read on the provider's page (`checked`, ISO). The cost of a call is an estimate."""
+    were read on the provider's page (`checked`, ISO). The cost of a call is an estimate.
+    Native providers 2/5 (CAP-4): the prices of the input tokens read from the provider's
+    cache (`cache_read_usd_per_mtok`) and written to it (`cache_write_usd_per_mtok`), each
+    optional; an absent one is the input price."""
 
     input_usd_per_mtok: float = Field(ge=0, allow_inf_nan=False)
     output_usd_per_mtok: float = Field(ge=0, allow_inf_nan=False)
+    cache_read_usd_per_mtok: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cache_write_usd_per_mtok: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     checked: date
 
 
@@ -192,6 +203,7 @@ MIN_REASONING_BUDGET = 128  # lot C: the floor, and what is always left to the a
 # Lot D: `[net] contact`, the way to reach the demo's maintainers, sent in the User-Agent.
 DEFAULT_NET_CONTACT = "https://github.com/Aliquanto3/agentic-harness-training-demo"
 DEFAULT_EUR_PER_USD = 0.86  # FinOps: `[finops] eur_per_usd`
+DEFAULT_MAX_SESSION_USD = 5.0  # FinOps (CAP-4): `[finops] max_session_usd`
 # GreenOps: `[greenops] local_gco2e_per_kwh`, EcoLogits' France mix (life cycle).
 DEFAULT_LOCAL_GCO2E_PER_KWH = 41.4
 
@@ -202,16 +214,26 @@ def output_reserve(reasoning: bool) -> int:
 
 
 class CloudModel(_Strict):
-    """One `[[cloud.models]]` entry (AD-20): an OpenAI-compatible model. No key field:
-    `key_env` names an environment variable, never holds a value. `min_interval_s`: the
-    least time between two sends to this entry (AD-16)."""
+    """One `[[cloud.models]]` entry (AD-20). No key field: `key_env` names an environment
+    variable, never holds a value. `min_interval_s`: the least time between two sends to
+    this entry (AD-16). `api` (AD-26, CAP-1): the provider API the entry speaks, which picks
+    its engine and the translator of its body; `openai_chat` (Chat Completions) by default, or
+    `anthropic_messages` (Anthropic's Messages API, native providers 3/5) or `openai_responses`
+    (OpenAI's Responses API, native providers 4/5). `extra_headers`
+    (AD-5): fixed, non-secret headers sent after the authentication header; a header traced
+    in clear, `Content-Type` or the authentication header itself is refused."""
 
     id: str = Field(pattern=r"^[a-z0-9_]+$")
     provider: str = Field(min_length=1)
     base_url: str
     model: str = Field(min_length=1)
+    api: Literal["openai_chat", "anthropic_messages", "openai_responses"] = "openai_chat"
     auth_header: AuthHeader = AuthHeader()
-    max_tokens_field: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    extra_headers: dict[str, str] = {}
+    # Native providers 4/5: the Responses API names its output limit `max_output_tokens`.
+    max_tokens_field: Literal["max_tokens", "max_completion_tokens", "max_output_tokens"] = (
+        "max_tokens"
+    )
     stream_usage: bool = False
     tools: bool = False
     reasoning: CloudReasoning | None = None
@@ -248,6 +270,30 @@ class CloudModel(_Strict):
             raise ValueError("base_url needs a host and no query nor fragment")
         return value.rstrip("/")
 
+    @field_validator("extra_headers")
+    @classmethod
+    def _extra_headers_not_reserved(
+        cls, value: dict[str, str], info: ValidationInfo
+    ) -> dict[str, str]:
+        """AD-5: a fixed header traced in clear would hide nothing, and one that replaces
+        `Content-Type` or the key's header would change what is sent: both are refused.
+        `auth_header` is declared before: read from `info.data` (absent if it was invalid)."""
+        auth = info.data.get("auth_header")
+        reserved = {"content-type"} | ({auth.name.strip().lower()} if auth else set())
+        for name in value:
+            lowered = name.strip().lower()
+            if lowered in reserved:
+                raise ValueError(
+                    f"L'en-tête « {name} » est posé par l'adaptateur lui-même "
+                    "(Content-Type ou authentification) : extra_headers ne peut pas le remplacer."
+                )
+            if lowered in PUBLIC_HEADERS:
+                raise ValueError(
+                    f"L'en-tête « {name} » est tracé en clair dans le journal : "
+                    "il ne peut pas figurer dans extra_headers."
+                )
+        return value
+
     @property
     def host(self) -> str:
         return urlsplit(self.base_url).hostname or ""
@@ -264,6 +310,16 @@ class CloudModel(_Strict):
     def reserve(self) -> int:
         """The reserve with the reasoning brick off (« Tester », the window check)."""
         return self.reserve_for(False)
+
+    def sampling_sent(self, reasoning: bool) -> list[str]:
+        """Story 29: the sampling settings the « LLM nu » screen may send. Native providers
+        3/5: Anthropic refuses `temperature` and `top_p` while the model thinks, so an
+        `anthropic_messages` entry sends none then (brick on, or `always`); nor does an
+        `openai_responses` one (native providers 4/5, the same rule)."""
+        native = ("anthropic_messages", "openai_responses")
+        if self.api in native and (reasoning or self.always_reasons):
+            return []
+        return list(self.sampling)
 
     def reasoning_params(self, reasoning: bool) -> dict[str, Any]:
         """AD-6: `on` while the model reasons (brick on, or `always`), else `off`. A field set
@@ -618,11 +674,13 @@ class Config:
                 fields = ", ".join(
                     ".".join(str(p) for p in e["loc"]) or "entrée" for e in exc.errors()
                 )
-                # Story 23: the key header's reason, in French (the other reasons are not).
+                # Story 23: the key header's reason, in French (the other reasons are not);
+                # likewise a fixed header's (native providers 1/5).
                 reasons = "".join(
                     f" {e['msg'].removeprefix('Value error, ')}"
                     for e in exc.errors()
-                    if e["loc"][:1] == ("auth_header",) and e["type"] == "value_error"
+                    if e["loc"][:1] in (("auth_header",), ("extra_headers",))
+                    and e["type"] == "value_error"
                 )
                 errors.append(
                     _message("config.cloud_rejected", name=name, fields=fields, reasons=reasons)
@@ -659,6 +717,21 @@ class Config:
         except (TypeError, ValueError):
             return DEFAULT_EUR_PER_USD
         return min(2.0, max(0.5, rate)) if math.isfinite(rate) else DEFAULT_EUR_PER_USD
+
+    @property
+    def max_session_usd(self) -> float:
+        """FinOps (native providers 2/5, CAP-4): `[finops] max_session_usd`, the session's
+        spending cap, in dollars (5 by default): a priced call is not sent once the session's
+        total has reached it. A value that is not a finite number, or a negative one, is the
+        default, and so is a boolean; no value turns the cap off."""
+        value = self.get("finops", "max_session_usd", default=DEFAULT_MAX_SESSION_USD)
+        if isinstance(value, bool):
+            return DEFAULT_MAX_SESSION_USD
+        try:
+            cap = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return DEFAULT_MAX_SESSION_USD
+        return cap if math.isfinite(cap) and cap >= 0 else DEFAULT_MAX_SESSION_USD
 
     @property
     def local_gco2e_per_kwh(self) -> float:

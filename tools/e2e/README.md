@@ -257,7 +257,7 @@ Vérifications ajoutées aux scénarios existants :
   corps relus par `/_e2e/requests`, le premier avec `reasoning_effort: "minimal"`, sans
   `extra_body`, `max_tokens` 512 ; la signature de `model_call_ended.tool_calls[0].extra_content`
   rejouée telle quelle dans le second ; aucun `harness_error`. Raisonnement allumé, « Combien font
-  12 multiplié par 37 ? » : `extra_body.google.thinking_config` `{thinking_level: "medium",
+  12 multiplié par 37 ? » : `extra_body.google.thinking_config` `{thinking_level: "high",
   include_thoughts: true}`, sans `reasoning_effort`, `max_tokens` 1 536 ; `<thought>…</thought>`
   lu comme réflexion (deltas du canal `reasoning`), absent du texte et de la bulle, gardé dans
   `raw_output` ; signature rejouée. Capture `59-gemini-raisonnement.jpg`.

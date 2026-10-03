@@ -64,10 +64,13 @@ Ces seuils ont été fixés quand la mesure du RSS était fausse. Avec les pics 
 uv run python tools/bench/v2s6_decision_bench.py list   # candidats, commande de chacun, verdicts d'office
 ```
 
+Certains candidats sont servis hors de l'enfant de mesure, sur `/v1/systemone` : `tev1` par Ollama (story 8), `julia1` et `laya` par un llama-server portable (story 9). Pour `tev1`, Ollama 0.35 ou plus doit tourner, et le modèle doit être tiré une fois (`ollama pull tev1:0.8b`, ou `--download`) ; le banc le décharge à la fin. Le banc ne télécharge jamais le binaire de llama-server : décompresser une fois `llama-b11378-bin-win-cpu-x64.zip` (release `b11378` de ggml-org/llama.cpp) dans `%LOCALAPPDATA%\WaveStack\bench\llama-b11378\`, ou passer `--llama-server <chemin>` (ou `WAVESTACK_LLAMA_SERVER`). Le banc lance le serveur sur 127.0.0.1, le GGUF par chemin local, et l'arrête à la fin quoi qu'il arrive. La commande sort avec le code 2 quand le serveur ou le modèle manque, quand le serveur ne démarre pas, ou quand un modèle ou un serveur reste chargé après la mesure, ou que cela n'a pas pu être vérifié (`/api/ps` illisible, processus restants non relus).
+
 Les commandes exactes du relevé, le sens des critères et le tableau à remplir sont dans `_bmad-output/implementation-artifacts/rapport-test-prealable-modeles-de-decision.md`. L'option `--out` écrit le résultat en JSON UTF-8 : sous PowerShell 5.1, une redirection `>` l'écrirait en UTF-16.
 
 ## Limites
 
 - Les connexions ouvertes par du code natif échappent à la garde Python (plafond d'AD-15). Sous Linux, `strace` et `unshare -rn` les rendent visibles. Sous Windows, le banc ne voit que la garde Python.
+- Pour un modèle servi (Ollama, llama-server), les processus du serveur sont relus toutes les 0,25 s : une connexion plus brève peut échapper au relevé. Leur RAM est une somme de pics (un majorant), ajoutée au pic de l'enfant de mesure.
 - Une mesure faite ailleurs que sur le PC cible (HP EliteBook i5, 16 Go, Windows 11) reste indicative.
 - Le mini jeu vérifie que le modèle comprend le français, pas qu'il est meilleur qu'un autre en général.

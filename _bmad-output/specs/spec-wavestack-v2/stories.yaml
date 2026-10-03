@@ -104,3 +104,26 @@
     0.35 avant le relevé. Le test du document des candidats compte ses lignes : ajouter la ligne
     de tev1 et le candidat ensemble. Le PC (16 Go) est partagé : une mesure à la fois, au
     premier plan.
+- id: "9"
+  title: "V2 (9/9) : banc des modèles de décision servis par llama.cpp (Julia-1, Laya)"
+  description: >-
+    Étendre le banc de la story 6 aux modèles de décision que llama-server sert sur
+    /v1/systemone depuis la PR #29818 de llama.cpp (billet ggml-org du 2026-10-02) : Julia-1
+    144M (sur mmBERT-small, plus de 50 langues) d'abord, Laya 421M (sur ModernBERT-large,
+    anglais seul) pour comparaison, avec les mêmes critères et prompts, puis consigner leur
+    verdict relevé sur le PC cible (CAP-6). Taille S à M, plus un relevé manuel sur le PC cible.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Permise avant le pilote, comme les stories 6 à 8 : c'est un banc, pas une fonction. Étendre
+    tools/bench/v2s6_decision_bench.py sans le dupliquer (réutiliser le client /v1/systemone de
+    la story 8 si elle est faite) ; aucune dépendance ajoutée au projet, aucun changement sous
+    src/wavestack. llama-server : binaire CPU Windows d'une version publiée de llama.cpp qui
+    contient la PR #29818, en archive zip sans droits administrateur, version et sha256 notés ;
+    GGUF téléchargés une fois puis servis par chemin local (pas -hf pendant la mesure), pour
+    vérifier le hors-ligne côté serveur. La RAM compte l'enfant de mesure et le processus
+    llama-server, avec le SLM par défaut chargé. Établir la licence de chaque GGUF (le billet
+    annonce Apache 2.0). Écartés sans mesure : lev 4B, OpenJev 27B (taille, et CC BY-NC 4.0
+    incompatible avec NFR-10) ; Kev-4B seulement si son GGUF quantifié plus le SLM tiennent
+    sous 4 096 Mo. Ajouter les lignes du document des candidats avec le candidat (le test
+    compte ses lignes). Le PC (16 Go) est partagé : une mesure à la fois, au premier plan.
