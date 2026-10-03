@@ -7,7 +7,7 @@ paradigm: 'Moteur de tour à journal d’événements (event-sourced) ; interfac
 scope: 'WaveStack V1 complet (paliers 1 et 2) : harnais, moteur d’inférence, interface à 5 volets, briques, installation et lancement'
 status: final
 created: '2026-09-23'
-updated: '2026-09-29'
+updated: '2026-10-03'
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-30, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41, FR-42, FR-43, NFR-1, NFR-2, NFR-3, NFR-4, NFR-5, NFR-6, NFR-7, NFR-8, NFR-9, NFR-10, NFR-11]
 sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
@@ -217,7 +217,7 @@ Règles de dépendance :
 - **Binds:** models, FR-32, FR-34, FR-43
 - **Prevents:** un adaptateur qui ajoute des tokens, des messages ou des champs à la requête ; deux « corps exacts » différents pour un même appel ; un serveur qui tronque le prompt en silence ; un préréglage qui échoue dès le premier appel.
 - **Rule:** Le port `Engine` est synchrone : `complete(request: RenderedPrompt | ChatBody, cancel) → flux de fragments`, `tokenize(str) → ids`, `token_pieces(ids) → list[bytes]`, `metadata()`, `close()`.
-  - `RenderedPrompt{ids | text, stop, max_tokens}` sert aux adaptateurs de texte rendu ; `ChatBody{body: bytes}` à `openai_chat` (AD-4, mode chat).
+  - `RenderedPrompt{ids | text, stop, max_tokens}` sert aux adaptateurs de texte rendu ; `ChatBody{body: bytes}` aux adaptateurs cloud, `openai_chat` et ceux qu’AD-26 ajoute (AD-4, mode chat).
   - **`llama_cpp`** (en processus, par défaut) : reçoit les ids tokenisés par le harnais. `tokenize` encode en UTF-8 et appelle `tokenize(..., add_bos=False, special=True)`. `token_pieces` appelle `llama_cpp.llama_token_to_piece(..., special=True)` et réagrandit le tampon quand le retour est négatif. `Llama.detokenize` est interdit ici, car son tampon de 32 octets tronque sans erreur.
   - **`llama_server`** (`/completion`) : reçoit également les ids. Son tokenizer vient de `/tokenize`, et `token_pieces` de `/tokenize` avec `with_pieces: true`.
   - **`ollama_raw`** (`/api/generate`, `raw: true`) :
@@ -225,12 +225,14 @@ Règles de dépendance :
     - si le `prompt_eval_count` renvoyé diffère du compte du harnais, un événement `harness_error` « transparence réduite » est émis ;
     - son tokenizer et `token_pieces` viennent du GGUF ouvert en `vocab_only`, soit environ 80 Mo, comptés par AD-8, avec le même code que `llama_cpp`.
   - **`openai_chat`** (`POST {base_url}/chat/completions`, en streaming) :
-    - reçoit le `ChatBody` et l’envoie octet pour octet ; il ne pose que deux en-têtes, `Content-Type: application/json` et l’en-tête d’authentification. `metadata()` déclare `input: chat`, et `tokenize` et `token_pieces` sont indisponibles. Un test vérifie que le corps envoyé est égal à `context_rendered.body` et au corps d’`outbound_request` du même `call_id` ;
+    - reçoit le `ChatBody` et l’envoie octet pour octet ; il ne pose que `Content-Type: application/json`, l’en-tête d’authentification et, s’il y en a, les en-têtes fixes de l’entrée (`extra_headers`, ci-dessous). `metadata()` déclare `input: chat`, et `tokenize` et `token_pieces` sont indisponibles. Un test vérifie que le corps envoyé est égal à `context_rendered.body` et au corps d’`outbound_request` du même `call_id` ;
     - le client HTTP vient de `net` (AD-15). La clé vient de `config.cloud_key(entry)` seulement (AD-20), et elle est placée, requête par requête, dans l’en-tête déclaré par l’entrée (`Authorization: Bearer` par défaut ; Azure par son API v1 seulement, `base_url` en `…/openai/v1`, `Bearer`) ;
     - **usage** : lu dans le dernier fragment qui porte `usage`, sinon `x_groq.usage` ; à défaut, `usage_source = estimate`. Un fragment sans `choices` (Azure) ne sert qu’à l’usage ;
     - **canaux** : `delta.content` est une chaîne ou une liste de blocs ; un bloc `thinking` va au canal `reasoning`, un bloc `text` au canal `text`. Les champs `reasoning` et `reasoning_content` vont au canal `reasoning`. Pour `reasoning.format = think_tags`, le séparateur d’AD-6 retire les balises `<think>` du texte ;
     - **appels d’outils** : les fragments `tool_calls` s’accumulent par `index`, sinon par `id`, et tous les éléments d’un delta sont lus ;
     - **fin** : `finish_reason` `stop` et `tool_calls` → `stop`, `length` → `length`, `content_filter` et tout autre → `error`. Un code HTTP d’erreur, un objet `error` ou une ligne non SSE reçus après un 200 terminent l’appel par `stop_reason: error` (AD-16), sauf `tool_use_failed`, en 400 ou dans le flux, qui suit la voie de l’appel mal formé (AD-10). L’annulation ferme le flux.
+  - **En-têtes fixes déclarés (`extra_headers`, amendement du 2026-10-03, fournisseurs natifs).** Une entrée cloud peut déclarer des en-têtes fixes, non secrets, qu’exige son API (`anthropic-version`, `anthropic-beta`). L’adaptateur les pose requête par requête, après l’en-tête d’authentification, et une entrée qui n’en déclare pas envoie exactement les deux en-têtes d’avant. La validation de l’entrée refuse, sans distinction de casse, un nom de `PUBLIC_HEADERS` (il serait tracé en clair), `Content-Type` et le nom de son `auth_header` (l’adaptateur les pose lui-même). Comme tout en-tête hors `PUBLIC_HEADERS`, leur valeur est masquée dans `outbound_request` (AD-15). Jamais une clé : elle reste dans l’en-tête d’authentification (AD-20).
+  - **Socle commun des adaptateurs cloud.** Les en-têtes, les refus d’AD-16, le masquage (AD-15), l’espacement des envois, FinOps et `run_call` vivent une seule fois dans `models/cloud_base.py` (`CloudEngine`). Chaque adaptateur n’y ajoute que son `endpoint` et sa lecture du flux (`_read`) ; le choix de l’adaptateur suit AD-26.
   - Les autres adaptateurs reçoivent toujours du texte rendu.
   - Les adaptateurs streament toujours en interne et testent le `CancelToken` à chaque fragment.
   - **Échantillonnage (story 29).** `complete(..., *, sampling: Sampling | None = None)` : `Sampling{temperature, top_k, top_p, min_p}` est un paramètre de chaque appel ; `None` vaut `DEFAULT_SAMPLING` (T 0,7, top-k 20, top-p 0,8, min-p 0), si bien que les requêtes de l'atelier ne changent pas. La session ne le passe que pour l'écran « LLM nu » : un moteur à quatre arguments reste valide. `llama_cpp` le passe à `generate`, `llama_server` dans le corps `/completion`, `ollama_raw` dans `options` ; un `Fragment` porte aussi `token_id` et `piece` (octets du token, ou morceau du flux d'un serveur). En mode chat, `chat_fields(..., sampling)` n'ajoute, après la limite de sortie, que les champs que l'entrée déclare (`sampling`, AD-20), et seulement quand l'écran les donne : top-k et min-p ne partent jamais chez un fournisseur. Méthode facultative `dimensions()` (vocabulaire, dimension d'embedding, couches, têtes, contexte natif, avec leur source), tolérée absente.
@@ -567,13 +569,15 @@ Règles de dépendance :
   - **Déclaration d’un modèle cloud.** Un modèle pydantic `CloudModel` unique, dans `config`, avec `extra = "forbid"` et aucun champ de clé :
 
     ```text
-    CloudModel{id, provider, base_url, model, auth_header{name, scheme}, max_tokens_field,
+    CloudModel{id, provider, base_url, model, api = openai_chat, auth_header{name, scheme},
+               extra_headers = {}, max_tokens_field,
                stream_usage, tools, reasoning?, context, tpm?, window?,
                hosting_text, training, trial, notes_text, enabled, key_env?, min_interval_s?,
                sampling = []}
     reasoning{format: field|content_blocks|think_tags, on, off, always, resend}
     ```
 
+    - `api` (AD-26) : l’API que parle l’entrée, qui choisit son adaptateur et le traducteur de son corps ; `openai_chat` par défaut, seule valeur acceptée tant qu’aucun autre adaptateur n’existe. `extra_headers` (AD-5) : en-têtes fixes non secrets, vide par défaut ; un nom de `PUBLIC_HEADERS`, `Content-Type` ou le nom de l’`auth_header` est refusé, sans distinction de casse, et l’entrée est écartée avec la raison.
     - `sampling` (story 29) : liste parmi `temperature` et `top_p`, vide par défaut (réglés par le fournisseur) ; les préréglages Groq et Mistral déclarent les deux. Seul l'écran « LLM nu » les envoie.
     - `id` (`[a-z0-9_]+`) est un identifiant WaveStack, distinct de `model`, le nom envoyé à l’API. Il est unique après fusion.
     - `key_env` (`^[A-Z_][A-Z0-9_]*$`) nomme une variable d’environnement, jamais une valeur : `GROQ_API_KEY` pour le préréglage `groq`, `MISTRAL_API_KEY` pour `mistral`. `min_interval_s` (`> 0`, `≤ 60`) est l’espacement d’AD-16 ; le préréglage `mistral` vaut `1` (429 de l’offre gratuite dès deux appels à moins d’une seconde).
@@ -671,6 +675,17 @@ Règles de dépendance :
     L’exécuteur tient pour appelable toute documentation de `tools`, de `documented` ou de `loaded_in_turn` (AD-4) : l’outil qu’on vient de documenter est donc appelable dans le même tour. Appeler un outil dont la documentation n’est pas chargée produit une erreur réinjectée, sauf par une action forcée : en mode chat, elle ajoute la définition de son outil à `tools` ; en mode local, l’appel forcé est rendu avec son résultat et l’outil reste à charger (le modèle peut le demander par `load_tool_doc`).
   - **Tours suivants.** La réponse de `load_skill` reste dans l’historique sous forme de talon court (AD-4), pour ne pas compter deux fois son contenu ; celle de `load_tool_doc` aussi en mode chat, et entière en mode local (ci-dessus).
   - **Action forcée.** Elle est rendue comme un appel d’outil de l’assistant, suivi de sa réponse, placé après le message de l’utilisateur. Elle porte `trigger = user`, et ses segments restent attribués à la brique. Son identifiant vient de la session (AD-4). En mode chat, la définition de son outil figure dans `tools` ; sans `tools` déclaré, elle est rendue en injection (AD-6).
+
+### AD-26 — L’API d’un modèle cloud : champ `api`, format pivot, un traducteur et un adaptateur par API
+
+- **Binds:** models, context, config, session, FR-43
+- **Prevents:** un deuxième écrivain du corps envoyé ; un historique tenu dans plusieurs formats ; une entrée qui vise une API sans adaptateur ; un corps `openai_chat` qui change en silence quand une API s’ajoute.
+- **Rule:** Décidé le 2026-10-03 (spec « fournisseurs natifs », story 1).
+  - **Champ `api`.** Chaque entrée `[[cloud.models]]` déclare l’API qu’elle parle, `api`, `openai_chat` (Chat Completions) par défaut. Le `Literal` de `CloudModel.api` n’accepte que les API qui ont un adaptateur : une story qui ajoute une API (`anthropic_messages`, `openai_responses`) l’élargit en même temps qu’elle livre son adaptateur et son traducteur.
+  - **Format pivot.** La session tient son historique et écrit ses messages au format Chat Completions (`system`, `user`, `assistant` avec `tool_calls`, `tool`), quel que soit le modèle. Rien d’autre dans la session ne dépend de l’API.
+  - **Un traducteur par API, dans `context`.** `render_chat_body(…, api=entry.api)` choisit dans le registre `TRANSLATORS` de `context/render.py` la fonction `(model, messages, tools, tail) → dict` qui écrit le corps natif ; la sérialisation JSON compacte reste commune. `context` reste ainsi le seul écrivain du corps (AD-4), et la méthode des sentinelles s’applique au corps natif : un traducteur garde chaque texte du pivot comme une chaîne JSON à part entière, si bien que les segments restent les octets envoyés. Le traducteur `openai_chat` rend le pivot tel quel ; ses corps sont figés à l’octet par des empreintes (`tests/fixtures/openai_chat_bodies.json`).
+  - **Un adaptateur par API, dans `models`.** Le registre `ENGINES` de `models/cloud_api.py` associe chaque API à sa classe d’engine (sous-classe de `CloudEngine`, AD-5) ; `create_cloud_engine(entry, key, …)` est la fabrique unique, utilisée par la session (tours, sous-agent, « LLM nu ») et par « Tester » du diagnostic. Le client HTTP vient toujours de `net/factory.create_client` (AD-15).
+  - **Trois appels du corps.** Le tour (et le sous-agent), « LLM nu » et « Tester » passent `api=entry.api` à `render_chat_body` ; le corps envoyé reste égal à `context_rendered.body` et à `outbound_request.body` du même appel, quelle que soit l’API.
 
 ## Consistency Conventions
 
@@ -800,7 +815,7 @@ wavestack/                      # racine du dépôt
     trace/                      # enveloppe, catalogue, journal, TraceScope
     session/                    # moteur, verrou, intentions, effets, instantanés
     context/                    # SegmentKind, emplacements, render.py, fenêtre
-    models/                     # Engine, adaptateurs (dont openai_chat), découverte, probe, download, capacités, LoadRegistry
+    models/                     # Engine, adaptateurs cloud (cloud_base, cloud_api, openai_chat), découverte, probe, download, capacités, LoadRegistry
     bricks/  tools/  hooks/  mcp/  rag/  compression/  net/  content_loader/
     web/                        # app FastAPI ; static/ (html, tokens.css, js, vendor/, vendor/fonts/)
   tests/
@@ -824,7 +839,7 @@ wavestack/                      # racine du dépôt
 | FR-30, FR-41 : tokens et jauge | `context` | AD-4, AD-9 |
 | FR-31 : compression | `compression` | AD-4, AD-22 |
 | FR-32 à FR-34 : modèles | `models` | AD-5 à AD-8 |
-| FR-43 : modèle cloud | `models`, `context`, `net`, `config`, `session`, `web`, `content` | AD-2 à AD-6, AD-8 à AD-13, AD-15, AD-16, AD-18 à AD-21, AD-23 à AD-25 |
+| FR-43 : modèle cloud | `models`, `context`, `net`, `config`, `session`, `web`, `content` | AD-2 à AD-6, AD-8 à AD-13, AD-15, AD-16, AD-18 à AD-21, AD-23 à AD-26 |
 | FR-35 à FR-37 : installation, diagnostic | `cli`, `config` | AD-20, AD-21 |
 | FR-38, FR-40 : scénarios | `content/scenarios`, `content_loader` | AD-9, AD-19 |
 | NFR-1, NFR-2 | `models`, `context` | AD-8, AD-9, AD-24 |

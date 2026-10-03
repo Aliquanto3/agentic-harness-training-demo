@@ -409,7 +409,24 @@ def render_context(
     return RenderedContext(prompt=prompt, ids=ids, segments=segments)
 
 
-# ---------- chat mode (AD-4, `openai_chat`) ----------
+# ---------- chat mode (AD-4, AD-26: one translator per provider API) ----------
+
+# A translator writes the native body of one API from the pivot (the session's messages in
+# the Chat Completions format, AD-26): `(model, messages, tools, tail) -> body`, as a dict
+# serialized once by `render_chat_body`. It must keep every text of the pivot as one JSON
+# string of its own (the sentinel method attributes the bytes sent, AD-4).
+Translator = Callable[[dict[str, Any], list[dict[str, Any]], Any, dict[str, Any]], dict[str, Any]]
+
+
+def _openai_chat(
+    model: dict[str, Any], messages: list[dict[str, Any]], tools: Any, tail: dict[str, Any]
+) -> dict[str, Any]:
+    """`openai_chat`: the pivot as it is, `model`, `messages`, `tools` when any, the rest."""
+    return {**model, "messages": messages, **({"tools": tools} if tools else {}), **tail}
+
+
+# `api` → its translator; an adapter adds its own here, with its engine (`models/cloud_api`).
+TRANSLATORS: dict[str, Translator] = {"openai_chat": _openai_chat}
 
 
 @dataclass
@@ -439,18 +456,21 @@ def render_chat_body(
     estimate: Callable[[str], int],
     provider_label_text: str,
     lang: str = "fr",
+    api: str = "openai_chat",
 ) -> RenderedChat:
     """AD-4, chat mode: `context` alone writes the whole body, serialized once, cut into
     segments by the sentinel method (the JSON syntax is `template`, 0 token). `fields`:
     `model`, then what follows `messages` and `tools` (`stream`, output limit,
     `stream_options`, reasoning parameters). A last `template` segment without text,
-    « chez le fournisseur », carries the gap once a total is known (`with_total`)."""
+    « chez le fournisseur », carries the gap once a total is known (`with_total`). `api`
+    (AD-26): the entry's, which picks the translator of the pivot into its native body."""
     model = {"model": fields["model"]}
     tail = {key: value for key, value in fields.items() if key != "model"}
+    translate = TRANSLATORS[api]
 
     def render(plain: list[dict[str, Any]], plain_tools: Any) -> str:
-        body = {**model, "messages": plain, **({"tools": plain_tools} if plain_tools else {})}
-        return json.dumps({**body, **tail}, ensure_ascii=False, separators=(",", ":"))
+        body = translate(model, plain, plain_tools, tail)
+        return json.dumps(body, ensure_ascii=False, separators=(",", ":"))
 
     body, pairs = _attribute(render, messages, tools, _special_pattern(markers), call_id, lang)
     estimates = [

@@ -45,9 +45,11 @@ from wavestack.context.render import render_chat_body
 from wavestack.context.segments import Part, SegmentKind
 from wavestack.messages import KeyedError, Lazy, Message, Said, msg, render
 from wavestack.models import catalog, discovery, probe
+from wavestack.models.cloud_api import create_cloud_engine
+from wavestack.models.cloud_base import CloudEngine
 from wavestack.models.engine import CancelToken
 from wavestack.models.load_registry import ModelChoice
-from wavestack.models.openai_chat import ChatBody, OpenAIChatEngine, ProviderError, run_call
+from wavestack.models.openai_chat import ChatBody, ProviderError, run_call
 from wavestack.net.factory import create_client
 from wavestack.net.guard import NetworkBlocked
 from wavestack.session.effects import ApiKeySet, SettingWrite, apply_setting
@@ -138,7 +140,7 @@ class Refused(Exception):
         self.reason_text = reason_text
 
 
-CloudFactory = Callable[[CloudModel, SecretStr], OpenAIChatEngine]
+CloudFactory = Callable[[CloudModel, SecretStr], CloudEngine]
 
 
 class DiagnosticSession:
@@ -172,7 +174,7 @@ class DiagnosticSession:
         # model id -> its last « Tester » outcome, for the page opened after it
         self._last_tests: dict[str, dict[str, object]] = {}
         self._cloud_factory = cloud_factory or (
-            lambda entry, key: OpenAIChatEngine(
+            lambda entry, key: create_cloud_engine(
                 entry,
                 key,
                 connect_timeout_s=cfg.cloud_connect_timeout_s,
@@ -1094,6 +1096,7 @@ class DiagnosticSession:
                         estimate=lambda t: config.estimate_tokens(t, self.cfg.chars_per_token),
                         provider_label_text=content.provider_segment_text,
                         lang=self.language(),
+                        api=entry.api,
                     )
                     out = run_call(
                         engine,

@@ -29,6 +29,7 @@ from pydantic import (
     Field,
     SecretStr,
     ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -202,15 +203,21 @@ def output_reserve(reasoning: bool) -> int:
 
 
 class CloudModel(_Strict):
-    """One `[[cloud.models]]` entry (AD-20): an OpenAI-compatible model. No key field:
-    `key_env` names an environment variable, never holds a value. `min_interval_s`: the
-    least time between two sends to this entry (AD-16)."""
+    """One `[[cloud.models]]` entry (AD-20). No key field: `key_env` names an environment
+    variable, never holds a value. `min_interval_s`: the least time between two sends to
+    this entry (AD-16). `api` (AD-26, CAP-1): the provider API the entry speaks, which picks
+    its engine and the translator of its body; `openai_chat` (Chat Completions) by default,
+    the only one until an adapter widens the list. `extra_headers` (AD-5): fixed, non-secret
+    headers sent after the authentication header; a header traced in clear, `Content-Type`
+    or the authentication header itself is refused."""
 
     id: str = Field(pattern=r"^[a-z0-9_]+$")
     provider: str = Field(min_length=1)
     base_url: str
     model: str = Field(min_length=1)
+    api: Literal["openai_chat"] = "openai_chat"
     auth_header: AuthHeader = AuthHeader()
+    extra_headers: dict[str, str] = {}
     max_tokens_field: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
     stream_usage: bool = False
     tools: bool = False
@@ -247,6 +254,30 @@ class CloudModel(_Strict):
         if not host or parts.query or parts.fragment:
             raise ValueError("base_url needs a host and no query nor fragment")
         return value.rstrip("/")
+
+    @field_validator("extra_headers")
+    @classmethod
+    def _extra_headers_not_reserved(
+        cls, value: dict[str, str], info: ValidationInfo
+    ) -> dict[str, str]:
+        """AD-5: a fixed header traced in clear would hide nothing, and one that replaces
+        `Content-Type` or the key's header would change what is sent: both are refused.
+        `auth_header` is declared before: read from `info.data` (absent if it was invalid)."""
+        auth = info.data.get("auth_header")
+        reserved = {"content-type"} | ({auth.name.strip().lower()} if auth else set())
+        for name in value:
+            lowered = name.strip().lower()
+            if lowered in reserved:
+                raise ValueError(
+                    f"L'en-tête « {name} » est posé par l'adaptateur lui-même "
+                    "(Content-Type ou authentification) : extra_headers ne peut pas le remplacer."
+                )
+            if lowered in PUBLIC_HEADERS:
+                raise ValueError(
+                    f"L'en-tête « {name} » est tracé en clair dans le journal : "
+                    "il ne peut pas figurer dans extra_headers."
+                )
+        return value
 
     @property
     def host(self) -> str:
@@ -618,11 +649,13 @@ class Config:
                 fields = ", ".join(
                     ".".join(str(p) for p in e["loc"]) or "entrée" for e in exc.errors()
                 )
-                # Story 23: the key header's reason, in French (the other reasons are not).
+                # Story 23: the key header's reason, in French (the other reasons are not);
+                # likewise a fixed header's (native providers 1/5).
                 reasons = "".join(
                     f" {e['msg'].removeprefix('Value error, ')}"
                     for e in exc.errors()
-                    if e["loc"][:1] == ("auth_header",) and e["type"] == "value_error"
+                    if e["loc"][:1] in (("auth_header",), ("extra_headers",))
+                    and e["type"] == "value_error"
                 )
                 errors.append(
                     _message("config.cloud_rejected", name=name, fields=fields, reasons=reasons)

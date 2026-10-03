@@ -327,6 +327,8 @@ PERIMETER = (
     "models/engine.py",
     "models/gguf_meta.py",
     "models/load_registry.py",
+    "models/cloud_api.py",
+    "models/cloud_base.py",
     "models/openai_chat.py",
     "models/probe.py",
     "models/reranker.py",
@@ -368,6 +370,7 @@ EXCEPTIONS = {
     ("config.py", "L'en-tête"),
     ("config.py", "entrée"),
     ("config.py", "tracé en clair"),
+    ("config.py", "posé par l'adaptateur"),  # `extra_headers` (native providers 1/5)
     # Validation of `publishers.yaml` and `rag_lab.yaml`: content validation.
     ("models/catalog.py", "expression régulière invalide"),
     ("models/catalog.py", "est réservé à « Autres éditeurs »"),

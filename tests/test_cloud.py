@@ -399,6 +399,27 @@ def test_a_key_header_traced_in_clear_is_refused_at_load(name):
     assert "auth_header.name" in error and "tracé en clair dans le journal" in error
 
 
+@pytest.mark.parametrize(
+    ("name", "reason"),
+    [
+        ("Accept", "tracé en clair dans le journal"),
+        ("Content-Type", "posé par l'adaptateur"),
+        ("authorization", "posé par l'adaptateur"),
+    ],
+)
+def test_a_reserved_extra_header_is_refused_at_load(name, reason):
+    """Native providers 1/5 (AD-5): the loader names `extra_headers` and gives the reason."""
+    settings = {"cloud": {"models": [{"id": "groq", "extra_headers": {name: "x"}}]}}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+
+    valid, errors = config.load_config().cloud_models
+
+    assert "groq" not in [m.id for m in valid]
+    (error,) = [e for e in errors if "groq" in e]
+    assert "extra_headers" in error and reason in error and f"« {name} »" in error
+
+
 def test_cloud_window_sources_and_unavailable_quota():
     groq = config.load_config().cloud_model("groq")
     assert config.cloud_window(groq, 4096) == (4000, "tpm")

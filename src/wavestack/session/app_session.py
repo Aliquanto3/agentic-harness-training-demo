@@ -134,6 +134,7 @@ from wavestack.models.capabilities import (
     reasoning_mode,
     reasoning_window_fr,
 )
+from wavestack.models.cloud_api import create_cloud_engine
 from wavestack.models.embedding import Embedder
 from wavestack.models.engine import (
     DEFAULT_SAMPLING,
@@ -163,7 +164,6 @@ from wavestack.models.load_registry import (
 from wavestack.models.openai_chat import (
     CallCost,
     ChatBody,
-    OpenAIChatEngine,
     ProviderError,
     output_tps,
     record_spend,
@@ -760,9 +760,9 @@ class AppSession:
         self._server_factory = server_factory or (
             lambda candidate, n_ctx: open_engine(candidate, n_ctx, self.cfg)
         )
-        # Story 11: the cloud model's adapter (`openai_chat`), a fake one in tests.
+        # Story 11: the cloud model's adapter, by its `api` (AD-26), a fake one in tests.
         self._cloud_factory = cloud_factory or (
-            lambda entry, key: OpenAIChatEngine(
+            lambda entry, key: create_cloud_engine(
                 entry,
                 key,
                 connect_timeout_s=self.cfg.cloud_connect_timeout_s,
@@ -4190,6 +4190,7 @@ class AppSession:
             estimate=lambda text: config.estimate_tokens(text, self.cfg.chars_per_token),
             provider_label_text=content.provider_segment_text,
             lang=self._language,
+            api=entry.api,
         )
         rendered.seen = seen_prefix(read_before, rendered.segments)
         payload = self._chat_gauge(
@@ -8589,6 +8590,7 @@ class AppSession:
                         estimate=lambda t: config.estimate_tokens(t, self.cfg.chars_per_token),
                         provider_label_text=content.provider_segment_text,
                         lang=self._language,
+                        api=cloud.api,
                     )
                     text, tokens, exact = rendered.body, rendered.raw_total, False
                     unit = "fragment"
