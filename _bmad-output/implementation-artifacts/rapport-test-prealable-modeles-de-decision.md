@@ -17,7 +17,7 @@
 | SLM par défaut chargé pendant la mesure | `Qwen3.5-2B-Q4_K_M.gguf` (`%LOCALAPPDATA%\WaveStack\models`), fenêtre de 4 096, llama-cpp-python 0.3.35 ; RSS avec le SLM : ≈ 1 938 Mo |
 | Date du relevé | 2026-10-03, de 00 h 44 à 00 h 57 (Decision 1.0 : 2026-10-02) ; story 7 : 2026-10-03, de 07 h 55 à 07 h 57, une mesure à la fois (premier passage de 07 h 05 à 07 h 12, refait après les corrections de la revue : mêmes RAM et accords) |
 | Version du banc | commit `7315647` ; empreinte du banc dans chaque JSON (`bench_sha256`) ; résultats dans `tools/bench/results/2026-10-02-pc-cible-v2s6/` |
-| Version du banc (story 7) | banc étendu, commité après le relevé (`repo_commit` b53b054 dans les JSON, arbre modifié) : `bench_sha256` `e7f987490657412977922db3a82c35085ab9b527735a48a50a7362aa7a4e6758`, identique dans les trois JSON et égal à l'empreinte du banc commité ; garde-fou de mémoire `active` dans les trois (`ram_watchdog`) ; résultats dans `tools/bench/results/2026-10-03-pc-cible-v2s7/` ; même SLM, RSS avec le SLM ≈ 1 938 Mo |
+| Version du banc (story 7) | banc étendu, commité après le relevé (`repo_commit` b53b054 dans les JSON, arbre modifié) : `bench_sha256` `e7f987490657412977922db3a82c35085ab9b527735a48a50a7362aa7a4e6758`, identique dans les trois JSON et égal à l'empreinte du banc du commit `82e41fb` tel qu'extrait sous Windows (fins de ligne CRLF, `core.autocrlf=true` ; le blob git, en LF, a une autre empreinte) ; garde-fou de mémoire `active` dans les trois (`ram_watchdog`) ; résultats dans `tools/bench/results/2026-10-03-pc-cible-v2s7/` ; même SLM, RSS avec le SLM ≈ 1 938 Mo |
 
 ## Ce que mesure le banc
 
