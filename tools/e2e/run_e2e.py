@@ -8081,6 +8081,11 @@ def s_stream_resync(r: Run) -> None:
             navigations.append(frame.url)
 
     def other_instance(route: Any) -> None:
+        # Every `/api/state` reader of the first load (site-nav.js and app.js) gets the other
+        # instance; the reload's own read gets the real one.
+        if len(navigations) > 1:
+            route.fallback()
+            return
         route.fulfill(json=route.fetch().json() | {"instance_id": "autre-instance"})
 
     r.page.on("framenavigated", on_nav)
@@ -8096,7 +8101,7 @@ def s_stream_resync(r: Run) -> None:
         ]:
             navigations.clear()
             if handler:
-                r.page.route("**/api/state", handler, times=1)
+                r.page.route("**/api/state", handler)
             r.page.goto(f"{r.stack.app_url}/")
             # Not time.sleep: the sync API delivers `framenavigated` only while it runs.
             # The page is usable from `/api/state` on; the reload follows the stream's first event.
@@ -8104,6 +8109,7 @@ def s_stream_resync(r: Run) -> None:
             r.wait_idle()
             r.page.wait_for_timeout(1000)
             r.check(len(navigations) == expected, label, f"{len(navigations)} navigation(s)")
+            r.page.unroute("**/api/state")
         ended = r.send("Bonjour")
         r.check(ended["payload"]["status"] == "completed", "puis un tour aboutit")
     finally:

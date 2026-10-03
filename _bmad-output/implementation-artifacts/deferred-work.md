@@ -868,6 +868,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/resultats-batterie-2026-10-03.md`
   summary: E2E `stream_resync` échoue à chaque passage (« état et flux d'instances différentes : un seul rechargement — 1 navigation(s) ») : la page ne se recharge pas quand `/api/state` et le flux nomment des instances différentes.
   evidence: Batterie du 2026-10-03 : échec reproduit trois fois sur `feat/stories-restantes-2026-10`, et aussi sur `main` (`e09cfa6`, worktree jetable) : défaut antérieur au lot, pas une régression. Il passait lors de la batterie du 2026-10-01. Piste : la route Playwright qui réécrit `instance_id` (`route.fetch()` suivi d'une console « net::ERR_FAILED »), ou un changement de Chrome/Playwright ; à diagnostiquer seul.
+  closed: 2026-10-03 (soir) — défaut du test, pas du produit : `site-nav.js` (story 2, 2026-10-01) lit aussi `/api/state` au chargement, et la route Playwright `times=1` était consommée par lui ; `app.js` recevait la vraie instance, d'où aucun rechargement (le cas « sans /api/state » était faussé de la même façon). `s_stream_resync` : route sans `times`, `route.fallback()` une fois la page rechargée (`len(navigations) > 1`), `unroute` après chaque cas. Tranche T9 : 59 réussies, 0 échec. Le rechargement du produit était correct (vérifié avec `times=2`).
 
 ## Deferred from: code review of 3-anthropic-par-l-api-messages (2026-10-03)
 
