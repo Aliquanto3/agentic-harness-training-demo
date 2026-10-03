@@ -140,9 +140,11 @@ class CloudReasoning(_Strict):
     back to the provider in the form of `format` (AD-4). `tags`: the opening and closing tags
     `think_tags` reads in `content` (Gemini writes `<thought>`). `thinking_blocks` (native
     providers 3/5, Anthropic): the provider's own blocks, sent back verbatim, signature
-    included, to the entry that produced them only."""
+    included, to the entry that produced them only. `reasoning_items` (native providers 4/5,
+    OpenAI's Responses API): the `reasoning` items received, `encrypted_content` and `summary`
+    included, sent back verbatim the same way."""
 
-    format: Literal["field", "content_blocks", "think_tags", "thinking_blocks"]
+    format: Literal["field", "content_blocks", "think_tags", "thinking_blocks", "reasoning_items"]
     on: dict[str, Any] = {}
     off: dict[str, Any] = {}
     always: bool = False
@@ -216,7 +218,8 @@ class CloudModel(_Strict):
     variable, never holds a value. `min_interval_s`: the least time between two sends to
     this entry (AD-16). `api` (AD-26, CAP-1): the provider API the entry speaks, which picks
     its engine and the translator of its body; `openai_chat` (Chat Completions) by default, or
-    `anthropic_messages` (Anthropic's Messages API, native providers 3/5). `extra_headers`
+    `anthropic_messages` (Anthropic's Messages API, native providers 3/5) or `openai_responses`
+    (OpenAI's Responses API, native providers 4/5). `extra_headers`
     (AD-5): fixed, non-secret headers sent after the authentication header; a header traced
     in clear, `Content-Type` or the authentication header itself is refused."""
 
@@ -224,10 +227,13 @@ class CloudModel(_Strict):
     provider: str = Field(min_length=1)
     base_url: str
     model: str = Field(min_length=1)
-    api: Literal["openai_chat", "anthropic_messages"] = "openai_chat"
+    api: Literal["openai_chat", "anthropic_messages", "openai_responses"] = "openai_chat"
     auth_header: AuthHeader = AuthHeader()
     extra_headers: dict[str, str] = {}
-    max_tokens_field: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    # Native providers 4/5: the Responses API names its output limit `max_output_tokens`.
+    max_tokens_field: Literal["max_tokens", "max_completion_tokens", "max_output_tokens"] = (
+        "max_tokens"
+    )
     stream_usage: bool = False
     tools: bool = False
     reasoning: CloudReasoning | None = None
@@ -308,8 +314,10 @@ class CloudModel(_Strict):
     def sampling_sent(self, reasoning: bool) -> list[str]:
         """Story 29: the sampling settings the « LLM nu » screen may send. Native providers
         3/5: Anthropic refuses `temperature` and `top_p` while the model thinks, so an
-        `anthropic_messages` entry sends none then (brick on, or `always`)."""
-        if self.api == "anthropic_messages" and (reasoning or self.always_reasons):
+        `anthropic_messages` entry sends none then (brick on, or `always`); nor does an
+        `openai_responses` one (native providers 4/5, the same rule)."""
+        native = ("anthropic_messages", "openai_responses")
+        if self.api in native and (reasoning or self.always_reasons):
             return []
         return list(self.sampling)
 

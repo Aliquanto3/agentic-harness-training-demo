@@ -360,6 +360,7 @@ def test_groups_local_first_publishers_in_order_others_last(tmp_path):
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
         "Réseau · Claude (Anthropic)",
+        "Réseau · GPT (OpenAI)",
     ]
 
 
@@ -466,6 +467,12 @@ def test_size_text():
         ([], ["llama3.2:3b"], "llama"),
         ([], ["faux-llama-server.gguf"], "other"),  # the server, never Llama
         ([], ["wavestack-fake"], "other"),
+        # Native providers 4/5: OpenAI's GPT by its name's start only, not GPT-like names.
+        ([], ["gpt-6-luna"], "gpt"),
+        ([], ["GPT-6.1-Sol"], "gpt"),
+        ([], ["GPT4All-Falcon"], "other"),
+        ([], ["Cerebras-GPT-111M"], "other"),
+        ([], ["KoGPT2-base"], "other"),
         (["unknown", "openai_chat"], ["qwen3:0.6b"], "qwen"),  # families that say nothing
     ],
 )
@@ -544,6 +551,7 @@ def test_shipped_publishers_file_is_valid():
         "Nemotron (NVIDIA)",
         "gpt-oss (OpenAI)",
         "Claude (Anthropic)",
+        "GPT (OpenAI)",
         "MiniCPM (OpenBMB)",
         "DeepSeek (DeepSeek AI)",
         "SmolLM (Hugging Face)",
@@ -756,6 +764,7 @@ def test_api_diagnostic_carries_the_models(monkeypatch, tmp_path):
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
         "Réseau · Claude (Anthropic)",
+        "Réseau · GPT (OpenAI)",
     ]
     groq = models["groups"][3]["models"][0]
     assert (groq["value"], groq["reasoning"], groq["params_label"]) == (

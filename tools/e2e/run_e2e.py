@@ -9021,7 +9021,7 @@ def s_model_catalog(r: Run) -> None:
     labels = [g["label"] for g in groups]
     # Three fake cloud models have no known publisher; the fourth is named as Gemini, with
     # the Gemini preset; the presets of wavestack.toml (Gemma, Gemini, Mistral, Groq's
-    # gpt-oss, Claude since native providers 3/5),
+    # gpt-oss, Claude since native providers 3/5, GPT since 4/5),
     # declared without a key, come in the table's order before.
     expected = [
         "Sur ce poste · Qwen (Alibaba)",
@@ -9030,6 +9030,7 @@ def s_model_catalog(r: Run) -> None:
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
         "Réseau · Claude (Anthropic)",
+        "Réseau · GPT (OpenAI)",
         "Réseau · Autres éditeurs",
     ]
     if "Sur ce poste · Autres éditeurs" in labels:

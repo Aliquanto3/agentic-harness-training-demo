@@ -1170,6 +1170,7 @@ models:
     another_address: einer anderen Adresse
     quota_refused: "Der Anbieter lehnt den Aufruf ab: {quota}."
     no_quota: "{provider} lehnt den Aufruf ab. Kein aktives Kontingent auf diesem Konto: Prüfen Sie den Tarif in der Konsole des Anbieters."
+    no_credit: "{provider} lehnt den Aufruf ab: Das Guthaben des Kontos ist aufgebraucht. Laden Sie in der Konsole des Anbieters Guthaben auf."
     quota:
       second: Kontingent pro Sekunde überschritten
       minute: Kontingent pro Minute überschritten

@@ -164,8 +164,9 @@ def test_openai_chat_bodies_are_byte_for_byte_those_before_the_refactoring():
 # ---------- the `api` field and `extra_headers` (CAP-1, AD-5) ----------
 
 
-def test_every_entry_of_wavestack_toml_speaks_openai_chat_without_extra_headers():
-    """Except Anthropic's (native providers 3/5), with its two fixed headers."""
+def test_wavestack_toml_entries_declare_their_api_and_only_anthropic_has_extra_headers():
+    """Except Anthropic's (native providers 3/5), with its two fixed headers, and OpenAI's
+    (native providers 4/5), through the Responses API without any."""
     raw = config.load_config().get("cloud", "models", default=[])
     entries = [config.CloudModel.model_validate(item) for item in raw]
     assert {e.id for e in entries} >= set(ENTRIES)
@@ -173,7 +174,11 @@ def test_every_entry_of_wavestack_toml_speaks_openai_chat_without_extra_headers(
     assert {e.id for e in native} == {"claude_haiku", "claude_sonnet"}
     assert all(e.api == "anthropic_messages" for e in native)
     assert all(set(e.extra_headers) == {"anthropic-version", "anthropic-beta"} for e in native)
-    others = [e for e in entries if e not in native]
+    responses = [e for e in entries if e.provider == "OpenAI"]
+    assert [(e.id, e.api, e.extra_headers) for e in responses] == [
+        ("openai_luna", "openai_responses", {})
+    ]
+    others = [e for e in entries if e not in native and e not in responses]
     assert all(e.api == "openai_chat" and e.extra_headers == {} for e in others)
 
 
@@ -194,9 +199,10 @@ def test_api_accepts_only_an_api_with_an_adapter():
     assert config.CloudModel.model_validate(_declaration()).api == "openai_chat"
     native = config.CloudModel.model_validate(_declaration(api="anthropic_messages"))
     assert native.api == "anthropic_messages"  # native providers 3/5
-    for api in ("openai_responses", "fake_api"):
-        with pytest.raises(ValidationError):
-            config.CloudModel.model_validate(_declaration(api=api))
+    responses = config.CloudModel.model_validate(_declaration(api="openai_responses"))
+    assert responses.api == "openai_responses"  # native providers 4/5
+    with pytest.raises(ValidationError):
+        config.CloudModel.model_validate(_declaration(api="fake_api"))
 
 
 @pytest.mark.parametrize(

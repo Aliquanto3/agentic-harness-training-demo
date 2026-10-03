@@ -529,10 +529,86 @@ def _anthropic_messages(
     return body | tail
 
 
+# Native providers 4/5: the key a kept `reasoning` item carries for this translator only (never
+# sent): the item that followed it in the output, `message` or `call:<n>` (the n-th call).
+FOLLOWS = "_follows"
+
+
+def _openai_responses(
+    model: dict[str, Any], messages: list[dict[str, Any]], tools: Any, tail: dict[str, Any]
+) -> dict[str, Any]:
+    """`openai_responses` (native providers 4/5): the system messages joined in
+    `instructions`; each other message as items of `input`: a `user` message or an
+    assistant's text as `{type: "message", role, content}` (a string), then one
+    `function_call` per call (`arguments`, the string emitted); an assistant's reasoning items
+    (`reasoning_items`, verbatim, in the order received) each right before the item that
+    followed it in the output (`FOLLOWS`, removed), or before the turn's first item when that
+    one is gone (OpenAI refuses a reasoning item not followed by the item it preceded); a
+    `tool` message as `function_call_output`; `tools` as `{type: "function", name,
+    description, parameters, strict: false}` (strict by default, which would refuse or force
+    a schema with optional fields); always `store: false` and the encrypted reasoning asked
+    back. An assistant message left with no text nor call is left out (its reasoning items
+    with it: an item `reasoning` alone is refused)."""
+    system = [_text_of(m.get("content")) for m in messages if m["role"] == "system"]
+    items: list[dict[str, Any]] = []
+    for message in messages:
+        role = message["role"]
+        if role == "system":
+            continue
+        if role == "tool":
+            items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": message.get("tool_call_id"),
+                    "output": _text_of(message.get("content")),
+                }
+            )
+            continue
+        text = _text_of(message.get("content"))
+        if role != "assistant":
+            items.append({"type": "message", "role": role, "content": text})
+            continue
+        turn: list[tuple[str, dict[str, Any]]] = []  # (the key `FOLLOWS` names, the item)
+        if text:
+            turn.append(("message", {"type": "message", "role": "assistant", "content": text}))
+        for n, call in enumerate(message.get("tool_calls") or []):
+            function = call.get("function") or {}
+            arguments = function.get("arguments")
+            item = {
+                "type": "function_call",
+                "call_id": call.get("id"),
+                "name": function.get("name"),
+                "arguments": arguments if isinstance(arguments, str) else json.dumps(arguments),
+            }
+            turn.append((f"call:{n}", item))
+        if not turn:
+            continue
+        present = {key for key, _ in turn}
+        before: dict[str, list[dict[str, Any]]] = {}
+        for received in message.get("reasoning_items") or []:
+            reasoning = {k: v for k, v in received.items() if k != FOLLOWS}
+            follows = received.get(FOLLOWS)
+            before.setdefault(follows if follows in present else turn[0][0], []).append(reasoning)
+        for key, item in turn:
+            items.extend(before.get(key, []))
+            items.append(item)
+    body: dict[str, Any] = {**model}
+    if joined := "\n\n".join(text for text in system if text):
+        body["instructions"] = joined
+    body["input"] = items
+    if tools:
+        body["tools"] = [
+            {"type": "function", **(tool.get("function") or {}), "strict": False} for tool in tools
+        ]
+    # Stateless (never `previous_response_id`), the encrypted reasoning asked back.
+    return body | tail | {"store": False, "include": ["reasoning.encrypted_content"]}
+
+
 # `api` → its translator; an adapter adds its own here, with its engine (`models/cloud_api`).
 TRANSLATORS: dict[str, Translator] = {
     "openai_chat": _openai_chat,
     "anthropic_messages": _anthropic_messages,  # native providers 3/5
+    "openai_responses": _openai_responses,  # native providers 4/5
 }
 
 

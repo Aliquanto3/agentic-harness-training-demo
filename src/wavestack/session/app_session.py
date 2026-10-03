@@ -3873,7 +3873,8 @@ class AppSession:
         mode, only with `resend`, in the form of the entry's `format`. `thinking_blocks`
         (native providers 3/5): the provider's own `blocks`, given only when they are for the
         active entry, verbatim; a block's text is attributed like the reasoning when step 2
-        leaves it whole (`verbatim`), else to `template`, and its signature to `template`."""
+        leaves it whole (`verbatim`), else to `template`, and its signature to `template`.
+        `reasoning_items` (native providers 4/5): OpenAI's `reasoning` items, likewise."""
         answer: dict[str, Any] = {"role": "assistant"}
         text = [content] if content.text or not omit_empty else []
         thought = content._replace(text=reasoning) if reasoning else None
@@ -3900,7 +3901,32 @@ class AppSession:
                 else dict(block)
                 for block in blocks
             ]
+        elif chat and resend == "reasoning_items" and blocks:
+            # Native providers 4/5: OpenAI's `reasoning` items, their summary texts
+            # attributed like the reasoning when the form allows it (`verbatim`).
+            answer["reasoning_items"] = [
+                AppSession._reasoning_item(item, content, markers) for item in blocks
+            ]
         return answer
+
+    @staticmethod
+    def _reasoning_item(
+        item: dict[str, Any], content: Part, markers: list[str] | tuple[str, ...]
+    ) -> dict[str, Any]:
+        """A `reasoning` item sent back verbatim (native providers 4/5): each `summary_text`
+        of its `summary` attributed like the reasoning when step 2 leaves it whole, else to
+        `template`; everything else (`id`, `encrypted_content`) to `template`."""
+        summary = item.get("summary")
+        if not isinstance(summary, list):
+            return dict(item)
+        return item | {
+            "summary": [
+                part | {"text": verbatim(content._replace(text=part["text"]), markers)}
+                if isinstance(part, dict) and isinstance(part.get("text"), str) and part["text"]
+                else part
+                for part in summary
+            ]
+        }
 
     @staticmethod
     def _as_produced(content: Part, reasoning: str, wrap: tuple[str, str]) -> dict[str, Any]:

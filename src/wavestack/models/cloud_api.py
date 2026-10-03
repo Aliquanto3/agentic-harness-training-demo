@@ -15,10 +15,12 @@ from wavestack.config import CloudModel
 from wavestack.models.anthropic_messages import AnthropicMessagesEngine
 from wavestack.models.cloud_base import CloudEngine
 from wavestack.models.openai_chat import OpenAIChatEngine
+from wavestack.models.openai_responses import OpenAIResponsesEngine
 
 ENGINES: dict[str, type[CloudEngine]] = {
     OpenAIChatEngine.api: OpenAIChatEngine,
     AnthropicMessagesEngine.api: AnthropicMessagesEngine,  # native providers 3/5
+    OpenAIResponsesEngine.api: OpenAIResponsesEngine,  # native providers 4/5
 }
 
 

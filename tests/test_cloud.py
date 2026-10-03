@@ -377,7 +377,14 @@ def test_cloud_models_merge_by_id_and_invalid_entries_are_left_out():
     cfg = config.load_config()
     valid, errors = cfg.cloud_models
 
-    assert [m.id for m in valid] == ["groq", "gemini", "gemma", "claude_haiku", "claude_sonnet"]
+    assert [m.id for m in valid] == [
+        "groq",
+        "gemini",
+        "gemma",
+        "claude_haiku",
+        "claude_sonnet",
+        "openai_luna",
+    ]
     assert valid[0].tpm == 6000 and valid[0].model == "openai/gpt-oss-120b"
     assert len(errors) == 1 and "Bad-Id" in errors[0]
     assert "api.groq.com" in cfg.allowed_hosts and "api.mistral.ai" not in cfg.allowed_hosts
@@ -458,7 +465,15 @@ def test_without_key_test_and_choose_are_disabled_with_the_reason(monkeypatch):
 
     rows = {r["id"]: r for r in client.get("/api/diagnostic").json()["cloud"]["models"]}
 
-    assert set(rows) == {"groq", "mistral", "gemini", "gemma", "claude_haiku", "claude_sonnet"}
+    assert set(rows) == {
+        "groq",
+        "mistral",
+        "gemini",
+        "gemma",
+        "claude_haiku",
+        "claude_sonnet",
+        "openai_luna",
+    }
     # The first preset on a free tier only: the diagnostic says « offre d'essai ».
     assert rows["gemma"]["disclosure"]["trial"] is True
     assert rows["gemini"]["disclosure"]["trial"] is False

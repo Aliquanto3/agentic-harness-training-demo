@@ -828,3 +828,7 @@
 - source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/3-anthropic-par-l-api-messages.md`
   summary: Le rendu de l'événement `reasoning_dropped` dans `app.js` (ligne d'orchestration, résumé du journal, libellé de la raison) n'est couvert par aucun scénario E2E.
   evidence: Revue de la story 3 (verification-gap, blind-hunter, 2026-10-03). Le faux fournisseur de l'E2E ne parle que Chat Completions ; il faudrait un faux flux Anthropic avec `input_transformations`. `reasoning_cut`, son voisin, est vérifié par `run_e2e.py`.
+
+- source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/4-openai-par-l-api-responses.md`
+  summary: Mesures réelles de GPT-6 Luna à rejouer quand le compte OpenAI aura du crédit : résumé visible selon l'effort (`low`, `medium`), items `reasoning` renvoyés avec leur `id` sous `store: false` (et besoin des `id` `fc_`/`msg_` des items qui les suivent), résumé absent faute de vérification d'organisation, tour Outils et tour Raisonnement réels (critère d'acceptation à clé réelle).
+  evidence: Le 2026-10-03, chaque appel a rendu 200 puis `error` `credit_balance_exhausted` (voir `mesures-openai-2026-10.md`). Seules les mesures de paramètres (température, contenu en chaîne) ont abouti. Revue de la story 4, constat 11 (maybe-false, medium s'il est vrai).

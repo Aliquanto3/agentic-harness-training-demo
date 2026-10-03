@@ -1172,6 +1172,8 @@ models:
     quota_refused: "Le fournisseur refuse l'appel : {quota}."
     # D6 (2026-10-01) : 429 avec `x-ratelimit-limit-req-minute: 0`, ni attente ni nouvel essai.
     no_quota: "{provider} refuse l'appel. Aucun quota actif sur ce compte : vérifiez le plan dans la console du fournisseur."
+    # Native providers 4/5: OpenAI's `insufficient_quota` / `credit_balance_exhausted`.
+    no_credit: "{provider} refuse l'appel : le crédit du compte est épuisé. Ajoutez du crédit dans la console du fournisseur."
     quota:
       second: quota dépassé par seconde
       minute: quota dépassé par minute

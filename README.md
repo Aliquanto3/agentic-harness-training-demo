@@ -762,8 +762,8 @@ NVIDIA et OpenRouter y figurent en exemples commentés, avec leur avertissement.
 
    **Ou par variable d'environnement.** Chaque préréglage nomme une variable (`key_env`) :
    `GROQ_API_KEY` pour Groq, `MISTRAL_API_KEY` pour Mistral, `GEMINI_API_KEY` pour Gemini et
-   Gemma (même clé), `ANTHROPIC_API_KEY` pour Claude (Haiku et Sonnet, même clé). Sous Windows,
-   sans droits administrateur :
+   Gemma (même clé), `ANTHROPIC_API_KEY` pour Claude (Haiku et Sonnet, même clé) et
+   `OPENAI_API_KEY` pour GPT-6 Luna. Sous Windows, sans droits administrateur :
 
    ```bat
    setx GROQ_API_KEY votre-clé
@@ -851,12 +851,32 @@ raisonnement éteint : Anthropic les refuse avec le raisonnement. Le cache de pr
 n'est jamais activé. Opus 5.5 figure en commentaire dans `wavestack.toml` (son raisonnement ne
 s'éteint pas).
 
+**GPT-6 Luna (OpenAI, API Responses).** `openai_luna` (`gpt-6-luna`, 1 050 000 tokens,
+0,10 $ / 0,50 $ par million de tokens, cache lu 0,01 $) passe par l'API Responses d'OpenAI
+(`api = "openai_responses"`) : par Chat Completions, GPT-6 n'appelle d'outils que raisonnement
+éteint et ne renvoie jamais son raisonnement. WaveStack l'utilise sans état (`store: false`,
+jamais `previous_response_id`) : tout l'historique part à chaque appel, comme pour les autres
+fournisseurs. Clé : `OPENAI_API_KEY` ou saisie au diagnostic (en-tête `Authorization: Bearer`).
+Conditions relevées le 2026-10-03 : les données de l'API ne servent pas à l'entraînement par
+défaut ; OpenAI garde des journaux de lutte contre les abus jusqu'à 30 jours, même sans
+stockage des réponses, et le cache de prompt 24 heures par défaut (`prompt_cache_retention`
+relevé sur l'API) ; la résidence dans l'UE demande un projet dédié et l'hôte
+`eu.api.openai.com` (non préréglé). Brique Raisonnement allumée : effort « low » et résumé
+automatique, affiché au canal Raisonnement ; éteinte : effort « none » (Luna n'a pas
+« minimal »). Le raisonnement reçu (items `reasoning` chiffrés) repart tel quel au seul modèle
+qui l'a produit. OpenAI peut exiger la vérification de l'organisation (console OpenAI) avant
+d'envoyer les résumés de raisonnement : sans elle, le canal Raisonnement reste vide. Température
+et top-p (écran « LLM nu ») ne partent que raisonnement éteint : OpenAI les refuse avec le
+raisonnement. Un compte sans crédit est refusé avec « le crédit du compte est épuisé » :
+ajoutez du crédit dans la console OpenAI.
+GPT-6.1 Sol figure en commentaire dans `wavestack.toml` (il raisonne toujours).
+
 **Revenir au modèle local.** Choisissez un fichier GGUF dans le sélecteur de la barre haute, ou
 cliquez sur « Choisir » en face d'un fichier sur la page de diagnostic : le modèle local est
 rechargé sans relance, conversation gardée.
 
 **Hôtes à autoriser** sur le réseau de l'entreprise : `api.groq.com`, `api.mistral.ai`,
-`generativelanguage.googleapis.com` et `api.anthropic.com` (plus l'hôte de tout modèle ajouté dans `settings.json`).
+`generativelanguage.googleapis.com`, `api.anthropic.com` et `api.openai.com` (plus l'hôte de tout modèle ajouté dans `settings.json`).
 
 **Ajouter un modèle.** Les exemples NVIDIA et OpenRouter de `wavestack.toml` sont en TOML :
 recopiez-en les champs, en JSON, dans `settings.json` (dossier de données, WaveStack arrêté). Une

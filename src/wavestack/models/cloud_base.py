@@ -77,8 +77,10 @@ class ChatEnd:
 
     Native providers 3/5 (Anthropic): `thinking_blocks`, the `thinking` (text and
     `signature`) and `redacted_thinking` (`data`) blocks in the order received, verbatim like
-    `extra_content` (masked only in `raw_output`); `dropped`, the provider's
-    `input_transformations` entries (blocks of an earlier turn it threw away, CAP-5)."""
+    `extra_content` (masked only in `raw_output`); native providers 4/5 (OpenAI's Responses
+    API), the `reasoning` items, `encrypted_content` included, the same way; `dropped`, the
+    provider's `input_transformations` entries (blocks of an earlier turn it threw away,
+    CAP-5)."""
 
     stop_reason: str
     tool_calls: list[dict[str, Any]]
@@ -205,6 +207,16 @@ def _no_quota(response: httpx.Response) -> bool:
     """D6 (2026-10-01): a 429 whose `x-ratelimit-limit-req-minute` is `0`, the account has no
     active quota at all. Read for the explanation only, never to wait or retry."""
     return response.headers.get("x-ratelimit-limit-req-minute", "").strip() == "0"
+
+
+# Native providers 4/5: OpenAI's codes (`code` or `type`) for an account without credit, on a
+# 429 or in the stream (measured on 2026-10-03); waiting or retrying would not help.
+NO_CREDIT = ("insufficient_quota", "credit_balance_exhausted")
+
+
+def no_credit(error: Any) -> bool:
+    """The provider's error object says the account has no credit left (`NO_CREDIT`)."""
+    return isinstance(error, dict) and bool({error.get("code"), error.get("type")} & set(NO_CREDIT))
 
 
 _QUOTA_FR = {
@@ -588,6 +600,14 @@ class CloudEngine:
                 http_status=status,
                 **said,
             )
+        if status == 429 and no_credit(error):  # native providers 4/5: add credit, not wait
+            raise self._error(
+                self._text("no_credit", provider=provider),
+                cause,
+                local,
+                http_status=status,
+                **said,
+            )
         if status == 429 and _no_quota(response):
             # D6 of 2026-10-01: an account without any active quota (Mistral's workspace
             # without a plan) refuses every call; waiting or spacing would not help. The one
@@ -646,7 +666,9 @@ class CloudEngine:
                 http_status=status,
                 **said,
             )
-        if status == 400 and any(w in message.lower() for w in _CONTEXT_WORDS):
+        # OpenAI's code says it whatever its message (native providers 4/5).
+        exceeded = error.get("code") == "context_length_exceeded"
+        if status == 400 and (exceeded or any(w in message.lower() for w in _CONTEXT_WORDS)):
             raise self._error(
                 self._text("context_exceeded", provider=provider),
                 cause,

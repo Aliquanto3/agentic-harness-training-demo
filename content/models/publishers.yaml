@@ -76,6 +76,10 @@ publishers:
     label_text: Claude (Anthropic)
     architectures: []
     names: ['claude']
+  - id: gpt
+    label_text: GPT (OpenAI)
+    architectures: []
+    names: ['^gpt-\d']
   - id: minicpm
     label_text: MiniCPM (OpenBMB)
     architectures: [minicpm]
