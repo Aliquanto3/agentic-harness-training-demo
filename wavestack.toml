@@ -344,9 +344,11 @@ impacts = { provider = "mistralai", model = "mistral-small-latest" }
 # gemini-3.5-flash-lite (stable) : 1 048 576 tokens en entrée, 65 536 en sortie ; niveaux de
 # raisonnement minimal (par défaut), low, medium et high ; 0,30 $ / 2,50 $ par million de
 # tokens (entrée / sortie), aucune hausse annoncée pour ce modèle.
-# Raisonnement : allumé, thinking_level "medium" avec include_thoughts, seule façon de
+# Raisonnement : allumé, thinking_level "high" avec include_thoughts, seule façon de
 # recevoir le texte du raisonnement (à "low", le modèle ne réfléchit pas sur des questions
-# simples ni sur le prompt du scénario Raisonnement : recette réelle du 2026-09-30), que
+# simples ni sur le prompt du scénario Raisonnement : recette réelle du 2026-09-30 ; à
+# "medium", le résumé de la réflexion manque souvent en streaming quand elle reste courte :
+# sonde du 2026-10-03, 3 fois sur 8 contre 4 sur 4 à "high"), que
 # Gemini écrit dans content entre <thought> et </thought> (relevé sur l'API réelle le
 # 2026-09-29 ; s'il change, changez tags ou format dans settings.json) ; éteint,
 # reasoning_effort "minimal". reasoning_effort et thinking_config ne se combinent pas. Son
@@ -393,7 +395,7 @@ impacts = { provider = "google_genai", model = "gemini-3.5-flash-lite" }
 [cloud.models.reasoning]
 format = "think_tags"
 tags = ["<thought>", "</thought>"]
-on = { extra_body = { google = { thinking_config = { thinking_level = "medium", include_thoughts = true } } } }
+on = { extra_body = { google = { thinking_config = { thinking_level = "high", include_thoughts = true } } } }
 off = { reasoning_effort = "minimal" }
 always = false
 resend = false

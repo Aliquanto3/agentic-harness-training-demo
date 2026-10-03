@@ -1291,7 +1291,7 @@ def test_gemini_reasoning_on_reads_the_thought_tags():
 
     body = json.loads(provider.requests[0].content)
     assert body["extra_body"] == {
-        "google": {"thinking_config": {"thinking_level": "medium", "include_thoughts": True}}
+        "google": {"thinking_config": {"thinking_level": "high", "include_thoughts": True}}
     }
     assert "reasoning_effort" not in body and body["max_tokens"] == 1536
     ended = _of(events, "model_call_ended")[0].payload

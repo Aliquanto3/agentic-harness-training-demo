@@ -9961,7 +9961,7 @@ def s_gemini_shape(r: Run) -> None:
         first = bodies[0] if bodies else {}
         thinking = ((first.get("extra_body") or {}).get("google") or {}).get("thinking_config")
         r.check(
-            thinking == {"thinking_level": "medium", "include_thoughts": True}
+            thinking == {"thinking_level": "high", "include_thoughts": True}
             and "reasoning_effort" not in first
             and first.get("max_tokens") == 1536,
             "raisonnement allumé : extra_body…include_thoughts, sans reasoning_effort, 1 536",

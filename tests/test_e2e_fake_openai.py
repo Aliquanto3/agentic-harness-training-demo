@@ -377,7 +377,7 @@ def test_story_27_prompts_keep_their_triggers():
 def _gemini(*messages: dict, tools: tuple[str, ...] = (), thoughts: bool = False) -> dict:
     body = _body(*messages, tools=tools) | {"model": "gemini-e2e-flash-lite"}
     if thoughts:
-        config = {"thinking_level": "medium", "include_thoughts": True}
+        config = {"thinking_level": "high", "include_thoughts": True}
         body["extra_body"] = {"google": {"thinking_config": config}}
     else:
         body["reasoning_effort"] = "minimal"
