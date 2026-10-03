@@ -63,7 +63,7 @@ WaveStack lancé sur 127.0.0.1:8420 (port vérifié libre avant), clés Anthropi
 | C5 | Gemini, `gemini-3.5-flash-lite` | `get_datetime`, réponse juste | `calculator` (3 appels), « 17 h 50 » ; **aucun bloc de raisonnement affiché** | corps JSON Chat Completions | coût affiché | **OK, constat** : comportement connu de Gemini en streaming (résumé `<thought>` rendu environ une fois sur trois, mesuré le 2026-10-01), pas un défaut du lot |
 | C6 | Anthropic, `claude-haiku-4-5` | `get_datetime`, réponse juste | 1 bloc de raisonnement visible, `calculator`, « 17h50 » | corps natif Messages : `{"model":"claude-haiku-4-5","system":…}`, le bloc `thinking` renvoyé avec sa `signature`, `thinking: {type: "enabled", budget_tokens: 1024, block_binding: {prefix_mismatch_behavior: "drop_block"}}` | entrée 0,001652 $ + sortie 0,00026 $ sur l'appel final ; empreinte EcoLogits | **OK** |
 | C7 | Anthropic, `claude-sonnet-5` | `get_datetime`, réponse juste | raisonnement résumé visible, `calculator`, « 17 h 50 » | corps natif : `thinking` `adaptive`, `display: "summarized"` | coût et empreinte affichés | **OK** |
-| C8 | OpenAI, `gpt-6-luna` | erreur expliquée : « OpenAI refuse l'appel : le crédit du compte est épuisé. Ajoutez du crédit dans la console du fournisseur. Message du fournisseur : You have no credits remaining… » | même erreur | corps natif Responses (`{"model":"gpt-6-luna","instructions":…}`) | aucun coût compté | **non joué** : compte OpenAI sans crédit (action d'Anaël) |
+| C8 | OpenAI, `gpt-6-luna` | 1er passage : erreur expliquée (« le crédit du compte est épuisé… ») ; **après la recharge d'Anaël** : `get_datetime`, réponse juste ; `calculator`, « 7 006 652 » | après la recharge : bloc de raisonnement visible, « 17 h 50 » | corps natif Responses : `"reasoning":{"effort":"low","summary":"auto"}`, `"store":false`, `"include":["reasoning.encrypted_content"]`, outils `"strict": false`, item `reasoning` renvoyé avec son `encrypted_content` | 0,00036 $ pour 6 appels | **OK** (rejoué le 2026-10-03 au soir, section 7) |
 | C9 | Langues | après « Vider la conversation » : interface en anglais puis en allemand, dépense au format de chaque langue (« $0.017 + $0.0044 », « 0,017 $ + 0,0044 $ ») | — | — | — | **OK** ; le changement de langue est refusé (409) tant que la conversation a des tours : verrou prévu (`language_locked`) |
 | C10 | Plafond de séance | `settings.json` temporaire : `[finops] max_session_usd = 0.001` ; Haiku, quatre tours (total 0,001166 $), puis un cinquième | le cinquième est refusé : « Session spending cap reached: $0.0012 spent against a cap of $0.001. The call was not sent and costs nothing. To raise the cap, change [finops] max_session_usd in settings.json… » ; appels restés à 4, total inchangé | — | — | **OK** |
 
@@ -75,12 +75,20 @@ Coût de la recette : 0,0214 $ (fournisseurs) + 0,0012 $ (plafond) ≈ **0,023 $
 
 - **Vert** : ruff, pytest (5 392 tests), tests `model` (12), E2E 1 074/1 075, recette navigateur de sept fournisseurs, langues et plafond.
 - **Échec** : E2E `stream_resync`, antérieur au lot (échoue aussi sur `main`), noté dans `deferred-work.md`.
-- **Non joué** : GPT-6 Luna (crédit OpenAI épuisé).
+- **Luna** : non joué au premier passage (crédit OpenAI épuisé), **OK** après la recharge (section 7).
 - **Aucun correctif** n'a été nécessaire dans les stories du lot.
 
 ## 6. Actions d'Anaël
 
-1. Ajouter du crédit OpenAI, puis rejouer Luna (recette de la story 5, lignes L1 à L6 ; mesures 2, 3 et 5 de la story 4) : `deferred-work.md`.
-2. Comparer les coûts de WaveStack aux consoles Anthropic (et OpenAI) : chiffres dans `resultats-fournisseurs-natifs-pc-2026-10.md`.
-3. Trancher le critère 1 de Julia-1 (binaire `llama-server` portable) : `decision-model-candidates.md`.
-4. Confirmer les GIF dans les téléchargements de Chrome.
+1. ~~Ajouter du crédit OpenAI~~ : **fait** le 2026-10-03 au soir ; rejouer Luna : voir la section 7.
+2. **Console Anthropic : coût comparé** le 2026-10-03 au soir. Le tableau de bord d'Anthropic affiche **0,16 $** pour le mois. Les estimations de WaveStack pour cette clé, toutes du 2026-10-03, font **≈ 0,159 $** : mesures de la story 3 (0,0258 $), recette de la story 5 (0,1123 $), recette Chrome Haiku et Sonnet (≈ 0,0194 $, soit le total de la séance moins les 0,0021 $ de Groq, Mistral et Gemini), test du plafond (0,0012 $). Écart sous l'arrondi au centime du tableau de bord (au plus ≈ 3 %), donc dans les 10 % du Success signal de SPEC.md, en supposant que la clé n'a servi qu'à WaveStack ce mois-ci. **OK.** Console OpenAI : à comparer après la section 7.
+3. ~~Trancher le critère 1 de Julia-1~~ : **accepté** par Anaël le 2026-10-03 (binaire `llama-server` portable admis comme prérequis externe, comme Ollama) ; reporté dans `decision-model-candidates.md`.
+4. ~~Confirmer les GIF~~ : **fait**, Anaël les a téléchargés.
+
+## 7. Reprise de GPT-6 Luna après la recharge du crédit OpenAI (2026-10-03 au soir)
+
+- **Mesures réelles de la story 4** (`mesures-openai-2026-10.md`, 39 appels, ≈ 0,0024 $) : l'effort n'impose pas de raisonnement (0 token sur une tâche d'outil simple, 71 à 96 sur une énigme, résumé visible) ; items `reasoning` renvoyés avec leur `id` `rs_` sous `store: false` acceptés, devant un appel, un message ou deux appels parallèles, les items `function_call` et `message` reconstruits sans `id` aussi ; résumé visible sans vérification d'organisation ; tours Outils et Raisonnement réels réussis par `AppSession`. Aucun défaut de code.
+- **Recette de la story 5, lignes L1 à L8** (`resultats-fournisseurs-natifs-pc-2026-10.md`) : « Tester », Raisonnement, Outils (raisonnement éteint et allumé), MCP (`load_tool_doc` puis `local__define_term`), Sous-agent : **toutes OK** ; renvoi de l'item chiffré vérifié d'un tour à l'autre ; 20 appels, 0,001711 $ ; empreinte EcoLogits sur chaque appel ; proxy Zscaler traversé. Constat L4 : Luna ne raisonne pas sur une simple multiplication (comme Sonnet en S4).
+- **Recette Chrome** (ligne C8) : OK, GIF `recette-2026-10-03-openai-luna.gif`.
+- **Success signal de SPEC.md** : atteint pour les trois modèles (Haiku, Sonnet, Luna) ; coût Anthropic comparé à la console (OK). Reste la console OpenAI : 20 appels de 17:37:16 à 17:38:59 UTC, 12 289 / 965 tokens, 0,001711 $ (plus ≈ 0,0024 $ de mesures et 0,00036 $ de recette Chrome) ; au centime près, seuls les comptes de tokens peuvent montrer un écart de 10 %.
+- **Précision sur le masquage** : les signatures d'Anthropic et l'`encrypted_content` d'OpenAI apparaissent en clair dans `model_call_ended.raw_output` et dans `outbound_request.body`. « Masqué » désigne, dans le code comme pour la signature de Gemini, le masquage de la clé d'API (AD-15) ; le corps tracé doit rester égal au corps envoyé (CAP-1). Ces jetons opaques du fournisseur ne sont pas des secrets du poste.
