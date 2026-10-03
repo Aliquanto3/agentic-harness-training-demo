@@ -81,7 +81,7 @@ Coût de la recette : 0,0214 $ (fournisseurs) + 0,0012 $ (plafond) ≈ **0,023 $
 ## 6. Actions d'Anaël
 
 1. ~~Ajouter du crédit OpenAI~~ : **fait** le 2026-10-03 au soir ; rejouer Luna : voir la section 7.
-2. **Console Anthropic : coût comparé** le 2026-10-03 au soir. Le tableau de bord d'Anthropic affiche **0,16 $** pour le mois. Les estimations de WaveStack pour cette clé, toutes du 2026-10-03, font **≈ 0,159 $** : mesures de la story 3 (0,0258 $), recette de la story 5 (0,1123 $), recette Chrome Haiku et Sonnet (≈ 0,0194 $, soit le total de la séance moins les 0,0021 $ de Groq, Mistral et Gemini), test du plafond (0,0012 $). Écart sous l'arrondi au centime du tableau de bord (au plus ≈ 3 %), donc dans les 10 % du Success signal de SPEC.md, en supposant que la clé n'a servi qu'à WaveStack ce mois-ci. **OK.** Console OpenAI : à comparer après la section 7.
+2. **Console Anthropic : coût comparé** le 2026-10-03 au soir. Le tableau de bord d'Anthropic affiche **0,16 $** pour le mois. Les estimations de WaveStack pour cette clé, toutes du 2026-10-03, font **≈ 0,159 $** : mesures de la story 3 (0,0258 $), recette de la story 5 (0,1123 $), recette Chrome Haiku et Sonnet (≈ 0,0194 $, soit le total de la séance moins les 0,0021 $ de Groq, Mistral et Gemini), test du plafond (0,0012 $). Écart sous l'arrondi au centime du tableau de bord (au plus ≈ 3 %), donc dans les 10 % du Success signal de SPEC.md, en supposant que la clé n'a servi qu'à WaveStack ce mois-ci. **OK.** **Console OpenAI : comparée le 2026-10-03 au soir, voir la section 8.**
 3. ~~Trancher le critère 1 de Julia-1~~ : **accepté** par Anaël le 2026-10-03 (binaire `llama-server` portable admis comme prérequis externe, comme Ollama) ; reporté dans `decision-model-candidates.md`.
 4. ~~Confirmer les GIF~~ : **fait**, Anaël les a téléchargés.
 
@@ -92,3 +92,16 @@ Coût de la recette : 0,0214 $ (fournisseurs) + 0,0012 $ (plafond) ≈ **0,023 $
 - **Recette Chrome** (ligne C8) : OK, GIF `recette-2026-10-03-openai-luna.gif`.
 - **Success signal de SPEC.md** : atteint pour les trois modèles (Haiku, Sonnet, Luna) ; coût Anthropic comparé à la console (OK). Reste la console OpenAI : 20 appels de 17:37:16 à 17:38:59 UTC, 12 289 / 965 tokens, 0,001711 $ (plus ≈ 0,0024 $ de mesures et 0,00036 $ de recette Chrome) ; au centime près, seuls les comptes de tokens peuvent montrer un écart de 10 %.
 - **Précision sur le masquage** : les signatures d'Anthropic et l'`encrypted_content` d'OpenAI apparaissent en clair dans `model_call_ended.raw_output` et dans `outbound_request.body`. « Masqué » désigne, dans le code comme pour la signature de Gemini, le masquage de la clé d'API (AD-15) ; le corps tracé doit rester égal au corps envoyé (CAP-1). Ces jetons opaques du fournisseur ne sont pas des secrets du poste.
+
+## 8. Console OpenAI : écart avec les estimations de WaveStack (2026-10-03 au soir)
+
+Relevé par Claude in Chrome sur `platform.openai.com/usage` (organisation Wavestone, filtre « All projects », « All API keys », 7 derniers jours ; le filtre par défaut sur le projet « ProjetCommande » n'affiche rien : la clé de WaveStack n'en dépend pas). Seul le 2026-10-03 porte de l'usage.
+
+| Mesure | Console OpenAI | WaveStack (estimation) | Écart |
+|---|---|---|---|
+| Dépense du jour | **0,00 $** (arrondi au centime ; « October spend » 0,00 $ / 100 $) | ≈ **0,0045 $** (0,001711 recette story 5 + 0,0024 mesures story 4 + 0,00036 recette Chrome) | non mesurable : l'estimation est sous le centime, donc sous la résolution de la console |
+| Requêtes (Responses) | **64** | **65** (39 mesures + 20 recette + 6 Chrome) | -1 (≈ 1,5 %) |
+| Tokens d'entrée | **27 889** | 12 289 pour la seule recette (20 appels) ; les totaux des mesures (39 appels) et de la recette Chrome (6 appels) ne sont pas consignés | non vérifiable en l'état : les 15 600 tokens restants pour 44 à 45 requêtes (≈ 350 par requête) restent plausibles |
+| Tokens de sortie | non affichés par la carte « Responses and Chat Completions » | 965 pour la recette | non comparable |
+
+Lecture : le coût ne peut pas être comparé au centime près, comme prévu (section 7) ; le décompte des requêtes concorde à une requête près, et les 7 requêtes refusées pour crédit épuisé avant la recharge n'y figurent pas (sinon la console en compterait 72). L'écart d'une requête n'a pas été expliqué (retard d'agrégation de la console ou appel compté deux fois côté WaveStack, non tranché). Le Success signal de SPEC.md (écart de coût sous 10 %) est donc **non démontrable pour OpenAI** à ces montants ; il reste démontré pour Anthropic (0,16 $ contre ≈ 0,159 $). Pour une vraie comparaison OpenAI, il faudrait un lot d'au moins 1 $ ou la page des coûts (granularité plus fine) : à décider par Anaël, sans urgence.
