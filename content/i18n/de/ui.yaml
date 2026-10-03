@@ -644,6 +644,7 @@ main:
     footprint_sentence: "Geschätzter Fußabdruck der Sitzung: {energy} · {grams} ({calls}). Zwei Bilanzgrenzen addieren sich darin: in der Cloud der Lebenszyklus nach EcoLogits (Strom der Server und Anteil ihrer Herstellung); lokal nur der verbrauchte Strom (CodeCarbon, kWh × Intensität), ohne die Herstellung des Arbeitsplatzes."
     reset_total: "Nur ein Neustart von WaveStack setzt diese Summe auf null zurück."
     reset_totals: "Nur ein Neustart von WaveStack setzt diese Summen auf null zurück."
+    cap_sentence: "Ausgabenobergrenze der Sitzung: {total} von {cap}; sobald sie erreicht ist, wird kein kostenpflichtiger Aufruf gesendet."
   log:
     kinds:
       diagnostic_check: "Diagnoseprüfung"
@@ -1009,6 +1010,7 @@ diagnostic:
   candidates_title: "Erkannte Modelle"
   cloud_title: "Cloud-Modelle"
   cloud_help: "Außerhalb des Arbeitsplatzes: Jeder Aufruf sendet den gesamten Kontext an den Anbieter."
+  cloud_cap: "Ausgabenobergrenze der Sitzung: {total} von {cap} ausgegeben. Sobald sie erreicht ist, sendet WaveStack keine kostenpflichtigen Aufrufe mehr; die Obergrenze wird über [finops] max_session_usd in settings.json eingestellt, bei gestopptem WaveStack, das danach neu gestartet wird."
   path_label: "Oder geben Sie den Pfad einer GGUF-Datei an:"
   path_placeholder: 'C:\Pfad\zum\Modell.gguf'
   path_button: "Diese Datei wählen"

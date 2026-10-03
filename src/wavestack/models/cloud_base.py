@@ -212,11 +212,20 @@ def _no_quota(response: httpx.Response) -> bool:
 # Native providers 4/5: OpenAI's codes (`code` or `type`) for an account without credit, on a
 # 429 or in the stream (measured on 2026-10-03); waiting or retrying would not help.
 NO_CREDIT = ("insufficient_quota", "credit_balance_exhausted")
+# Finition V1 (#36): Anthropic's, a 400 `invalid_request_error` whose message says so (the
+# form its documentation gives, not measured: no account at zero to try it on).
+NO_CREDIT_ANTHROPIC = "credit balance is too low"
 
 
 def no_credit(error: Any) -> bool:
-    """The provider's error object says the account has no credit left (`NO_CREDIT`)."""
-    return isinstance(error, dict) and bool({error.get("code"), error.get("type")} & set(NO_CREDIT))
+    """The provider's error object says the account has no credit left (`NO_CREDIT`, or
+    Anthropic's `invalid_request_error` with `NO_CREDIT_ANTHROPIC` in its message)."""
+    if not isinstance(error, dict):
+        return False
+    if {error.get("code"), error.get("type")} & set(NO_CREDIT):
+        return True
+    message = str(error.get("message") or "").lower()
+    return error.get("type") == "invalid_request_error" and NO_CREDIT_ANTHROPIC in message
 
 
 _QUOTA_FR = {
@@ -600,7 +609,8 @@ class CloudEngine:
                 http_status=status,
                 **said,
             )
-        if status == 429 and no_credit(error):  # native providers 4/5: add credit, not wait
+        # Native providers 4/5: add credit, not wait (OpenAI's 429, Anthropic's 400, #36).
+        if status in (400, 429) and no_credit(error):
             raise self._error(
                 self._text("no_credit", provider=provider),
                 cause,

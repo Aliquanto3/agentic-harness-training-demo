@@ -7,7 +7,8 @@ delegate:
     sub-agent's result comes back here, not the whole document.
   task: >-
     The sub-agent's task, complete and self-contained: it does not see the conversation.
-    For example: Read the file guide_harnais.md and summarise it in five points.
+    For example: Read the file guide_harnais.md and summarise it in five one-line points, 80
+    words at most.
 phase_label_text: Calling the sub-agent
 force_label_text: Delegate to the sub-agent
 task_label_text: >-
@@ -15,7 +16,7 @@ task_label_text: >-
 presets:
   - label_text: Summarise the harness guide
     args:
-      task: Read the file guide_harnais.md and summarise it in five short points.
+      task: Read the file guide_harnais.md and summarise it in five one-line points, 80 words at most.
   - label_text: Bounds of the loop
     args:
       task: >-

@@ -304,8 +304,9 @@ pricing = { input_usd_per_mtok = 0.15, output_usd_per_mtok = 0.60, checked = "20
 # proche (centres de données aux États-Unis). note_text est ajoutée à l'infobulle de chaque appel.
 impacts = { provider = "huggingface_hub", model = "openai/gpt-oss-120b", note_text = "EcoLogits ne connaît pas Groq (puces LPU) : estimation par gpt-oss-120b sur GPU chez Hugging Face" }
 
-# Préréglage Mistral : fournisseur français, plan gratuit toujours actif (décision du
-# 2026-09-25 : mistral-small-latest).
+# Préréglage Mistral : fournisseur français, plan gratuit « Experiment » (décision du
+# 2026-09-25 : mistral-small-latest). Un plan, gratuit ou payant, s'active dans la console
+# avant le premier appel : sans lui, chaque appel répond 429 (quota nul, recette du 02/10).
 [[cloud.models]]
 id = "mistral"
 provider = "Mistral AI"
@@ -316,7 +317,7 @@ tools = true
 context = 131072
 hosting_text = "Mistral AI, France (hébergement dans l'UE plausible, non confirmé)"
 training = "opt_out"
-notes_text = "Sur le plan gratuit, les prompts servent à l'entraînement par défaut : décochez l'option dans Admin Console > Privacy. Quotas à lire dans la console Mistral. Coût réel nul sur le plan gratuit : le prix affiché est le prix catalogue."
+notes_text = "Avant le premier appel, activez un plan dans la console Mistral : « Experiment », gratuit, ou payant ; sans plan, le compte n'a aucun quota et chaque appel répond 429. Sur le plan gratuit, les prompts servent à l'entraînement par défaut : décochez l'option dans Admin Console > Privacy. Quotas à lire dans la console Mistral. Coût réel nul sur le plan gratuit seulement : le prix affiché est le prix catalogue, facturé sur un plan payant."
 # Story 7 des restes différés (E055, 2026-10-03) : `resend = true`. Mistral accepte ses blocs
 # `thinking` renvoyés (200) ; sans eux, brique Raisonnement allumée, il rappelle le même outil
 # jusqu'à la limite d'étapes (mesuré sur le PC cible).
@@ -328,7 +329,7 @@ sampling = ["temperature", "top_p"]
 # envois à ce modèle (tour ou « Tester »). Augmentez la valeur si des 429 persistent.
 min_interval_s = 1
 # FinOps : prix catalogue de Mistral Small 4, relevés sur mistral.ai/pricing (nuls en réalité
-# sur le plan gratuit, voir notes_text).
+# sur le plan gratuit, facturés sur un plan payant, voir notes_text).
 pricing = { input_usd_per_mtok = 0.15, output_usd_per_mtok = 0.60, checked = "2026-09-29" }
 # GreenOps : le modèle tel qu'EcoLogits le connaît chez Mistral AI (zone du fournisseur).
 impacts = { provider = "mistralai", model = "mistral-small-latest" }

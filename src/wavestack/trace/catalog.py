@@ -729,12 +729,15 @@ class HookDecidedPayload(BaseModel):
 
 class EffectAppliedPayload(BaseModel):
     # Story 15: `model_download` (each file and its sha256), `rag_index_write` (the index).
+    # Finition V1 (#20): `model_download_stopped`, « Arrêter » during a download (the
+    # partial file removed), said on the card in a neutral line.
     effect: Literal[
         "audit_append",
         "setting_write",
         "api_key_set",
         "memory_write",
         "model_download",
+        "model_download_stopped",
         "rag_index_write",
     ]
     lines: list[str] = []

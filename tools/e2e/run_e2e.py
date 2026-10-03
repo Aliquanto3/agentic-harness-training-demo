@@ -31,6 +31,8 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stack import (  # noqa: E402
+    ANTHROPIC_MODEL,
+    ANTHROPIC_PROVIDER,
     GEMINI_ENTRY_ID,
     GEMINI_MODEL,
     GEMINI_PROVIDER,
@@ -5570,8 +5572,33 @@ def s_rag(r: Run) -> None:
     part = list((r.stack.data_dir / "models").rglob("*.part"))
     r.check(not part, "aucun fichier .part laissé", str(part))
 
+    # Finition V1 (#20): the file served a byte a second, « Arrêter » during the download: a
+    # neutral line on the card, no failure, no copy by hand.
+    ready = f"{r.stack.fake_url}/_e2e/model_ready"
+    httpx.post(ready, json={"slow": True}, timeout=5, trust_env=False)
+    seq = r.ev.mark()
+    card.get_by_role("button", name=re.compile("Télécharger le modèle d'embedding")).click()
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
+    r.api("POST", "/api/intentions/stop")
+    stopped = r.ev.wait(
+        "effect_applied", seq, lambda p: p["effect"] == "model_download_stopped", 20
+    )
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "idle", 20)
+    note = card.locator(".brick-note", has_text="arrêté")
+    expect(note).to_contain_text("le fichier en cours est supprimé", timeout=5000)
+    r.check(
+        not r.ev.since(seq, "harness_error")
+        and stopped.get("brick") == "rag"
+        and card.locator(".force-error").count() == 0
+        and "copiez le fichier à la main" not in card.inner_text(),
+        "#20 : téléchargement arrêté, ligne neutre sur la carte, ni erreur ni copie à la main",
+        note.inner_text(),
+    )
+    part = list((r.stack.data_dir / "models").rglob("*.part"))
+    r.check(not part, "#20 : aucun fichier .part laissé après « Arrêter »", str(part))
+
     # The file is served now: the download succeeds; the card offers the index's build.
-    httpx.post(f"{r.stack.fake_url}/_e2e/model_ready", timeout=5, trust_env=False)
+    httpx.post(ready, timeout=5, trust_env=False)
     seq = r.ev.mark()
     card.get_by_role("button", name=re.compile("Télécharger le modèle d'embedding")).click()
     r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
@@ -9649,6 +9676,70 @@ def s_reasoning_locked(r: Run) -> None:
     )
 
 
+def s_reasoning_dropped(r: Run) -> None:
+    """Finition V1 (#28, #35): the fake provider in Anthropic's shape throws away the
+    reasoning of an earlier turn (`input_transformations`, « [jeté] »), in the turn and in
+    the sub-agent's calls. Orchestration's row « Raisonnement jeté par le fournisseur » and
+    its figure « historique réécrit », at both levels; the log's summary « {reason} · {path} »."""
+    page = r.page
+    r.launch("subagent")
+    a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+    try:
+        _pick_model(r, f"RÉSEAU · {ANTHROPIC_PROVIDER} · {ANTHROPIC_MODEL}")
+        seq = r.ev.mark()
+        ended = r.send(_prompts("subagent")[0] + " [jeté]")
+        r.check(
+            ended["payload"]["status"] == "completed",
+            "#28 : tour terminé sur le faux fournisseur au format Anthropic",
+            ended["payload"]["status"],
+        )
+        dropped = r.ev.since(seq, "reasoning_dropped")
+        main = [e for e in dropped if e["context_id"] == "main"]
+        sub = [e for e in dropped if (e["context_id"] or "").startswith("sub")]
+        r.check(
+            main
+            and sub
+            and all(e["payload"]["reason"] == "prefix_binding_mismatch" for e in dropped),
+            "#28 : reasoning_dropped émis au tour et au sous-agent",
+            str([(e["context_id"], e["payload"]["reason"]) for e in dropped]),
+        )
+        rail = page.locator("#orch-scroll")
+        title = "Raisonnement jeté par le fournisseur"
+        top = rail.locator(".turn-step:not(.is-sub) .turn-step-line", has_text=title)
+        child = rail.locator(".turn-step.is-sub", has_text=title)
+        shown, _ = r.poll(lambda: top.count() >= 1 and child.count() >= 1, 10)
+        r.check(
+            shown and "historique réécrit" in top.first.inner_text(),
+            "#35 : ligne « Raisonnement jeté par le fournisseur » et figure « historique "
+            "réécrit », au tour et chez le sous-agent",
+            f"tour {top.count()} · sous-agent {child.count()}",
+        )
+        top.first.click()
+        body = top.first.locator("xpath=following-sibling::div[contains(@class,'turn-step-body')]")
+        expect(body).to_contain_text(main[0]["payload"]["message_text"], timeout=5000)
+        r.check(True, "#35 : l'étape dépliée donne la phrase du harnais")
+        page.click("#event-log-head")
+        try:
+            expect(page.locator("#event-log-list")).to_be_visible(timeout=5000)
+            rows = [x for x in page.evaluate(_LOG_ROWS_JS) if x["kind"] == "reasoning_dropped"]
+            path = main[0]["payload"]["path"]
+            r.check(
+                rows
+                and all(x["summary"] == f"historique réécrit · {path}" for x in rows)
+                and rows[0]["name"] == "Raisonnement jeté",
+                "#35 : le journal résume « historique réécrit · <chemin> »",
+                str(rows[:2]),
+            )
+        finally:
+            page.click("#event-log-head")
+        r.shot_element("35-raisonnement-jete", '.pane[data-pane="orch"]')
+    finally:
+        # Entry A back whatever happened: the scenarios after this one play on it.
+        if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+            r.goto_app()
+            _pick_model(r, a_label)
+
+
 # ---------- Gemini (Google AI Studio): the shape of its bodies ----------
 
 GEMINI_LABEL = f"RÉSEAU · {GEMINI_PROVIDER} · {GEMINI_MODEL}"
@@ -9734,6 +9825,14 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
         "entière "
         "(euros compris) en infobulle et en nom accessible",
         f"{text!r} · {title} · {spend}",
+    )
+    cap = r.state().get("max_session_usd")
+    r.check(
+        cap is not None
+        and "Plafond de dépense de la séance : " in title
+        and " $ ; une fois le plafond atteint, aucun appel payant ne part." in title,
+        "Finition V1 (#27) : le plafond de la séance dans l'infobulle de la dépense",
+        f"{cap} · {title}",
     )
     ok, detail = _bar_fits(r)
     r.check(
@@ -11506,6 +11605,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("stream_lost", s_stream_lost),  # restes différés, story 2 (E003)
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),
+    ("reasoning_dropped", s_reasoning_dropped),  # finition V1 (#28, #35)
     # GreenOps: the served model before the first priced call (the footprint alone).
     ("local_server", s_local_server),
     ("gemini_shape", s_gemini_shape),

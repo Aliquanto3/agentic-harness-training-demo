@@ -312,8 +312,8 @@ scenarios:
     prompts:
       - >-
         Délègue à ton sous-agent la lecture du fichier guide_harnais.md, sans le lire
-        toi-même : il doit le lire et te rendre un résumé en cinq points. Puis présente-moi
-        ce résumé.
+        toi-même : il doit le lire et te rendre un résumé en cinq points d'une ligne, 80 mots
+        au plus. Puis présente-moi ce résumé.
       - "Quiz : quelles bornes le harnais pose-t-il à la boucle d'un agent ?"
       - "Quiz : pourquoi déléguer à un sous-agent économise-t-il le contexte principal ?"
       - "Quiz : que se passe-t-il si le contexte du sous-agent déborde ?"
