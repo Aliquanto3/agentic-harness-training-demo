@@ -32,6 +32,7 @@
   summary: Détail de la jauge (grille de cellules façon `/context`, composant DESIGN `context-gauge-detail`) dans le volet Contexte LLM, ouvert d'un clic sur la jauge.
   evidence: Différé sur décision d'Anaël (2026-09-24) : la jauge empilée de la barre haute, avec sa ventilation au survol, suffit à CAP-33 ; la grille alourdissait une story déjà au-dessus de la cible de taille.
   resolution: décision d'Anaël du 2026-10-01 (D1) — non : la jauge empilée de la barre haute et sa ventilation au survol suffisent, pas de grille `context-gauge-detail` (décision du 24/09 reconduite par la story 32).
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — décision D1 d'Anaël du 2026-10-01 (non, voir `resolution`) : rien à faire.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/3-llm-nu-compteur-de-tokens-jauge.md`
   summary: `LlamaCppEngine.complete` (arrêt sur EOG, sortie coupée à `max_tokens`, séquence d'arrêt, annulation, décodage UTF-8 incrémental) n'est testé sur aucun vrai modèle : les tests du tour passent par le moteur factice, qui réimplémente cette logique.
@@ -48,6 +49,7 @@
   summary: Repli hors ligne de `fetch_page` (FR-13) — sans réseau, un long fichier de `content/demo_files/` remplace la page, avec la mention « contenu de remplacement ».
   evidence: Reporté sur décision d'Anaël (2026-09-24) : ce repli sert le résultat volumineux du sous-agent (UJ-6) et de la compression (UJ-7), qu'aucune story livrée n'utilise encore ; en 5b, `fetch_page` hors ligne échoue avec une erreur claire et le nœud passe indisponible.
   resolution: décision d'Anaël du 2026-10-01 (D2) — non : aucun scénario ne s'appuie sur ce repli ; l'échec expliqué de `fetch_page` hors ligne est lui-même pédagogique.
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — décision D2 d'Anaël du 2026-10-01 (non, voir `resolution`) : rien à faire.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/5b-outils-reseau.md`
   summary: Le rendu front de la story 5b (bloc `outbound-payload` rattaché à l'étape d'outil, nœud « non contacté », étiquette RÉSEAU) n'est vérifié par aucun test automatique.
@@ -88,11 +90,13 @@
   summary: Au rejeu (story 9, `build_turn_state(origin_turn)`), les documentations MCP chargées (`_loaded_docs`) doivent suivre la branche rejouée et non la conversation entière.
   evidence: `_loaded_docs` est un ensemble au niveau de la session ; un rejeu depuis un tour antérieur proposerait des outils chargés après le point de branchement. AD-17 range les documentations chargées dans l'instantané conversationnel : à traiter avec l'instantané complet de la story 9.
   resolution: Planifié en story 9b (stories.yaml), sprint-change-proposal-2026-09-25-story-9b.md.
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — story 9b livrée (`9b-rejeu-du-dernier-prompt.md`, done) : `_last` garde `frozenset(self._loaded_docs)` du tour d'origine et le rejeu le réinstalle (`session/app_session.py`, `send`) ; `tests/test_replay.py::test_a_documentation_loaded_in_the_origin_turn_is_unloaded_an_earlier_one_stays`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6c-refonte-visuelle-atelier-de-construction.md`
   summary: Dans le schéma, l'arête d'un nœud de la colonne 2 vers le cadre Harnais passe sous le nœud de la colonne 1 de la même ligne, ce qui se lit comme une chaîne (cadre → A → B).
   evidence: Visible dès 4 nœuds hors cadre (outils + serveurs MCP) ; à reprendre avec les zones Local / Réseau et la frontière de DESIGN.md, qui imposent de toute façon de refaire la disposition.
   resolution: Repris par la story 8e (tronc et rails, zones et frontière), sprint-change-proposal-2026-09-25.md.
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — story 8e livrée (done) : tronc et rails, bacs par zone Local / Réseau et frontière ; rangement contrôlé par l'E2E (`h5`, `data_flows`, batterie du 2026-10-03, T3 et T5 verts).
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/6c-refonte-visuelle-atelier-de-construction.md`
   summary: `robotPose()` et la clé de mémorisation de `renderSchema()` (`app.js`) ne sont couverts par aucun test automatique.
@@ -167,6 +171,7 @@
   summary: Rejeu du dernier prompt (CAP-7, FR-7, AD-17), prévu en story 9b : branche reconstruite depuis l'état antérieur au tour d'origine, nouveau groupe de tour avec badge « Rejeu » dans le rail (8d), tour rejoué lui-même rejouable, comparaison de deux tours côte à côte (« Comparer » dans Contexte LLM), action armée appliquée au tour rejoué.
   evidence: Scindé le 2026-09-25 de la story 9 « Déclenchement forcé et rejeu », qui réunissait deux livrables indépendants (déclenchement forcé CAP-8 d'une part, rejeu CAP-7 d'autre part) ; le déclenchement forcé est traité en premier. `build_turn_state(origin_turn)` et `turn_started.replay_of` existent déjà comme amorces.
   resolution: Planifié en story 9b (stories.yaml), sprint-change-proposal-2026-09-25-story-9b.md.
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — story 9b livrée (`9b-rejeu-du-dernier-prompt.md`, done) ; `tests/test_replay.py`.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9-declenchement-force.md`
   summary: Le rendu front du déclenchement forcé de la story 9 (interrupteur « Afficher les actions forcées » et sa mémorisation, bouton Forcer et formulaire à préréglages, puces « Armé : … » sur la carte et au-dessus du champ de saisie, badges « Forcé par l'utilisateur » / « Déclenché par le modèle » lus dans `envelope.trigger`, ligne « Action forcée abandonnée ») n'est vérifié par aucun test automatique.
@@ -187,6 +192,7 @@
   summary: L'interrupteur « Afficher les actions forcées » et les boutons « Forcer l'appel » / « Déclencher le skill » sont difficiles à trouver : l'interrupteur ressemble aux interrupteurs des briques, et les boutons restent dans la liste repliée des options (« Outils : 3 activés sur 6 »).
   evidence: Test manuel du 2026-09-25 sur le PC cible : l'animateur n'a trouvé ni l'interrupteur ni les boutons sans aide (le comportement est conforme à la spec, vérifié dans un Edge headless : 12 boutons après activation). Pistes : distinguer visuellement l'interrupteur (titre de section, icône main), déplier la liste des options quand l'interrupteur est activé, ou afficher un indice sur la carte repliée.
   resolution: décision d'Anaël du 2026-10-01 (D3) appliquée par la story 3 des restes différés, preuve E2E en attente — `app.js` (`forcedToggle`, `hasOptionForce`, `optionForceLabel`) : l'interrupteur est dans sa propre section, titre « Actions forcées », icône ✋ devant le libellé, cadre pointillé (`app.css`, `.force-section`) ; quand il passe à vrai, la liste d'options de chaque brique qui porte un bouton Forcer (outils, skills, MCP) se déplie ; `main.force.section_title` en fr, en, de ; EXPERIENCE.md (bouton Forcer). Contrôles E2E `_forced_section` (`s_forced_native`) et dépliement de la liste MCP (`s_mcp_lazy`), écrits, à jouer dans la batterie finale : l'entrée se ferme sur leur résultat. Choix de nuit, confirmé par Anaël le 2026-10-02 : les listes se déplient au seul passage de l'interrupteur à vrai (pas au rechargement d'une page où il était déjà allumé, ni après « Réinitialiser »).
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — preuve E2E de la batterie du 2026-10-03 (`resultats-batterie-2026-10-03.md`, §3) : T6 (`forced_native`, dont `_forced_section`) 140 OK et T4 (`mcp_lazy`, contrôle « D3 : « Afficher les actions forcées » déplie la liste des serveurs MCP ») 58 OK, 0 échec.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/9-declenchement-force.md`
   summary: Caveman forcé : le skill est bien chargé avant le premier appel (`load_skill`, `trigger = user`, corps attribué à skills), mais Qwen3.5-2B ne suit pas la consigne (réponses longues ou hors style, et un appel spontané à `get_datetime`). La ligne « le modèle répond en Caveman dès ce tour » de la matrice n'est donc pas démontrable avec ce modèle.
@@ -250,11 +256,13 @@
   summary: Le front de la story 11b (entrée « Diagnostic » du menu « Volets ▾ », bloc `#next-launch` du diagnostic, ligne « Clé fournie par la variable X » et piste `key_env`) n'a aucun test automatique.
   evidence: Même écart que pour les stories 5b à 11 : aucun banc de test JS ; retirer le lien de `renderMenu` ou le remplissage de `#next-launch` dans `loadDiagnostic` passerait pytest et `node --check`. Relevé par la couche verification-gap de la revue de la story 11b. Piste sans dépendance : `node:test` avec `node:vm`.
   resolution: obsolète — le bloc `#next-launch` et `next_launch_fr` n'existent plus (changement de modèle à chaud, story 17) ; l'entrée « Diagnostic » du menu « Volets ▾ » est remplacée par la barre de navigation commune (story 2 des corrections du 2026-09-30, contrôlée par l'E2E sur `.site-nav`) ; la ligne « Clé fournie par la variable » reste vérifiée par l'E2E `diagnostic` (`run_e2e.py:335-342`).
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — obsolète (voir `resolution`).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-11b-corrections-test-manuel-story-11.md`
   summary: Aucune attribution visible de la source dans les réponses : quand le modèle s'appuie sur un résultat d'outil (par exemple le glossaire du serveur MCP local), rien n'indique « d'après le glossaire ». Piste : consigne du prompt système ou mise en avant, dans la Vue humain, des résultats d'outil dont la réponse s'inspire.
   evidence: Test manuel de la story 11b, 2026-09-26, scénario « Lazy loading » avec Groq : la réponse à « Que veut dire MCP ? » paraphrase l'entrée `MCP` de `content/mcp_local/glossary.yaml` sans la nommer ; l'animateur a cru que le glossaire n'avait pas servi. « La réponse cite le glossaire » (spec 11b) voulait dire « reprend sa définition ».
   resolution: décision d'Anaël du 2026-10-01 (D5) appliquée par la story 3 des restes différés, preuve E2E en attente — `app.js` (`consultedTools`, `consultedLine`, `revealStep`) : sous la réponse d'un tour qui a appelé des outils, « Outils consultés pendant ce tour : … », un lien par étape d'outil terminée `ok` (outils natifs, outils MCP, délégation au sous-agent ; pas `load_skill`, `load_tool_doc` ni `remember`), qui déplie et sélectionne l'étape dans Orchestration ; rien sans outil ; `main.chat.tools_used` en fr, en, de ; EXPERIENCE.md. Pas de consigne « cite tes sources ». Contrôles E2E `_consulted_tools` (`s_forced_native`), délégation nommée (`s_subagent`) et aucune ligne après un `remember` forcé (`s_global_memory`), écrits, à jouer dans la batterie finale : l'entrée se ferme sur leur résultat. Choix de nuit, confirmé par Anaël le 2026-10-02 : les outils du harnais sont exclus, un nom par étape (un outil appelé deux fois est nommé deux fois).
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — preuve E2E de la batterie du 2026-10-03 (`resultats-batterie-2026-10-03.md`, §3) : `_consulted_tools` (`forced_native`) et « D5 : une écriture en mémoire forcée n'est pas listée » (`global_memory`) en T6, 140 OK ; délégation nommée (`subagent`) en T5, 103 OK ; 0 échec.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-11b-corrections-test-manuel-story-11.md`
   summary: Mistral répond 429 à tout appel quand l'espace de travail n'a aucun quota actif ; le texte affiché (« quota dépassé (par seconde, par minute ou par jour) » et la piste `min_interval_s`) oriente à tort vers l'espacement. Piste : reconnaître `x-ratelimit-limit-req-minute: 0` et afficher « aucun quota actif sur ce compte : vérifiez le plan dans la console du fournisseur ».
@@ -302,11 +310,13 @@
   summary: Le tiroir de la mémoire globale n'affiche pas la date d'écriture (`created_at`) des entrées, seulement leur origine (démonstration, modèle, utilisateur).
   evidence: Revue indépendante de la story 14. `created_at` est écrit dans memory.json et porté par `memory_changed` ; EXPERIENCE.md ne demande que consulter, modifier, supprimer et tout effacer. À ajouter si la date aide la démonstration (format court, fuseau du poste).
   resolution: décision d'Anaël du 2026-10-01 (D7) appliquée par la story 3 des restes différés, preuve E2E en attente — `app.js` (`memoryDate`, `renderMemoryDrawer`) : chaque entrée du tiroir porte un `<time datetime="created_at">`, date et heure courtes (`Intl.DateTimeFormat` de la langue de la session, fuseau du poste), à côté de son origine ; EXPERIENCE.md (tiroir d'édition). Contrôle E2E dans `s_global_memory`, écrit, à jouer dans la batterie finale : l'entrée se ferme sur son résultat. Choix de nuit, confirmé par Anaël le 2026-10-02 : date et heure courtes (« 01/10/2026 22:41 »).
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — preuve E2E de la batterie du 2026-10-03 (`resultats-batterie-2026-10-03.md`, §3) : « D7 : chaque entrée du tiroir affiche sa date d'écriture (created_at) » (`global_memory`) en T6, 140 OK, 0 échec.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
   summary: Aucun ajout d'entrée depuis le tiroir : l'utilisateur écrit par l'action forcée « Écrire en mémoire ».
   evidence: Exclu par la spec de la story 14 (Never, hypothèse H1) ; relevé par la revue indépendante. À rouvrir seulement si le test manuel montre que le forçage est trop détourné pour ajouter une information.
   resolution: décision d'Anaël du 2026-10-01 (D8) — non : l'action forcée « Écrire en mémoire » montre mieux le mécanisme ; pas d'ajout depuis le tiroir.
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — décision D8 d'Anaël du 2026-10-01 (non, voir `resolution`) : rien à faire.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/14-memoire-globale.md`
   summary: Une mémoire globale pleine (20 entrées de 300 caractères) prend environ 1 550 tokens estimés, soit près de 60 % de l'espace utilisable d'une fenêtre de 4 096 tokens avec la réserve du raisonnement ; elle tient avec les briques du scénario (test), mais laisse peu de place au reste.
@@ -400,6 +410,7 @@
   summary: AD-13 : `transform_context` n'est pas un point d'accroche de hook. La compression agit sur les parties du tour avant l'assemblage (réponses d'outils, extraits RAG), à la place de l'étape d'AD-4, sans qu'un hook puisse l'observer ni la modifier.
   evidence: Revue indépendante de la story 20. Aucun hook de démonstration n'en a besoin en V1 ; à ouvrir si un hook doit voir le contexte compressé (ajouter le point au catalogue d'AD-13 et l'appeler depuis `_transform_context`).
   resolution: décision d'Anaël du 2026-10-01 (D10) — non : aucun hook de démonstration n'a besoin de `transform_context` comme point d'accroche.
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — décision D10 d'Anaël du 2026-10-01 (non, voir `resolution`) : rien à faire.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
   summary: H-1 de la story 20 : `transform_context` compresse chaque texte avant le premier appel qui le lit (et non seulement avant le premier appel du tour). Décision provisoire, ligne de règle d'AD-4 amendée et marquée « à valider ».
@@ -410,6 +421,7 @@
   summary: `compress()` de Headroom n'a pas de borne de temps : un texte pathologique pourrait retenir le tour ; « Arrêter » n'agit qu'entre deux textes.
   evidence: Headroom ne s'annule pas et n'est pas sûr entre fils : l'appeler dans un fil séparé abandonné laisserait un calcul concurrent. Mesuré : 2,2 s au pire (premier appel, JSON de 6 600 tokens), 0,02 s ensuite. À rouvrir si le PC cible montre une attente gênante.
   resolution: décision d'Anaël du 2026-10-01 (D12) — non : 2,2 s au pire mesuré, et l'annulation propre est impossible ; pas de borne de temps.
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — décision D12 d'Anaël du 2026-10-01 (non, voir `resolution`) : rien à faire.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/20-compression-du-contexte.md`
   summary: Sur le PC cible : mémoire ajoutée par Headroom, absence de sortie réseau, AppLocker et WDAC face à `_core.pyd` et `ast-grep` ; le scénario « Compression » doit tenir dans la fenêtre sans compression, avec un vrai SLM, et le modèle ne doit pas appeler un outil « Retrieve more » inexistant.
@@ -440,11 +452,13 @@
   summary: SOC : le garde-fou sur l'inventaire des comptes à privilèges reste un blocage (H1), pas une validation humaine (H5), comme le proposait la revue indépendante.
   evidence: H5 est défini pour les outils réseau (FR-27, `hooks.ask` : `spec.network` et un aperçu {méthode, adresse, corps}) ; l'appliquer à la lecture d'un fichier local change le contrat d'un hook du palier 1 et sa carte de validation. La leçon « moindre privilège, puis escalade vers un humain » passe par la consigne et la réponse attendue. À rouvrir en V2 si une variante « H1 en validation humaine » est souhaitée (nouveau hook ou option de H1, carte de validation pour un fichier local).
   resolution: décision d'Anaël du 2026-10-01 (D13) — garder H1 : H5 reste réservé au réseau (FR-27) ; la leçon passe par la consigne.
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — décision D13 d'Anaël du 2026-10-01 (garder H1, voir `resolution`) : rien à faire.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
   summary: IAM et Souveraineté sans réseau n'ont pas de repli hors ligne enregistré (réponse enregistrée et étiquetée, comme le proposait la revue) : seul l'échec expliqué est montré.
   evidence: Les outils réseau natifs n'ont pas non plus de réponse enregistrée (vérifié : `tools/network.py` interroge le service ou échoue) ; un repli demanderait un faux serveur MCP embarqué, son nœud étiqueté « enregistré » dans le schéma et ses données de démonstration. Le README demande d'ouvrir les deux hôtes dans le proxy avant la séance.
   resolution: décision d'Anaël du 2026-10-01 (D14) — non : le README demande d'ouvrir les deux hôtes ; un faux serveur embarqué coûte trop cher.
+  closed: 2026-10-04 (nuit de finition V1, phase 0) — décision D14 d'Anaël du 2026-10-01 (non, voir `resolution`) : rien à faire.
 
 - source_spec: `_bmad-output/specs/spec-agentic-harness-training-demo/stories/21-scenarios-metier-et-programme-du-palier-2.md`
   summary: AD-9 « En direct, si tools/list s'écarte de l'instantané de plus du seuil défini dans wavestack.toml, un avertissement est émis » : non réalisé ; les instantanés de `scripts/snapshot_mcp.py` ne servent qu'au test d'adéquation.
@@ -745,6 +759,7 @@
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/2-robustesse-flux-serveurs-locaux-appels-cloud-paralleles-instantanes-mcp.md`
   summary: Contrôles E2E de la story 2 des restes différés à jouer ou à écrire : `stream_lost` (écrit, jamais lancé : indicateur « Connexion au serveur perdue, nouvel essai… ») et l'avertissement `.brick-drift` de la carte MCP (aucun contrôle E2E : il faut un faux serveur MCP public qui s'écarte de son instantané dans la pile E2E) ; la priorité de l'indicateur sur le texte de chargement (garde de `setInterval`) n'est pas couverte.
   evidence: Revue de la story 2 (verification-gap) ; le mode nuit interdisait l'E2E. À faire dans la batterie finale ou avec les stories 5 et 6 des restes (E2E de l'atelier).
+  progress: 2026-10-04 (nuit de finition V1, phase 0) — partie `stream_lost` faite : `s_stream_lost` joué dans la batterie du 2026-10-03, tranche T9 (`resultats-batterie-2026-10-03.md`, §3 ; seul échec de T9, `stream_resync`, corrigé par `9795197`). Reste `.brick-drift` et la priorité de l'indicateur (phase 1-C).
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/2-robustesse-flux-serveurs-locaux-appels-cloud-paralleles-instantanes-mcp.md`
   summary: Seul l'atelier dit « Connexion au serveur perdue » ; les pages LLM nu (`llm.js`), RAG (`rag.js`) et MCP (`mcp.js`) ont leur propre boucle `/api/stream`, sans indicateur, et le champ de saisie de l'atelier reste actif pendant la coupure. Basse.
   evidence: Revue de la story 2 (blind) ; E003 ne nommait que la barre de l'atelier. Piste : partager la boucle et son indicateur entre les pages.

@@ -863,7 +863,7 @@ wavestack/                      # racine du dépôt
   - **Déjà validé.** Le reranking par llama-cpp-python 0.3.35 est validé sur un GGUF synthétique : score lu par `llama_get_embeddings_seq`, car `Llama.embed()` ne convient pas à un reranker. Sa qualité reste à mesurer.
   - **Repli.** fastembed, avec paraphrase-multilingual-MiniLM-L12-v2 pour l’embedding et mmarco-mMiniLMv2 pour le reranking, par `add_custom_model` : le catalogue ne contient aucun reranker multilingue sous licence compatible.
   - **Banc.** `tools/bench/story12_bench.py embed --download`, avant la story 15.
-- **Test préalable du modèle de décision** (V2, stories 6 et 7, CAP-6) : relevés sur le PC cible le 2026-10-03, verdicts validés par Anaël le même jour. À l'échelon 2, **`deberta_xsmall` est retenu par défaut**. tev1 0.8B, servi par Ollama, reste à mesurer dans la story 8. Aucune story de routage (CAP-7, CAP-8) ne part sans ce verdict.
+- **Test préalable du modèle de décision** (V2, stories 6 et 7, CAP-6) : relevés sur le PC cible le 2026-10-03, verdicts validés par Anaël le même jour. À l'échelon 2, **`deberta_xsmall` est retenu par défaut**. tev1 0.8B, servi par Ollama, est écarté par la story 8 (latence : 2 655 ms de médiane) ; Julia-1, servi par llama-server, est retenu par le banc de la story 9 mais peu utile en l'état (accord sur le coût 9/20), Laya écarté (1 478 ms). Aucune story de routage (CAP-7, CAP-8) ne part sans ce verdict.
   - **Verdicts.**
     - `deberta_xsmall` (MoritzLaurer, ONNX quantifié, MIT) est **retenu**, avec 2 285 Mo de pic et SLM compris, 3 455 Mo avec le RAG V1, et 107 / 253 ms.
     - `deberta_base` est **retenu, RAG éteint seulement**, car il monte à 4 332 Mo avec le RAG V1.
@@ -881,7 +881,7 @@ wavestack/                      # racine du dépôt
     - Aucune tentative réseau.
     - Licences des paquets ajoutés, présence de torch, commit et versions consignés, pas de `trust_remote_code` sans relecture.
   - **Déjà tranché sans mesure.** Llama-Guard-3-1B et Qwen3Guard-Gen-0.6B sont génératifs : jamais classifieurs coexistants (AD-8). Arch-Router-1.5B est écarté pour sa licence (NFR-10).
-  - **Reste à mesurer (story 8).** tev1 0.8B, servi par Ollama 0.35 (`/v1/systemone`). C'est un modèle causal : au mieux « à surveiller » tant que la règle d'un seul modèle génératif (AD-8) n'est pas revue. La RAM compte aussi le processus Ollama.
+  - **Mesurés dans les stories 8 et 9 (2026-10-03).** tev1 0.8B, servi par Ollama 0.35.1 (`/v1/systemone`), est **écarté** par sa latence (2 655 ms de médiane, 2,6 fois le seuil) ; sa RAM, Ollama compris, dépasse aussi de 75 Mo. Julia-1, servi par un llama-server portable, est **retenu par le banc** (2 330 Mo, 170 ms ; critère 1 accepté par Anaël, le binaire portable admis comme Ollama), mais son accord sur le coût (9/20) est sous le taux de base. Laya est **écarté** (1 478 ms). Les conditions d'un nouvel essai sont dans `deferred-work.md`.
   - **Rapport.** `_bmad-output/implementation-artifacts/rapport-test-prealable-modeles-de-decision.md`. `decision-model-candidates.md` se met à jour par un passage de bmad-spec.
 - **Schéma YAML des scénarios** : fixé par la première story de scénarios dans un modèle pydantic, dans le cadre d’AD-19.
 - **Bibliothèque JS éventuelle** (JS natif, ou petite bibliothèque recopiée) : première story d’interface, dans le cadre d’AD-18.
