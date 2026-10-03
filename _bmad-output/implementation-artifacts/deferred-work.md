@@ -808,6 +808,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-r1-lenteur-models-payload.md`
   summary: `probe._header_kv` (cache `lru_cache` par chemin, taille, mtime) relit en Python pur les en-têtes GGUF que `catalog.header_metadata` garde déjà, dans le même processus ; chaque lecture coûte 0,1 à 0,5 s sur le PC pro.
   evidence: Revue du 02/10 (spec R1). Antérieur au correctif. Non mesuré : pour trancher, chronométrer `discovery.discover()` (6,2 s sur le PC pro, 39 candidats) et voir la part de `_header_kv` ; si elle compte, faire passer `_header_kv` par `catalog.header_metadata`. Le saut par blocs du vocabulaire (`gguf_meta._skip_strings`) l'a déjà rendu 3 fois plus rapide.
+  closed: 2026-10-04 (nuit de finition V1, 1-D, #19) — mesuré sur le PC cible (41 candidats, dont 19 modèles Ollama, Ollama 0.35.1) : sous cProfile, `_header_kv` faisait 82 % de `discovery.discover()` (8,4 s sur 10,2 s), au-dessus du seuil de 20 %. `_header_kv` passe désormais par `catalog.header_metadata` (une lecture d'en-tête par version de fichier pour les deux usages) ; sans profileur, `discover()` puis les en-têtes du catalogue : 6,5 s avant, 3,5 à 4,2 s après. `tests/test_probe.py::test_the_kv_and_the_catalog_read_a_header_once`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-r1-lenteur-models-payload.md`
   summary: R3 (vérification 4 du 02/10) — un arrêt volontaire du téléchargement d'un modèle du RAG s'affiche sur la carte en rouge, comme un échec (« Cause: download stopped »), avec la consigne de copier le fichier à la main.
