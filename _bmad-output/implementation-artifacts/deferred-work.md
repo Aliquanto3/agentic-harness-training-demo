@@ -828,6 +828,7 @@
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/7-recette-pc-des-restes-fournisseurs-cloud-ollama-telechargements.md`
   summary: Premier lancement depuis un dossier de données vide, sur un poste qui a beaucoup de modèles Ollama : le diagnostic sonde chaque GGUF dans un processus enfant, environ 10 minutes ici (18 modèles), avant de proposer un choix.
   evidence: Recette du 2026-10-02 (E073, `WAVESTACK_DATA_DIR` jetable ; piles relevées : `diagnostic._run_probe` par candidat). Les sondes sont ensuite en cache (`probed_models`). À mesurer au lancement depuis l'archive zip ; piste : sonder à la demande ou en arrière-plan après l'affichage de la liste.
+  closed: 2026-10-04 (nuit de finition V1, 1-D, #22) — limite connue, décision d'Anaël du 2026-10-03 (plan de la nuit, [A]) : README, section « Diagnostic de démarrage », « Premier lancement long sur un poste qui a beaucoup de modèles » (une dizaine de minutes pour 18 modèles Ollama, « n modèles testés sur N », résultats gardés dans settings.json). Pas de sonde à la demande en V1.
 
 - source_spec: `_bmad-output/specs/spec-restes-differes-2026-10/stories/7-recette-pc-des-restes-fournisseurs-cloud-ollama-telechargements.md`
   summary: Scénario `subagent`, prompt 1, avec Qwen3.5-2B : la réponse finale du modèle principal (résumé en cinq points) atteint la réserve de sortie de 512 tokens et le tour finit en `limit`, réponse coupée.
@@ -910,6 +911,7 @@
 - source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/3-anthropic-par-l-api-messages.md`
   summary: Réflexion entrelacée : `_anthropic_messages` (`context/render.py`) renvoie tous les `thinking_blocks` en tête du message assistant, avant le texte et les `tool_use`. Si Claude produit thinking → texte → thinking → tool_use dans une même réponse, l'ordre renvoyé diffère de l'ordre reçu. Non vérifié ; serait moyen.
   evidence: Revue de la PR #20 (Edge Case Hunter). Aucune mesure du 2026-10-03 ne montre de bloc `thinking` après un texte dans une même réponse, et la recette a passé. Pour trancher : un appel Sonnet 5 (réflexion adaptative) qui écrit un texte avant un `tool_use`, en relevant l'ordre des blocs bruts, puis le renvoi (accepté, `reasoning_dropped` ou 400).
+  closed: 2026-10-04 (nuit de finition V1, 1-D, #34) — mesuré : trois appels réels à Sonnet 5 (réflexion adaptative résumée, `block_binding` drop_block, outil calculator, prompts qui demandent une phrase avant l'appel puis une phrase entre deux appels) : blocs reçus `thinking, text, tool_use` puis `thinking, text, tool_use, tool_use`, jamais de `thinking` après un texte ; renvoi dans l'ordre de WaveStack (réflexions en tête, texte, appels) accepté trois fois, `input_transformations` vide (aucun `reasoning_dropped`). Ordre inchangé ; à rouvrir si un `thinking` après un texte apparaît un jour dans le journal. Coût ≈ 0,05 $.
 
 ## Deferred from: code review of 3-anthropic-par-l-api-messages, groupe 2 (2026-10-03)
 

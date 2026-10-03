@@ -68,8 +68,15 @@ chemin d'un fichier `.gguf` (partage, clé USB, cache Hugging Face, LM Studio, O
   diagnostic s'ouvre.
 - Si WaveStack tourne déjà, la commande ouvre l'interface principale quand l'instance est prête,
   sinon le diagnostic.
-- Le diagnostic reste accessible par l'indicateur de modèle de la barre haute et par l'entrée
-  « Diagnostic » du menu « Volets ▾ ».
+- Le diagnostic reste accessible par l'indicateur de modèle de la barre haute et par le lien
+  « Diagnostic » de la barre de navigation, en haut de chaque page.
+
+**Premier lancement long sur un poste qui a beaucoup de modèles.** Avant de proposer un choix,
+le diagnostic teste chaque fichier GGUF trouvé (dossier des modèles, cache Hugging Face,
+LM Studio, Ollama), chacun dans un processus à part. Sur un poste qui a beaucoup de modèles
+Ollama, comptez une dizaine de minutes (18 modèles le 2026-10-02) ; la page dit « n modèles
+testés sur N ». Les résultats sont gardés dans `settings.json` : les lancements suivants ne
+refont pas ces tests (sauf pour un fichier modifié).
 
 ## Programme de formation
 
