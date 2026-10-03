@@ -111,3 +111,5 @@ Lecture : le coût ne peut pas être comparé au centime près, comme prévu (se
 ## 9. Gemini 3.5 flash-lite : réflexion en streaming (décision du 03/10)
 
 Sonde sur l'API réelle (prompt du scénario Raisonnement, streaming) : à `thinking_level` « medium », le résumé de la réflexion (`<thought>…</thought>`) n'arrive que 3 fois sur 8 ; à « high », 4 fois sur 4 (non-streaming : 4 sur 4). Ce n'est pas un défaut de WaveStack : l'API n'émet le résumé que lorsque la réflexion est assez longue, et le traducteur `openai_chat.py` lit déjà tous les formats observés. Décision d'Anaël : `high` pour `gemini-3.5-flash-lite` (config `wavestack.toml`, README, tests, E2E `gemini_shape`) ; Gemma et les autres fournisseurs inchangés. Coût : une réflexion plus longue, facturée comme sortie (2,50 $ par million de tokens).
+
+Sonde rejouée à `high` après le changement (03/10, streaming, 8 appels par prompt) : prompt du train 8 sur 8, prompt de logique (trois amis) 8 sur 8 ; 3,9 à 7,5 s par appel. Soit 16 sur 16 avec le résumé de réflexion visible, contre 3 sur 8 à « medium ».
