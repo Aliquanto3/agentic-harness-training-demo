@@ -3747,7 +3747,11 @@ class AppSession:
             subagent_tools=tuple(sub_tools),
             rag_rerank=rerank,
             rag_rerank_skipped_text=skipped,
-            resend=self._resend() if "reasoning" in effective else None,
+            # A model that always reasons gets its reasoning back with the brick off too: a
+            # signed block missing before its `tool_use` is a 400 (native providers 3/5).
+            resend=self._resend()
+            if "reasoning" in effective or (self._caps is not None and self._caps.reasoning_always)
+            else None,
             resend_tags=self._resend_tags(),
         )
 
@@ -6378,7 +6382,8 @@ class AppSession:
                         reasoning,
                         tuple(steps),
                         state.injection,
-                        *self._final_thinking,
+                        thinking=self._final_thinking[0],
+                        thinking_for=self._final_thinking[1],
                     )
                     with self._lock:
                         self._history.append(exchange)
@@ -8259,8 +8264,9 @@ class AppSession:
         """`model_call_started.sampling` (story 29): a local engine always takes the four
         values, the harness's (`harness`) or the screen's (`screen`); a cloud model takes
         only what its entry declares, and only from the screen, else nothing is sent and the
-        provider keeps its own (`provider`). Native providers 3/5: nothing either to Anthropic
-        while the model thinks (`reasons`), which the note says."""
+        provider keeps its own (`provider`). Native providers 3/5 and 4/5: nothing either to a
+        native API (Anthropic, Responses) while the model thinks (`reasons`, or an entry that
+        always reasons), which the note says."""
         cloud = self._cloud
         if cloud is None:
             chosen = sampling or DEFAULT_SAMPLING

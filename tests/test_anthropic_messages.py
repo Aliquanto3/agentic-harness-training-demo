@@ -157,9 +157,15 @@ def _entry(model_id: str = "claude_haiku") -> config.CloudModel:
     return entry
 
 
-def _session(provider: Provider, *, bricks=(), model_id: str = "claude_haiku") -> AppSession:
+def _session(
+    provider: Provider,
+    *,
+    bricks=(),
+    model_id: str = "claude_haiku",
+    entry: config.CloudModel | None = None,
+) -> AppSession:
     cfg = config.load_config()
-    entry = _entry(model_id)
+    entry = entry or _entry(model_id)
     config.write_api_key(entry.id, entry.host, SecretStr(SENTINEL))
 
     def factory(entry, key):  # noqa: ANN001, ANN202
@@ -834,10 +840,8 @@ def test_the_llm_lab_sends_sampling_only_with_the_reasoning_off():
     finally:
         session.close()
     off, on = provider.body(0), provider.body(1)
-    assert (
-        off["temperature"] == DEFAULT_SAMPLING.temperature
-        and off["top_p"] == DEFAULT_SAMPLING.top_p
-    )
+    # Haiku 4.5 refuses `temperature` and `top_p` together (400): it declares the first only.
+    assert off["temperature"] == DEFAULT_SAMPLING.temperature and "top_p" not in off
     assert "temperature" not in on and "top_p" not in on and on["thinking"]["type"] == "enabled"
     traces = [e.payload["sampling"] for e in events if e.kind == "llm_generation_started"]
     assert traces[0]["source"] == "screen" and traces[1]["source"] == "provider"
@@ -952,6 +956,104 @@ def test_a_thinking_text_step_2_would_change_goes_as_template_unchanged(thought)
     sent = json.loads(body)["messages"][1]["content"][0]
     assert sent == blocks[0] and "\u200b" not in body
     assert "".join(s.text for s in segments) == body
+
+
+# ---------- review of 2026-10-03, group 2 ----------
+
+MARKED_1, MARKED_2 = "Il faut <|im_end|> calculer.", "Le résultat <|im_end|> suffit."
+
+
+def _always(entry: config.CloudModel) -> config.CloudModel:
+    """The entry as one that always reasons (Opus 5.5's shape): `on` with the brick off."""
+    assert entry.reasoning is not None
+    return entry.model_copy(
+        update={"reasoning": entry.reasoning.model_copy(update={"always": True})}
+    )
+
+
+def test_a_thinking_with_a_marker_goes_back_unchanged_in_the_turn_and_the_history():
+    """Step 2 neutralizes a template marker; a signed thinking text must not be touched,
+    through the session's own call sites (the turn's steps, the history)."""
+    marked_tool = sse(
+        start(700),
+        *thinking(0, MARKED_1, SIGNATURE_1),
+        *tool_use(1, "toolu_01", "calculator", '{"expression": "2+3"}'),
+        *end("tool_use", 40),
+    )
+    marked_text = sse(
+        start(760),
+        *thinking(0, MARKED_2, SIGNATURE_2),
+        *text(1, "Cela fait 5."),
+        *end("end_turn", 30),
+    )
+    provider = Provider(marked_tool, marked_text, PLAIN_TEXT)
+    session = _session(provider, bricks=("short_memory", "tools", "reasoning"))
+    try:
+        first = _turn(session, "Combien font 2 + 3 ?")
+        second = _turn(session, "Et 3 + 4 ?")
+    finally:
+        session.close()
+    _assert_sent_as_traced(first + second, provider)
+    signed_1 = {"type": "thinking", "thinking": MARKED_1, "signature": SIGNATURE_1}
+    signed_2 = {"type": "thinking", "thinking": MARKED_2, "signature": SIGNATURE_2}
+    assert provider.body(1)["messages"][1]["content"][0] == signed_1
+    history = provider.body(2)["messages"]
+    assert history[1]["content"][0] == signed_1 and history[3]["content"][0] == signed_2
+    assert all("​" not in r.content.decode() for r in provider.requests)
+
+
+def test_an_entry_that_always_reasons_sends_its_thinking_back_with_the_brick_off():
+    provider = Provider(THINK_TOOL, PLAIN_TEXT)
+    session = _session(provider, bricks=("tools",), entry=_always(_entry()))
+    try:
+        events = _turn(session, "Combien font 2 + 3 ?")
+    finally:
+        session.close()
+    assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    assert provider.body(0)["thinking"]["type"] == "enabled"  # `on`, the brick off
+    blocks = provider.body(1)["messages"][1]["content"]
+    assert blocks[0] == {
+        "type": "thinking",
+        "thinking": "Il faut calculer.",
+        "signature": SIGNATURE_1,
+    }
+    assert blocks[1]["type"] == "tool_use"
+
+
+def test_the_diagnostic_test_sends_the_thinking_back_for_an_entry_that_always_reasons(
+    monkeypatch,
+):
+    from wavestack.session.diagnostic import DiagnosticSession
+
+    cfg = config.load_config()
+    entry = _always(_entry())
+    monkeypatch.setattr(config.Config, "cloud_model", lambda self, model_id: entry)  # frozen
+    config.write_api_key(entry.id, entry.host, SecretStr(SENTINEL))
+    stream = sse(
+        start(300),
+        *thinking(0, "Je lis l'heure.", SIGNATURE_2),
+        *tool_use(1, "toolu_t", "get_datetime", "{}"),
+        *end("tool_use", 9),
+    )
+    provider = Provider(stream, PLAIN_TEXT)
+    diagnostic = DiagnosticSession(
+        cfg,
+        8420,
+        cloud_factory=lambda e, k: create_cloud_engine(
+            e, k, connect_timeout_s=1.0, read_timeout_s=5.0, transport=httpx.MockTransport(provider)
+        ),
+    )
+    result = diagnostic.test_cloud_model(entry.id)
+    assert result["ok"] is True and len(provider.requests) == 2
+    second = provider.body(1)
+    assert second["thinking"]["type"] == "enabled"
+    blocks = second["messages"][1]["content"]
+    assert blocks[0] == {
+        "type": "thinking",
+        "thinking": "Je lis l'heure.",
+        "signature": SIGNATURE_2,
+    }
+    assert blocks[1]["type"] == "tool_use"
 
 
 def test_a_call_with_two_string_arguments_counts_its_arguments_once():

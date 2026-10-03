@@ -456,7 +456,7 @@ resend = false
 # compression, mémoire, briques changées) : avec prefix_mismatch_behavior = "drop_block",
 # Anthropic jette la réflexion devenue invalide au lieu de refuser l'appel (400), et le journal
 # le dit (événement reasoning_dropped). Haiku 4.5 et Sonnet 5 ne font pas ce contrôle
-# d'historique (propre à Opus 5.5, Fable 5.1 et Sonnet 5.5, seuls à pouvoir produire cet
+# d'historique (propre à Opus 5.5 et Fable 5.1, seuls à pouvoir produire cet
 # événement) : l'en-tête leur est envoyé quand même.
 # block_binding n'est déclaré que dans reasoning.on : avec { type = "disabled" }, Anthropic le
 # refuse (400 « thinking.disabled.block_binding: Extra inputs are not permitted », mesuré sur
@@ -465,8 +465,9 @@ resend = false
 # seul modèle qui l'a produite ; sans elle, une boucle d'outils avec réflexion est refusée.
 # La clé vient de ANTHROPIC_API_KEY ou se saisit au diagnostic (en-tête x-api-key).
 # Haiku 4.5 : réflexion manuelle, budget de 1 024 tokens, sous la réserve de 1 536 (512 restent
-# à la réponse) ; température et top-p réglables au « LLM nu », réflexion éteinte seulement
-# (Anthropic les refuse avec la réflexion).
+# à la réponse) ; température réglable au « LLM nu », réflexion éteinte seulement (Anthropic
+# la refuse avec la réflexion). Pas de top-p : Haiku 4.5 refuse temperature et top_p ensemble
+# (400, guide de migration d'Anthropic relu le 2026-10-03).
 [[cloud.models]]
 id = "claude_haiku"
 provider = "Anthropic"
@@ -481,7 +482,7 @@ hosting_text = "Anthropic, États-Unis (inférence « global » par défaut ; pa
 training = "no"
 notes_text = "Les données envoyées par l'API ne servent pas à l'entraînement sans permission expresse et sont supprimées sous 30 jours (conditions relevées le 2026-10-03). Prix et quotas à lire dans la console Anthropic."
 key_env = "ANTHROPIC_API_KEY"
-sampling = ["temperature", "top_p"]
+sampling = ["temperature"]
 pricing = { input_usd_per_mtok = 1.0, output_usd_per_mtok = 5.0, cache_read_usd_per_mtok = 0.10, cache_write_usd_per_mtok = 1.25, checked = "2026-10-03" }
 # GreenOps : EcoLogits 0.11.2 connaît claude-haiku-4-5 chez anthropic.
 impacts = { provider = "anthropic", model = "claude-haiku-4-5" }
@@ -525,7 +526,8 @@ resend = true
 # Claude Opus 5.5 (non activé : à recopier dans settings.json, enabled = true) : 4 $ / 20 $ par
 # million de tokens, cache lu 0,20 $, écrit 5 $ ; 1 000 000 tokens. Sa réflexion ne s'éteint
 # pas (disabled et budget_tokens refusés, 400) : always = true, l'effort seul la règle
-# (output_config.effort, medium par défaut, low pour l'éteindre au mieux). Il fait le contrôle
+# (output_config.effort, medium ici). Une entrée always n'envoie que on, brique Raisonnement
+# éteinte comprise : pas de bloc off. Il fait le contrôle
 # d'historique de la réflexion conservée : block_binding et l'en-tête bêta y sont nécessaires.
 # impacts : vérifier qu'EcoLogits connaît claude-opus-5-5 (sinon le retirer, ou estimer par
 # un modèle proche avec note_text).
@@ -544,15 +546,15 @@ resend = true
 #  "reasoning": {"format": "thinking_blocks", "always": true, "resend": true,
 #    "on": {"thinking": {"type": "adaptive", "display": "summarized",
 #      "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
-#      "output_config": {"effort": "medium"}},
-#    "off": {"output_config": {"effort": "low"}}}}
+#      "output_config": {"effort": "medium"}}}}
 
 # Fournisseurs natifs 4/5 : GPT-6 Luna d'OpenAI par l'API Responses (api = "openai_responses",
 # HTTP brut, sans SDK). Par Chat Completions, GPT-6 n'appelle d'outils que raisonnement éteint
 # (Luna ; Sol jamais) et ne renvoie jamais son raisonnement : d'où l'API Responses, sans état
 # (store = false toujours, jamais previous_response_id) ; l'historique entier part à chaque
 # appel, comme pour les autres fournisseurs. Clé dans l'en-tête Authorization: Bearer (défaut).
-# Prix de la fiche du modèle relue le 2026-10-03 (à revérifier) : 0,10 $ / 0,50 $ par million
+# Prix lus sur la fiche du modèle le 2026-10-03 (la page des prix d'OpenAI a répondu 403 : à
+# revérifier sur celle-ci) : 0,10 $ / 0,50 $ par million
 # de tokens, cache lu 0,01 $ (le cache d'OpenAI est automatique, sans écriture facturée) ; les
 # tokens de raisonnement sont facturés comme sortie.
 # Conditions relevées le 2026-10-03 : les données de l'API ne servent pas à l'entraînement par
@@ -593,7 +595,8 @@ resend = true
 
 # GPT-6.1 Sol (non activé : à recopier dans settings.json, enabled = true) : 2 $ / 10 $ par
 # million de tokens, cache lu 0,10 $ ; 1 050 000 tokens. Il raisonne toujours (always = true) :
-# effort « medium » brique allumée, « low » éteinte. impacts : vérifier qu'EcoLogits connaît
+# effort « medium », brique Raisonnement allumée ou éteinte (une entrée always n'envoie que on,
+# pas de bloc off). impacts : vérifier qu'EcoLogits connaît
 # gpt-6.1-sol (sinon le retirer, ou estimer par un modèle proche avec note_text).
 # {"id": "openai_sol", "provider": "OpenAI", "base_url": "https://api.openai.com/v1",
 #  "model": "gpt-6.1-sol", "api": "openai_responses", "max_tokens_field": "max_output_tokens",
@@ -605,8 +608,7 @@ resend = true
 #  "pricing": {"input_usd_per_mtok": 2.0, "output_usd_per_mtok": 10.0,
 #    "cache_read_usd_per_mtok": 0.10, "checked": "2026-10-03"},
 #  "reasoning": {"format": "reasoning_items", "always": true, "resend": true,
-#    "on": {"reasoning": {"effort": "medium", "summary": "auto"}},
-#    "off": {"reasoning": {"effort": "low", "summary": "auto"}}}}
+#    "on": {"reasoning": {"effort": "medium", "summary": "auto"}}}}
 
 # Exemples à recopier dans settings.json (entrée complète, enabled = true), avec leur
 # avertissement. Leur hôte rejoint alors la liste d'adresses autorisées.

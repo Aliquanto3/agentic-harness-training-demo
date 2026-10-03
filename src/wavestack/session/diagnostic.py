@@ -1127,6 +1127,12 @@ class DiagnosticSession:
                     if call.get("extra_content"):  # Gemini 3.x: its thought signature
                         replayed["extra_content"] = call["extra_content"]
                     assistant["tool_calls"] = [replayed]
+                    # Native providers 3/5, 4/5: the reasoning blocks received go back verbatim
+                    # (an entry that always reasons gets `on` here: a `tool_use` without its
+                    # signed block is a 400).
+                    reasoning = entry.reasoning
+                    if reasoning is not None and reasoning.resend and out.thinking_blocks:
+                        assistant[reasoning.format] = list(out.thinking_blocks)
                     reply = [Part(SegmentKind.TOOL_RESULT, test.tool_reply)]
                     messages += [
                         assistant,

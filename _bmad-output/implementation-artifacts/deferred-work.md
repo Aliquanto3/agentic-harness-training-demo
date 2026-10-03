@@ -874,3 +874,13 @@
 - source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/3-anthropic-par-l-api-messages.md`
   summary: Réflexion entrelacée : `_anthropic_messages` (`context/render.py`) renvoie tous les `thinking_blocks` en tête du message assistant, avant le texte et les `tool_use`. Si Claude produit thinking → texte → thinking → tool_use dans une même réponse, l'ordre renvoyé diffère de l'ordre reçu. Non vérifié ; serait moyen.
   evidence: Revue de la PR #20 (Edge Case Hunter). Aucune mesure du 2026-10-03 ne montre de bloc `thinking` après un texte dans une même réponse, et la recette a passé. Pour trancher : un appel Sonnet 5 (réflexion adaptative) qui écrit un texte avant un `tool_use`, en relevant l'ordre des blocs bruts, puis le renvoi (accepté, `reasoning_dropped` ou 400).
+
+## Deferred from: code review of 3-anthropic-par-l-api-messages, groupe 2 (2026-10-03)
+
+- source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/3-anthropic-par-l-api-messages.md`
+  summary: Le front de `reasoning_dropped` (`app.js` : `applyEnvelope`, `SUB_KINDS`, `applySubEnvelope`, ligne de `stepRows`, résumé du journal) n'est vérifié par aucun contrôle automatique.
+  evidence: Revue de la PR #20 (Verification Gap). Aucun test JS ; `tools/e2e/fake_openai.py` ne parle que Chat Completions et ne peut émettre `input_transformations`. Pour fermer : un point d'API Messages dans le faux fournisseur E2E, puis une étape qui vérifie le titre « Raisonnement jeté par le fournisseur », la figure « historique réécrit » et le résumé « {reason} · {path} », au tour et au sous-agent.
+
+- source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/3-anthropic-par-l-api-messages.md`
+  summary: Un compte Anthropic à solde nul n'aurait pas le message « crédit épuisé » (`no_credit`), qui ne reconnaît que les codes d'OpenAI (`cloud_base.NO_CREDIT`). Non vérifié ; serait moyen.
+  evidence: Revue de la PR #20 (Blind Hunter). Pour trancher : relever la forme réelle de l'erreur (attendu : 400 `invalid_request_error`, message « credit balance is too low ») et le message que WaveStack affiche aujourd'hui.

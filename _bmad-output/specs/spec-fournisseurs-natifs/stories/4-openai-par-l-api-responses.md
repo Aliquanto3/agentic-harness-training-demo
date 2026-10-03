@@ -90,6 +90,10 @@ Revue de la PR #20 du 2026-10-03, groupe 1 (voir aussi la story 3 : les tests d'
 - `low` : l'ordre des items `reasoning` entre `message` et `function_call` est reconstruit dans l'ordre du pivot. Les formes mesurées le 2026-10-03 sont acceptées.
 - rejetée par règle : écarts au texte figé de la story (`strict: false`, placement par `FOLLOWS`, `model_context_window_exceeded` en « contexte dépassé » à la story 3), sans entrée au Spec Change Log. Le correctif modifierait la spec relue.
 
+Revue de la PR #20 du 2026-10-03, groupe 2 (voir la story 3 : les deux décisions, le renvoi pour une entrée `always`, le test des marqueurs au niveau session et le rejeu de « Tester » valent aussi pour Responses et l'exemple Sol).
+
+- [x] [Review][Patch] `pricing.checked = "2026-10-03"` pour Luna alors que le commentaire dit « (à revérifier) » et que la doc d'OpenAI a répondu 403 : dire ce qui a été lu (la fiche du modèle) et ce qui ne l'a pas été (la page des prix). [`wavestack.toml:555`]
+
 ## Implementation Notes
 
 - Clé réelle : `OPENAI_API_KEY` est dans l'environnement UTILISATEUR de Windows (registre), pas dans celui des shells ouverts. La lire par `powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('OPENAI_API_KEY','User')"` et la passer au seul processus de mesure, sans jamais l'afficher, la journaliser, l'écrire dans un fichier ni la commiter. `tests/conftest.py` doit retirer `OPENAI_API_KEY` de l'environnement des tests, comme `ANTHROPIC_API_KEY`.
@@ -103,6 +107,8 @@ Revue de la PR #20 du 2026-10-03, groupe 1 (voir aussi la story 3 : les tests d'
 - Mesures du soir (2026-10-03, crédit rechargé par Anaël ; 39 requêtes, 0,0024 $) : (2) l'effort ne force pas le raisonnement (0 token sur une tâche simple en « low » comme en « medium ») ; sur une énigme, « low » raisonne (71 tokens) et montre le résumé, « medium » un peu plus (96) : `on` garde « low ». (3) items `reasoning` renvoyés avec leur `id` sous `store: false` acceptés, avant un `function_call` comme avant un `message` et avant deux appels parallèles ; `function_call` et `message` reconstruits sans `id` `fc_`/`msg_` acceptés ; entrelacement rs/fc/rs/fc non obtenu (un item `reasoning` par réponse). (5) résumé visible sans vérification d'organisation, en anglais, parfois vide malgré des tokens de raisonnement (`summary: "auto"`, rendu `"detailed"`). Recette par `AppSession` : tour Outils (résumé, deux appels parallèles, item `rs_…` renvoyé juste avant eux) et tour Raisonnement (résumé, item renvoyé avant le `message` au tour suivant) réussis. Forme réelle des événements conforme à l'adaptateur ; l'item réel porte `content: []`, renvoyé tel quel. Aucun défaut de code, aucun changement après mesure.
 
 ## Spec Change Log
+
+- 2026-10-03, revue de la PR #20 (groupe 2), décision d'Anaël : l'exemple commenté `gpt-6.1-sol` perd son bloc `off` (effort « low ») ; l'effort reste « medium », brique allumée ou éteinte (Always, « effort `medium` / `low` »). Une entrée `always = true` n'envoie que `on` (`CloudModel.reasoning_params`, AD-6), le `off` était mort. Même correction pour l'exemple Opus 5.5 de la story 3.
 
 ## Review Triage Log
 

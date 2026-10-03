@@ -473,6 +473,10 @@ def test_size_text():
         ([], ["GPT4All-Falcon"], "other"),
         ([], ["Cerebras-GPT-111M"], "other"),
         ([], ["KoGPT2-base"], "other"),
+        # Native providers 3/5: Anthropic's Claude by its name's start, not a distilled model.
+        ([], ["claude-haiku-4-5"], "claude"),
+        ([], ["claude-sonnet-5"], "claude"),
+        ([], ["tiny-claude-distill"], "other"),
         (["unknown", "openai_chat"], ["qwen3:0.6b"], "qwen"),  # families that say nothing
     ],
 )

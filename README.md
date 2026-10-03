@@ -844,10 +844,11 @@ raisonnement reçus repartent tels quels, signature comprise, au seul modèle qu
 WaveStack réécrivant l'historique par conception (fenêtre, troncature, compression, mémoire,
 briques changées), chaque requête demande à Anthropic de jeter un raisonnement devenu invalide
 plutôt que de refuser l'appel ; quand il le fait, le journal le dit (« Raisonnement jeté », avec
-la cause). Seuls les modèles qui font ce contrôle d'historique (Opus 5.5, Fable 5.1, Sonnet 5.5)
-peuvent produire cette ligne : avec les préréglages actifs, Haiku 4.5 et Sonnet 5, elle
-n'apparaît pas. Température et top-p (écran « LLM nu », Haiku seulement) ne partent que
-raisonnement éteint : Anthropic les refuse avec le raisonnement. Le cache de prompt d'Anthropic
+la cause). Seuls les modèles qui font ce contrôle d'historique (Opus 5.5, Fable 5.1) peuvent
+produire cette ligne : avec les préréglages actifs, Haiku 4.5 et Sonnet 5, elle n'apparaît pas.
+La température (écran « LLM nu », Haiku seulement) ne part que raisonnement éteint : Anthropic la
+refuse avec le raisonnement. Pas de top-p : Haiku 4.5 refuse la température et le top-p
+ensemble. Le cache de prompt d'Anthropic
 n'est jamais activé. Opus 5.5 figure en commentaire dans `wavestack.toml` (son raisonnement ne
 s'éteint pas).
 

@@ -983,3 +983,38 @@ def test_the_diagnostic_test_runs_through_the_responses_api():
         "function_call_output",
     ]
     assert second["input"][1]["arguments"] == "{}"
+
+
+# ---------- review of 2026-10-03, group 2 ----------
+
+
+def test_a_summary_with_a_marker_goes_back_unchanged_in_the_turn_and_the_history():
+    """Step 2 neutralizes a template marker; a reasoning item's summary must not be touched,
+    through the session's own call sites (the turn's steps, the history)."""
+    marked_1, marked_2 = "Il faut <|im_end|> calculer.", "Le résultat <|im_end|> suffit."
+    marked_tool = sse(
+        created(),
+        *reasoning(0, "rs_1", ENCRYPTED_1, marked_1),
+        *function_call(1, "call_01", "calculator", '{"expression": "2+3"}'),
+        completed(700, 40, thought=20),
+    )
+    marked_text = sse(
+        created(),
+        *reasoning(0, "rs_2", ENCRYPTED_2, marked_2),
+        *message(1, "Cela fait 5."),
+        completed(760, 30, thought=10),
+    )
+    provider = Provider(marked_tool, marked_text, PLAIN_TEXT)
+    session = _session(provider, bricks=("short_memory", "tools", "reasoning"))
+    try:
+        first = _turn(session, "Combien font 2 + 3 ?")
+        second = _turn(session, "Et 3 + 4 ?")
+    finally:
+        session.close()
+    _assert_sent_as_traced(first + second, provider)
+    summary_1 = [{"type": "summary_text", "text": marked_1}]
+    summary_2 = [{"type": "summary_text", "text": marked_2}]
+    assert provider.body(1)["input"][1]["summary"] == summary_1
+    history = provider.body(2)["input"]
+    assert history[1]["summary"] == summary_1 and history[4]["summary"] == summary_2
+    assert all("\u200b" not in r.content.decode() for r in provider.requests)

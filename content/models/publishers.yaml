@@ -75,7 +75,7 @@ publishers:
   - id: claude
     label_text: Claude (Anthropic)
     architectures: []
-    names: ['claude']
+    names: ['^claude']
   - id: gpt
     label_text: GPT (OpenAI)
     architectures: []
