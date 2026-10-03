@@ -72,3 +72,17 @@
     d'Anaël. Modèle : tools/bench/story12_bench.py. Aucune dépendance ajoutée au projet
     (uv run --with), aucun changement sous src/wavestack. Les mesures du conteneur ne valent pas
     verdict : le relevé sur le PC cible le fait.
+- id: "7"
+  title: "V2 (7/7) : banc des nouveaux candidats de décision"
+  description: >-
+    Étendre le banc de la story 6 à Decision 2.0 Kai 0.6B et aux deux encodeurs NLI multilingues
+    de decision-model-candidates.md, puis consigner leur verdict relevé sur le PC cible (CAP-6).
+    Taille S à M, plus un relevé manuel sur le PC cible.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Permise avant le pilote, comme la story 6 : c'est un banc, pas une fonction. Étendre
+    tools/bench/v2s6_decision_bench.py sans le dupliquer ; aucune dépendance ajoutée au projet
+    (uv run --with), aucun changement sous src/wavestack. Relire et épingler le code distant de
+    Decision 2.0 avant toute exécution. Le PC (16 Go) est partagé : une mesure à la fois, au
+    premier plan.

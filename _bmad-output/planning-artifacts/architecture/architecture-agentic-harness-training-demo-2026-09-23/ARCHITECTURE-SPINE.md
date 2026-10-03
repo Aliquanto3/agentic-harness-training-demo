@@ -848,12 +848,23 @@ wavestack/                      # racine du dépôt
   - **Déjà validé.** Le reranking par llama-cpp-python 0.3.35 est validé sur un GGUF synthétique : score lu par `llama_get_embeddings_seq`, car `Llama.embed()` ne convient pas à un reranker. Sa qualité reste à mesurer.
   - **Repli.** fastembed, avec paraphrase-multilingual-MiniLM-L12-v2 pour l’embedding et mmarco-mMiniLMv2 pour le reranking, par `add_custom_model` : le catalogue ne contient aucun reranker multilingue sous licence compatible.
   - **Banc.** `tools/bench/story12_bench.py embed --download`, avant la story 15.
-- **Test préalable du modèle de décision** (V2, story 6, CAP-6) : banc prêt le 2026-10-01, verdict **en attente du relevé sur le PC cible**. Aucune story de routage (CAP-7, CAP-8) ne part sans lui.
-  - **Banc.** `tools/bench/v2s6_decision_bench.py`, une commande par candidat de `decision-model-candidates.md` (liste : `list`). Chaque mesure se fait à côté du SLM par défaut chargé, sous la garde d'AD-15, sur vingt prompts des scénarios V1 et deux décisions : le coût, et la spécialité sur quatre critères écrits.
-  - **Critères.** RAM (pic total ≤ 4 096 Mo, SLM compris ; l'embedding et le reranker V1 sont donnés à part, pour information), latence d'une décision (médiane ≤ 1 s, maximum ≤ 3 s, seuils à valider), aucune tentative réseau, licences des paquets ajoutés, torch, commit et versions consignés sans `trust_remote_code`.
-  - **Déjà tranché sans mesure.** Llama-Guard-3-1B et Qwen3Guard-Gen-0.6B sont génératifs : jamais classifieurs coexistants (AD-8). Arch-Router-1.5B est écarté pour sa licence (NFR-10). Decision 1.0 reste écarté sans mesure tant qu'un relevé daté ne montre ni GGUF, ni ONNX, ni chemin CPU.
-  - **Repli.** Le SLM juge (critères dans le prompt, sortie contrainte par grammaire) ne charge aucun modèle de plus ; il est mesuré comme référence.
-  - **Rapport.** `_bmad-output/implementation-artifacts/rapport-test-prealable-modeles-de-decision.md` ; `decision-model-candidates.md` se met à jour ensuite, par un passage de bmad-spec.
+- **Test préalable du modèle de décision** (V2, story 6, CAP-6) : relevé sur le PC cible le 2026-10-03, verdict validé par Anaël le même jour. À l'échelon 2, **`deberta_xsmall` est retenu par défaut**. De nouveaux candidats restent à mesurer dans la story 7. Aucune story de routage (CAP-7, CAP-8) ne part sans ce verdict.
+  - **Verdicts.**
+    - `deberta_xsmall` (MoritzLaurer, ONNX quantifié, MIT) est **retenu**, avec 2 285 Mo de pic et SLM compris, 3 455 Mo avec le RAG V1, et 107 / 253 ms.
+    - `deberta_base` est **retenu, RAG éteint seulement**, car il monte à 4 332 Mo avec le RAG V1.
+    - nvidia/prompt-task-and-complexity-classifier est **à surveiller** : torch, étiquettes fixes, licence à relire.
+    - gliformer est **écarté** sur ses deux voies, pour la RAM et faute de roue Windows.
+    - Decision 1.0 est **à surveiller** : il a maintenant un chemin CPU, par Transformers avec `trust_remote_code` et torch.
+    - Le SLM juge est le **repli (référence)**, à +143 Mo et 4,7 s de médiane.
+  - **Banc.** `tools/bench/v2s6_decision_bench.py`, avec une commande par candidat de `decision-model-candidates.md` (liste : `list`). Chaque mesure se fait à côté du SLM par défaut chargé, sous la garde d'AD-15, sur vingt prompts des scénarios V1 et deux décisions : le coût, et la spécialité sur quatre critères écrits.
+  - **Critères.**
+    - RAM : pic total ≤ 4 096 Mo, SLM compris ; l'embedding et le reranker V1 sont donnés à part.
+    - Latence d'une décision : médiane ≤ 1 s et maximum ≤ 3 s (validés le 2026-10-03).
+    - Aucune tentative réseau.
+    - Licences des paquets ajoutés, présence de torch, commit et versions consignés, pas de `trust_remote_code` sans relecture.
+  - **Déjà tranché sans mesure.** Llama-Guard-3-1B et Qwen3Guard-Gen-0.6B sont génératifs : jamais classifieurs coexistants (AD-8). Arch-Router-1.5B est écarté pour sa licence (NFR-10).
+  - **Reste à mesurer (story 7).** Decision 2.0 Kai 0.6B : code distant relu et épinglé avant la mesure, au mieux « à surveiller ». Encodeurs NLI multilingues : mDeBERTa-v3-base-xnli-multilingual-nli-2mil7, et multilingual-MiniLMv2-L6-mnli-xnli en option légère.
+  - **Rapport.** `_bmad-output/implementation-artifacts/rapport-test-prealable-modeles-de-decision.md`. `decision-model-candidates.md` se met à jour par un passage de bmad-spec.
 - **Schéma YAML des scénarios** : fixé par la première story de scénarios dans un modèle pydantic, dans le cadre d’AD-19.
 - **Bibliothèque JS éventuelle** (JS natif, ou petite bibliothèque recopiée) : première story d’interface, dans le cadre d’AD-18.
 - **Outils du serveur MCP local, second skill, corpus RAG** : stories de contenu.

@@ -2,7 +2,7 @@
 title: 'V2 (6/6) : test préalable des modèles de décision'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 baseline_commit: '2269793edb480b92807883613809b1b421ec92cf'
 review_loop_iteration: 0
@@ -14,7 +14,7 @@ context:
 
 > Seule story que la contrainte « Déclenchement » permet avant le pilote, sur décision d'Anaël, donnée le 2026-10-01. Elle ne livre aucune fonction.
 
-> **Statut au 2026-10-01 : banc livré, testé et revu ; story en attente du relevé manuel sur le PC cible.** Elle reste `in-review` jusqu'à ce que le rapport `_bmad-output/implementation-artifacts/rapport-test-prealable-modeles-de-decision.md` porte les mesures et les verdicts, avec le PC et la date. Elle passe ensuite à `done`, après le passage de bmad-spec sur `decision-model-candidates.md`.
+> **Statut au 2026-10-03 : `done`.** Le relevé sur le PC cible est fait, et le rapport `_bmad-output/implementation-artifacts/rapport-test-prealable-modeles-de-decision.md` porte les mesures et les verdicts. Le passage de bmad-spec a mis à jour `decision-model-candidates.md`. Les candidats arrivés depuis (Decision 2.0 Kai, mDeBERTa, MiniLM multilingues) se mesurent dans la story 7.
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
 
@@ -94,6 +94,12 @@ context:
 - 2026-10-01 -- validé en mode nuit (Anaël absent, autorisation du 01/10 au soir) : revue (step-04), 25 constats ; tous les correctifs de type patch sont appliqués, sans loopback ni report. Fin du workflow (step-05) : le statut reste `in-review` au lieu de `done`, parce que le critère d'acceptation « mesures et verdict par candidat, avec le PC et la date » attend le relevé manuel sur le PC cible.
 - 2026-10-03 -- relevé sur le PC cible (lancé par Anaël le 02/10, joué par l'agent) : SLM juge « repli (référence) », `deberta_xsmall` et `deberta_base` « retenu », `nvidia` « à surveiller » (torch), `gliformer` non mesuré (mémoire du poste), `gliformer_onnx` « écarté sur le PC cible » (`fast-gliner` sans roue Windows), Decision 1.0 « à surveiller » (chemin CPU par Transformers). Défaut du banc trouvé et corrigé : `classify_license` lisait `BSL-1.0` (Boost) comme Business Source License, d'où un faux « écarté » pour `nvidia` ; verdict recalculé sur les mêmes mesures. Le statut reste `in-review` : seuils de latence à valider par Anaël, puis bmad-spec sur `decision-model-candidates.md`.
 - 2026-10-03 -- seuils de latence validés par Anaël au vu du relevé (médiane ≤ 1 000 ms, maximum ≤ 3 000 ms). Reste : bmad-spec sur `decision-model-candidates.md`, puis la story passe à `done`.
+- 2026-10-03 -- passage de bmad-spec fait. Choix d'Anaël :
+  - `deberta_xsmall` est le candidat par défaut de l'échelon 2, et `deberta_base` ne sert que RAG éteint ;
+  - `gliformer` est écarté (RAM, mesure indicative) ;
+  - Decision 2.0 Kai, mDeBERTa et MiniLM multilingues s'ajoutent aux candidats et se mesurent dans la story 7.
+
+  Le « Deferred » d'`ARCHITECTURE-SPINE.md` porte le verdict. Statut : `done`.
 
 ## Review Triage Log
 
