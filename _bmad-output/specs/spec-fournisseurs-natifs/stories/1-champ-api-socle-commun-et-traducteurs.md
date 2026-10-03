@@ -89,6 +89,12 @@ Revue de la PR #20 du 2026-10-03, groupe 1 (voir aussi les stories 3 et 4).
 - `low` : aucun validateur ne lie `api` et `reasoning.format` (par exemple `content_blocks` sur une entrée native rendrait le texte vide). Il faudrait une mauvaise configuration, et le correctif ajouterait un validateur.
 - `low` : un `code` d'erreur non hachable ferait lever `no_credit`. Jamais observé.
 
+Revue de la PR #20 du 2026-10-03, groupe 4a (tests), quatre couches.
+
+- [x] [Review][Patch] Commentaire périmé dans `_native_entry` : « `api` accepts `openai_chat` only » ; `api` accepte aussi `anthropic_messages` et `openai_responses` (`test_api_accepts_only_an_api_with_an_adapter`). Dire que `fake_api` n'est pas déclaré. [`tests/test_cloud_api.py:287`]
+- [x] [Review][Patch] Le test des empreintes appelle `render_chat_body` sans `api=entry.api` : il s'appuie sur le défaut, et la ligne « Corps inchangé » de la matrice (`render_chat_body(..., api=entry.api)`) n'est pas exercée telle quelle. Passer `api=entry.api` dans `reference_body`. [`tests/test_cloud_api.py:131`]
+- [x] [Review][Patch] `_no_cloud_key_variables` liste les variables à la main : chaque préréglage nouveau doit y penser (deux ajouts dans cette PR), et sur ce poste les clés réelles sont dans l'environnement utilisateur. Construire la liste à partir des `key_env` de `wavestack.toml`, ou tester que chaque `key_env` déclaré y figure. [`tests/conftest.py:131`]
+
 ## Implementation Notes
 
 - Empreintes relevées avant toute modification de `src/` : `tests/test_cloud_api.py` (historique de référence) écrit et `tests/fixtures/openai_chat_bodies.json` généré sur le code de `e09cfa6`, test vert, puis refactorisation ; le test est resté vert sans régénération. L'historique donne au raisonnement renvoyé la forme du `format` de chaque entrée (`field`, `content_blocks`, `think_tags`), que l'entrée le renvoie ou non, et les appels portent `tool_call_extra` (Gemini, Gemma). Groq raisonne toujours (`always`) : ses empreintes on et off sont égales.

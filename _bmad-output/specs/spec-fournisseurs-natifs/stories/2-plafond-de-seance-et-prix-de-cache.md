@@ -75,6 +75,13 @@ context:
 - Given une séance dont le total a atteint le plafond, when l'utilisateur relance un tour avec un modèle tarifé, then il lit le message du plafond dans sa langue, et la jauge de dépense ne bouge pas.
 - Given `pytest` en quarts, when on le joue, then tout est vert.
 
+### Review Findings
+
+Revue de la PR #20 du 2026-10-03, groupe 4a (tests), quatre couches.
+
+- [x] [Review][Patch] La vérification du plafond AVANT `pace` (Always : « avant `pace` » ; docstring : « a refused call takes no slot ») n'est pas testée : les tests de refus utilisent `gemini` et `gemma`, sans `min_interval_s`, et `test_the_cap_is_checked_again_after_the_spacing_wait` part sous le plafond. Supprimer la première vérification (`cloud_base.py:859-860`) ne fait échouer aucun test. Ajouter un `run_call` sur une entrée espacée (copie avec `min_interval_s = 1`, ou `mistral`), plafond déjà atteint : `pace` jamais appelé, `_last_start` sans créneau. [`tests/test_cloud_cap.py:220`]
+- [x] [Review][Patch] Sessions de `test_cloud_cap.py` jamais fermées (`_cloud_session`, six tests), alors que la story 1 l'a corrigé pour `test_cloud_api.py` (triage #6). Fait par une fixture du module qui ferme toute session ouverte par le test (`_session`, et l'`AppSession` de `_app`). [`tests/test_cloud_cap.py:84`]
+
 ## Implementation Notes
 
 - Le refus est construit par `cloud_base.session_cap_error(entry, max_session_usd)`, appelé en tête de `run_call` (avant `pace`) ; il lit `_spend` sous `_spend_lock`. Montants en `Lazy(usd_price_fr)`, rendus dans la langue de la séance.

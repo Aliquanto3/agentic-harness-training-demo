@@ -136,7 +136,7 @@ def reference_body(entry: config.CloudModel, reasoning: bool, **kw: Any) -> str:
         markers=cfg.cloud_markers,
         estimate=lambda text: config.estimate_tokens(text, cfg.chars_per_token),
         provider_label_text="chez le fournisseur",
-        **kw,
+        **{"api": entry.api, **kw},  # the translator chosen by the entry, as the callers do
     ).body
 
 
@@ -284,7 +284,7 @@ def fake_api(monkeypatch):
 
 def _native_entry(**update: Any) -> config.CloudModel:
     entry = config.load_config().cloud_model("groq")
-    # `api` accepts `openai_chat` only: the test's API enters without validation.
+    # `api` accepts only an API with an adapter: `fake_api`, the test's, enters unvalidated.
     return entry.model_copy(update={"api": "fake_api", **update})
 
 

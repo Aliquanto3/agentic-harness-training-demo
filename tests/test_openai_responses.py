@@ -75,9 +75,12 @@ def reasoning(index: int, item_id: str, encrypted: str, *texts: str) -> list[dic
                 "text": text,
             },
         ]
+    # The finished item as read on the real API (`mesures-openai-2026-10.md`), `content: []`
+    # included: it goes back verbatim.
     item = {
         "id": item_id,
         "type": "reasoning",
+        "content": [],
         "encrypted_content": encrypted,
         "summary": [{"type": "summary_text", "text": t} for t in texts],
     }
@@ -284,6 +287,9 @@ def test_a_tools_turn_then_a_reasoning_turn_send_the_reasoning_items_back(caplog
     # The summary on the Reasoning channel; the call's id is the session's in the next body.
     channels = {d.payload["channel"] for d in _of(first, "model_delta")}
     assert channels == {"reasoning", "tool_call", "text"}
+    # The reasoning turn shows its summary too.
+    assert {d.payload["channel"] for d in _of(second, "model_delta")} == {"reasoning", "text"}
+    assert _of(second, "model_call_ended")[0].payload["reasoning"] == "Le résultat suffit."
     ended = _of(first, "model_call_ended")
     assert ended[0].payload["reasoning"] == "Il faut calculer."
     assert ended[1].payload["text"] == "Cela fait 5."
@@ -294,11 +300,13 @@ def test_a_tools_turn_then_a_reasoning_turn_send_the_reasoning_items_back(caplog
     assert ENCRYPTED_1 not in ended[0].payload["raw_output"]
     assert "gAAAAABlbmNyeXB0ZWQ•••LTE=" in ended[0].payload["raw_output"]
 
-    # The second call: the reasoning item first, verbatim (`id` included), then the call.
+    # The second call: the reasoning item first, verbatim (`id` and `content: []` included),
+    # then the call.
     items = provider.body(1)["input"]
     assert items[1] == {
         "id": "rs_1",
         "type": "reasoning",
+        "content": [],
         "encrypted_content": ENCRYPTED_1,
         "summary": [{"type": "summary_text", "text": "Il faut calculer."}],
     }
@@ -630,6 +638,43 @@ def test_a_stream_cut_before_its_completion_is_an_error():
     assert "a interrompu la réponse" in _of(events, "harness_error")[0].payload["message_text"]
 
 
+def _broken_stream(first: bytes) -> httpx.Response:
+    """A 200 whose connection drops once `first` is read."""
+
+    def chunks():  # noqa: ANN202
+        yield first
+        raise httpx.ReadError("connexion coupée")
+
+    return httpx.Response(200, content=chunks(), headers={"content-type": "text/event-stream"})
+
+
+@pytest.mark.parametrize(
+    ("answer", "said", "cause"),
+    [
+        # A line that is not SSE in the middle of the stream, before its completion.
+        (
+            sse(created(), *message(0, "Début")) + b"data: illisible\n\n" + sse(completed(9, 9)),
+            "Réponse illisible : une ligne du flux de OpenAI",
+            "data: illisible",
+        ),
+        # `[DONE]` before `response.completed`: nothing after it is read, the answer is cut.
+        (
+            sse(created(), *message(0, "Début")) + b"data: [DONE]\n\ndata: illisible\n\n",
+            "OpenAI a interrompu la réponse",
+            "response.completed absent",
+        ),
+        # The connection drops mid-stream (AD-16: never retried).
+        (_broken_stream(sse(created(), *message(0, "Début"))), "OpenAI", "ReadError: "),
+    ],
+)
+def test_a_stream_broken_mid_way_is_an_explained_error(answer, said, cause):
+    events, provider = _one_turn(answer)
+    harness = _of(events, "harness_error")[0].payload
+    assert said in harness["message_text"] and harness["cause"].startswith(cause)
+    assert _of(events, "turn_ended")[0].payload["status"] == "error"
+    assert len(provider.requests) == 1
+
+
 def test_two_summary_parts_are_separated_on_the_reasoning_channel():
     stream = sse(
         created(),
@@ -923,7 +968,7 @@ def test_a_summary_step_2_would_change_goes_as_template_unchanged(thought):
         [{"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, "Q")]}, message]
     )
     sent = json.loads(body)["input"]
-    assert sent[1] == item and "​" not in body
+    assert sent[1] == item and "\u200b" not in body
     assert sent[2] == {"type": "message", "role": "assistant", "content": "Réponse."}
     assert "".join(s.text for s in segments) == body
 
@@ -1018,3 +1063,46 @@ def test_a_summary_with_a_marker_goes_back_unchanged_in_the_turn_and_the_history
     history = provider.body(2)["input"]
     assert history[1]["summary"] == summary_1 and history[4]["summary"] == summary_2
     assert all("\u200b" not in r.content.decode() for r in provider.requests)
+
+
+# ---------- review of 2026-10-03, group 4a ----------
+
+
+def test_a_sub_agent_on_luna_sends_back_its_own_reasoning_items_only():
+    """CAP-3: the sub-agent's context sends its reasoning item back, the main context its
+    own; neither gets the other's."""
+    delegate = sse(
+        created(),
+        *reasoning(0, "rs_main", ENCRYPTED_1, "Je d\u00e9l\u00e8gue la lecture."),
+        *function_call(1, "call_main", "delegate", '{"task": "Lis notes_reunion.txt."}'),
+        completed(700, 40, thought=20),
+    )
+    read = sse(
+        created(),
+        *reasoning(0, "rs_sub", ENCRYPTED_2, "Je lis le fichier."),
+        *function_call(1, "call_sub", "read_file", '{"path": "notes_reunion.txt"}'),
+        completed(300, 20, thought=10),
+    )
+    provider = Provider(delegate, read, PLAIN_TEXT, PLAIN_TEXT)
+    session = _session(provider, bricks=("tools", "subagent", "reasoning"))
+    try:
+        events = _turn(session, "Quelles d\u00e9cisions ?")
+    finally:
+        session.close()
+
+    assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    assert _of(events, "harness_error") == [] and len(provider.requests) == 4
+    _assert_sent_as_traced(events, provider)
+    sub_second = provider.body(2)
+    assert sub_second["instructions"].startswith("Tu es un sous-agent")
+    types = [(i["type"], i.get("id")) for i in sub_second["input"]]
+    assert ("reasoning", "rs_sub") in types and ("reasoning", "rs_main") not in types
+    reasoning_at = types.index(("reasoning", "rs_sub"))
+    assert sub_second["input"][reasoning_at + 1]["type"] == "function_call"
+    assert ENCRYPTED_1 not in provider.requests[2].content.decode()
+    main_second = provider.body(3)
+    types = [(i["type"], i.get("id")) for i in main_second["input"]]
+    assert ("reasoning", "rs_main") in types and ("reasoning", "rs_sub") not in types
+    reasoning_at = types.index(("reasoning", "rs_main"))
+    assert main_second["input"][reasoning_at + 1]["type"] == "function_call"
+    assert ENCRYPTED_2 not in provider.requests[3].content.decode()

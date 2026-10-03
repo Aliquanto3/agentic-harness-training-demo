@@ -230,6 +230,16 @@ def test_a_tools_turn_then_a_reasoning_turn_send_the_signed_thinking_back(caplog
     assert traced["x-api-key"]["masked"] and traced["x-api-key"]["value"] == "[masqué]"
 
     body = provider.body(0)
+    # The exact keys, in order: nothing from another API's body (`store`, `include`…).
+    assert list(body) == [
+        "model",
+        "system",
+        "messages",
+        "tools",
+        "stream",
+        "max_tokens",
+        "thinking",
+    ]
     assert body["model"] == "claude-haiku-4-5" and body["stream"] is True
     assert body["max_tokens"] == 1536 and body["system"]
     assert body["thinking"] == {
@@ -246,6 +256,9 @@ def test_a_tools_turn_then_a_reasoning_turn_send_the_signed_thinking_back(caplog
     # The reasoning on its channel; the call's id is the session's in the next body.
     channels = {d.payload["channel"] for d in _of(first, "model_delta")}
     assert channels == {"reasoning", "tool_call", "text"}
+    # The reasoning turn shows its thinking too.
+    assert {d.payload["channel"] for d in _of(second, "model_delta")} == {"reasoning", "text"}
+    assert _of(second, "model_call_ended")[0].payload["reasoning"] == "Le résultat suffit."
     ended = _of(first, "model_call_ended")
     assert ended[0].payload["reasoning"] == "Il faut calculer."
     assert ended[1].payload["text"] == "Cela fait 5."
@@ -324,6 +337,7 @@ def test_with_the_reasoning_brick_off_no_thinking_block_is_sent_back():
     finally:
         session.close()
     second = provider.body(1)
+    assert list(second) == ["model", "messages", "stream", "max_tokens", "thinking"]
     # Measured on 2026-10-03: `block_binding` is refused with `{type: "disabled"}` (400).
     assert second["thinking"] == {"type": "disabled"}
     assert second["max_tokens"] == 512
@@ -419,7 +433,7 @@ def test_a_refusal_is_explained_with_its_category():
     ended = _of(events, "model_call_ended")[0].payload
     assert ended["stop_reason"] == "error" and ended["usage_source"] == "api"
     assert ended["prompt_tokens"] == 100 and ended["cost_in_usd"] == pytest.approx(100 / 1e6)
-    assert ended["cost_in_usd"] > 0 and _of(events, "consumption_updated")
+    assert _of(events, "consumption_updated")
     assert _of(after, "turn_ended")[0].payload["status"] == "completed"
 
 
@@ -458,6 +472,7 @@ def test_a_null_in_the_last_usage_keeps_the_first_value():
             "delta": {"stop_reason": "end_turn"},
             "usage": {"output_tokens": 7, "input_tokens": None, "cache_read_input_tokens": None},
         },
+        {"type": "message_stop"},
     )
     provider = Provider(stream)
     session = _session(provider)
@@ -503,6 +518,10 @@ def test_an_error_event_after_the_200_is_explained(kind, said):
     harness = _of(events, "harness_error")[0].payload
     assert said in harness["message_text"]
     assert harness["message_text"].endswith("Message du fournisseur : Oups")
+    # The input read before the error (`message_start`) is billed.
+    ended = _of(events, "model_call_ended")[0].payload
+    assert ended["stop_reason"] == "error" and ended["usage_source"] == "api"
+    assert ended["prompt_tokens"] == 100 and ended["cost_in_usd"] == pytest.approx(100 / 1e6)
     assert len(provider.requests) == 1
 
 
@@ -561,6 +580,57 @@ def test_a_stream_cut_before_its_stop_reason_is_an_error():
     assert "a interrompu la réponse" in _of(events, "harness_error")[0].payload["message_text"]
 
 
+def _broken_stream(first: bytes) -> httpx.Response:
+    """A 200 whose connection drops once `first` is read."""
+
+    def chunks():  # noqa: ANN202
+        yield first
+        raise httpx.ReadError("connexion coupée")
+
+    return httpx.Response(200, content=chunks(), headers={"content-type": "text/event-stream"})
+
+
+@pytest.mark.parametrize(
+    ("answer", "said", "cause"),
+    [
+        # A line that is not SSE in the middle of the stream, before its `stop_reason`.
+        (
+            sse(start(100), *text(0, "Début")) + b"data: illisible\n\n" + sse(*end("end_turn", 3)),
+            "Réponse illisible : une ligne du flux de Anthropic",
+            "data: illisible",
+        ),
+        # The connection drops mid-stream (AD-16: never retried).
+        (_broken_stream(sse(start(100), *text(0, "Début"))), "Anthropic", "ReadError: "),
+    ],
+)
+def test_a_stream_broken_mid_way_is_an_explained_error(answer, said, cause):
+    provider = Provider(answer)
+    session = _session(provider)
+    try:
+        events = _turn(session, "Bonjour")
+    finally:
+        session.close()
+    harness = _of(events, "harness_error")[0].payload
+    assert said in harness["message_text"] and harness["cause"].startswith(cause)
+    assert _of(events, "turn_ended")[0].payload["status"] == "error"
+    assert len(provider.requests) == 1
+
+
+def test_a_refusal_without_details_is_explained_without_a_category():
+    provider = Provider(sse(start(100), *end("refusal", 0)))
+    session = _session(provider)
+    try:
+        events = _turn(session, "Bonjour")
+    finally:
+        session.close()
+    harness = _of(events, "harness_error")[0].payload
+    assert harness["message_text"].startswith(
+        "Anthropic a refusé de répondre (refus de sécurité du modèle)."
+    )
+    assert "catégorie" not in harness["message_text"]
+    assert harness["cause"] == "stop_reason: refusal"
+
+
 # ---------- CAP-5: the reasoning the provider threw away ----------
 
 DROPPED = [
@@ -574,9 +644,15 @@ DROPPED = [
         "path": "messages.3.content.0",
         "reason": "model_binding_mismatch",
     },
-    {"type": "thinking_dropped", "path": "messages.5.content.0", "reason": "a_reason_to_come"},
-    {"type": "something_else", "path": "messages.5", "reason": "prefix_binding_mismatch"},
+    {
+        "type": "thinking_dropped",
+        "path": "messages.5.content.0",
+        "reason": "organization_binding_mismatch",
+    },
+    {"type": "thinking_dropped", "path": "messages.7.content.0", "reason": "a_reason_to_come"},
+    {"type": "something_else", "path": "messages.7", "reason": "prefix_binding_mismatch"},
 ]
+REASONS = ["prefix_binding_mismatch", "model_binding_mismatch", "organization_binding_mismatch"]
 
 
 def _dropping_stream() -> bytes:
@@ -596,6 +672,7 @@ def test_input_transformations_become_reasoning_dropped_events():
     assert [(d["path"], d["reason"]) for d in dropped] == [
         ("messages.1.content.0", "prefix_binding_mismatch"),
         ("messages.3.content.0", "model_binding_mismatch"),
+        ("messages.5.content.0", "organization_binding_mismatch"),
     ]
     assert (
         "Anthropic a jeté le raisonnement d'un tour précédent (messages.1.content.0)"
@@ -603,18 +680,48 @@ def test_input_transformations_become_reasoning_dropped_events():
     )
     assert "réécrit l'historique" in dropped[0]["message_text"]
     assert "un autre modèle" in dropped[1]["message_text"]
+    assert "une autre organisation" in dropped[2]["message_text"]
     assert _of(events, "turn_ended")[0].payload["status"] == "completed"
 
 
-@pytest.mark.parametrize(
-    ("lang", "said"),
-    [
-        ("fr", "le harnais a réécrit l'historique"),
-        ("en", "the harness rewrote the history"),
-        ("de", "Der Harness hat den Verlauf seitdem umgeschrieben"),
+SAID = {
+    "fr": [
+        "le harnais a réécrit l'historique",
+        "il a été produit par un autre modèle",
+        "il a été produit sous une autre organisation",
     ],
-)
-def test_reasoning_dropped_speaks_the_sessions_language(lang, said):
+    "en": [
+        "the harness rewrote the history",
+        "another model produced it",
+        "it was produced under another organization",
+    ],
+    "de": [
+        "Der Harness hat den Verlauf seitdem umgeschrieben",
+        "Ein anderes Modell hat ihn erzeugt",
+        "Er wurde unter einer anderen Organisation erzeugt",
+    ],
+}
+
+
+@pytest.mark.parametrize("lang", ["en", "de"])
+def test_reasoning_dropped_speaks_the_sessions_language(lang):
+    """Through a session: the language the session was set to reaches the event."""
+    provider = Provider(_dropping_stream())
+    session = _session(provider)
+    try:
+        session.set_language(lang)
+        session.join()
+        events = _turn(session, "Hello")
+    finally:
+        session.close()
+    dropped = [e.payload for e in _of(events, "reasoning_dropped")]
+    assert [d["reason"] for d in dropped] == REASONS
+    for payload, said in zip(dropped, SAID[lang], strict=True):
+        assert said in payload["message_text"]
+
+
+@pytest.mark.parametrize("lang", ["fr", "en", "de"])
+def test_reasoning_dropped_says_each_reason_in_the_language_asked(lang):
     engine = AnthropicMessagesEngine(
         _entry(), SecretStr(SENTINEL), transport=httpx.MockTransport(Provider(_dropping_stream()))
     )
@@ -633,7 +740,9 @@ def test_reasoning_dropped_speaks_the_sessions_language(lang, said):
     finally:
         engine.close()
     dropped = [e.payload for e in get_journal().events_since(mark) if e.kind == "reasoning_dropped"]
-    assert len(dropped) == 2 and said in dropped[0]["message_text"]
+    assert [d["reason"] for d in dropped] == REASONS
+    for payload, said in zip(dropped, SAID[lang], strict=True):
+        assert said in payload["message_text"]
 
 
 def _call(answer: bytes | httpx.Response, cancel: CancelToken | None = None) -> tuple[Any, list]:
@@ -697,7 +806,7 @@ def test_reasoning_dropped_is_said_even_when_the_call_fails():
     error, events = _call(sse(begin, *text(0, "Je "), *end("refusal", 3)))
     assert isinstance(error, ProviderError)
     dropped = [e.payload for e in _of(events, "reasoning_dropped")]
-    assert [d["reason"] for d in dropped] == ["prefix_binding_mismatch", "model_binding_mismatch"]
+    assert [d["reason"] for d in dropped] == REASONS
     assert _of(events, "model_call_ended")[0].payload["stop_reason"] == "error"
 
 
@@ -840,6 +949,8 @@ def test_the_llm_lab_sends_sampling_only_with_the_reasoning_off():
     finally:
         session.close()
     off, on = provider.body(0), provider.body(1)
+    assert list(off) == ["model", "messages", "stream", "max_tokens", "temperature", "thinking"]
+    assert list(on) == ["model", "messages", "stream", "max_tokens", "thinking"]
     # Haiku 4.5 refuses `temperature` and `top_p` together (400): it declares the first only.
     assert off["temperature"] == DEFAULT_SAMPLING.temperature and "top_p" not in off
     assert "temperature" not in on and "top_p" not in on and on["thinking"]["type"] == "enabled"
@@ -890,7 +1001,9 @@ def test_the_diagnostic_test_runs_through_the_messages_api():
 
 
 def test_a_redacted_block_between_thinking_and_a_call_goes_back_in_place():
-    redacted = {"type": "redacted_thinking", "data": "b3BhcXVl"}
+    # Its `data` holds the key's last 4 characters: verbatim in the body sent, masked in the
+    # events that do not trace the bytes sent (AD-15).
+    redacted = {"type": "redacted_thinking", "data": f"b3BhcXVl{SENTINEL[-4:]}"}
     stream = sse(
         start(700),
         *thinking(0, "Il faut calculer.", SIGNATURE_2),
@@ -902,12 +1015,14 @@ def test_a_redacted_block_between_thinking_and_a_call_goes_back_in_place():
     provider = Provider(stream, PLAIN_TEXT)
     session = _session(provider, bricks=("tools", "reasoning"))
     try:
-        _turn(session, "Combien font 2 + 3 ?")
+        events = _turn(session, "Combien font 2 + 3 ?")
     finally:
         session.close()
     blocks = provider.body(1)["messages"][1]["content"]
     assert [b["type"] for b in blocks] == ["thinking", "redacted_thinking", "tool_use"]
     assert blocks[1] == redacted
+    raw = _of(events, "model_call_ended")[0].payload["raw_output"]
+    assert redacted["data"] not in raw and "b3BhcXVl•••" in raw
 
 
 def test_the_sonnet_body_reasoning_on_and_off():
@@ -923,6 +1038,8 @@ def test_the_sonnet_body_reasoning_on_and_off():
     finally:
         session.close()
     on, off, lab = provider.body(0), provider.body(1), provider.body(2)
+    for body in (on, off, lab):
+        assert list(body) == ["model", "messages", "stream", "max_tokens", "thinking"]
     assert on["model"] == "claude-sonnet-5"
     assert on["thinking"] == {
         "type": "adaptive",
@@ -999,7 +1116,7 @@ def test_a_thinking_with_a_marker_goes_back_unchanged_in_the_turn_and_the_histor
     assert provider.body(1)["messages"][1]["content"][0] == signed_1
     history = provider.body(2)["messages"]
     assert history[1]["content"][0] == signed_1 and history[3]["content"][0] == signed_2
-    assert all("​" not in r.content.decode() for r in provider.requests)
+    assert all("\u200b" not in r.content.decode() for r in provider.requests)
 
 
 def test_an_entry_that_always_reasons_sends_its_thinking_back_with_the_brick_off():
@@ -1079,3 +1196,48 @@ def test_a_call_with_two_string_arguments_counts_its_arguments_once():
     expected = config.estimate_tokens("calculator" + arguments, cfg.chars_per_token)
     assert segment.tokens == expected  # `arguments` counted once, not once per value
     assert "".join(s.text for s in segments) == body
+
+
+# ---------- review of 2026-10-03, group 4a ----------
+
+
+def test_a_sub_agent_on_claude_sends_back_its_own_thinking_only():
+    """CAP-2: the sub-agent's context sends its signed thinking back, the main context its
+    own; neither gets the other's."""
+    delegate = sse(
+        start(700),
+        *thinking(0, "Je délègue la lecture.", SIGNATURE_1),
+        *tool_use(1, "toolu_main", "delegate", '{"task": "Lis notes_reunion.txt."}'),
+        *end("tool_use", 40),
+    )
+    read = sse(
+        start(300),
+        *thinking(0, "Je lis le fichier.", SIGNATURE_2),
+        *tool_use(1, "toolu_sub", "read_file", '{"path": "notes_reunion.txt"}'),
+        *end("tool_use", 20),
+    )
+    provider = Provider(delegate, read, PLAIN_TEXT, PLAIN_TEXT)
+    session = _session(provider, bricks=("tools", "subagent", "reasoning"))
+    try:
+        events = _turn(session, "Quelles décisions ?")
+    finally:
+        session.close()
+
+    assert _of(events, "turn_ended")[0].payload["status"] == "completed"
+    assert _of(events, "harness_error") == [] and len(provider.requests) == 4
+    _assert_sent_as_traced(events, provider)
+    signed_main = {
+        "type": "thinking",
+        "thinking": "Je délègue la lecture.",
+        "signature": SIGNATURE_1,
+    }
+    signed_sub = {"type": "thinking", "thinking": "Je lis le fichier.", "signature": SIGNATURE_2}
+    sub_second = provider.body(2)
+    assert sub_second["system"].startswith("Tu es un sous-agent")
+    (assistant,) = [m for m in sub_second["messages"] if m["role"] == "assistant"]
+    assert assistant["content"][0] == signed_sub and assistant["content"][1]["type"] == "tool_use"
+    assert SIGNATURE_1 not in provider.requests[2].content.decode()
+    main_second = provider.body(3)
+    (assistant,) = [m for m in main_second["messages"] if m["role"] == "assistant"]
+    assert assistant["content"][0] == signed_main and assistant["content"][1]["type"] == "tool_use"
+    assert SIGNATURE_2 not in provider.requests[3].content.decode()

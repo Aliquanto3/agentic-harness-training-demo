@@ -132,6 +132,39 @@ Revue de la PR #20 du 2026-10-03, groupe 2 (`src/` hors `models/` et `context/re
 - `low` : `^gpt-\d` ne couvre ni `chatgpt-4o-latest` ni la série o. Aucune entrée de ce type n'est configurée.
 - rejetée par règle : signatures et `encrypted_content` en clair dans `context_rendered` / `outbound_request`, alors que la SPEC dit « masqués que dans les événements ». L'implémentation suit CAP-1 (corps égal aux octets envoyés) et la story 3 (masqués dans `raw_output`) ; le correctif modifierait la spec relue.
 
+Revue de la PR #20 du 2026-10-03, groupe 4a (`tests/`, `tools/e2e/`, hors `test_v2s6_decision_bench.py`), quatre couches. Le code testé n'a été relu que pour juger les tests. Empreintes `openai_chat_bodies.json` recalculées sur le code d'avant la refactorisation (`7f40fc1^`, `e09cfa6`) par deux couches : identiques. Aucun test ne touche le réseau ni ne dépend de l'ordre.
+
+- [x] [Review][Patch] `reasoning_dropped` : `organization_binding_mismatch` n'est dans aucun test (le retirer du tuple ne fait rien échouer), et les textes en, de ne sont vérifiés que pour `prefix_binding_mismatch` (`dropped[0]`). Ajouter la troisième raison à `DROPPED` et vérifier chaque raison dans les trois langues. [`tests/test_anthropic_messages.py:566`]
+- [x] [Review][Patch] `test_reasoning_dropped_speaks_the_sessions_language` appelle `run_call(..., lang=lang)` sur un engine nu : retirer `lang=self._language` des trois appelants (`app_session.py:7996`, `:8823`, `diagnostic.py:1112`) ne fait échouer aucun test. Ajouter un tour par séance passée en `en` (ou `de`) dont le flux porte `input_transformations`, et vérifier la langue du `message_text`. [`tests/test_anthropic_messages.py:617`]
+- [x] [Review][Patch] Corps Anthropic sans liste exacte des clés : les tests ne nomment que des clés absentes (`temperature`, `stream_options`), alors que Responses épingle `list(sent)`. Une clé `store`, `include` ou `reasoning` venue d'un chemin commun passerait (400 en réel). Reprise incomplète du #10 de la story 4 (« empreinte de chaque entrée livrée, Luna et Claude ») : épingler `list(body)` de `claude_haiku` allumé et éteint, et de `claude_sonnet` allumé. [`tests/test_anthropic_messages.py:210`]
+- [x] [Review][Patch] Branches d'erreur des deux adaptateurs jamais atteintes : une ligne `data:` illisible au milieu du flux (`unreadable_stream`, Anthropic et Responses ; `test_nothing_after_a_terminal_event_is_read` la place après la fin, où elle n'est pas lue), `data: [DONE]` de Responses, une erreur de transport (`httpx.ReadError`) en plein flux, un refus Anthropic sans `stop_details` (message et cause sans catégorie), et l'usage facturé quand un événement `error` Anthropic suit `message_start` (seul le refus le vérifie). [`tests/test_anthropic_messages.py:491`, `tests/test_openai_responses.py:756`]
+- [x] [Review][Patch] Masquage de `redacted_thinking.data` dans les événements non prouvé : le test utilise `data: "b3BhcXVl"`, sans fragment de clé. Y mettre `SENTINEL[-4:]` et vérifier qu'il est masqué dans `raw_output` et verbatim dans le corps suivant. [`tests/test_anthropic_messages.py:892`]
+- [x] [Review][Patch] Aucun test natif du sous-agent (CAP-2, CAP-3 : « tours, outils, sous-agent… » ; demandé « si possible » en groupe 2) : blocs `thinking` et items `reasoning` remis au sous-agent, isolement par `thinking_for`. Un tour par `claude_haiku`, puis le même par `openai_luna`, avec la brique Sous-agent. [`tests/test_anthropic_messages.py`, `tests/test_openai_responses.py`]
+- [x] [Review][Patch] Second tour des deux tests d'acceptation : le canal Raisonnement n'est vérifié qu'au premier (`channels` sur `first`), alors que le critère porte sur « un tour Outils puis un tour Raisonnement ». Vérifier `reasoning` dans les `model_delta` de `second`. [`tests/test_anthropic_messages.py:210`, `tests/test_openai_responses.py:251`]
+- [x] [Review][Patch] `test_a_null_in_the_last_usage_keeps_the_first_value` omet `message_stop` et teste donc aussi, sans le dire, un flux sans `message_stop` : ajouter l'événement. `cost_in_usd > 0` répète l'`approx` qui précède dans `test_a_refusal_is_explained_with_its_category` : le retirer. [`tests/test_anthropic_messages.py:452`, `:398`]
+- [x] [Review][Patch] U+200B littéral (invisible à la relecture) dans deux assertions, alors que les autres écrivent `"​"`. [`tests/test_anthropic_messages.py:1002`, `tests/test_openai_responses.py:926`]
+
+**Rejetées (groupe 4a) :**
+- rejetée par règle : une raison inconnue de `thinking_dropped` ignorée sans événement. La story le prescrit (« Raisons et types inconnus ignorés »).
+- rejetée par règle : `anthropic-version` et `anthropic-beta` masqués dans la trace. Déjà rejeté en story 1 (#16), imposé par SPEC.md.
+- `false` : refus traités autrement par Anthropic (erreur) et OpenAI (texte). Déjà rejeté en groupe 1 : les sémantiques diffèrent.
+- `false` : plafond à 0 non testé. La story 2 dit qu'aucune valeur ne désactive le plafond, et 0 est documenté (triage #5).
+- `false` : un « Arrêter » après `response.completed` non testé pour Responses. La lecture s'arrête à chaque fin (groupe 1), le jeton n'y est plus lu.
+- `false` : jetons de raisonnement d'OpenAI comptés deux fois. Le test d'acceptation donne `output_tokens == 40` avec `reasoning_tokens = 20`.
+- `false` : modèle local « Claude-…-Gemma3 » classé Claude. `publisher_for` lit les architectures avant les noms : il est classé Gemma.
+- `false` : `anthropic-beta` absent quand la réflexion est éteinte. `extra_headers` est fixe par entrée et posé à chaque requête (`test_extra_headers_are_sent_on_each_request_and_masked_in_the_trace`).
+- `low` : aides de test recopiées entre les deux fichiers natifs (`Provider`, `sse`, `_session`…). Refactorisation sans défaut.
+- `low` : fixtures `_spend` redondantes avec `conftest.py`. Sans effet.
+- `low` : aucun test de données après `message_stop`. Anthropic ferme le flux après cet événement.
+- `low` : entrée `always` testée pour Anthropic seulement. Même chemin de session pour Responses.
+- `low` : changement d'entrée par `session._cloud`. Déjà rejeté (story 3, triage #15).
+- `low` : empreintes illisibles en cas d'échec. Déjà rejeté (story 1, #13) ; empreintes vérifiées justes.
+- `low` : `test_a_provider_error_is_a_provider_error` recoupe le test du flux coupé. Il vérifie le type levé par l'engine seul ; doublon inoffensif.
+- `low` : `cloud_model` remplacé pour tous les ids. Déjà rejeté (story 1, #15).
+- `low` : noms préfixés par un routeur (`anthropic/claude-…`) en « Autres éditeurs ». Aucune entrée de ce type n'est configurée.
+- `low` : `cfg.cloud_model(...)` sans `assert` avant usage. Échoue bruyamment (`AttributeError`).
+- `low` : « rien d'autre » vérifié par `engine._headers()` et non sur le fil. httpx ajoute ses propres en-têtes sur le fil ; l'ordre est vérifié sur le fil par un autre test.
+
 ## Implementation Notes
 
 - Clé réelle : `ANTHROPIC_API_KEY` est définie dans l'environnement UTILISATEUR de Windows (registre), pas dans celui des shells déjà ouverts. La lire par `powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','User')"` (ou `winreg`) et la passer au seul processus de mesure, sans jamais l'afficher, la journaliser, l'écrire dans un fichier ni la commiter.

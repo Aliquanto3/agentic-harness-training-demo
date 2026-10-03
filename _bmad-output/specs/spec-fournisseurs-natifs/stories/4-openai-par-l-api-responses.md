@@ -94,6 +94,10 @@ Revue de la PR #20 du 2026-10-03, groupe 2 (voir la story 3 : les deux décision
 
 - [x] [Review][Patch] `pricing.checked = "2026-10-03"` pour Luna alors que le commentaire dit « (à revérifier) » et que la doc d'OpenAI a répondu 403 : dire ce qui a été lu (la fiche du modèle) et ce qui ne l'a pas été (la page des prix). [`wavestack.toml:555`]
 
+Revue de la PR #20 du 2026-10-03, groupe 4a (tests ; voir la story 3 : branches d'erreur, sous-agent, second tour d'acceptation et U+200B valent aussi pour Responses).
+
+- [x] [Review][Patch] Le faux item `reasoning` fini s'écarte de la forme mesurée : `mesures-openai-2026-10.md` relève `{id, type, content: [], encrypted_content, summary}`, l'aide `reasoning()` omet `content: []`. Le renvoi verbatim d'un champ liste vide n'est donc jamais prouvé (note d'implémentation : « l'item réel porte `content: []`, renvoyé tel quel »). Ajouter `content: []` à l'item de `response.output_item.done`. [`tests/test_openai_responses.py:48`]
+
 ## Implementation Notes
 
 - Clé réelle : `OPENAI_API_KEY` est dans l'environnement UTILISATEUR de Windows (registre), pas dans celui des shells ouverts. La lire par `powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('OPENAI_API_KEY','User')"` et la passer au seul processus de mesure, sans jamais l'afficher, la journaliser, l'écrire dans un fichier ni la commiter. `tests/conftest.py` doit retirer `OPENAI_API_KEY` de l'environnement des tests, comme `ANTHROPIC_API_KEY`.

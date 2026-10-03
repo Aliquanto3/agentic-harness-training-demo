@@ -38,7 +38,24 @@ from wavestack.models.cloud_base import (
     run_call,
 )
 from wavestack.models.engine import CancelToken, Sampling
+from wavestack.session.app_session import AppSession
 from wavestack.trace.journal import get_journal
+
+_opened: list[AppSession] = []
+
+
+@pytest.fixture(autouse=True)
+def _close_sessions():
+    """Every session a test opens is closed after it, failed or not."""
+    yield
+    while _opened:
+        _opened.pop().close()
+
+
+def _session(model_id: str, provider: Provider) -> AppSession:
+    session = _cloud_session(model_id, provider)
+    _opened.append(session)
+    return session
 
 
 def _settings(**finops: object) -> None:
@@ -85,7 +102,7 @@ def test_under_the_cap_the_call_is_sent():
     _settings(max_session_usd=0.01)
     _spent_already(0.005)
     provider = GeminiProvider(GEMINI_TEXT)
-    session = _cloud_session("gemini", provider)
+    session = _session("gemini", provider)
 
     events = _turn(session, "Bonjour")
 
@@ -98,7 +115,7 @@ def test_once_the_cap_is_reached_the_call_is_not_sent():
     _settings(max_session_usd=0.01)
     _spent_already(0.01)
     provider = GeminiProvider(GEMINI_TEXT)
-    session = _cloud_session("gemini", provider)
+    session = _session("gemini", provider)
     before = session.consumption()
 
     events = _turn(session, "Bonjour")
@@ -122,7 +139,7 @@ def test_an_entry_without_prices_is_never_refused():
     _settings(max_session_usd=0.01)
     _spent_already(1.0)
     provider = GeminiProvider(GEMINI_TEXT)
-    session = _cloud_session("gemma", provider)
+    session = _session("gemma", provider)
 
     events = _turn(session, "Bonjour")
 
@@ -141,7 +158,7 @@ def test_the_cap_message_is_in_the_session_language(lang, said, cap, total):
     _settings(max_session_usd=0.01)
     _spent_already(0.02)
     provider = GeminiProvider(GEMINI_TEXT)
-    session = _cloud_session("gemini", provider)
+    session = _session("gemini", provider)
     session.set_language(lang)
     session.join()
 
@@ -158,7 +175,7 @@ def test_the_llm_screen_is_refused_too():
     _settings(max_session_usd=0.01)
     _spent_already(0.01)
     provider = GeminiProvider(GEMINI_TEXT)
-    session = _cloud_session("gemini", provider)
+    session = _session("gemini", provider)
     mark = get_journal().last_seq()
 
     session.llm_generate("Bonjour", Sampling(temperature=0.2, top_k=5, top_p=0.9, min_p=0.05))
@@ -175,7 +192,8 @@ def test_tester_is_refused_too(monkeypatch):
     _settings(max_session_usd=0.01)
     _spent_already(0.01)
     provider = GeminiProvider(GEMINI_TOOL, GEMINI_TEXT)
-    _, _, _, client = _app(monkeypatch, provider)
+    _, app_session, _, client = _app(monkeypatch, provider)
+    _opened.append(app_session)
     client.post(
         "/api/intentions/set_api_key", json={"id": "gemini", "key": SENTINEL}, headers=ORIGIN
     )
@@ -237,6 +255,42 @@ def test_the_cap_is_checked_again_after_the_spacing_wait(monkeypatch):
     assert refused.value.cause == "max_session_usd"
     assert provider.requests == []
     assert _of(get_journal().events_since(mark), "model_call_started") == []
+
+
+def test_once_the_cap_is_reached_a_spaced_entry_takes_no_slot(monkeypatch):
+    """The cap is checked before the spacing wait: a refused call never waits, and takes no
+    slot that would delay the next call to the entry."""
+    _spent_already(0.01)
+    real_pace = cloud_base.pace
+    paced: list[str] = []
+
+    def pace(entry, cancel):  # noqa: ANN001
+        paced.append(entry.id)
+        return real_pace(entry, cancel)
+
+    monkeypatch.setattr(cloud_base, "pace", pace)
+    entry = config.load_config().cloud_model("gemini")
+    spaced = entry.model_copy(update={"min_interval_s": 1.0})
+    provider = GeminiProvider(GEMINI_TEXT)
+    engine = provider.factory(spaced, SecretStr(SENTINEL))
+    try:
+        with pytest.raises(ProviderError) as refused:
+            run_call(
+                engine,
+                ChatBody(b'{"messages": []}'),
+                CancelToken(),
+                phase_label="test",
+                estimated_prompt=10,
+                chars_per_token=4.0,
+                call_id=str,
+                max_session_usd=0.01,
+            )
+    finally:
+        engine.close()
+
+    assert refused.value.cause == "max_session_usd"
+    assert paced == [] and spaced.id not in cloud_base._last_start
+    assert provider.requests == []
 
 
 def test_the_refusal_names_the_cap_and_the_total():
@@ -330,7 +384,7 @@ def test_a_call_reads_the_cached_tokens_of_its_usage():
     settings = {"cloud": {"models": [{"id": "gemini", "pricing": pricing}]}}
     config.settings_path().parent.mkdir(parents=True, exist_ok=True)
     config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
-    session = _cloud_session("gemini", GeminiProvider(stream))
+    session = _session("gemini", GeminiProvider(stream))
 
     events = _turn(session, "Bonjour")
 
