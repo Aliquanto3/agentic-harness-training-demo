@@ -307,7 +307,10 @@ context = 131072
 hosting_text = "Mistral AI, France (hébergement dans l'UE plausible, non confirmé)"
 training = "opt_out"
 notes_text = "Sur le plan gratuit, les prompts servent à l'entraînement par défaut : décochez l'option dans Admin Console > Privacy. Quotas à lire dans la console Mistral. Coût réel nul sur le plan gratuit : le prix affiché est le prix catalogue."
-reasoning = { format = "content_blocks", on = { reasoning_effort = "high" }, off = { reasoning_effort = "none" } }
+# Story 7 des restes différés (E055, 2026-10-03) : `resend = true`. Mistral accepte ses blocs
+# `thinking` renvoyés (200) ; sans eux, brique Raisonnement allumée, il rappelle le même outil
+# jusqu'à la limite d'étapes (mesuré sur le PC cible).
+reasoning = { format = "content_blocks", on = { reasoning_effort = "high" }, off = { reasoning_effort = "none" }, resend = true }
 key_env = "MISTRAL_API_KEY"
 # Écran « LLM nu » (story 29) : température et top-p réglables, comme chez Groq.
 sampling = ["temperature", "top_p"]

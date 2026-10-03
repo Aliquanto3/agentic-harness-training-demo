@@ -1,6 +1,6 @@
 # Rapport : test préalable des modèles de décision (V2, story 6, CAP-6)
 
-> **État au 2026-10-03 : relevé fait sur le PC cible** (lancé par Anaël le 02/10 au soir, joué par l'agent). Quatre candidats mesurés ; gliformer (voie torch) interrompu faute de mémoire, gliformer ONNX non installable sans compilateur. Les seuils de latence restent à valider par Anaël au vu du relevé.
+> **État au 2026-10-03 : relevé fait sur le PC cible** (lancé par Anaël le 02/10 au soir, joué par l'agent). Quatre candidats mesurés ; gliformer (voie torch) interrompu faute de mémoire, gliformer ONNX non installable sans compilateur. Seuils de latence validés par Anaël le 2026-10-03.
 
 - Story : [6-test-prealable-des-modeles-de-decision.md](../specs/spec-wavestack-v2/stories/6-test-prealable-des-modeles-de-decision.md)
 - Candidats et critères : [decision-model-candidates.md](../specs/spec-wavestack-v2/decision-model-candidates.md). Ce fichier se met à jour par un nouveau passage de bmad-spec, à partir de ce rapport, jamais à la main.
@@ -39,7 +39,7 @@ Le texte des critères est dans `TASKS` du banc. Il sert d'hypothèse NLI à DeB
 | Licences (NFR-10) | licence du modèle et des paquets ajoutés au projet | interdite : **écarté** ; non déclarée ou à vérifier : à surveiller |
 | Sans torch | `torch` chargé pendant la mesure | à surveiller |
 
-Tout ok : **retenu**. Le SLM juge n'a pas de seuil de latence : il est la référence du repli, avec le verdict « repli (référence) » s'il décide hors ligne dans le budget de RAM. Les seuils de latence ont été fixés en mode nuit, le 2026-10-01 ; Anaël les valide ou les corrige au vu du relevé.
+Tout ok : **retenu**. Le SLM juge n'a pas de seuil de latence : il est la référence du repli, avec le verdict « repli (référence) » s'il décide hors ligne dans le budget de RAM. Les seuils de latence ont été fixés en mode nuit, le 2026-10-01, et validés par Anaël au vu du relevé, le 2026-10-03.
 
 **Épinglage.** Le téléchargement suit `main`, et les commandes `--with` ne fixent pas de version : le banc épingle par ce qu'il consigne. Pour un candidat retenu, le commit et les versions du JSON sont ceux à reporter dans `decision-model-candidates.md`, puis dans la story qui l'intègre.
 
@@ -139,7 +139,7 @@ Proposée par l'agent au vu du relevé, à valider par Anaël au passage de bmad
 - **Échelon 2 (encodeur programmable)** : `deberta_xsmall` retenu, le plus léger (+346 Mo, 107 ms de médiane) et le seul qui tient le budget avec le RAG V1 (3 455 Mo) ; `deberta_base` retenu aussi, plus juste sur la spécialité (11/20 contre 7/20), mais 4 332 Mo avec le RAG V1. Accords faibles dans les deux cas (modèles anglais, prompts français) : une variante multilingue est à ajouter aux candidats.
 - **Échelon 1** : aucun candidat retenu ; `nvidia` à surveiller (torch, chargement de 29 s, étiquettes fixes).
 - **Échelon 3 (repli)** : le SLM juge fonctionne hors ligne dans le budget (+143 Mo), mais à 4,7 s de médiane par décision.
-- **Seuils de latence** (médiane ≤ 1 000 ms, maximum ≤ 3 000 ms) : tous les candidats mesurés les tiennent largement ; seul le SLM juge, sans seuil, les dépasse. À confirmer par Anaël.
+- **Seuils de latence** (médiane ≤ 1 000 ms, maximum ≤ 3 000 ms) : tous les candidats mesurés les tiennent largement ; seul le SLM juge, sans seuil, les dépasse. **Validés par Anaël le 2026-10-03.**
 
 ## Suite
 

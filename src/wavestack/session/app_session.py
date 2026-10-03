@@ -527,6 +527,11 @@ class TurnState:
     rag_compressed: tuple[CompressedFrom | None, ...] = ()
     # Story 19 (AD-11): the sub-agent's tools, `[subagent] tools` among the enabled ones.
     subagent_tools: tuple[str, ...] = ()
+    # Story 7 of the deferred leftovers (E057, AD-4), chat mode: the `format` the reasoning
+    # goes back in, frozen at the turn's start: the entry's `resend`, and only while the
+    # reasoning brick is effective (an off brick contributes nothing, AD-12); else `None`.
+    resend: str | None = None
+    resend_tags: tuple[str, str] = THINK_TAGS
 
 
 @dataclass(frozen=True)
@@ -3732,6 +3737,8 @@ class AppSession:
             subagent_tools=tuple(sub_tools),
             rag_rerank=rerank,
             rag_rerank_skipped_text=skipped,
+            resend=self._resend() if "reasoning" in effective else None,
+            resend_tags=self._resend_tags(),
         )
 
     # ---------- rendering ----------
@@ -3944,9 +3951,9 @@ class AppSession:
         Every brick off gives the bare LLM's single user message, byte for byte.
         """
         messages: list[dict[str, Any]] = []
-        resend = self._resend() if chat else None
+        resend = state.resend if chat else None
         cloud_id = self._cloud.id if chat and self._cloud is not None else None
-        tags = self._resend_tags()
+        tags = state.resend_tags
         wrap = None
         if not chat and self._caps is not None and self._caps.chat_template:
             wrap = reasoning_wrap(self._caps.chat_template)  # lot A: None for most templates
@@ -3969,6 +3976,12 @@ class AppSession:
                     cloud_id=cloud_id,
                     tags=tags,
                 )
+                if chat and not ex.text and not (resend and ex.reasoning):
+                    # Story 7 of the deferred leftovers (E049): an answer of reasoning only,
+                    # its reasoning not sent back, would be an assistant message with neither
+                    # content nor calls, which Mistral refuses (400, measured): it is left
+                    # out, the user's message kept (two user messages in a row are accepted).
+                    continue
                 text = Part(SegmentKind.HISTORY, ex.text, *memory)
                 messages.append(
                     self._as_produced(text, ex.reasoning, wrap)
@@ -4064,6 +4077,8 @@ class AppSession:
         effective: frozenset[str] | set[str],
         *,
         chat: bool = False,
+        resend: str | None = None,
+        tags: tuple[str, str] = THINK_TAGS,
     ) -> list[dict[str, Any]]:
         """AD-11: the sub-agent's context, then its own steps; nothing of the main context
         (history, main prompt, skills, H3). Story 2 of the deferred leftovers (E067): its
@@ -4083,9 +4098,9 @@ class AppSession:
                 history=False,
                 group="sub",
                 chat=chat,
-                resend=self._resend() if chat else None,
+                resend=resend if chat else None,
                 cloud_id=self._cloud.id if chat and self._cloud is not None else None,
-                tags=self._resend_tags(),
+                tags=tags,
             ),
         ]
 
@@ -4155,7 +4170,14 @@ class AppSession:
         assert entry is not None and content is not None
         reserve = self._reserve_of(state)
         messages = (
-            self._sub_messages(sub, steps or [], state.effective, chat=True)
+            self._sub_messages(
+                sub,
+                steps or [],
+                state.effective,
+                chat=True,
+                resend=state.resend,
+                tags=state.resend_tags,
+            )
             if sub
             else self._messages(state, message, steps, chat=True)
         )

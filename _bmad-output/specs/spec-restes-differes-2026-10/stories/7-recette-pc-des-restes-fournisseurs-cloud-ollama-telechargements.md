@@ -2,7 +2,7 @@
 title: 'Recette PC des restes : fournisseurs cloud, Ollama, téléchargements'
 type: 'chore'
 created: '2026-10-01'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'bccf10b0544a52cbfaadd72c9008bfb37cc42a08'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -39,6 +39,7 @@ deferred: []
   - Mesures de la story 4 : `prompt_ms` du premier tour de `mcp_lazy` et `subagent`, et du tour qui suit un `load_tool_doc`, avant et après.
   - **Ajouts d'Anaël (2026-10-02, rapport de la nuit)** : **D18** — test `fits` en mode GGUF exact (`WAVESTACK_TEST_GGUF` = le 2B) : chaque prompt tient avec l'historique cumulé, sinon l'entrée reste ouverte avec le prompt et l'écart ; **E008** — premier passage de la variante `gguf` (marqueur `model`) de `tests/test_llama_engine.py` sur un vrai GGUF.
 - Chaque entrée fermée cite la ligne du fichier de résultats ; une entrée qui échoue reste ouverte avec le constat chiffré.
+- **Décisions d'Anaël (2026-10-03), au vu des constats** : E049 — le correctif prévu (omettre le `content` vide) ne suffit pas, Mistral refusant aussi un message assistant sans contenu : en mode chat, le message assistant vide d'un échange passé n'est pas envoyé, le message de l'utilisateur reste. E062 — `MAX_CHARS` reste à 300 (200 ne réglerait pas le débordement), entrée fermée. E073 — 10 s acceptables. Délai de grâce de la fermeture : 2 s.
 
 **Never:**
 - Lancer un serveur, un modèle ou l'E2E sans l'accord d'Anaël, ou pendant ses tests manuels.
@@ -88,11 +89,13 @@ deferred: []
   - E078 : `src/wavestack/models/servers.py`, `_stream` démarre sa veille avant la requête et coupe la socket connue dès `connection.connect_tcp.complete` (extension `trace`) ; `_shut` ferme aussi la socket (sous Windows, `shutdown` seul ne réveille pas le `recv` : 10 s mesurées contre 0,3 s) ; `_client` envoie `Connection: close` ; `_stream` rend `None` quand l'appel est arrêté avant toute réponse, `_lines(None)` ne rend rien. Test `test_stop_unblocks_a_server_silent_before_its_headers`, rouge sur l'ancien code.
   - E077 : `src/wavestack/cli.py`, `SHUTDOWN_GRACE_S = 2.0` passé à `uvicorn.run(timeout_graceful_shutdown=…)` ; sans lui, une page ouverte bloque Ctrl+C indéfiniment, et le second Ctrl+C saute le `lifespan` (modèle Ollama laissé chargé). Tests `test_main_gives_uvicorn_the_shutdown_grace`, `test_shutdown_with_an_open_stream_ends_and_runs_the_lifespan`.
 - Questions laissées à Anaël (fichier de résultats, « Décisions ») : plan Mistral, E062, E073 (10 s gênantes ?), délai de grâce (2 s ou 0,5 s).
+- **2026-10-03, après les réponses d'Anaël et l'activation d'un plan Mistral** : E040 et E048 vus avec Mistral ; E055 : sans renvoi, brique Raisonnement allumée, Mistral boucle sur le même outil jusqu'à la limite, avec renvoi tout passe → préréglage `resend = true` (`wavestack.toml`) ; E057 : `TurnState.resend` et `resend_tags`, figés au début du tour, `None` brique Raisonnement non effective (`build_turn_state`), lus par `_messages` et `_sub_messages` (paramètres `resend`, `tags`) ; E049 : 400 confirmé, message assistant vide retiré dans `_messages` (mode chat, sans raisonnement renvoyé). Trois tests dans `tests/test_reasoning.py`, rouges sur l'ancien code ; `test_without_resend_the_reasoning_never_goes_back` désactive désormais le renvoi lui-même. Vérifié en réel (R25).
 
 ## Spec Change Log
 
 - 2026-10-02 -- plan (bmad-build step-02) : bloc d'intention repris tel quel, sous la balise `frozen-after-approval` ; seuls ajouts, les vérifications D18 et E008 demandées par Anaël (rapport de la nuit, invocation du 02/10). Approbation : Anaël a répondu « Lance tout maintenant » à la question de lancement de la recette (02/10), avec consigne de ne pas l'attendre ; tenu pour « Approve and continue ».
-- 2026-10-03 -- fin du workflow (step-05) : le statut reste `in-review` au lieu de `done`, comme V2 S6 la nuit du 01/10 : les vérifications Mistral (E040, E048 côté Mistral, E049, E055, E057) sont bloquées par le compte sans quota, et quatre décisions attendent Anaël (plan Mistral, E062, E073, délai de grâce). Revue faite, patchs appliqués (journal de triage).
+- 2026-10-03 -- fin du workflow (step-05), première passe : le statut reste `in-review` au lieu de `done`, comme V2 S6 la nuit du 01/10 : les vérifications Mistral (E040, E048 côté Mistral, E049, E055, E057) sont bloquées par le compte sans quota, et quatre décisions attendent Anaël (plan Mistral, E062, E073, délai de grâce). Revue faite, patchs appliqués (journal de triage).
+- 2026-10-03 -- réponses d'Anaël consignées dans le bloc d'intention (E049, E062, E073, délai de grâce) ; plan Mistral activé, vérifications Mistral jouées, correctifs E049, E055, E057 appliqués et vérifiés ; statut `done`.
 
 ## Review Triage Log
 
