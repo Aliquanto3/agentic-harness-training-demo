@@ -380,8 +380,11 @@ LLAMA_BUILD = "11378"
 LLAMA_RELEASE = f"b{LLAMA_BUILD}"
 LLAMA_ZIP = f"llama-{LLAMA_RELEASE}-bin-win-cpu-x64.zip"
 LLAMA_ZIP_SHA256 = "11bcb3aea659bce73f62305e3812764f935d90f44de1e70cd2b68aa3c9f41b8d"  # GitHub
-# `llama-server.exe` of that archive, read on the target PC on 2026-10-03 (unzipped as is).
+# `llama-server.exe` of that archive, read on the target PC on 2026-10-03 (unzipped as is): a
+# 9 KB launcher; the server's code is in `llama-server-impl.dll`, pinned too. The engine's
+# other DLLs (`llama.dll`, `llama-common.dll`, `ggml*.dll`) are not checked.
 LLAMA_EXE_SHA256 = "6d2e001e3e366dd64f24578bad2ff461bcfdea4a0c86b134c280a952401eee20"
+LLAMA_IMPL_SHA256 = "68f82bb0491f057728f5c4b1f0036b0b4e50113a1fd2bb16eda14fd4a41bd62e"
 LLAMA_RELEASE_URL = f"https://github.com/ggml-org/llama.cpp/releases/tag/{LLAMA_RELEASE}"
 LLAMA_SERVER_ENV = "WAVESTACK_LLAMA_SERVER"
 LLAMA_START_TIMEOUT_S = 120
@@ -1000,10 +1003,13 @@ def parse_llama_version(text: str) -> dict:
 
 
 def llama_binary_pinned(server: dict) -> bool:
-    """The binary is the recorded one: `llama-server.exe` has the sha256 read on the target
-    PC, or the archive next to it has GitHub's."""
-    archive = server.get("archive") or {}
-    return server.get("exe_sha256") == LLAMA_EXE_SHA256 or archive.get("sha256_ok") is True
+    """The binary is the recorded one: `llama-server.exe` and `llama-server-impl.dll` have the
+    sha256 read on the target PC. The archive next to the folder is recorded, but says nothing
+    of the unzipped files."""
+    return (
+        server.get("exe_sha256") == LLAMA_EXE_SHA256
+        and server.get("impl_sha256") == LLAMA_IMPL_SHA256
+    )
 
 
 def llama_server_argv(exe: Path, gguf: Path, port: int, alias: str) -> list[str]:
@@ -1426,6 +1432,16 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
             + (f", {errors} ligne(s) en erreur exclue(s)" if errors else ""),
         }
     )
+    if errors:  # some decisions failed (all of them: "non mesuré" above)
+        criteria.append(
+            {
+                "id": "error_rows",
+                "label": "Décisions sans erreur",
+                "ok": False,
+                "detail": f"{errors} décision(s) en erreur sur {report.get('decisions')} : "
+                "latence et accord jugés sur les autres seulement",
+            }
+        )
     hosts = s12.summarize_attempts(report.get("attempts", []))
     offline_ok: bool | None = not hosts and not report.get("blocked")
     offline_detail = f"hôtes tentés : {hosts or 'aucun'}"
@@ -1504,10 +1520,11 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
         )
         server = report.get("llama_server") or {}
         remote += (
-            f" ; llama-server.exe sha256 {server.get('exe_sha256')}, archive "
-            f"{(server.get('archive') or {}).get('sha256')} : binaire "
+            f" ; llama-server.exe sha256 {server.get('exe_sha256')}, llama-server-impl.dll "
+            f"sha256 {server.get('impl_sha256')} : binaire "
             f"{'conforme' if llama_binary_pinned(server) else 'NON conforme'} au relevé "
-            f"({LLAMA_EXE_SHA256} ou archive {LLAMA_ZIP_SHA256})"
+            f"({LLAMA_EXE_SHA256} et {LLAMA_IMPL_SHA256} ; autres DLL du moteur non vérifiées) "
+            f"; archive {(server.get('archive') or {}).get('sha256')} (consignée seulement)"
         )
     criteria.append(
         {
@@ -1567,16 +1584,23 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
 
     ko = [x for x in criteria if x["ok"] is False]
     blocking = [x for x in ko if x["id"] in BLOCKING or x.get("forbidden")]
+    # Retained only if every criterion passes: a blocking one the bench could not check
+    # (server side unreadable…) is no pass, and caps the verdict like a soft failure.
+    soft = [
+        x["label"] if x["ok"] is False else f"{x['label']} (non vérifiable)"
+        for x in criteria
+        if x["ok"] is False or (x["ok"] is None and x["id"] in BLOCKING)
+    ]
     if c.backend == "slm_judge":
         # The fallback loads nothing more: it holds if it decides offline, within the budget.
         status = "à revoir" if blocking else "repli (référence)"
     elif blocking:
         status = "écarté"
-    elif ko:
+    elif soft:
         status = "à surveiller"
     else:
         status = "retenu"
-    reason = "; ".join(x["label"] for x in (blocking or ko)) or "tous les critères passent"
+    reason = "; ".join([x["label"] for x in blocking] or soft) or "tous les critères passent"
     return {"status": status + suffix, "reason": reason, "criteria": criteria, "target_pc": target}
 
 
@@ -1988,9 +2012,11 @@ class ServerWatch:
         method: str,
         period_s: float = OLLAMA_SAMPLE_PERIOD_S,
         abort_mb: int | None = None,
+        full_listing: bool = True,
     ):
         import threading
 
+        self.full_listing = full_listing  # False: `scan` reads one known PID, never a listing
         self.prefix, self.roles, self.model_role = prefix, roles, model_role
         self.missing, self.method, self.period_s = missing, method, period_s
         self.abort_mb = OLLAMA_ABORT_MB if abort_mb is None else abort_mb
@@ -2021,7 +2047,7 @@ class ServerWatch:
                 or self._ticks % OLLAMA_FULL_SCAN_EVERY == 0
             )
             self._ticks += 1
-            self.full_scans += full
+            self.full_scans += full and self.full_listing
         try:
             procs = self._scan(None if full else known)
         except Exception as exc:  # noqa: BLE001 - recorded: the criterion becomes unverifiable
@@ -2118,8 +2144,13 @@ class ServerWatch:
                     "full_scans": self.full_scans,
                     "method": f"connexions TCP (psutil) {self.method}, par PID, avant, pendant "
                     f"(toutes les {self.period_s} s) et après la mesure ; une connexion plus "
-                    "brève que la période peut échapper au relevé ; liste complète des "
-                    f"processus toutes les {OLLAMA_FULL_SCAN_EVERY} lectures",
+                    "brève que la période peut échapper au relevé"
+                    + (
+                        f" ; liste complète des processus toutes les {OLLAMA_FULL_SCAN_EVERY} "
+                        "lectures"
+                        if self.full_listing
+                        else " ; un seul processus, relu par son PID à chaque lecture"
+                    ),
                     "errors": errors,
                 },
             }
@@ -2170,6 +2201,7 @@ class LlamaServerWatch(ServerWatch):
             method="du processus llama-server",
             period_s=period_s,
             abort_mb=abort_mb,
+            full_listing=False,
         )
 
 
@@ -2265,7 +2297,15 @@ class OllamaOps:
                 out["loaded_before"] = before
                 out["other_models_loaded"] = [n for n in before if n != model]
                 if model in before:  # so that the measure sees the model load
-                    out["stopped_before"] = self.stop(model)
+                    after = self._wait_unloaded(http, model, self.stop(model))
+                    out["stopped_before"] = after
+                    if after["still_loaded"]:
+                        return out | {
+                            "error": "still_loaded",
+                            "message": f"{model} encore chargé dans Ollama après « ollama stop » "
+                            f"({after.get('error') or 'déchargement non terminé'}) : déchargez-le "
+                            f"(« ollama stop {model} », « ollama ps »), puis relancez",
+                        }
         except httpx.TimeoutException as exc:  # up, but too slow to answer
             return out | {
                 "error": "timeout",
@@ -2293,6 +2333,16 @@ class OllamaOps:
             return {"command": f"ollama stop {model}", "error": repr(exc)[:200]}
         return {"command": f"ollama stop {model}", "returncode": proc.returncode}
 
+    def _wait_unloaded(self, http, model: str, stopped: dict) -> dict:
+        """`stopped` (the result of `stop`), with what `/api/ps` lists once the asynchronous
+        unload is over, or still lists after ~10 s."""
+        for _ in range(20):
+            loaded = self.loaded(http)
+            if model not in loaded:
+                break
+            time.sleep(0.5)
+        return stopped | {"still_loaded": model in loaded, "loaded_after": loaded}
+
     def unload(self, model: str) -> dict:
         """`ollama stop <model>`, then `/api/ps`: the model must no longer be loaded."""
         import httpx
@@ -2300,14 +2350,9 @@ class OllamaOps:
         out = self.stop(model)
         try:
             with self._client() as http:
-                for _ in range(20):  # the unload is asynchronous: up to ~10 s
-                    loaded = self.loaded(http)
-                    if model not in loaded:
-                        break
-                    time.sleep(0.5)
+                return self._wait_unloaded(http, model, out)
         except httpx.TransportError as exc:
             return out | {"still_loaded": None, "ps_error": type(exc).__name__}
-        return out | {"still_loaded": model in loaded, "loaded_after": loaded}
 
 
 def _load_systemone(c: Candidate, models_dir: Path, slm_llm, transport=None, scan=None):
@@ -2318,9 +2363,8 @@ def _load_systemone(c: Candidate, models_dir: Path, slm_llm, transport=None, sca
     if status != 200 or not isinstance(show, dict):
         raise RuntimeError(f"/api/show {c.server_model} : HTTP {status}")
     blob = blob_sha_from_modelfile(show.get("modelfile") or "")
-    watch = OllamaWatch(blob, scan=scan).start()
-    client = SystemOneClient(c.server_url, c.server_model, transport)
-    decide, info = _served_decisions(client, watch)
+    client = SystemOneClient(c.server_url, c.server_model, transport)  # before the watch thread
+    decide, info = _served_decisions(client, OllamaWatch(blob, scan=scan).start())
     info = {
         "systemone_api": SYSTEMONE_API,
         "server_url": c.server_url,
@@ -3284,10 +3328,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print_measure(report)
     _write_out(args.out, report)  # after the printout: a bad path never loses the measure
-    # Ollama down, model not pulled; llama-server absent, failing to start or still running
-    # after the measure; GGUF absent or not the pinned one.
+    # Ollama down, model not pulled, or the model still loaded after the measure; llama-server
+    # absent, failing to start or still running after the measure; GGUF absent or not the
+    # pinned one.
     left = (report.get("llama_server_stop") or {}).get("still_running")
-    return 2 if report.get("server_error") or left is True else 0
+    loaded = (report.get("ollama_unload") or {}).get("still_loaded")
+    return 2 if report.get("server_error") or left is True or loaded is True else 0
 
 
 def _write_out(path: str | None, report: dict) -> None:

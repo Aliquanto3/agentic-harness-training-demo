@@ -66,6 +66,24 @@ context:
 - Given le binaire et les GGUF présents, when on mesure Julia-1 puis Laya, then chaque JSON porte RAM (deux composantes), latences, accords, hors-ligne des deux côtés, licence et verdict, et aucun `llama-server` ne reste lancé.
 - Given `pytest` des tests du banc, then vert.
 
+### Review Findings
+
+Revue de la PR #20 du 2026-10-03, groupe 3 (voir la story 8 : relecture des verdicts des JSON, critère non vérifiable et lignes en erreur, qui valent aussi pour Julia-1 et Laya).
+
+- [x] [Review][Patch] Critère « code relu et figé » : seul le lanceur est épinglé — `llama_binary_pinned` vérifie `llama-server.exe`, qui fait 9 216 octets sur le PC cible : le code du serveur est dans `llama-server-impl.dll` (9,1 Mo, sha256 calculé mais jamais comparé), `llama-common.dll`, `llama.dll` et `ggml*.dll`, jamais hachés. L'alternative « archive voisine conforme » ne prouve rien sur les fichiers décompressés. Or le document dit Julia-1 « GGUF et binaire épinglés ». Décision d'Anaël du 2026-10-03 : exiger le sha256 de `llama-server.exe` ET de `llama-server-impl.dll` (relevés dans les JSON), l'archive consignée sans suffire seule ; le document dit que les autres DLL ne sont pas vérifiées. [`tools/bench/v2s6_decision_bench.py:1002`]
+- [x] [Review][Patch] Test manquant : `--llama-server` (et `WAVESTACK_LLAMA_SERVER`) jusqu'à `LlamaServerOps` dans le vrai `run_measure` ; tous les tests injectent `server_ops` ou remplacent `run_measure`. [`tests/test_v2s6_decision_bench.py`]
+- [x] [Review][Patch] Méthode consignée fausse pour llama-server : `ServerWatch.report` écrit « liste complète des processus toutes les 8 lectures » alors que `LlamaServerWatch` ne lit qu'un PID (texte présent dans `julia1.json` et `laya.json`). [`tools/bench/v2s6_decision_bench.py:2119`]
+- [x] [Review][Patch] README du banc : prérequis d'Ollama (0.35, `ollama pull tev1:0.8b` ou `--download`), sortie 2, et dans « Limites » la connexion plus brève que la période d'échantillonnage et la RAM serveur en somme de pics (majorant). [`tools/bench/README.md:67`]
+
+**Rejetées (llama-server) :**
+- `low` : `--ubatch-size` jamais fixé (prompt d'une question en un lot de 512 tokens). Les prompts du banc tiennent (aucune ligne en erreur) ; le risque d'intégration est consigné dans `decision-model-candidates.md`.
+- `low` : emplacement de l'archive (`exe.parent.parent`) non documenté. Le sha256 de l'exe suffit au banc actuel ; à revoir selon la décision ci-dessus.
+- déjà rejetée (triage n° 9) : port repris entre `free_loopback_port` et le démarrage, `/health` cru sans vérifier l'écoute du PID. Rien de nouveau.
+- `low` : un llama-server du même binaire lancé avant la mesure est compté « encore lancé » (sortie 2). Conforme au critère d'acceptation (« aucun llama-server ne reste lancé »), prudent par choix.
+- déjà rejetée (triage n° 10) : `OSError` sur le sha256 de l'exe, de la DLL ou du GGUF.
+- `low` : « démarrage de llama-server None s » sans `llama_server_launch`, `--llama-server` ignoré sans message pour les autres candidats. Cosmétique, jamais atteint sur une mesure.
+- rejetée par règle (le correctif modifie la spec relue) : `SPEC.md` l. 85 dit encore Julia-1 « sous réserve du critère 1 (à décider par Anaël) », alors que `decision-model-candidates.md` le dit accepté le 2026-10-03 ; et `decision-model-candidates.md` (paragraphe « Critère 1 ») renvoie l'intégration à CAP-6, qui est le banc : c'est CAP-7 ou CAP-8. Corrigées hors revue, à la demande d'Anaël (2026-10-03).
+
 ## Implementation Notes
 
 - PC partagé de 16 Go : une mesure à la fois, au premier plan ; pas de pytest ni de serveur WaveStack pendant une mesure ; aucun modèle Ollama chargé. Vider le dossier `pytest-of-anael.yahi` du Temp local à la fin.

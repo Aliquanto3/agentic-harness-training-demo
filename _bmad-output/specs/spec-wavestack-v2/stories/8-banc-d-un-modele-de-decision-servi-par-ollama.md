@@ -65,6 +65,24 @@ context:
 - Given Ollama 0.35.1 lancé et `tev1:0.8b` tiré, when on lance la mesure, then le JSON porte RAM (deux composantes), latences, accords, hors-ligne des deux côtés, licence et verdict, et Ollama ne garde pas tev1 chargé après.
 - Given `pytest` des tests du banc, then vert.
 
+### Review Findings
+
+Revue de la PR #20 du 2026-10-03, groupe 3 (`tools/bench/` hors `results/`, stories 8 et 9 ensemble ; voir aussi la story 9). Verdicts des trois JSON relus contre les critères : tev1 écarté (RAM 4 171 Mo, latence 2 655 ms), Julia-1 retenu, Laya écarté (latence 1 478 ms), conformes à `decision-model-candidates.md`. Aucun correctif ci-dessous ne change ces verdicts (critères tous à `True` ou `False`, aucune ligne en erreur).
+
+- [x] [Review][Patch] Un critère bloquant non vérifiable compte comme réussi : `decision_verdict` ne déclasse que sur `ok is False`, donc un candidat servi dont la RAM du serveur ou le hors-ligne côté serveur n'a pu être lu (`None`) sort « retenu », contre « retenu s'il passe tous les critères ». Un `None` sur RAM, latence ou hors-ligne plafonne à « à surveiller », avec le critère dans la raison. [`tools/bench/v2s6_decision_bench.py:1568`]
+- [x] [Review][Patch] Lignes en erreur partielles sans effet sur le verdict : avec 39 lignes sur 40 en erreur, la latence est jugée sur une décision et le candidat peut sortir « retenu ». Des lignes en erreur (sans qu'elles le soient toutes) plafonnent à « à surveiller », avec leur nombre dans la raison. [`tools/bench/v2s6_decision_bench.py:1321`]
+- [x] [Review][Patch] `OllamaOps.preflight` arrête un tev1 déjà chargé sans attendre son déchargement (contrairement à `unload`) : la mesure peut démarrer sur l'ancien processus du modèle, même blob, dont le pic d'ensemble de travail (durée de vie) entre dans la RAM et dont le chargement n'est pas vu. Attendre `/api/ps` comme `unload`, erreur si le modèle reste chargé. [`tools/bench/v2s6_decision_bench.py:2267`]
+- [x] [Review][Patch] Critère d'acceptation « Ollama ne garde pas tev1 chargé après » consigné mais sans effet : `main` rend 2 pour un llama-server restant, pas pour `ollama_unload.still_loaded` vrai. [`tools/bench/v2s6_decision_bench.py:3289`]
+- [x] [Review][Patch] `_load_systemone` démarre la surveillance avant de construire le client : une exception du constructeur laisse le fil tourner (`_load_llama_server` le garde). Construire le client avant `watch.start()`. [`tools/bench/v2s6_decision_bench.py:2321`]
+- [x] [Review][Patch] Test manquant : critère « figé » de tev1 sans version d'Ollama (`versions={"ollama": None}`), seul garde de `bool(versions.get("ollama"))`. [`tests/test_v2s6_decision_bench.py`]
+
+**Rejetées (Ollama et commun) :**
+- `low` : `other_models_loaded` n'apparaît ni dans le verdict ni dans l'affichage. La story demande de le noter, c'est fait dans le JSON ; WaveStack ne charge rien dans Ollama.
+- `low` : un `ReadTimeout` sur une seule requête fait échouer toute la mesure, et 42 × 120 s dépasse le délai de l'enfant (1 800 s). Comportement documenté (`SystemOneClient`) ; une décision de 120 s est 120 fois au-delà du seuil.
+- `maybe-false`, au mieux `low` : après `--download`, des connexions de `/api/pull` comptées dans le relevé « avant ». Non observé ; un faux échec serait bruyant (écarté hors ligne) et la story tire le modèle une fois, à part.
+- `low` : blob vide dans le modelfile (le processus du modèle n'est jamais trouvé). Jamais vu sur un modèle tiré ; avec le premier correctif, le verdict devient « à surveiller ».
+- `low` : licence de `/api/show` ni texte ni liste, entrée de `/api/tags` non objet. Spéculatif, garde nouvelle.
+
 ## Implementation Notes
 
 - PC partagé de 16 Go : une mesure à la fois, au premier plan ; pas de pytest ni de serveur WaveStack pendant la mesure. Vider le dossier `pytest-of-anael.yahi` du Temp local à la fin.
