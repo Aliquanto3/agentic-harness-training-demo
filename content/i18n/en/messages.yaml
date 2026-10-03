@@ -1182,6 +1182,8 @@ models:
     unreadable_stream: "Unreadable answer: a line of {provider}'s stream is not in the expected format (SSE)."
     interrupted: "{provider} interrupted the answer on an error."
     stopped: "{provider} stopped the answer ({finish})."
+    # Native providers 2/5 (CAP-4): a priced call refused before it is sent, `[finops] max_session_usd`.
+    session_cap: "Session spending cap reached: {total} spent against a cap of {cap}. The call was not sent and costs nothing. To raise the cap, change [finops] max_session_usd in settings.json with WaveStack stopped, then restart it (the session total only goes back to zero on restart)."
     hint:
       slow_provider: "Run the turn again: a busy provider sometimes answers slowly."
       test_network: "Check the workstation's network with “Test” in the diagnostics."
@@ -1200,6 +1202,7 @@ models:
       retry_later: Try again in a few minutes.
       retry_turn: Run the turn again.
       rephrase: Rephrase the message.
+      free_models: "A model without declared prices, such as the local model or Gemma, remains usable."
     # Why a cloud model's tool calls cannot run (AD-10), read by the model.
     call:
       no_name: "a tool call has no name"

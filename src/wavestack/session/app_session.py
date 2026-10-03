@@ -7917,6 +7917,7 @@ class AppSession:
                     lang=self._language,
                     sampling_trace=self._sampling_trace(None),
                     eur_per_usd=self.cfg.eur_per_usd,
+                    max_session_usd=self.cfg.max_session_usd,
                 )
         except ProviderError as error:
             if error.cost is not None:  # FinOps: an output had come, the call is billed
@@ -8732,6 +8733,7 @@ class AppSession:
                 sampling_trace=trace,
                 lang=self._language,
                 eur_per_usd=self.cfg.eur_per_usd,
+                max_session_usd=self.cfg.max_session_usd,
             )
         except ProviderError as error:
             self._journal().emit(

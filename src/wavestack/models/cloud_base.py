@@ -18,6 +18,7 @@ spend) and the spacing registry live here once, whatever the API.
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 import time
@@ -28,9 +29,10 @@ from typing import Any, ClassVar
 import httpx
 from pydantic import SecretStr
 
+from wavestack.cloud import usd_price_fr
 from wavestack.config import DEFAULT_EUR_PER_USD, CloudModel, CloudPricing, estimate_tokens
 from wavestack.greenops import Impact, cloud_impacts
-from wavestack.messages import KeyedError, Message, render
+from wavestack.messages import KeyedError, Lazy, Message, render
 from wavestack.models.engine import CancelToken, EngineSnapshot
 from wavestack.net.factory import create_client
 from wavestack.net.guard import find_blocked
@@ -105,7 +107,8 @@ class ProviderError(KeyedError):
 
     def payload(self, effect_text: str, lang: str = "fr") -> dict[str, Any]:
         """The `harness_error` payload, its texts in `lang` (the session's); `effect_text`
-        may be a `Message`. `cause` is the provider's own text, never translated."""
+        may be a `Message`. `cause` is the provider's own text, never translated, or the
+        harness's own code when no provider was asked (`max_session_usd`, CAP-4)."""
         return {
             "message_text": self.render(lang),
             "cause": self.cause,
@@ -238,16 +241,54 @@ class CallCost:
 
 
 def call_cost(
-    pricing: CloudPricing, prompt_tokens: int, output_tokens: int, source: str
+    pricing: CloudPricing,
+    prompt_tokens: int,
+    output_tokens: int,
+    source: str,
+    *,
+    cached_read: int = 0,
+    cached_write: int = 0,
 ) -> CallCost:
-    """Input: `prompt_tokens` × the input price / 10⁶; output: `output_tokens` (the reasoning
-    tokens included, even those Gemini leaves out of `completion_tokens`) × the output
-    price / 10⁶."""
+    """Input: `prompt_tokens` (the whole input, cached tokens included) × the input price
+    / 10⁶, except the `cached_read` tokens read from the provider's cache and the
+    `cached_write` ones written to it, at their own prices when the entry declares them (the
+    input price otherwise, CAP-4); output: `output_tokens` (the reasoning tokens included,
+    even those Gemini leaves out of `completion_tokens`) × the output price / 10⁶."""
+    price_in = pricing.input_usd_per_mtok
+    read_price = pricing.cache_read_usd_per_mtok
+    write_price = pricing.cache_write_usd_per_mtok
+    cached_read = max(0, min(cached_read, prompt_tokens))
+    cached_write = max(0, min(cached_write, prompt_tokens - cached_read))
+    plain = prompt_tokens - cached_read - cached_write
+    input_usd = (
+        plain * price_in
+        + cached_read * (price_in if read_price is None else read_price)
+        + cached_write * (price_in if write_price is None else write_price)
+    )
     return CallCost(
-        prompt_tokens * pricing.input_usd_per_mtok / 1_000_000,
+        input_usd / 1_000_000,
         output_tokens * pricing.output_usd_per_mtok / 1_000_000,
         source,
     )
+
+
+def _cached_tokens(usage: dict[str, Any]) -> tuple[int, int]:
+    """The pivot usage's cached input tokens (CAP-4): `prompt_tokens_details.cached_tokens`
+    read from the cache (OpenAI's shape), `cache_write_tokens` written to it (the Anthropic
+    adapter's); 0 when absent or unreadable."""
+    details = usage.get("prompt_tokens_details")
+    if not isinstance(details, dict):
+        return 0, 0
+
+    def count(name: str) -> int:
+        value = details.get(name)
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return 0
+        if not math.isfinite(value):  # `json.loads` reads `NaN` and `Infinity`
+            return 0
+        return max(0, int(value))
+
+    return count("cached_tokens"), count("cache_write_tokens")
 
 
 # The session's spend, every paid call counted (turns, sub-agent, « Tester », « LLM nu »),
@@ -322,6 +363,32 @@ def session_spend(eur_per_usd: float) -> dict[str, Any] | None:
     with _spend_lock:
         counted = _spend["calls"] or _spend["impact_calls"]
         return _spend_payload(eur_per_usd) if counted else None
+
+
+def session_cap_error(entry: CloudModel, max_session_usd: float | None) -> ProviderError | None:
+    """CAP-4: the refusal of a priced call (an entry with `pricing`) once the session's
+    total (`_spend`, the registry of `consumption_updated`) has reached `max_session_usd`;
+    `None` when the call may go (no cap, no prices, or the total below the cap). Checked
+    before the call is sent; a call under way is never stopped, so the total may exceed
+    the cap by the cost of each call already under way when it was reached."""
+    if max_session_usd is None or entry.pricing is None:
+        return None
+    with _spend_lock:
+        total = _spend["in"] + _spend["out"]
+    if total < max_session_usd:
+        return None
+    return ProviderError(
+        Message(
+            "models.openai_chat.session_cap",
+            cap=Lazy(lambda lang: usd_price_fr(max_session_usd, lang)),
+            total=Lazy(lambda lang: usd_price_fr(total, lang)),
+        ),
+        cause="max_session_usd",
+        hints_text=[
+            Message("models.openai_chat.hint.free_models"),
+            _BACK_TO_LOCAL_FR,
+        ],
+    )
 
 
 def reset_spend() -> None:
@@ -689,6 +756,7 @@ def run_call(
     sampling_trace: dict[str, Any] | None = None,
     eur_per_usd: float = DEFAULT_EUR_PER_USD,
     lang: str = "fr",
+    max_session_usd: float | None = None,
 ) -> ChatCall:
     """One streamed call under the caller's scope: `model_call_started`, `model_first_token`,
     `model_delta` (grouped), `model_call_ended`. Raises `ProviderError` after ending the call
@@ -697,12 +765,22 @@ def run_call(
     `pricing` gets the call's cost in `model_call_ended`, added to the session's spend, then
     `consumption_updated` (the total converted at `eur_per_usd`). GreenOps: likewise, the
     call's footprint as EcoLogits estimates it (`impacts`), or why it has none, its note in
-    `lang` (the session's)."""
+    `lang` (the session's). `max_session_usd` (CAP-4): a priced call is refused before
+    anything is sent or traced once the session's total has reached it (`ProviderError`,
+    cause `max_session_usd`), checked before the spacing wait (a refused call takes no
+    slot) and again after it (a concurrent call may have ended during the wait); calls
+    already under way are never stopped, so the total may exceed the cap by the cost of
+    each of them. `None` checks nothing."""
     entry = getattr(engine, "entry", None)
-    # AD-16: the spacing wait, before the call starts, so neither `prompt_ms` nor
-    # `duration_ms` counts it; cancelled while waiting, nothing is sent.
-    if isinstance(entry, CloudModel) and not pace(entry, cancel):
-        return ChatCall(stop_reason="cancelled")
+    if isinstance(entry, CloudModel):
+        if (refused := session_cap_error(entry, max_session_usd)) is not None:
+            raise refused
+        # AD-16: the spacing wait, before the call starts, so neither `prompt_ms` nor
+        # `duration_ms` counts it; cancelled while waiting, nothing is sent.
+        if not pace(entry, cancel):
+            return ChatCall(stop_reason="cancelled")
+        if (refused := session_cap_error(entry, max_session_usd)) is not None:
+            raise refused
     journal = get_journal()
     started = time.monotonic()
     started_payload: dict[str, Any] = {"phase_label": phase_label}
@@ -764,7 +842,15 @@ def run_call(
         # FinOps: a call refused before any output (an HTTP error, the network) is not billed.
         produced = stop_reason != "error" or first_at is not None
         if pricing is not None and produced:
-            out.cost = call_cost(pricing, prompt_tokens, out.output_tokens, source)
+            cached_read, cached_write = _cached_tokens(usage)
+            out.cost = call_cost(
+                pricing,
+                prompt_tokens,
+                out.output_tokens,
+                source,
+                cached_read=cached_read,
+                cached_write=cached_write,
+            )
             payload |= {
                 "cost_in_usd": out.cost.input_usd,
                 "cost_out_usd": out.cost.output_usd,

@@ -910,9 +910,21 @@ viennent de `usage` quand le fournisseur le renvoie ; sinon ils sont estimés, e
 (« ≈ »). Ce sont toujours des estimations : ni les en-têtes de facturation ni la console du
 fournisseur ne sont lus. Un appel arrêté (« Arrêter ») compte son entrée telle qu'envoyée, et la
 sortie reçue avant l'arrêt ; un appel refusé avant toute réponse ne compte rien. L'estimation
-suit le prix catalogue : les remises sur l'entrée en cache, les prix par palier ou pour les longs
-contextes, les prix du traitement par lots (batch) et les offres gratuites ne sont pas pris en
-compte.
+suit le prix catalogue. Les tokens d'entrée lus dans le cache du fournisseur ou écrits dans ce
+cache sont comptés à leurs propres prix quand l'entrée les déclare dans `pricing`
+(`cache_read_usd_per_mtok`, `cache_write_usd_per_mtok`, facultatifs), au prix d'entrée sinon. Les
+prix par palier ou pour les longs contextes, les prix du traitement par lots (batch) et les
+offres gratuites ne sont pas pris en compte.
+
+**Plafond de la séance.** `[finops] max_session_usd` (5 $ par défaut) borne la dépense de la
+séance : quand le total de la séance l'a atteint, un appel à un modèle qui déclare ses prix n'est
+pas envoyé, et le message dit le plafond, le total et comment le relever. Les modèles sans
+`pricing` (local, Gemma) restent utilisables. Les appels déjà en cours ne sont jamais
+interrompus : le total peut dépasser le plafond du coût de chacun d'eux. Une valeur illisible,
+`nan`, `inf`, négative ou booléenne vaut 5 ; aucune valeur ne désactive le plafond, et `0` refuse
+tout appel tarifé. Pour le relever, modifiez-le dans `settings.json`, par exemple
+`{"finops": {"max_session_usd": 10}}`, WaveStack arrêté, puis relancez : le total de la séance ne
+revient à zéro qu'au relancement.
 
 **Affichage.** « Coût estimé : entrée … $ · sortie … $ » dans le détail de chaque appel
 (Orchestration), le total du tour dans son en-tête (« coût estimé … $ »), et « Dépense
@@ -927,7 +939,8 @@ plus.
 
 **Mettre les prix à jour.** Relevez les prix sur la page du fournisseur, puis surchargez l'entrée
 dans `settings.json`, par exemple `{"id": "gemini", "pricing": {"input_usd_per_mtok": 0.3,
-"output_usd_per_mtok": 2.5, "checked": "2027-01-02"}}`, et relancez WaveStack. Le taux de
+"output_usd_per_mtok": 2.5, "cache_read_usd_per_mtok": 0.03, "checked": "2027-01-02"}}`, et
+relancez WaveStack (`cache_read_usd_per_mtok` et `cache_write_usd_per_mtok` sont facultatifs). Le taux de
 conversion se règle dans `[finops] eur_per_usd` (euros pour un dollar, 0,86 par défaut, borné de
 0,5 à 2 ; une valeur illisible, `nan` ou `inf`, vaut 0,86). Ce taux par défaut a été relevé le
 2026-09-30 : mettez-le à jour. Un prix négatif rend l'entrée invalide : elle est écartée au lancement, avec la raison.

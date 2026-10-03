@@ -152,10 +152,15 @@ class CloudReasoning(_Strict):
 
 class CloudPricing(_Strict):
     """FinOps: a cloud model's list prices, in US dollars per million tokens, and the day they
-    were read on the provider's page (`checked`, ISO). The cost of a call is an estimate."""
+    were read on the provider's page (`checked`, ISO). The cost of a call is an estimate.
+    Native providers 2/5 (CAP-4): the prices of the input tokens read from the provider's
+    cache (`cache_read_usd_per_mtok`) and written to it (`cache_write_usd_per_mtok`), each
+    optional; an absent one is the input price."""
 
     input_usd_per_mtok: float = Field(ge=0, allow_inf_nan=False)
     output_usd_per_mtok: float = Field(ge=0, allow_inf_nan=False)
+    cache_read_usd_per_mtok: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cache_write_usd_per_mtok: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     checked: date
 
 
@@ -193,6 +198,7 @@ MIN_REASONING_BUDGET = 128  # lot C: the floor, and what is always left to the a
 # Lot D: `[net] contact`, the way to reach the demo's maintainers, sent in the User-Agent.
 DEFAULT_NET_CONTACT = "https://github.com/Aliquanto3/agentic-harness-training-demo"
 DEFAULT_EUR_PER_USD = 0.86  # FinOps: `[finops] eur_per_usd`
+DEFAULT_MAX_SESSION_USD = 5.0  # FinOps (CAP-4): `[finops] max_session_usd`
 # GreenOps: `[greenops] local_gco2e_per_kwh`, EcoLogits' France mix (life cycle).
 DEFAULT_LOCAL_GCO2E_PER_KWH = 41.4
 
@@ -692,6 +698,21 @@ class Config:
         except (TypeError, ValueError):
             return DEFAULT_EUR_PER_USD
         return min(2.0, max(0.5, rate)) if math.isfinite(rate) else DEFAULT_EUR_PER_USD
+
+    @property
+    def max_session_usd(self) -> float:
+        """FinOps (native providers 2/5, CAP-4): `[finops] max_session_usd`, the session's
+        spending cap, in dollars (5 by default): a priced call is not sent once the session's
+        total has reached it. A value that is not a finite number, or a negative one, is the
+        default, and so is a boolean; no value turns the cap off."""
+        value = self.get("finops", "max_session_usd", default=DEFAULT_MAX_SESSION_USD)
+        if isinstance(value, bool):
+            return DEFAULT_MAX_SESSION_USD
+        try:
+            cap = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return DEFAULT_MAX_SESSION_USD
+        return cap if math.isfinite(cap) and cap >= 0 else DEFAULT_MAX_SESSION_USD
 
     @property
     def local_gco2e_per_kwh(self) -> float:

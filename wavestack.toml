@@ -212,10 +212,20 @@ mslearn = "https://learn.microsoft.com/api/mcp"
 # de 0,5 à 2 ; une valeur illisible, nan ou inf, vaut 0,86). Taux relevé le 2026-09-30, à
 # mettre à jour avec les prix.
 # Un appel arrêté (« Arrêter ») compte son entrée telle qu'envoyée, et la sortie reçue avant
-# l'arrêt. L'estimation suit le prix catalogue : remises sur l'entrée en cache, prix par palier
+# l'arrêt. L'estimation suit le prix catalogue. Les tokens d'entrée lus ou écrits dans le cache
+# du fournisseur sont comptés à leurs prix quand l'entrée les déclare (pricing :
+# cache_read_usd_per_mtok, cache_write_usd_per_mtok), au prix d'entrée sinon. Prix par palier
 # ou pour les longs contextes, prix du traitement par lots (batch) et offres gratuites ne sont
 # pas pris en compte.
 eur_per_usd = 0.86
+# Plafond de dépense de la séance, en dollars (5 par défaut ; une valeur illisible, nan, inf,
+# négative ou booléenne vaut 5 ; aucune valeur ne le désactive, et 0 refuse tout appel tarifé).
+# Quand le total de la séance (tous les appels tarifés : tours, sous-agent, « Tester », « LLM
+# nu ») l'a atteint, un appel à un modèle qui déclare ses prix n'est pas envoyé ; les modèles
+# sans prix (local, Gemma) restent utilisables. Les appels déjà en cours ne sont jamais
+# interrompus : le total peut dépasser le plafond du coût de chacun d'eux. Pour le relever :
+# settings.json, WaveStack arrêté, puis relancer (le total ne revient à zéro qu'au relancement).
+max_session_usd = 5
 
 [greenops]
 # Estimateur GreenOps : l'énergie (Wh) et les émissions (g CO₂e) estimées de chaque appel au
@@ -440,8 +450,11 @@ resend = false
 # l'écran « LLM nu » peut envoyer, parmi "temperature" et "top_p" ; vide par défaut, réglés
 # par le fournisseur) et tool_call_extra (ce qu'ajoute à chaque appel d'outil fabriqué par
 # le harnais un fournisseur qui l'exige, comme Gemini ci-dessus) et pricing (FinOps : prix
-# d'entrée et de sortie en dollars par million de tokens, avec la date du relevé ; sans lui,
-# aucun coût n'est estimé ni affiché pour ce modèle) et impacts (GreenOps : provider et model
+# d'entrée et de sortie en dollars par million de tokens, avec la date du relevé, et, facultatifs,
+# cache_read_usd_per_mtok et cache_write_usd_per_mtok, prix des tokens d'entrée lus ou écrits
+# dans le cache du fournisseur, au prix d'entrée s'ils manquent ; sans pricing, aucun coût n'est
+# estimé ni affiché pour ce modèle, et le plafond [finops] max_session_usd ne le bloque jamais)
+# et impacts (GreenOps : provider et model
 # tels qu'EcoLogits les connaît, zone facultative, code ISO à trois lettres du mix électrique,
 # par défaut celui du fournisseur dans EcoLogits ; note_text facultative, ajoutée à l'infobulle ;
 # sans lui, aucune empreinte n'est estimée).

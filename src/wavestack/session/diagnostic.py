@@ -1110,6 +1110,7 @@ class DiagnosticSession:
                         call_id=lambda i, s=step_id: tool_call_id(s, i),
                         eur_per_usd=self.cfg.eur_per_usd,
                         lang=self.language(),
+                        max_session_usd=self.cfg.max_session_usd,
                     )
                 tps = out.output_tps if out.output_tps is not None else tps
                 if k == 1 and out.calls and all("id" in c for c in out.calls):
