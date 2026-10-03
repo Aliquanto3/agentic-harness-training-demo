@@ -1,7 +1,10 @@
 """V2 story 6 benchmark: the prior test of the decision models (CAP-6), extended by story 7
 (mDeBERTa, multilingual MiniLM, Decision 2.0 Kai; memory watchdog in the child) and story 8
 (tev1 0.8B served by Ollama 0.35 on `/v1/systemone`: the RAM counts the child and the Ollama
-processes, the offline criterion is checked on the server side too).
+processes, the offline criterion is checked on the server side too) and story 9 (Julia-1 and
+Laya, decision encoders served on the same endpoint by a portable llama-server b11378 that
+the bench starts on the loopback and stops in any case; the binary is never downloaded by the
+bench, the GGUF once with `--download`, pinned to a commit and a sha256).
 
 Measures each candidate of `decision-model-candidates.md` (spec-wavestack-v2) on the six
 criteria of the prior test, next to the default SLM, on twenty fixed prompts drawn from the
@@ -319,8 +322,12 @@ class Candidate:
     trust_remote_code: bool = False  # runs code shipped by the model repository
     # Story 8: a model served by a local server (Ollama), outside the measurement child.
     server_url: str = ""  # loopback base URL of the server (empty: loaded in the child)
-    server_model: str = ""  # the server's model name (Ollama tag)
+    server_model: str = ""  # the server's model name (Ollama tag, llama-server alias)
     generative: bool = False  # causal model: under the single generative model rule
+    # Story 9: which server ("ollama", "llama_server"; empty: loaded in the child). Its value
+    # is also the prefix of the server-side fields of the report (`ollama_rss_peak_mb`…).
+    server: str = ""
+    gguf_sha256: str = ""  # llama-server: sha256 of the GGUF at the pinned `revision`
 
 
 _NLI_MODULES = ("onnxruntime", "tokenizers", "numpy", "huggingface_hub")
@@ -360,7 +367,58 @@ OLLAMA_PULL_TIMEOUT_S = 1800
 OLLAMA_SAMPLE_PERIOD_S = 0.25
 # Abort threshold of the Ollama processes (server + model), above NFR-2's budget: the child's
 # watchdog only sees the child, and the model process grows with each request (story 8).
-OLLAMA_ABORT_MB = 6144
+# The same threshold applies to llama-server (story 9). It is a safety stop for the shared
+# 16 Go PC, never a criterion: the RAM criterion judges child + server against 4 096 Mo. The
+# 2 048 Mo margin over the budget lets an over-budget server still finish the measure (its
+# latency and agreement recorded), while the stop comes long before the PC swaps.
+OLLAMA_ABORT_MB = RAM_BUDGET_MB + 2048
+
+# Story 9: decision encoders served on `/v1/systemone` by a portable llama-server (PR #29818
+# of ggml-org/llama.cpp, merged on 2026-10-02 as a4cb4c61…), started and stopped by the bench.
+# The binary is downloaded once by hand, never by the bench; the GGUF once with `--download`.
+LLAMA_BUILD = "11378"
+LLAMA_RELEASE = f"b{LLAMA_BUILD}"
+LLAMA_ZIP = f"llama-{LLAMA_RELEASE}-bin-win-cpu-x64.zip"
+LLAMA_ZIP_SHA256 = "11bcb3aea659bce73f62305e3812764f935d90f44de1e70cd2b68aa3c9f41b8d"  # GitHub
+# `llama-server.exe` of that archive, read on the target PC on 2026-10-03 (unzipped as is).
+LLAMA_EXE_SHA256 = "6d2e001e3e366dd64f24578bad2ff461bcfdea4a0c86b134c280a952401eee20"
+LLAMA_RELEASE_URL = f"https://github.com/ggml-org/llama.cpp/releases/tag/{LLAMA_RELEASE}"
+LLAMA_SERVER_ENV = "WAVESTACK_LLAMA_SERVER"
+LLAMA_START_TIMEOUT_S = 120
+LLAMA_STOP_TIMEOUT_S = 15
+LLAMA_SYSTEMONE_API = {
+    "doc": f"https://github.com/ggml-org/llama.cpp/blob/{LLAMA_RELEASE}/tools/server/README.md "
+    "(« POST /v1/systemone: TypeSafe-compatible System One API »)",
+    "code": f"tools/server/server-decision.cpp et tools/server/tests/unit/test_systemone.py au "
+    f"tag {LLAMA_RELEASE} (commit edd6e2bbdad5930899a93db8fa73c3b61c7b9bcc), qui contient la "
+    "PR #29818 (fusion a4cb4c61fd9d9c2066c7c1747821d3d65b8943bd)",
+    "read_on": "2026-10-03",
+    "server": f"llama-server {LLAMA_RELEASE} (CPU, Windows x64), API TypeSafe",
+    "request": "POST /v1/systemone {state, questions: {<id>: {type: choice | score | noul, "
+    "instructions, criteria}}, images?} ; choice : {option: description ou null}, au plus 255 "
+    "options pour le type laya ; pas de flux ; questions répondues indépendamment",
+    "response": "{model, answers: {<id>: {type, choice, probabilities: {option: p}, "
+    "confidence}}, usage: {input_tokens, output_tokens: 0}} ; erreur : 400 (requête invalide), "
+    "501 (modèle qui n'est pas un modèle de décision)",
+    "model_type": "Julia-1 et Laya : type laya (journal du serveur « decision model type: "
+    "laya ») : tout le prompt d'une question en un lot, qui doit tenir dans --ubatch-size "
+    "(512 par défaut)",
+    "label": "une question choice par tâche, options = étiquettes du banc ; étiquette "
+    "retenue = option de plus forte probabilité (même règle que la story 8)",
+}
+JULIA1_REPO = "ggml-org/Julia-1-GGUF"
+JULIA1_FILE = "Julia-1-Q8_0.gguf"
+JULIA1_REVISION = "16fee17949206fbf58da9347daea44d792a81211"
+JULIA1_SHA256 = "1ea6a7e87156eeeda88cb7a36a61265b37ba7b993897b7289b99aea5b5e47069"
+LAYA_REPO = "ggml-org/Laya-GGUF"
+LAYA_FILE = "Laya-Q8_0.gguf"
+LAYA_REVISION = "da4b4753d62197659d8c90103cd4c43bef9afea6"
+LAYA_SHA256 = "c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2"
+_LLAMA_REMOTE_CODE = (
+    f"aucun code du modèle exécuté par le banc ; moteur : llama-server {LLAMA_RELEASE} "
+    "(binaire portable hors dépôt, version et sha256 consignés), GGUF servi par chemin local (-m)"
+)
+SERVER_LABELS = {"ollama": "Ollama", "llama_server": "llama-server"}
 
 CANDIDATES: list[Candidate] = [
     Candidate(
@@ -491,6 +549,43 @@ CANDIDATES: list[Candidate] = [
         server_url=OLLAMA_BASE_URL,
         server_model=TEV1_MODEL,
         generative=True,
+        server="ollama",
+    ),
+    Candidate(
+        id="julia1",
+        doc_name="Julia-1",
+        tier="2",
+        backend="llama_systemone",
+        repos=((JULIA1_REPO, (JULIA1_FILE,)),),
+        model_license="Apache-2.0 (carte GGUF ggml-org/Julia-1-GGUF et carte source "
+        "SupersonicLabs/Julia-1, relues le 2026-10-03)",
+        with_packages=("huggingface-hub",),  # the `--download` of the GGUF only
+        modules=("httpx", "psutil"),
+        remote_code=_LLAMA_REMOTE_CODE,
+        note="encodeur de décision de 144M (Supersonic Labs, sur mmBERT-small, multilingue), "
+        "non génératif ; GGUF Q8_0 de 168 Mo servi par llama-server hors de l'enfant de mesure",
+        revision=JULIA1_REVISION,
+        server_model="Julia-1",
+        server="llama_server",
+        gguf_sha256=JULIA1_SHA256,
+    ),
+    Candidate(
+        id="laya",
+        doc_name="Laya",
+        tier="2",
+        backend="llama_systemone",
+        repos=((LAYA_REPO, (LAYA_FILE,)),),
+        model_license="Apache-2.0 (carte GGUF ggml-org/Laya-GGUF et carte source "
+        "convaiinnovations/laya, relues le 2026-10-03)",
+        with_packages=("huggingface-hub",),
+        modules=("httpx", "psutil"),
+        remote_code=_LLAMA_REMOTE_CODE,
+        note="encodeur de décision de 421M (Convai Innovations, sur ModernBERT-large, point de "
+        "contrôle anglais), non génératif ; GGUF Q8_0 de 449 Mo servi par llama-server",
+        revision=LAYA_REVISION,
+        server_model="Laya",
+        server="llama_server",
+        gguf_sha256=LAYA_SHA256,
     ),
     Candidate(
         id="gliformer",
@@ -854,13 +949,143 @@ def is_sha256(value: str | None) -> bool:
     return bool(re.fullmatch(r"(sha256:)?[0-9a-f]{64}", value or ""))
 
 
-def server_ram_total(report: dict) -> int | None:
+def server_ram_total(report: dict, prefix: str = "ollama") -> int | None:
     """Total RAM of a served candidate: the child's peak (default SLM loaded) plus the peak
-    of the Ollama processes that serve it; None if either is unknown."""
-    child, server = report.get("rss_peak_mb"), report.get("ollama_rss_peak_mb")
+    of the server processes that serve it (`<prefix>_rss_peak_mb`: Ollama, llama-server);
+    None if either is unknown."""
+    child, server = report.get("rss_peak_mb"), report.get(f"{prefix}_rss_peak_mb")
     if child is None or server is None:
         return None
     return child + server
+
+
+# -- story 9: a portable llama-server, started and stopped by the bench -----------------------
+
+
+def default_llama_server(environ=None) -> Path:
+    """Where the release archive is unzipped (outside the repository, no admin rights)."""
+    environ = os.environ if environ is None else environ
+    base = environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    return Path(base) / "WaveStack" / "bench" / f"llama-{LLAMA_RELEASE}" / "llama-server.exe"
+
+
+def resolve_llama_server(arg: str | None, environ=None) -> tuple[Path, str]:
+    """`llama-server.exe`: `--llama-server`, else `WAVESTACK_LLAMA_SERVER`, else the default
+    folder; with where the path came from."""
+    environ = os.environ if environ is None else environ
+    if arg:
+        return Path(arg), "--llama-server"
+    if environ.get(LLAMA_SERVER_ENV):
+        return Path(environ[LLAMA_SERVER_ENV]), LLAMA_SERVER_ENV
+    return default_llama_server(environ), "dossier par défaut"
+
+
+def llama_binary_absent_message(exe: Path) -> str:
+    return (
+        f"llama-server introuvable : {exe}. Téléchargez une fois {LLAMA_ZIP} (release "
+        f"{LLAMA_RELEASE} de ggml-org/llama.cpp, {LLAMA_RELEASE_URL}) et décompressez-le dans "
+        f"{default_llama_server().parent}, ou passez --llama-server <chemin de "
+        f"llama-server.exe> (ou {LLAMA_SERVER_ENV}). Le banc ne télécharge pas le binaire."
+    )
+
+
+def parse_llama_version(text: str) -> dict:
+    """`llama-server --version` (`version: 0.5.0-dev (build 11378, commit edd6e2bbd)`)."""
+    line = next((s.strip() for s in (text or "").splitlines() if s.startswith("version:")), "")
+    match = re.search(r"version:\s*(\S+)\s*\(build (\d+), commit ([0-9a-f]+)\)", line)
+    if not match:
+        return {"version_line": line or None, "version": None, "build": None, "commit": None}
+    version, build, commit = match.groups()
+    return {"version_line": line, "version": version, "build": build, "commit": commit}
+
+
+def llama_binary_pinned(server: dict) -> bool:
+    """The binary is the recorded one: `llama-server.exe` has the sha256 read on the target
+    PC, or the archive next to it has GitHub's."""
+    archive = server.get("archive") or {}
+    return server.get("exe_sha256") == LLAMA_EXE_SHA256 or archive.get("sha256_ok") is True
+
+
+def llama_server_argv(exe: Path, gguf: Path, port: int, alias: str) -> list[str]:
+    """The server's command line: the GGUF by LOCAL path (`-m`, never `-hf`), listening on
+    127.0.0.1 only, offline, without the Web UI, one slot."""
+    return [
+        str(exe),
+        "-m",
+        str(gguf),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--offline",
+        "--no-webui",
+        "-np",
+        "1",
+        "-a",
+        alias,
+    ]
+
+
+def llama_server_env(base: dict[str, str]) -> dict[str, str]:
+    """The server's environment: no proxy, and no `LLAMA_ARG_*` (an inherited
+    `LLAMA_ARG_HOST` would change where it listens)."""
+    env = dict(base)
+    s12._strip_proxy_env(env)
+    for name in [n for n in env if n.upper().startswith(("LLAMA_ARG_", "LLAMA_CACHE"))]:
+        del env[name]
+    return env
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def free_loopback_port() -> int:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def gguf_path(models_dir: Path, c: Candidate) -> Path:
+    """The candidate's GGUF in the bench's Hugging Face cache, at its pinned commit."""
+    repo, files = c.repos[0]
+    return _snapshots_dir(models_dir, repo) / c.revision / files[0]
+
+
+def gguf_record(c: Candidate, path: Path, sha256=None) -> dict:
+    repo, files = c.repos[0]
+    digest = (sha256 or file_sha256)(path)
+    return {
+        "repo": repo,
+        "file": files[0],
+        "revision": c.revision,
+        "path": str(path),
+        "size_mb": path.stat().st_size >> 20,
+        "sha256": digest,
+        "expected_sha256": c.gguf_sha256,
+        "sha256_ok": digest == c.gguf_sha256,
+    }
+
+
+_LOG_KEEP = re.compile(
+    r"decision model|n_ctx_slot|system_info|build:|main: |error|failed|exception", re.IGNORECASE
+)
+
+
+def log_excerpt(text: str, tail: int = 0, keep: int = 25) -> list[str]:
+    """The telling lines of a llama-server log (model type, context, errors), then its last
+    `tail` lines (the cause of a failed start)."""
+    lines = [s.rstrip() for s in (text or "").splitlines() if s.strip()]
+    picked = [s for s in lines if _LOG_KEEP.search(s)][:keep]
+    if tail:
+        picked += [s for s in lines[-tail:] if s not in picked]
+    return picked
 
 
 def nvidia_scores(logits: list[list[float]], cfg: dict) -> dict:
@@ -1064,10 +1289,11 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
                 "criteria": [],
                 "target_pc": target,
             }
-        ceiling = report.get("ollama_ceiling")
-        if ceiling:  # the Ollama processes went beyond the abort threshold
+        ceiling = report.get("ollama_ceiling") or report.get("llama_server_ceiling")
+        if ceiling:  # the server processes went beyond the abort threshold
+            label = SERVER_LABELS.get(c.server, c.server or "Ollama")
             reason = (
-                f"RAM : mesure arrêtée, processus Ollama à {ceiling.get('rss_at_stop_mb')} Mo "
+                f"RAM : mesure arrêtée, processus {label} à {ceiling.get('rss_at_stop_mb')} Mo "
                 f"(seuil d'arrêt {ceiling.get('threshold_mb')} Mo, au-delà du budget de "
                 f"{RAM_BUDGET_MB} Mo), sans latence ni accord complets"
             )
@@ -1118,11 +1344,19 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
             "Windows 11, session sans droits admin ; vérifier dans la sortie de uv qu'aucun "
             "paquet n'a été compilé (« Building … »)"
         )
-    if c.server_model:  # criterion 1 as it stands, never a failure (story 8)
+    if c.server == "ollama":  # criterion 1 as it stands, never a failure (story 8)
         version = (report.get("ollama") or {}).get("version")
         cpu_detail += (
             f" ; Ollama {version or '?'} est déjà installé sur le poste, sans droits admin "
             "(installation par utilisateur) ; aucun paquet Python ajouté"
+        )
+    elif c.server == "llama_server":  # a finding for Anaël to decide on, never a failure
+        server = report.get("llama_server") or {}
+        cpu_detail += (
+            f" ; llama-server {server.get('version_line') or '?'} : binaire portable décompressé "
+            f"hors du dépôt ({server.get('exe') or '?'}), ni installé ni lancé en admin, démarré "
+            "et arrêté par le banc ; « sans exécutable à installer » : constat pour décision "
+            "d'Anaël, pas un échec ; aucun paquet Python ajouté"
         )
     criteria.append(
         {
@@ -1137,16 +1371,21 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
         f"pic total {total} Mo (SLM chargé : {report.get('rss_with_slm_mb')} Mo), "
         f"ajouté par le candidat {added} Mo au pic"
     )
-    if c.server_model:  # the model lives in Ollama: the child plus the serving processes
-        child, server = total, report.get("ollama_rss_peak_mb")
-        total = server_ram_total(report)
-        parts = report.get("ollama_rss") or {}
+    if c.server:  # the model lives in a server: the child plus the serving processes
+        child, server = total, report.get(f"{c.server}_rss_peak_mb")
+        total = server_ram_total(report, c.server)
+        parts = report.get(f"{c.server}_rss") or {}
         ram_detail = (
             f"pic total {total} Mo = enfant de mesure {child} Mo (SLM chargé : "
-            f"{report.get('rss_with_slm_mb')} Mo, ajouté dans l'enfant {added} Mo) + processus "
-            f"Ollama {server} Mo (serveur {parts.get('server_peak_mb')} Mo, processus du modèle "
-            f"{parts.get('runner_peak_mb')} Mo)"
+            f"{report.get('rss_with_slm_mb')} Mo, ajouté dans l'enfant {added} Mo) + "
         )
+        if c.server == "ollama":
+            ram_detail += (
+                f"processus Ollama {server} Mo (serveur {parts.get('server_peak_mb')} Mo, "
+                f"processus du modèle {parts.get('runner_peak_mb')} Mo)"
+            )
+        else:
+            ram_detail += f"llama-server {server} Mo (modèle chargé, pic de l'ensemble de travail)"
     rag = report.get("v1_rag_rss_mb")
     rag_txt = (
         f" ; avec l'embedding et le reranker V1 ({rag} Mo mesurés), {total + rag} Mo"
@@ -1170,6 +1409,12 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
     if med is None:
         lat_ok = None  # no decision to time (no row, or error rows only)
     errors = report.get("error_rows")
+    launch = report.get("llama_server_launch") or {}
+    start = (
+        f", démarrage de llama-server {launch.get('start_s')} s"
+        if c.server == "llama_server"
+        else ""
+    )
     criteria.append(
         {
             "id": "latency",
@@ -1177,7 +1422,7 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
             "ok": lat_ok,
             "detail": f"médiane {med} ms, maximum {mx} ms sur {report.get('decisions')} "
             f"décisions (échauffement {report.get('warmup_ms')} ms, chargement "
-            f"{report.get('load_s')} s)"
+            f"{report.get('load_s')} s{start})"
             + (f", {errors} ligne(s) en erreur exclue(s)" if errors else ""),
         }
     )
@@ -1185,24 +1430,36 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
     offline_ok: bool | None = not hosts and not report.get("blocked")
     offline_detail = f"hôtes tentés : {hosts or 'aucun'}"
     offline_label = "Hors ligne : aucune tentative réseau sous la garde d'AD-15"
-    if c.server_model:
-        net = report.get("ollama_network") or {}
-        remotes = sorted({r for phase in ("before", "during", "after") for r in net.get(phase, [])})
-        exposed = [a for a in net.get("listen") or [] if not _is_loopback_ip(a.rsplit(":", 1)[0])]
-        runner_found = bool((report.get("ollama_processes") or {}).get("runner"))
-        checked = bool(net) and net.get("samples", 0) > 0 and not net.get("errors") and runner_found
+    if c.server:
+        label = SERVER_LABELS.get(c.server, c.server)
+        net = report.get(f"{c.server}_network") or {}
+        model_role = "runner" if c.server == "ollama" else "server"
+        phases = ("before", "during", "after")
+        remotes = {r for phase in phases for r in net.get(phase, [])}
+        remotes |= set(launch.get("startup_remotes") or [])  # llama-server's start
+        remotes = sorted(remotes)
+        listen = sorted(set(net.get("listen") or []) | set(launch.get("startup_listen") or []))
+        exposed = [a for a in listen if not _is_loopback_ip(a.rsplit(":", 1)[0])]
+        found = bool((report.get(f"{c.server}_processes") or {}).get(model_role))
+        net_errors = list(net.get("errors") or []) + list(launch.get("startup_errors") or [])
+        checked = bool(net) and net.get("samples", 0) > 0 and not net_errors and found
         if remotes or exposed:
-            offline_ok = False  # an outgoing connection, or Ollama listening beyond loopback
+            offline_ok = False  # an outgoing connection, or a server listening beyond loopback
         elif not checked and offline_ok:
             offline_ok = None  # the server side could not be read in full: not verifiable
         offline_label += (
-            ", aucune connexion sortante des processus Ollama, écoute sur la boucle locale seule"
+            f", aucune connexion sortante des processus {label}, écoute sur la boucle locale seule"
+        )
+        where = (
+            "serveur et processus du modèle"
+            if c.server == "ollama"
+            else "processus llama-server, lancé avec --offline, relevé par PID dès son démarrage"
         )
         offline_detail += (
-            f" ; côté Ollama (serveur et processus du modèle, connexions TCP avant, pendant et "
-            f"après la mesure) : {remotes or 'aucune connexion hors boucle locale'}"
-            + ("" if checked else f" (relevé incomplet : {net.get('errors') or 'aucun relevé'})")
-            + f" ; écoute : {net.get('listen') or '?'}"
+            f" ; côté {label} ({where}, connexions TCP avant, pendant et après la mesure) : "
+            f"{remotes or 'aucune connexion hors boucle locale'}"
+            + ("" if checked else f" (relevé incomplet : {net_errors or 'aucun relevé'})")
+            + f" ; écoute : {listen or '?'}"
             + (f" (hors boucle locale : {exposed})" if exposed else "")
         )
     criteria.append(
@@ -1212,11 +1469,20 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
     # records, to be copied into decision-model-candidates.md for a retained candidate.
     revisions = report.get("revisions") or {}
     versions = report.get("versions") or {}
-    if c.server_model:  # the model's digest in Ollama and Ollama's version
+    if c.server == "ollama":  # the model's digest in Ollama and Ollama's version
         pinned = (
             bool(revisions)
             and all(is_sha256(v) for v in revisions.values())
             and bool(versions.get("ollama"))
+        )
+    elif c.server == "llama_server":  # the GGUF's commit and sha256, the server's build
+        pinned = (
+            bool(revisions)
+            and all(is_commit_sha(v) for v in revisions.values())
+            and c.revision in revisions.values()
+            and bool((report.get("gguf") or {}).get("sha256_ok"))
+            and f"build {LLAMA_BUILD}," in str(versions.get("llama-server") or "")
+            and llama_binary_pinned(report.get("llama_server") or {})
         )
     else:
         pinned = (
@@ -1230,6 +1496,19 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
         if c.trust_remote_code
         else ""
     )
+    if c.server == "llama_server":
+        gguf = report.get("gguf") or {}
+        remote += (
+            f" ; GGUF {gguf.get('file')} sha256 {gguf.get('sha256')} "
+            f"({'conforme' if gguf.get('sha256_ok') else 'NON conforme'} à {c.gguf_sha256})"
+        )
+        server = report.get("llama_server") or {}
+        remote += (
+            f" ; llama-server.exe sha256 {server.get('exe_sha256')}, archive "
+            f"{(server.get('archive') or {}).get('sha256')} : binaire "
+            f"{'conforme' if llama_binary_pinned(server) else 'NON conforme'} au relevé "
+            f"({LLAMA_EXE_SHA256} ou archive {LLAMA_ZIP_SHA256})"
+        )
     criteria.append(
         {
             "id": "pinned",
@@ -1244,11 +1523,16 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
     unknown = [f"{p['name']} ({p['license']})" for p in packages if p["class"] == "unknown"]
     model_class = license_class(c)
     served = ""
-    if c.server_model:
+    if c.server == "ollama":
         model = (report.get("ollama") or {}).get("model") or {}
         served = (
             f" ; textes du paquet Ollama : {model.get('license_markers') or 'aucun'} "
             f"(sha256 {model.get('license_sha256')})"
+        )
+    elif c.server == "llama_server":
+        served = (
+            f" ; moteur : llama.cpp {LLAMA_RELEASE} (MIT ; l'archive porte aussi "
+            "LICENSE-LLVM-OpenMP pour libomp), binaire de mesure hors projet"
         )
     criteria.append(
         {
@@ -1647,74 +1931,93 @@ def scan_ollama_processes(blob_sha: str, pids=None) -> list[dict]:
     """The Ollama processes (psutil), among all processes or the given PIDs: role, PID,
     RSS, peak working set (Windows), remote non-loopback endpoints and listening addresses
     of their TCP connections."""
+    return [
+        _process_record(proc, role)
+        for proc, name, cmdline in _processes(pids)
+        if (role := ollama_role(name, cmdline, blob_sha)) is not None
+    ]
+
+
+def _process_record(proc, role: str) -> dict:
+    """Role, PID, RSS, peak working set (Windows), remote non-loopback endpoints and
+    listening addresses of the TCP connections of one process."""
     import psutil
 
-    out = []
-    for proc, name, cmdline in _processes(pids):
-        role = ollama_role(name, cmdline, blob_sha)
-        if role is None:
-            continue
-        rec = {"pid": proc.pid, "role": role}
-        try:
-            mem = proc.memory_info()
-            rec["rss_mb"] = mem.rss >> 20
-            rec["peak_mb"] = (getattr(mem, "peak_wset", 0) >> 20) or None
-            conns = proc.net_connections(kind="inet")
-            rec["remotes"], rec["listen"] = remote_endpoints(conns), listening_endpoints(conns)
-        except psutil.Error as exc:
-            rec["error"] = f"{type(exc).__name__} ({role} {proc.pid})"
-        out.append(rec)
-    return out
+    rec = {"pid": proc.pid, "role": role}
+    try:
+        mem = proc.memory_info()
+        rec["rss_mb"] = mem.rss >> 20
+        rec["peak_mb"] = (getattr(mem, "peak_wset", 0) >> 20) or None
+        conns = proc.net_connections(kind="inet")
+        rec["remotes"], rec["listen"] = remote_endpoints(conns), listening_endpoints(conns)
+    except psutil.Error as exc:
+        rec["error"] = f"{type(exc).__name__} ({role} {proc.pid})"
+    return rec
+
+
+def scan_llama_server(pid: int) -> list[dict]:
+    """The llama-server process the bench started, by its PID (role `server`); nothing when
+    it is gone, or when the PID now names another program."""
+    return [
+        _process_record(proc, "server")
+        for proc, name, _cmdline in _processes([pid])
+        if "llama-server" in (name or "").lower()
+    ]
 
 
 OLLAMA_FULL_SCAN_EVERY = 8  # samples between two full listings (the rest: known PIDs only)
 
 
-class OllamaWatch:
-    """Samples the Ollama processes that serve the model during the measure: RSS of the
-    server and of the model's process (found by its weights blob on the command line), and
-    their TCP connections before, during and after the measure. `scan(pids)` is injectable:
-    a full listing (`pids` None) before, after, every `OLLAMA_FULL_SCAN_EVERY` samples and
-    until the model process is found; the known server and model PIDs in between.
+class ServerWatch:
+    """Samples the processes that serve the model during the measure: their RSS, and their
+    TCP connections before, during and after the measure. `scan(pids)` is injectable: a
+    full listing (`pids` None) before, after, every `OLLAMA_FULL_SCAN_EVERY` samples and
+    until the model process (`model_role`) is found; the known PIDs of `roles` in between.
 
-    Beyond `abort_mb` (server + model process), `ceiling` is set and the served loader's
+    `prefix` names the report's fields (`<prefix>_rss_peak_mb`…), `roles` the processes whose
+    peaks add up. Beyond `abort_mb` (their sum), `ceiling` is set and the served loader's
     `decide` stops the measure: the child's watchdog does not see these processes."""
 
     def __init__(
         self,
-        blob_sha: str,
-        scan=None,
+        scan,
+        prefix: str,
+        roles: tuple[str, ...],
+        model_role: str,
+        missing: str,
+        method: str,
         period_s: float = OLLAMA_SAMPLE_PERIOD_S,
         abort_mb: int | None = None,
     ):
         import threading
 
-        self.blob_sha, self.period_s = blob_sha, period_s
+        self.prefix, self.roles, self.model_role = prefix, roles, model_role
+        self.missing, self.method, self.period_s = missing, method, period_s
         self.abort_mb = OLLAMA_ABORT_MB if abort_mb is None else abort_mb
         self.ceiling: dict | None = None
-        self._scan = scan or (lambda pids=None: scan_ollama_processes(blob_sha, pids))
+        self._scan = scan
         self._ticks = 0
         self.full_scans = 0
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._loop, name="ollama-watch", daemon=True)
+        self._thread = threading.Thread(target=self._loop, name=f"{prefix}-watch", daemon=True)
         self._lock = threading.Lock()
         self.peaks: dict[str, int] = {}
         self.peak_sum = None
-        self.runner_peak_wset = None
+        self.runner_peak_wset = None  # the model process's peak working set (Windows)
         self.pids: dict[str, set] = {}
         self.remotes: dict[str, set] = {"before": set(), "during": set(), "after": set()}
         self.other_remotes: set = set()
         self.listen: set = set()
         self.errors: list[str] = []
         self.samples = 0
-        self.runner_series: list[int] = []
+        self.runner_series: list[int] = []  # the model process's RSS over the measure
 
     def take(self, phase: str) -> None:
         with self._lock:
-            known = sorted(self.pids.get("server", set()) | self.pids.get("runner", set()))
+            known = sorted(set().union(*(self.pids.get(r, set()) for r in self.roles)))
             full = (
                 phase != "during"
-                or not self.pids.get("runner")
+                or not self.pids.get(self.model_role)
                 or self._ticks % OLLAMA_FULL_SCAN_EVERY == 0
             )
             self._ticks += 1
@@ -1734,19 +2037,19 @@ class OllamaWatch:
                 self.pids.setdefault(role, set()).add(p["pid"])
                 if p.get("error") and p["error"] not in self.errors and len(self.errors) < 20:
                     self.errors.append(p["error"])
-                if role in ("server", "runner"):
+                if role in self.roles:
                     self.remotes[phase] |= set(p.get("remotes") or [])
                     self.listen |= set(p.get("listen") or [])
                     if p.get("rss_mb") is not None:
                         rss[role] = rss.get(role, 0) + p["rss_mb"]
-                    if role == "runner" and p.get("peak_mb"):
+                    if role == self.model_role and p.get("peak_mb"):
                         self.runner_peak_wset = max(self.runner_peak_wset or 0, p["peak_mb"])
                 else:
                     self.other_remotes |= {f"{role} : {r}" for r in p.get("remotes") or []}
             for role, value in rss.items():
                 self.peaks[role] = max(self.peaks.get(role, 0), value)
-            if "runner" in rss:  # its growth over the measure (prompt cache, leak…)
-                self.runner_series.append(rss["runner"])
+            if self.model_role in rss:  # its growth over the measure (prompt cache, leak…)
+                self.runner_series.append(rss[self.model_role])
             if rss:
                 now = sum(rss.values())
                 self.peak_sum = max(self.peak_sum or 0, now)
@@ -1761,7 +2064,7 @@ class OllamaWatch:
         while not self._stop.wait(self.period_s):
             self.take("during")
 
-    def start(self) -> OllamaWatch:
+    def start(self) -> ServerWatch:
         self.take("before")
         self._thread.start()
         return self
@@ -1775,35 +2078,37 @@ class OllamaWatch:
 
     def report(self) -> dict:
         with self._lock:
-            server = self.peaks.get("server")
-            runner = self.peaks.get("runner")
+            peaks = {role: self.peaks.get(role) for role in self.roles}
             if self.runner_peak_wset is not None:
-                runner = max(runner or 0, self.runner_peak_wset)
-            total = server + runner if server is not None and runner is not None else None
+                model = peaks.get(self.model_role)
+                peaks[self.model_role] = max(model or 0, self.runner_peak_wset)
+            known = [v for v in peaks.values() if v is not None]
+            total = sum(known) if len(known) == len(peaks) else None
             errors = list(self.errors)  # a copy: `report` may be called more than once
-            if runner is None:
-                errors.append(f"processus du modèle introuvable (blob {self.blob_sha[:12]})")
+            if peaks.get(self.model_role) is None:
+                errors.append(self.missing)
             series = self.runner_series
             step = max(1, len(series) // 30)  # at most ~30 points, the last one kept
             points = series[::step]
             if series and (len(series) - 1) % step:
                 points.append(series[-1])
+            m, p = self.model_role, self.prefix
             return {
-                "ollama_rss_peak_mb": total,
-                "ollama_ceiling": self.ceiling,
-                "ollama_rss": {
-                    "server_peak_mb": server,
-                    "runner_peak_mb": runner,
-                    "runner_peak_wset_mb": self.runner_peak_wset,
+                f"{p}_rss_peak_mb": total,
+                f"{p}_ceiling": self.ceiling,
+                f"{p}_rss": {
+                    **{f"{role}_peak_mb": value for role, value in peaks.items()},
+                    f"{m}_peak_wset_mb": self.runner_peak_wset,
                     "peak_of_sum_mb": self.peak_sum,
                     "abort_threshold_mb": self.abort_mb,
-                    "runner_series_mb": points,
-                    "method": f"somme des pics (majorant) du serveur et du processus du modèle, "
-                    f"RSS lue toutes les {self.period_s} s, pic de l'ensemble de travail du "
-                    "processus du modèle (Windows)",
+                    f"{m}_series_mb": points,
+                    "method": ("somme des pics (majorant)" if len(self.roles) > 1 else "pic")
+                    + f" {self.method}, RSS lue toutes les "
+                    f"{self.period_s} s, pic de l'ensemble de travail du processus du modèle "
+                    "(Windows)",
                 },
-                "ollama_processes": {role: sorted(pids) for role, pids in self.pids.items()},
-                "ollama_network": {
+                f"{p}_processes": {role: sorted(pids) for role, pids in self.pids.items()},
+                f"{p}_network": {
                     "before": sorted(self.remotes["before"]),
                     "during": sorted(self.remotes["during"]),
                     "after": sorted(self.remotes["after"]),
@@ -1811,13 +2116,61 @@ class OllamaWatch:
                     "listen": sorted(self.listen),
                     "samples": self.samples,
                     "full_scans": self.full_scans,
-                    "method": "connexions TCP (psutil) du serveur et du processus du modèle, "
-                    f"par PID, avant, pendant (toutes les {self.period_s} s) et après la "
-                    "mesure ; une connexion plus brève que la période peut échapper au relevé ; "
-                    f"liste complète des processus toutes les {OLLAMA_FULL_SCAN_EVERY} lectures",
+                    "method": f"connexions TCP (psutil) {self.method}, par PID, avant, pendant "
+                    f"(toutes les {self.period_s} s) et après la mesure ; une connexion plus "
+                    "brève que la période peut échapper au relevé ; liste complète des "
+                    f"processus toutes les {OLLAMA_FULL_SCAN_EVERY} lectures",
                     "errors": errors,
                 },
             }
+
+
+class OllamaWatch(ServerWatch):
+    """The Ollama processes that serve the model (story 8): the server and the model's
+    process, found by its weights blob on the command line."""
+
+    def __init__(
+        self,
+        blob_sha: str,
+        scan=None,
+        period_s: float = OLLAMA_SAMPLE_PERIOD_S,
+        abort_mb: int | None = None,
+    ):
+        self.blob_sha = blob_sha
+        super().__init__(
+            scan or (lambda pids=None: scan_ollama_processes(blob_sha, pids)),
+            prefix="ollama",
+            roles=("server", "runner"),
+            model_role="runner",
+            missing=f"processus du modèle introuvable (blob {blob_sha[:12]})",
+            method="du serveur et du processus du modèle",
+            period_s=period_s,
+            abort_mb=abort_mb,
+        )
+
+
+class LlamaServerWatch(ServerWatch):
+    """The llama-server the bench started (story 9): one process, by its PID, which is both
+    the server and the model's process."""
+
+    def __init__(
+        self,
+        pid: int,
+        scan=None,
+        period_s: float = OLLAMA_SAMPLE_PERIOD_S,
+        abort_mb: int | None = None,
+    ):
+        self.pid = pid
+        super().__init__(
+            scan or (lambda pids=None: scan_llama_server(pid)),
+            prefix="llama_server",
+            roles=("server",),
+            model_role="server",
+            missing=f"processus llama-server introuvable (PID {pid})",
+            method="du processus llama-server",
+            period_s=period_s,
+            abort_mb=abort_mb,
+        )
 
 
 class OllamaOps:
@@ -1967,9 +2320,25 @@ def _load_systemone(c: Candidate, models_dir: Path, slm_llm, transport=None, sca
     blob = blob_sha_from_modelfile(show.get("modelfile") or "")
     watch = OllamaWatch(blob, scan=scan).start()
     client = SystemOneClient(c.server_url, c.server_model, transport)
+    decide, info = _served_decisions(client, watch)
+    info = {
+        "systemone_api": SYSTEMONE_API,
+        "server_url": c.server_url,
+        "server_model": c.server_model,
+        "blob_sha256": blob,
+        **info,  # first_request_s: the model's load in Ollama (`load_s` adds the watch)
+    }
+    return decide, info
+
+
+def _served_decisions(client: SystemOneClient, watch: ServerWatch):
+    """The decisions of a served model, its server's processes watched (`watch` started):
+    a first request (Ollama loads the model then), which must answer with probabilities;
+    `decide` stops once the server processes cross the abort threshold; `finish` closes the
+    client and stops the watch."""
     try:
         t0 = time.monotonic()
-        first = client.ask(PROMPTS[0].text, choice_questions("cost"))  # loads the model
+        first = client.ask(PROMPTS[0].text, choice_questions("cost"))
         first_s = round(time.monotonic() - t0, 2)
     except Exception:
         watch.finish()
@@ -1982,22 +2351,37 @@ def _load_systemone(c: Candidate, models_dir: Path, slm_llm, transport=None, sca
         raise RuntimeError(f"/v1/systemone : {first_label}")
 
     def decide(text: str, task: str) -> dict:
-        if watch.ceiling:  # the Ollama processes went beyond the abort threshold
-            raise RuntimeError(f"ollama_ceiling : {watch.ceiling}")
+        if watch.ceiling:  # the server processes went beyond the abort threshold
+            raise RuntimeError(f"{watch.prefix}_ceiling : {watch.ceiling}")
         return client.decide_row(text, task)
 
     def finish() -> dict:
         client.close()
         return watch.finish()
 
+    return decide, {"first_answer": first, "first_request_s": first_s, "finish": finish}
+
+
+def _load_llama_server(
+    c: Candidate, models_dir: Path, slm_llm, server=None, transport=None, scan=None
+):
+    """A model served on `/v1/systemone` by the llama-server the parent started (`server`:
+    its loopback URL and PID): the model is already loaded; its process is watched by PID."""
+    if not server or not server.get("url") or not server.get("pid"):
+        raise RuntimeError("llama-server non démarré par le parent (--server-url, --server-pid)")
+    watch = LlamaServerWatch(int(server["pid"]), scan=scan).start()
+    try:
+        client = SystemOneClient(server["url"], c.server_model, transport)
+    except Exception:
+        watch.finish()
+        raise
+    decide, info = _served_decisions(client, watch)
     info = {
-        "systemone_api": SYSTEMONE_API,
-        "server_url": c.server_url,
+        "systemone_api": LLAMA_SYSTEMONE_API,
+        "server_url": server["url"],
+        "server_pid": int(server["pid"]),
         "server_model": c.server_model,
-        "blob_sha256": blob,
-        "first_answer": first,
-        "first_request_s": first_s,  # the model's load in Ollama (`load_s` adds the watch)
-        "finish": finish,
+        **info,
     }
     return decide, info
 
@@ -2010,6 +2394,7 @@ LOADERS = {
     "slm_judge": _load_slm_judge,
     "decision20_torch": _load_decision20,
     "ollama_systemone": _load_systemone,
+    "llama_systemone": _load_llama_server,
 }
 
 RAM_WATCH_PERIOD_S = 0.5
@@ -2071,13 +2456,14 @@ def start_ram_watchdog(
     return thread, stop, state
 
 
-def _measure_child(candidate_id: str, models_dir: Path, slm: Path) -> dict:
+def _measure_child(candidate_id: str, models_dir: Path, slm: Path, server=None) -> dict:
+    """`server`: the llama-server the parent started (`url`, `pid`), for story 9."""
     attempts, guard = s12._record_and_guard(allowed_hosts=[])
     # From the start: SLM included. The child only, as in story 7, for a served model too:
-    # the Ollama processes are measured by `OllamaWatch` and judged by the RAM criterion.
+    # the server processes are measured by a `ServerWatch` and judged by the RAM criterion.
     _, stop_watchdog, watchdog = start_ram_watchdog(attempts)
     try:
-        out = _measure(candidate_id, models_dir, slm, attempts, guard)
+        out = _measure(candidate_id, models_dir, slm, attempts, guard, server)
         out["ram_watchdog"] = dict(watchdog)  # its state while the measure ran
         return out
     finally:
@@ -2092,7 +2478,9 @@ def _loaded_modules() -> dict:
     }
 
 
-def _measure(candidate_id: str, models_dir: Path, slm: Path, attempts: list, guard: str) -> dict:
+def _measure(
+    candidate_id: str, models_dir: Path, slm: Path, attempts: list, guard: str, server=None
+) -> dict:
     c = candidate(candidate_id)
     n_ctx = slm_n_ctx(wavestack_settings())
     out: dict = {"id": c.id, "guard": guard, "slm": str(slm), "slm_n_ctx": n_ctx}
@@ -2108,7 +2496,8 @@ def _measure(candidate_id: str, models_dir: Path, slm: Path, attempts: list, gua
         out["rss_with_slm_mb"] = s12._rss_mb()
         base = s12._baseline_rss()
         t1 = time.monotonic()
-        decide, info = LOADERS[c.backend](c, models_dir, slm_llm)
+        extra = {"server": server} if c.server == "llama_server" else {}
+        decide, info = LOADERS[c.backend](c, models_dir, slm_llm, **extra)
         out["load_s"] = round(time.monotonic() - t1, 2)
         finish = info.pop("finish", None)  # a served model: stops the watch of its processes
         out.update(info)
@@ -2133,8 +2522,8 @@ def _measure(candidate_id: str, models_dir: Path, slm: Path, attempts: list, gua
         out["rss_peak_mb"],
         (out["rss_loaded_mb"],),
     )
-    if c.server_model:
-        out["ram_total_peak_mb"] = server_ram_total(out)
+    if c.server:
+        out["ram_total_peak_mb"] = server_ram_total(out, c.server)
     out["versions"] = _versions(c.roots)  # the packages this very measure ran with
     out.update(_loaded_modules())
     out["attempts"] = attempts
@@ -2192,7 +2581,7 @@ def child_env(base: dict[str, str], models_dir: Path) -> dict[str, str]:
     return env
 
 
-def _default_runner(c: Candidate, models_dir: Path, slm: Path) -> dict:
+def _default_runner(c: Candidate, models_dir: Path, slm: Path, server=None) -> dict:
     env = child_env(os.environ, models_dir)
     cmd = [
         sys.executable,
@@ -2205,6 +2594,8 @@ def _default_runner(c: Candidate, models_dir: Path, slm: Path) -> dict:
         "--slm",
         str(slm),
     ]
+    if server:  # the llama-server the parent started (story 9)
+        cmd += ["--server-url", server["url"], "--server-pid", str(server["pid"])]
     return s12._run_child(cmd, env, timeout=CHILD_TIMEOUT_S)
 
 
@@ -2288,11 +2679,11 @@ _PARTIAL_FIELDS = (
     "heavy_modules_loaded",
     "ram_watchdog",
     "rss_at_stop_mb",
-    "ollama_ceiling",
-    "ollama_rss_peak_mb",
-    "ollama_rss",
-    "ollama_processes",
-    "ollama_network",
+    *(
+        f"{prefix}_{field}"
+        for prefix in ("ollama", "llama_server")
+        for field in ("ceiling", "rss_peak_mb", "rss", "processes", "network")
+    ),
 )
 
 
@@ -2307,6 +2698,7 @@ def run_measure(
     packages=package_rows,
     machine=machine_info,
     server_ops=None,
+    llama_server: str | None = None,
 ) -> dict:
     report: dict = {"candidate": c.id, "tier": c.tier, "models_dir": str(models_dir), **machine()}
     report["command"] = command_for(c)
@@ -2318,18 +2710,19 @@ def run_measure(
         )
     elif slm is None:
         report["status"] = "non mesuré (SLM par défaut introuvable : --slm)"
-    elif c.server_model:
+    elif c.server == "ollama":
         report["v1_rag_rss_mb"] = v1_rag_rss_mb(wavestack_settings())
         _measure_served(c, models_dir, slm, download, runner, server_ops, report)
+        report["packages"] = packages(c.roots)
+    elif c.server == "llama_server":
+        report["v1_rag_rss_mb"] = v1_rag_rss_mb(wavestack_settings())
+        ops = server_ops or LlamaServerOps(*resolve_llama_server(llama_server))
+        _measure_llama(c, models_dir, slm, download, runner, downloader, ops, report)
         report["packages"] = packages(c.roots)
     else:
         report["v1_rag_rss_mb"] = v1_rag_rss_mb(wavestack_settings())
         if download and c.repos:
-            try:
-                models_dir.mkdir(parents=True, exist_ok=True)
-                report["download"] = downloader(c, models_dir)
-            except Exception as exc:  # noqa: BLE001 - reported, the status says what is absent
-                report["download"] = {"hosts": [], "errors": {"*": repr(exc)[:300]}}
+            _download_into(c, models_dir, downloader, report)
         absent = [
             repo
             for repo, files in c.repos
@@ -2357,10 +2750,21 @@ def run_measure(
     return report
 
 
-def _run_into(c: Candidate, models_dir: Path, slm: Path, runner, report: dict) -> None:
+def _download_into(c: Candidate, models_dir: Path, downloader, report: dict) -> None:
+    try:
+        models_dir.mkdir(parents=True, exist_ok=True)
+        report["download"] = downloader(c, models_dir)
+    except Exception as exc:  # noqa: BLE001 - reported, the status says what is absent
+        report["download"] = {"hosts": [], "errors": {"*": repr(exc)[:300]}}
+
+
+def _run_into(c: Candidate, models_dir: Path, slm: Path, runner, report: dict, server=None) -> None:
     """Runs the measurement child and folds its JSON into the report."""
     try:
-        measured = runner(c, models_dir, slm)
+        if server is None:
+            measured = runner(c, models_dir, slm)
+        else:
+            measured = runner(c, models_dir, slm, server=server)
     except Exception as exc:  # noqa: BLE001 - reported, the verdict says not measured
         measured = {"fatal": repr(exc)[:300]}
     if measured.get("fatal") or measured.get("error"):
@@ -2405,6 +2809,274 @@ def _measure_served(
     report["versions"] = {"ollama": pre.get("version")}
 
 
+def _llama_processes(exe: Path) -> list[int]:
+    """PIDs of the running llama-server processes started from `exe` (none must remain)."""
+    import psutil
+
+    target = os.path.normcase(str(exe.resolve()))
+    out = []
+    for proc in psutil.process_iter(["name", "exe"]):
+        if "llama-server" not in (proc.info.get("name") or "").lower():
+            continue
+        path = proc.info.get("exe")
+        if path and os.path.normcase(str(Path(path).resolve())) == target:
+            out.append(proc.pid)
+    return sorted(out)
+
+
+def _pid_connections(pid: int) -> tuple[list[str], list[str]]:
+    """Remote non-loopback endpoints and listening addresses of a process (psutil)."""
+    import psutil
+
+    conns = psutil.Process(pid).net_connections(kind="inet")
+    return remote_endpoints(conns), listening_endpoints(conns)
+
+
+class LlamaServerOps:
+    """The parent's side of llama-server (story 9): the portable binary is there (never
+    downloaded), its version and sha256; then the server started on 127.0.0.1 and a free
+    port, the GGUF by local path, its connections read during its start; then stopped, in
+    any case, with a check that no llama-server from this binary is left.
+    `run`, `popen`, `transport`, `port`, `connections`, `remaining` are injectable."""
+
+    def __init__(
+        self,
+        exe: Path,
+        source: str = "",
+        run=subprocess.run,
+        popen=subprocess.Popen,
+        transport=None,
+        port=free_loopback_port,
+        connections=_pid_connections,
+        remaining=_llama_processes,
+        start_timeout_s: float = LLAMA_START_TIMEOUT_S,
+        poll_s: float = 0.2,
+    ) -> None:
+        self.exe, self.source, self.run, self.popen = Path(exe), source, run, popen
+        self.transport, self.port, self.connections = transport, port, connections
+        self.remaining, self.start_timeout_s, self.poll_s = remaining, start_timeout_s, poll_s
+        self.proc = None
+        self.log_path: Path | None = None
+        self._log = None
+
+    def preflight(self) -> dict:
+        out: dict = {"exe": str(self.exe), "source": self.source}
+        if not self.exe.is_file():
+            return out | {
+                "error": "binary_absent",
+                "message": llama_binary_absent_message(self.exe),
+            }
+        try:
+            proc = self.run(
+                [str(self.exe), "--version"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=60,
+                check=False,
+            )
+            text = f"{proc.stdout or ''}\n{proc.stderr or ''}"
+        except (OSError, subprocess.SubprocessError) as exc:
+            return out | {
+                "error": "binary_failed",
+                "message": f"llama-server --version a échoué ({exc!r}) : {self.exe}",
+            }
+        out |= parse_llama_version(text)
+        out["exe_sha256"] = file_sha256(self.exe)
+        impl = self.exe.with_name("llama-server-impl.dll")
+        out["impl_sha256"] = file_sha256(impl) if impl.is_file() else None
+        archive = self.exe.parent.parent / LLAMA_ZIP
+        if archive.is_file():
+            digest = file_sha256(archive)
+            out["archive"] = {
+                "path": str(archive),
+                "sha256": digest,
+                "expected_sha256": LLAMA_ZIP_SHA256,
+                "sha256_ok": digest == LLAMA_ZIP_SHA256,
+            }
+        else:
+            out["archive"] = None
+        if out.get("build") != LLAMA_BUILD:
+            out["warning"] = f"build {out.get('build')} au lieu de {LLAMA_BUILD}"
+        return out
+
+    def _health(self, http) -> int | None:
+        import httpx
+
+        try:
+            return http.get("/health").status_code
+        except httpx.TransportError:
+            return None
+
+    def _read_log(self) -> str:
+        if self.log_path is None:
+            return ""
+        if self._log is not None:
+            self._log.flush()
+        try:
+            return self.log_path.read_text("utf-8", errors="replace")
+        except OSError:
+            return ""
+
+    def start(self, gguf: Path, alias: str, log_path: Path) -> dict:
+        port = self.port()
+        argv = llama_server_argv(self.exe, gguf, port, alias)
+        url = f"http://127.0.0.1:{port}"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.log_path = log_path
+        self._log = open(log_path, "w", encoding="utf-8")  # noqa: SIM115 - closed by stop()
+        out: dict = {"argv": argv, "url": url, "port": port, "log": str(log_path)}
+        t0 = time.monotonic()
+        try:
+            self.proc = self.popen(
+                argv,
+                stdout=self._log,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                env=llama_server_env(os.environ),
+            )
+        except OSError as exc:
+            return out | {
+                "error": "server_failed",
+                "message": f"llama-server ne se lance pas ({exc!r}) : {self.exe}",
+            }
+        out["pid"] = self.proc.pid
+        remotes: set = set()
+        listen: set = set()
+        errors: list[str] = []
+        with _http_client(url, self.transport, timeout=5) as http:
+            while True:
+                try:
+                    r, lst = self.connections(self.proc.pid)
+                    remotes |= set(r)
+                    listen |= set(lst)
+                except Exception as exc:  # noqa: BLE001 - recorded: offline then unverifiable
+                    if len(errors) < 5:
+                        errors.append(repr(exc)[:200])
+                status = self._health(http)
+                if status == 200:
+                    break
+                code = self.proc.poll()
+                elapsed = time.monotonic() - t0
+                if code is not None or elapsed > self.start_timeout_s:
+                    failed = code is not None
+                    return out | {
+                        "error": "server_failed" if failed else "server_timeout",
+                        "message": (
+                            f"llama-server s'est arrêté au démarrage (code {code})"
+                            if failed
+                            else f"llama-server sans réponse sur {url}/health après "
+                            f"{self.start_timeout_s} s"
+                        )
+                        + f" ; sortie du serveur : {log_path}",
+                        "returncode": code,
+                        "log_excerpt": log_excerpt(self._read_log(), tail=30),
+                        "startup_remotes": sorted(remotes),
+                        "startup_listen": sorted(listen),
+                    }
+                time.sleep(self.poll_s)
+        out["start_s"] = round(time.monotonic() - t0, 2)
+        out["startup_remotes"] = sorted(remotes)
+        out["startup_listen"] = sorted(listen)
+        out["startup_errors"] = errors
+        out["log_excerpt"] = log_excerpt(self._read_log())
+        return out
+
+    def stop(self) -> dict:
+        """Stops the server whatever happened, then checks none is left from this binary."""
+        out: dict = {"started": self.proc is not None}
+        if self.proc is not None:
+            out["pid"] = self.proc.pid
+            killed = False
+            if self.proc.poll() is None:
+                self.proc.terminate()
+                try:
+                    self.proc.wait(timeout=LLAMA_STOP_TIMEOUT_S)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    killed = True
+                    try:
+                        self.proc.wait(timeout=LLAMA_STOP_TIMEOUT_S)
+                    except subprocess.TimeoutExpired as exc:  # recorded; checked just below
+                        out["kill_error"] = repr(exc)[:200]
+            out["returncode"] = self.proc.poll()
+            out["killed"] = killed
+        if self._log is not None:
+            self._log.close()
+            self._log = None
+        try:
+            left = self.remaining(self.exe)
+            out["remaining_pids"] = left
+            out["still_running"] = bool(left)
+        except Exception as exc:  # noqa: BLE001 - recorded, never masks the report
+            out["remaining_error"] = repr(exc)[:200]
+            out["still_running"] = None
+        return out
+
+
+def gguf_absent_message(c: Candidate, errors: dict | None = None) -> str:
+    repo, files = c.repos[0]
+    return (
+        f"GGUF absent : {repo}/{files[0]} au commit {c.revision} ; téléchargez-le une fois "
+        f"avec --download ({command_for(c)}) ; la mesure ne télécharge rien d'autre"
+        + (f" ; erreurs de téléchargement : {errors}" if errors else "")
+    )
+
+
+def _measure_llama(
+    c: Candidate, models_dir: Path, slm: Path, download: bool, runner, downloader, ops, report
+) -> None:
+    """A model served by a portable llama-server (story 9): the binary is there (never
+    downloaded), the GGUF at its pinned commit (downloaded on `--download` only); the server
+    is started on the loopback, the child measures, then the server is stopped in any case.
+    The GGUF's commit and sha256 and the server's build stand for the pinned code."""
+    pre = ops.preflight()
+    report["llama_server"] = pre
+    if pre.get("error"):
+        report["status"] = f"non mesuré : {pre['message']}"
+        report["server_error"] = pre["error"]
+        return
+    repo, files = c.repos[0]
+    if download and not snapshot_present(models_dir, repo, files, c.revision):
+        _download_into(c, models_dir, downloader, report)
+    if not snapshot_present(models_dir, repo, files, c.revision):
+        errors = (report.get("download") or {}).get("errors") or {}
+        report["status"] = f"non mesuré : {gguf_absent_message(c, errors)}"
+        report["server_error"] = "gguf_absent"
+        return
+    report["gguf"] = gguf_record(c, gguf_path(models_dir, c))
+    if not report["gguf"]["sha256_ok"]:  # never serve a GGUF other than the pinned one
+        report["status"] = (
+            f"non mesuré : GGUF non conforme : {files[0]} sha256 {report['gguf']['sha256']} au "
+            f"lieu de {c.gguf_sha256} ; supprimez-le et relancez avec --download"
+        )
+        report["server_error"] = "gguf_mismatch"
+        return
+
+    def pinned() -> None:  # set last: the child's own (empty) `versions` must not stay
+        report["revisions"] = {repo: c.revision}
+        report["versions"] = {"llama-server": pre.get("version_line")}
+
+    pinned()
+    try:
+        log = models_dir / "llama-server" / f"{c.id}.log"
+        launch = ops.start(gguf_path(models_dir, c), c.server_model, log)
+        report["llama_server_launch"] = launch
+        if launch.get("error"):
+            report["status"] = f"non mesuré : {launch['message']}"
+            report["server_error"] = launch["error"]
+            return
+        server = {"url": launch["url"], "pid": launch["pid"]}
+        _run_into(c, models_dir, slm, runner, report, server=server)
+    finally:
+        try:
+            report["llama_server_stop"] = ops.stop()
+        except Exception as exc:  # noqa: BLE001 - never masks the measure's report
+            report["llama_server_stop"] = {"error": repr(exc)[:300], "still_running": None}
+        pinned()
+
+
 # --------------------------------------------------------------------------
 # Output.
 # --------------------------------------------------------------------------
@@ -2419,12 +3091,25 @@ def print_list() -> None:
             print(f"   verdict d'office : {c.office} — {c.office_reason}")
         else:
             print(f"   {command_for(c)}")
-        if c.revision:
+        if c.revision and c.server == "llama_server":
+            repo, files = c.repos[0]
+            print(
+                f"   GGUF {repo}/{files[0]} au commit {c.revision} (téléchargement et mesure "
+                f"épinglés), sha256 {c.gguf_sha256}"
+            )
+        elif c.revision:
             print(f"   commit relu (téléchargement et mesure épinglés) : {c.revision}")
-        if c.server_model:
+        if c.server == "ollama":
             print(
                 f"   servi par Ollama sur {c.server_url}{SystemOneClient.path}, modèle "
                 f"{c.server_model} (tiré une fois : ollama pull {c.server_model})"
+            )
+        elif c.server == "llama_server":
+            print(
+                f"   servi par llama-server {LLAMA_RELEASE} sur 127.0.0.1 (port libre)"
+                f"{SystemOneClient.path}, lancé et arrêté par le banc ; binaire : "
+                f"{default_llama_server()} (ou --llama-server, {LLAMA_SERVER_ENV}), jamais "
+                f"téléchargé par le banc ({LLAMA_ZIP})"
             )
         if c.note:
             print(f"   note : {c.note}")
@@ -2449,12 +3134,18 @@ def print_measure(report: dict) -> None:
             f"   SLM : {report.get('slm')} ({report.get('rss_with_slm_mb')} Mo chargé) ; "
             f"candidat chargé en {report.get('load_s')} s"
         )
-        if c.server_model:
+        if c.server == "ollama":
             parts = report.get("ollama_rss") or {}
             print(
                 f"   RAM : enfant {report.get('rss_peak_mb')} Mo + Ollama "
                 f"{report.get('ollama_rss_peak_mb')} Mo (serveur {parts.get('server_peak_mb')}, "
                 f"modèle {parts.get('runner_peak_mb')}) = {report.get('ram_total_peak_mb')} Mo"
+            )
+        elif c.server == "llama_server":
+            print(
+                f"   RAM : enfant {report.get('rss_peak_mb')} Mo + llama-server "
+                f"{report.get('llama_server_rss_peak_mb')} Mo = "
+                f"{report.get('ram_total_peak_mb')} Mo"
             )
         print(
             f"   accord indicatif avec l'étiquette attendue : coût "
@@ -2470,6 +3161,16 @@ def print_measure(report: dict) -> None:
             f"   fin : {u.get('command')} — encore chargé : {u.get('still_loaded')}"
             + (f" ({u['error']})" if u.get("error") else "")
         )
+    if "llama_server_stop" in report:
+        u = report["llama_server_stop"]
+        print(
+            f"   fin : llama-server arrêté (PID {u.get('pid')}, code {u.get('returncode')}) — "
+            f"encore lancé : {u.get('still_running')}"
+            + (f" ({u['error']})" if u.get("error") else "")
+        )
+    if report.get("server_error"):  # the server's output, when it did not start
+        for line in (report.get("llama_server_launch") or {}).get("log_excerpt") or []:
+            print(f"   | {line}")
     print(f"\n== Verdict : {v['status'].upper()} — {v['reason']}")
     for x in v["criteria"]:
         mark = {True: "ok", False: "KO", None: "--"}[x["ok"]]
@@ -2517,12 +3218,19 @@ def main(argv: list[str] | None = None) -> int:
         help="télécharge le modèle s'il manque (Hugging Face, ou ollama pull pour un modèle "
         "servi) ; sans cette option, rien n'est téléchargé",
     )
+    p_m.add_argument(
+        "--llama-server",
+        help=f"chemin de llama-server.exe (défaut : {LLAMA_SERVER_ENV}, sinon "
+        f"{default_llama_server()}) ; jamais téléchargé par le banc",
+    )
     p_m.add_argument("--out")
     p_m.add_argument("--json", action="store_true")
     p_c = sub.add_parser("_measure-child")
     p_c.add_argument("--candidate", required=True)
     p_c.add_argument("--models-dir", required=True)
     p_c.add_argument("--slm", required=True)
+    p_c.add_argument("--server-url")
+    p_c.add_argument("--server-pid", type=int)
     args = parser.parse_args(argv)
     try:  # French text on a Windows console or a redirected file
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -2530,7 +3238,9 @@ def main(argv: list[str] | None = None) -> int:
         pass
 
     if args.command == "_measure-child":
-        result = _measure_child(args.candidate, Path(args.models_dir), Path(args.slm))
+        server = {"url": args.server_url, "pid": args.server_pid} if args.server_url else None
+        extra = {"server": server} if server else {}
+        result = _measure_child(args.candidate, Path(args.models_dir), Path(args.slm), **extra)
         print(json.dumps(result, ensure_ascii=False))
         return 0
     problems = check_prompts()
@@ -2566,13 +3276,18 @@ def main(argv: list[str] | None = None) -> int:
         if error:
             print(error)
             return 2
-    report = run_measure(c, Path(args.models_dir), slm, download=args.download)
+    report = run_measure(
+        c, Path(args.models_dir), slm, download=args.download, llama_server=args.llama_server
+    )
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=1))
     else:
         print_measure(report)
     _write_out(args.out, report)  # after the printout: a bad path never loses the measure
-    return 2 if report.get("server_error") else 0  # Ollama down, or the model not pulled
+    # Ollama down, model not pulled; llama-server absent, failing to start or still running
+    # after the measure; GGUF absent or not the pinned one.
+    left = (report.get("llama_server_stop") or {}).get("still_running")
+    return 2 if report.get("server_error") or left is True else 0
 
 
 def _write_out(path: str | None, report: dict) -> None:

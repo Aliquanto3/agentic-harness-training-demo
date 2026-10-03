@@ -75,7 +75,7 @@ def _doc_rows() -> list[str]:
 
 def test_every_row_of_the_candidates_doc_has_a_candidate(bench):
     rows = _doc_rows()
-    assert len(rows) == 13
+    assert len(rows) == 15
     for cell in rows:
         assert any(
             cell.startswith(c.doc_name) or cell.startswith(f"`{c.id}`") for c in bench.CANDIDATES
@@ -1719,8 +1719,10 @@ def test_main_exits_non_zero_when_ollama_is_down(bench, monkeypatch, tmp_path, c
     monkeypatch.setattr(bench, "_versions", lambda roots: {})
     real = bench.run_measure
 
-    def run_measure(c, models_dir, slm_path, download=False):
-        return real(c, models_dir, slm_path, download, packages=_no_packages, machine=_machine)
+    def run_measure(c, models_dir, slm_path, download=False, **kw):
+        return real(
+            c, models_dir, slm_path, download, packages=_no_packages, machine=_machine, **kw
+        )
 
     monkeypatch.setattr(bench, "run_measure", run_measure)
     assert bench.main(["measure", "tev1", "--slm", str(slm)]) == 2
@@ -2026,3 +2028,807 @@ def test_measure_child_of_a_served_model(bench, monkeypatch, tmp_path):
     assert out["blob_sha256"] == _BLOB and out["systemone_api"]["doc"].endswith("/systemone")
     assert out["ollama_network"]["samples"] >= 2 and "finish" not in out
     assert out["ram_watchdog"]["status"] == "active" and out["ollama_ceiling"] is None
+
+
+# -- story 9: decision encoders served by a portable llama-server ------------
+
+
+_VERSION_OUT = (
+    "load_backend: loaded CPU backend\nversion: 0.5.0-dev (build 11378, commit edd6e2bbd)\n"
+    "built with Clang 20.1.8 for Windows x86_64\n"
+)
+_VERSION_LINE = "version: 0.5.0-dev (build 11378, commit edd6e2bbd)"
+
+
+@pytest.mark.parametrize("cid", ["julia1", "laya"])
+def test_llama_server_candidates_and_commands(bench, cid):
+    c = bench.candidate(cid)
+    assert c.backend == "llama_systemone" and c.server == "llama_server" and c.tier == "2"
+    assert not c.generative  # encoders: the single generative model rule does not cap them
+    assert bench.is_commit_sha(c.revision) and bench.is_sha256(c.gguf_sha256)
+    assert c.repos[0][1][0].endswith("-Q8_0.gguf") and c.repos[0][0].startswith("ggml-org/")
+    assert bench.license_class(c) == "ok" and "Apache-2.0" in c.model_license
+    assert c.roots == () and set(c.modules) == {"httpx", "psutil"}
+    assert bench.command_for(c) == (
+        f"uv run --with huggingface-hub python tools/bench/v2s6_decision_bench.py measure {cid} "
+        f'--download --slm $SLM --out "$OUT\\{cid}.json"'
+    )
+
+
+def test_list_shows_the_llama_server_and_the_pinned_gguf(bench, capsys):
+    assert bench.main(["list"]) == 0
+    block = capsys.readouterr().out.split("-- julia1", 1)[1].split("\n-- ", 1)[0]
+    assert (
+        f"GGUF ggml-org/Julia-1-GGUF/Julia-1-Q8_0.gguf au commit {bench.JULIA1_REVISION}" in block
+    )
+    assert "servi par llama-server b11378 sur 127.0.0.1" in block
+    assert "jamais téléchargé par le banc" in block
+
+
+def test_resolve_llama_server(bench, tmp_path):
+    env = {"LOCALAPPDATA": str(tmp_path)}
+    default = tmp_path / "WaveStack" / "bench" / "llama-b11378" / "llama-server.exe"
+    assert bench.resolve_llama_server(None, env) == (default, "dossier par défaut")
+    env[bench.LLAMA_SERVER_ENV] = "D:\\ls\\llama-server.exe"
+    assert bench.resolve_llama_server(None, env)[1] == "WAVESTACK_LLAMA_SERVER"
+    assert bench.resolve_llama_server("E:\\x.exe", env) == (Path("E:\\x.exe"), "--llama-server")
+
+
+def test_parse_llama_version(bench):
+    assert bench.parse_llama_version(_VERSION_OUT) == {
+        "version_line": _VERSION_LINE,
+        "version": "0.5.0-dev",
+        "build": "11378",
+        "commit": "edd6e2bbd",
+    }
+    assert bench.parse_llama_version("garbage")["build"] is None
+
+
+def test_llama_server_command_line_and_environment(bench, tmp_path):
+    argv = bench.llama_server_argv(Path("C:/b/llama-server.exe"), tmp_path / "m.gguf", 5123, "J")
+    assert argv[argv.index("-m") + 1] == str(tmp_path / "m.gguf")  # served by local path
+    assert "-hf" not in argv and "--hf-repo" not in argv
+    assert (
+        argv[argv.index("--host") + 1] == "127.0.0.1" and argv[argv.index("--port") + 1] == "5123"
+    )
+    assert "--offline" in argv and "--no-webui" in argv
+    env = bench.llama_server_env(
+        {"HTTPS_PROXY": "http://p:8080", "LLAMA_ARG_HOST": "0.0.0.0", "PATH": "x"}
+    )
+    assert env == {"PATH": "x"}
+
+
+def test_log_excerpt_keeps_the_telling_lines_and_the_tail(bench):
+    log = "a\nI srv init: decision model type: laya\nb\nc\nE main: failed to load model\nd\n"
+    assert bench.log_excerpt(log) == [
+        "I srv init: decision model type: laya",
+        "E main: failed to load model",
+    ]
+    assert bench.log_excerpt(log, tail=2)[-1] == "d"
+
+
+def _fake_exe(tmp_path, archive=True):
+    folder = tmp_path / "llama-b11378"
+    folder.mkdir(parents=True, exist_ok=True)
+    exe = folder / "llama-server.exe"
+    exe.write_bytes(b"MZ")
+    (folder / "llama-server-impl.dll").write_bytes(b"impl")
+    if archive:
+        (tmp_path / "llama-b11378-bin-win-cpu-x64.zip").write_bytes(b"zip")
+    return exe
+
+
+def _fake_run(stdout="", stderr=_VERSION_OUT):
+    calls = []
+
+    def run(argv, **kw):
+        calls.append(argv)
+        return types.SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr)
+
+    run.calls = calls
+    return run
+
+
+def test_llama_ops_preflight(bench, tmp_path):
+    absent = bench.LlamaServerOps(tmp_path / "nope" / "llama-server.exe", run=_fail)
+    pre = absent.preflight()
+    assert pre["error"] == "binary_absent"
+    assert "llama-b11378-bin-win-cpu-x64.zip" in pre["message"]  # where to get it
+    assert "décompressez-le dans" in pre["message"] and "--llama-server" in pre["message"]
+    assert "ne télécharge pas le binaire" in pre["message"]
+
+    exe = _fake_exe(tmp_path)
+    run = _fake_run()
+    pre = bench.LlamaServerOps(exe, "dossier par défaut", run=run).preflight()
+    assert run.calls == [[str(exe), "--version"]]
+    assert "error" not in pre and pre["version_line"] == _VERSION_LINE and pre["build"] == "11378"
+    assert pre["exe_sha256"] == bench.file_sha256(exe) and bench.is_sha256(pre["impl_sha256"])
+    assert pre["archive"]["sha256_ok"] is False  # a fake zip: recorded, never trusted
+    assert "warning" not in pre
+    other = bench.LlamaServerOps(exe, run=_fake_run(stderr="version: 1 (build 1, commit a)"))
+    assert other.preflight()["warning"] == "build 1 au lieu de 11378"
+
+
+class _FakeServerProc:
+    def __init__(self, pid=4242, exit_code=None, log=None, text=""):
+        self.pid, self.exit_code, self.terminated, self.killed = pid, exit_code, False, False
+        if log is not None and text:
+            log.write(text)
+
+    def poll(self):
+        return self.exit_code
+
+    def terminate(self):
+        self.terminated = True
+        self.exit_code = 1
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self, timeout=None):
+        return self.exit_code
+
+
+def _health_transport(states):
+    """`/health` answers the next status of `states` (the last one forever)."""
+    import httpx
+
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.host, request.url.path))
+        status = states[min(len(seen) - 1, len(states) - 1)]
+        return httpx.Response(status, json={"status": "ok" if status == 200 else "loading"})
+
+    transport = httpx.MockTransport(handler)
+    transport.seen = seen
+    return transport
+
+
+def _llama_ops(bench, tmp_path, proc_kw=None, states=(503, 200), conns=None, left=()):
+    exe = _fake_exe(tmp_path)
+    procs = []
+
+    def popen(argv, stdout=None, **kw):
+        assert kw["env"].get("LLAMA_ARG_HOST") is None
+        proc = _FakeServerProc(log=stdout, **(proc_kw or {}))
+        proc.argv = argv
+        procs.append(proc)
+        return proc
+
+    ops = bench.LlamaServerOps(
+        exe,
+        run=_fake_run(),
+        popen=popen,
+        transport=_health_transport(list(states)),
+        port=lambda: 5123,
+        connections=conns or (lambda pid: ([], ["127.0.0.1:5123"])),
+        remaining=lambda exe: list(left),
+        poll_s=0,
+    )
+    ops.procs = procs
+    return ops
+
+
+def test_llama_ops_start_waits_for_the_health_then_stop(bench, tmp_path):
+    ops = _llama_ops(bench, tmp_path, proc_kw={"text": "I srv init: decision model type: laya\n"})
+    launch = ops.start(tmp_path / "m.gguf", "Julia-1", tmp_path / "logs" / "julia1.log")
+    assert "error" not in launch, launch
+    assert launch["url"] == "http://127.0.0.1:5123" and launch["pid"] == 4242
+    assert ops.transport.seen == [("127.0.0.1", "/health")] * 2  # 503 (loading), then 200
+    assert launch["startup_remotes"] == [] and launch["startup_listen"] == ["127.0.0.1:5123"]
+    assert launch["log_excerpt"] == ["I srv init: decision model type: laya"]
+    assert launch["argv"][launch["argv"].index("-m") + 1] == str(tmp_path / "m.gguf")
+    stop = ops.stop()
+    assert ops.procs[0].terminated and stop["still_running"] is False
+    assert stop == {
+        "started": True,
+        "pid": 4242,
+        "returncode": 1,
+        "killed": False,
+        "remaining_pids": [],
+        "still_running": False,
+    }
+    # A llama-server from this binary still running is reported.
+    assert _llama_ops(bench, tmp_path, left=(77,)).stop()["still_running"] is True
+
+
+def test_llama_ops_a_server_that_fails_to_start(bench, tmp_path):
+    text = "E llama_model_load: error loading model\nE main: failed to load model\n"
+    ops = _llama_ops(bench, tmp_path, proc_kw={"exit_code": 1, "text": text}, states=(503,))
+    launch = ops.start(tmp_path / "m.gguf", "Laya", tmp_path / "laya.log")
+    assert launch["error"] == "server_failed" and launch["returncode"] == 1
+    assert "s'est arrêté au démarrage (code 1)" in launch["message"]
+    assert "E main: failed to load model" in launch["log_excerpt"]  # the server's output
+    stop = ops.stop()
+    assert not ops.procs[0].terminated and stop["still_running"] is False  # already gone
+
+
+def test_llama_ops_start_timeout_and_unlaunchable_binary(bench, tmp_path):
+    ops = _llama_ops(bench, tmp_path, states=(503,))
+    ops.start_timeout_s = -1
+    launch = ops.start(tmp_path / "m.gguf", "Laya", tmp_path / "laya.log")
+    assert launch["error"] == "server_timeout" and "/health" in launch["message"]
+    assert ops.stop()["killed"] is False and ops.procs[0].terminated
+
+    def broken(argv, **kw):
+        raise OSError("not a valid Win32 application")
+
+    ops = _llama_ops(bench, tmp_path)
+    ops.popen = broken
+    launch = ops.start(tmp_path / "m.gguf", "Laya", tmp_path / "laya.log")
+    assert launch["error"] == "server_failed" and "Win32" in launch["message"]
+    assert ops.stop() == {"started": False, "remaining_pids": [], "still_running": False}
+
+
+_EXE_SHA = "6d2e001e3e366dd64f24578bad2ff461bcfdea4a0c86b134c280a952401eee20"
+_LLAMA_PRE = {
+    "exe": "C:\\b\\llama-server.exe",
+    "version_line": _VERSION_LINE,
+    "exe_sha256": _EXE_SHA,
+    "archive": None,
+}
+
+
+class _FakeLlamaOps:
+    def __init__(self, pre=None, launch=None):
+        self.pre = pre or _LLAMA_PRE
+        self.launch = launch or {"url": "http://127.0.0.1:5123", "pid": 4242, "start_s": 0.7}
+        self.calls = []
+
+    def preflight(self):
+        self.calls.append(("preflight",))
+        return dict(self.pre)
+
+    def start(self, gguf, alias, log_path):
+        self.calls.append(("start", Path(gguf).name, alias))
+        return dict(self.launch)
+
+    def stop(self):
+        self.calls.append(("stop",))
+        return {"started": True, "pid": 4242, "returncode": 1, "still_running": False}
+
+
+def _julia1_measured(**overrides) -> dict:
+    served = {
+        "rss_peak_mb": 1990,
+        "rss_with_slm_mb": 1940,
+        "rss_added_mb": 30,
+        "llama_server_rss_peak_mb": 310,
+        "llama_server_rss": {"server_peak_mb": 310},
+        "llama_server_network": {
+            "before": [],
+            "during": [],
+            "after": [],
+            "samples": 40,
+            "listen": ["127.0.0.1:5123"],
+            "errors": [],
+        },
+        "llama_server_processes": {"server": [4242]},
+        "llama_server": _LLAMA_PRE,
+        "llama_server_launch": {"start_s": 1.8, "startup_remotes": [], "startup_listen": []},
+        "gguf": {"file": "Julia-1-Q8_0.gguf", "sha256": "x", "sha256_ok": True},
+        "revisions": {"ggml-org/Julia-1-GGUF": "16fee17949206fbf58da9347daea44d792a81211"},
+        "versions": {"llama-server": _VERSION_LINE},
+        "packages": [],
+    }
+    return dict(served, **overrides)
+
+
+def test_an_encoder_served_by_llama_server_can_be_retained(bench):
+    v = _status(bench, "julia1", **_julia1_measured())
+    assert v["status"] == "retenu", v["reason"]  # no single generative model cap
+    assert "single_generative" not in [c["id"] for c in v["criteria"]]
+    ram = next(c for c in v["criteria"] if c["id"] == "ram")
+    assert ram["ok"] is True
+    assert "pic total 2300 Mo = enfant de mesure 1990 Mo" in ram["detail"]
+    assert "+ llama-server 310 Mo" in ram["detail"]
+    cpu = next(c for c in v["criteria"] if c["id"] == "cpu_windows")
+    assert cpu["ok"] is True and "constat pour décision d'Anaël, pas un échec" in cpu["detail"]
+    offline = next(c for c in v["criteria"] if c["id"] == "offline")
+    assert offline["ok"] is True and "côté llama-server" in offline["detail"]
+    latency = next(c for c in v["criteria"] if c["id"] == "latency")
+    assert "démarrage de llama-server 1.8 s" in latency["detail"]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"llama_server_rss_peak_mb": 2200},  # 1990 + 2200 > 4096: the sum decides
+        {"llama_server_network": {"during": ["34.1.2.3:443"], "samples": 3}},
+        {"llama_server_launch": {"startup_remotes": ["34.1.2.3:443"]}},  # while it started
+        {"llama_server_network": {"samples": 3, "listen": ["0.0.0.0:5123"], "errors": []}},
+        {"latency_median_ms": 1200.0},
+    ],
+)
+def test_llama_server_blocking_criteria_discard(bench, overrides):
+    assert _status(bench, "laya", **_julia1_measured(**overrides))["status"] == "écarté"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"gguf": {"sha256": "y", "sha256_ok": False}},
+        {"versions": {"llama-server": "version: 0.4 (build 9000, commit abc)"}},
+        {"revisions": {"ggml-org/Julia-1-GGUF": "main"}},
+    ],
+)
+def test_llama_server_unpinned_is_under_watch(bench, overrides):
+    v = _status(bench, "julia1", **_julia1_measured(**overrides))
+    assert v["status"] == "à surveiller"
+    assert next(c for c in v["criteria"] if c["id"] == "pinned")["ok"] is False
+
+
+def test_llama_server_offline_not_verifiable_without_its_process(bench):
+    v = _status(bench, "julia1", **_julia1_measured(llama_server_processes={}))
+    offline = next(c for c in v["criteria"] if c["id"] == "offline")
+    assert offline["ok"] is None and "relevé incomplet" in offline["detail"]
+
+
+def _common():
+    return dict(find_spec=lambda name: object(), packages=_no_packages, machine=_machine)
+
+
+def test_run_measure_without_the_llama_server_binary(bench, tmp_path):
+    exe = tmp_path / "absent" / "llama-server.exe"
+    report = bench.run_measure(
+        bench.candidate("julia1"),
+        tmp_path,
+        tmp_path / "slm.gguf",
+        runner=_fail,
+        downloader=_fail,
+        server_ops=bench.LlamaServerOps(exe, run=_fail, popen=_fail),
+        **_common(),
+    )
+    assert report["server_error"] == "binary_absent" and report["status"].startswith("non mesuré")
+    assert "llama-b11378-bin-win-cpu-x64.zip" in report["status"]
+    assert report["verdict"]["status"] == "non mesuré"
+
+
+def test_run_measure_gguf_absent_then_downloaded(bench, monkeypatch, tmp_path):
+    c = bench.candidate("julia1")
+    monkeypatch.setattr(bench, "file_sha256", lambda path: bench.JULIA1_SHA256)
+    ops = _FakeLlamaOps()
+    report = bench.run_measure(
+        c,
+        tmp_path,
+        tmp_path / "slm.gguf",
+        runner=_fail,
+        downloader=_fail,
+        server_ops=ops,
+        **_common(),
+    )
+    assert report["server_error"] == "gguf_absent" and ops.calls == [("preflight",)]
+    assert "--download" in report["status"] and bench.command_for(c) in report["status"]
+
+    def downloader(cand, models_dir):
+        _fake_snapshot(bench, models_dir, cand, sha=cand.revision)
+        return {"hosts": ["huggingface.co"], "errors": {}, "revisions": {}}
+
+    seen = {}
+
+    def runner(cand, models_dir, slm_path, server=None):
+        seen["server"] = server
+        measured = _measured(**_julia1_measured())
+        drop = ("status", "packages", "llama_server", "llama_server_launch", "gguf", "revisions")
+        return {k: v for k, v in measured.items() if k not in drop} | {"versions": {}}
+
+    ops = _FakeLlamaOps()
+    report = bench.run_measure(
+        c,
+        tmp_path,
+        tmp_path / "slm.gguf",
+        download=True,
+        runner=runner,
+        downloader=downloader,
+        server_ops=ops,
+        **_common(),
+    )
+    assert ops.calls == [("preflight",), ("start", "Julia-1-Q8_0.gguf", "Julia-1"), ("stop",)]
+    assert seen["server"] == {"url": "http://127.0.0.1:5123", "pid": 4242}
+    assert report["download"]["hosts"] == ["huggingface.co"]
+    assert report["gguf"]["sha256_ok"] is True
+    assert report["revisions"] == {"ggml-org/Julia-1-GGUF": bench.JULIA1_REVISION}
+    assert report["versions"] == {"llama-server": _VERSION_LINE}  # the child's never stays
+    assert report["llama_server_stop"]["still_running"] is False
+    assert report["verdict"]["status"] == "retenu"  # an encoder: never capped
+
+
+def test_run_measure_retains_a_pinned_encoder_and_stops_the_server(bench, monkeypatch, tmp_path):
+    c = bench.candidate("laya")
+    _fake_snapshot(bench, tmp_path, c, sha=c.revision)
+    monkeypatch.setattr(bench, "file_sha256", lambda path: bench.LAYA_SHA256)
+
+    def runner(cand, models_dir, slm_path, server=None):
+        measured = _measured(**_julia1_measured())
+        drop = ("status", "packages", "llama_server", "llama_server_launch", "gguf", "revisions")
+        return {k: v for k, v in measured.items() if k not in drop}
+
+    ops = _FakeLlamaOps()
+    report = bench.run_measure(
+        c,
+        tmp_path,
+        tmp_path / "slm.gguf",
+        runner=runner,
+        downloader=_fail,
+        server_ops=ops,
+        **_common(),
+    )
+    assert report["status"] == "measured" and report["gguf"]["sha256_ok"] is True
+    assert report["verdict"]["status"] == "retenu", report["verdict"]["reason"]
+
+    def broken(cand, models_dir, slm_path, server=None):
+        raise RuntimeError("enfant mort")
+
+    ops = _FakeLlamaOps()
+    report = bench.run_measure(
+        c,
+        tmp_path,
+        tmp_path / "slm.gguf",
+        runner=broken,
+        downloader=_fail,
+        server_ops=ops,
+        **_common(),
+    )
+    assert ops.calls[-1] == ("stop",)  # stopped whatever happens
+    assert report["status"] == "erreur" and report["verdict"]["status"] == "non mesuré"
+
+
+def test_main_a_llama_server_that_does_not_start(bench, monkeypatch, tmp_path, capsys):
+    c = bench.candidate("julia1")
+    _fake_snapshot(bench, tmp_path, c, sha=c.revision)
+    monkeypatch.setattr(bench, "file_sha256", lambda path: bench.JULIA1_SHA256)
+    slm = tmp_path / "slm.gguf"
+    slm.write_bytes(b"x")
+    failed = {
+        "error": "server_failed",
+        "message": "llama-server s'est arrêté au démarrage (code 1)",
+        "log_excerpt": ["E main: failed to load model"],
+    }
+    ops = _FakeLlamaOps(launch=failed)
+    real = bench.run_measure
+
+    def run_measure(cand, models_dir, slm_path, download=False, llama_server=None):
+        assert llama_server == "C:\\b\\llama-server.exe"
+        return real(cand, models_dir, slm_path, download, runner=_fail, server_ops=ops, **_common())
+
+    monkeypatch.setattr(bench, "run_measure", run_measure)
+    argv = ["measure", "julia1", "--slm", str(slm), "--models-dir", str(tmp_path)]
+    assert bench.main([*argv, "--llama-server", "C:\\b\\llama-server.exe"]) == 2
+    out = capsys.readouterr().out
+    assert "s'est arrêté au démarrage" in out and "| E main: failed to load model" in out
+    assert "encore lancé : False" in out and "NON MESURÉ" in out
+    assert ops.calls[-1] == ("stop",)  # no process left
+
+
+def test_scan_llama_server_by_pid(bench, monkeypatch):
+    ns = types.SimpleNamespace
+    listen = ns(laddr=("127.0.0.1", 5123), raddr=(), status="LISTEN")
+    procs = {
+        4242: (
+            _FakeProc(4242, ns(rss=300 << 20, peak_wset=310 << 20), [listen]),
+            "llama-server.exe",
+        ),
+        7: (_FakeProc(7, ns(rss=1)), "notepad.exe"),  # a reused PID is not the server
+    }
+    monkeypatch.setattr(
+        bench, "_processes", lambda pids: iter((procs[p][0], procs[p][1], []) for p in pids)
+    )
+    (rec,) = bench.scan_llama_server(4242)
+    assert rec == {
+        "pid": 4242,
+        "role": "server",
+        "rss_mb": 300,
+        "peak_mb": 310,
+        "remotes": [],
+        "listen": ["127.0.0.1:5123"],
+    }
+    assert bench.scan_llama_server(7) == []
+
+
+def test_llama_server_watch_reports_its_own_fields(bench):
+    scans = iter([[_proc("server", 9, 280, peak=300)], [_proc("server", 9, 290, peak=320)], []])
+    watch = bench.LlamaServerWatch(9, scan=lambda pids=None: next(scans), period_s=60)
+    for phase in ("before", "during", "after"):
+        watch.take(phase)
+    report = watch.report()
+    assert report["llama_server_rss_peak_mb"] == 320 and report["llama_server_ceiling"] is None
+    assert report["llama_server_rss"]["server_peak_mb"] == 320
+    assert report["llama_server_rss"]["server_series_mb"] == [280, 290]
+    assert report["llama_server_processes"] == {"server": [9]}
+    assert report["llama_server_network"]["errors"] == []
+    gone = bench.LlamaServerWatch(9, scan=lambda pids=None: [], period_s=60)
+    gone.take("before")
+    assert gone.report()["llama_server_network"]["errors"] == [
+        "processus llama-server introuvable (PID 9)"
+    ]
+
+
+def _llama_child(bench, monkeypatch, tmp_path, systemone, server, scan=None):
+    """The measurement child of `julia1` in-process, against a fake llama-server."""
+    import functools
+
+    loader = functools.partial(
+        bench._load_llama_server,
+        transport=systemone,
+        scan=scan or (lambda pids=None: [_proc("server", 4242, 300, peak=310)]),
+    )
+    monkeypatch.setitem(bench.LOADERS, "llama_systemone", loader)
+    fake_llama = types.SimpleNamespace(Llama=_FakeLlama, __version__="0.3.35")
+    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama)
+    monkeypatch.setattr(bench.s12, "_record_and_guard", lambda **kw: ([], "garde factice"))
+    monkeypatch.setattr(bench.s12, "_rss_mb", lambda: 1940)
+    monkeypatch.setattr(bench.s12, "_blocked_host", lambda exc: None)
+    monkeypatch.setattr(
+        bench.s12,
+        "_baseline_rss",
+        lambda: {"rss_before_load_mb": 1940, "peak_before_load_mb": 1950},
+    )
+    monkeypatch.setattr(
+        bench.s12, "_loaded_rss", lambda: {"rss_loaded_mb": 1960, "rss_peak_mb": 1990}
+    )
+    return bench._measure_child("julia1", tmp_path, tmp_path / "slm.gguf", server=server)
+
+
+def test_measure_child_of_a_llama_server_model(bench, monkeypatch, tmp_path):
+    seen = []
+    server = {"url": "http://127.0.0.1:5123", "pid": 4242}
+    out = _llama_child(bench, monkeypatch, tmp_path, _systemone_transport(seen), server)
+    assert "error" not in out, out.get("error")
+    assert out["decisions"] == 40 and len(seen) == 1 + 2 + 40
+    assert {host for _m, _p, host, _b in seen} == {"127.0.0.1"} and seen[0][1] == "/v1/systemone"
+    assert seen[0][3]["model"] == "Julia-1"
+    assert out["llama_server_rss_peak_mb"] == 310 and out["ram_total_peak_mb"] == 1990 + 310
+    assert out["server_pid"] == 4242 and "PR #29818" in out["systemone_api"]["code"]
+    assert out["llama_server_network"]["samples"] >= 2 and "finish" not in out
+    assert "ollama_rss_peak_mb" not in out
+
+    no_server = _llama_child(bench, monkeypatch, tmp_path, _systemone_transport([]), None)
+    assert "non démarré par le parent" in no_server["error"]
+
+
+def test_child_command_line_carries_the_llama_server(bench, monkeypatch, tmp_path, capsys):
+    seen = {}
+    monkeypatch.setattr(bench.s12, "_run_child", lambda cmd, env, timeout: seen.update(cmd=cmd))
+    server = {"url": "http://127.0.0.1:5123", "pid": 4242}
+    bench._default_runner(bench.candidate("julia1"), tmp_path, tmp_path / "s.gguf", server)
+    assert seen["cmd"][-4:] == ["--server-url", "http://127.0.0.1:5123", "--server-pid", "4242"]
+    got = {}
+
+    def child(cid, d, s, server=None):
+        got.update(cid=cid, server=server)
+        return {"id": cid}
+
+    monkeypatch.setattr(bench, "_measure_child", child)
+    assert bench.main(seen["cmd"][2:]) == 0
+    assert got == {"cid": "julia1", "server": server}
+    capsys.readouterr()
+
+
+# -- story 9, review fixes ----------------------------------------------------
+
+
+def _llama_measured_runner(**overrides):
+    def runner(cand, models_dir, slm_path, server=None):
+        measured = _measured(**_julia1_measured(**overrides))
+        drop = ("status", "packages", "llama_server", "llama_server_launch", "gguf", "revisions")
+        return {k: v for k, v in measured.items() if k not in drop}
+
+    return runner
+
+
+def _pinned_julia1(bench, monkeypatch, tmp_path):
+    c = bench.candidate("julia1")
+    _fake_snapshot(bench, tmp_path, c, sha=c.revision)
+    monkeypatch.setattr(bench, "file_sha256", lambda path: bench.JULIA1_SHA256)
+    return c
+
+
+def test_the_abort_threshold_is_the_budget_plus_a_margin(bench):
+    assert bench.OLLAMA_ABORT_MB == bench.RAM_BUDGET_MB + 2048 == 6144
+
+
+def test_the_llama_server_ceiling_end_to_end(bench, monkeypatch, tmp_path):
+    monkeypatch.setattr(bench, "OLLAMA_ABORT_MB", 1000)
+    server = {"url": "http://127.0.0.1:5123", "pid": 4242}
+
+    def big(pids=None):
+        return [_proc("server", 4242, 1100)]
+
+    child = _llama_child(bench, monkeypatch, tmp_path, _systemone_transport([]), server, scan=big)
+    assert "llama_server_ceiling" in child["error"] and "decisions" not in child
+    assert child["llama_server_ceiling"]["rss_at_stop_mb"] == 1100
+    c = _pinned_julia1(bench, monkeypatch, tmp_path)
+    ops = _FakeLlamaOps()
+    report = bench.run_measure(
+        c,
+        tmp_path,
+        tmp_path / "slm.gguf",
+        runner=lambda cand, d, s, server=None: json.loads(json.dumps(child)),
+        downloader=_fail,
+        server_ops=ops,
+        **_common(),
+    )
+    assert report["llama_server_ceiling"]["threshold_mb"] == 1000
+    v = report["verdict"]
+    assert v["status"] == "écarté (RAM)" and "processus llama-server à 1100 Mo" in v["reason"]
+    assert ops.calls[-1] == ("stop",)
+
+
+def test_print_measure_of_a_measured_llama_server_model(bench, monkeypatch, tmp_path, capsys):
+    c = _pinned_julia1(bench, monkeypatch, tmp_path)
+    runner = _llama_measured_runner(
+        ram_total_peak_mb=2300, agreement={"cost": "9/20", "specialty": "8/20"}
+    )
+    report = bench.run_measure(
+        c,
+        tmp_path,
+        tmp_path / "slm.gguf",
+        runner=runner,
+        downloader=_fail,
+        server_ops=_FakeLlamaOps(),
+        **_common(),
+    )
+    bench.print_measure(report)
+    out = capsys.readouterr().out
+    assert "RAM : enfant 1990 Mo + llama-server 310 Mo = 2300 Mo" in out
+    assert "fin : llama-server arrêté (PID 4242, code 1) — encore lancé : False" in out
+    assert "== Verdict : RETENU" in out
+
+
+def test_startup_connection_errors_make_offline_unverifiable(bench, tmp_path):
+    launch = {"start_s": 1.0, "startup_remotes": [], "startup_errors": ["AccessDenied (4242)"]}
+    v = _status(bench, "julia1", **_julia1_measured(llama_server_launch=launch))
+    offline = next(c for c in v["criteria"] if c["id"] == "offline")
+    assert offline["ok"] is None and "AccessDenied (4242)" in offline["detail"]
+
+    def denied(pid):
+        raise RuntimeError("AccessDenied (4242)")
+
+    ops = _llama_ops(bench, tmp_path, conns=denied)
+    launch = ops.start(tmp_path / "m.gguf", "Julia-1", tmp_path / "julia1.log")
+    assert "error" not in launch and "AccessDenied" in launch["startup_errors"][0]
+    ops.stop()
+
+
+@pytest.mark.parametrize(
+    ("server", "ok"),
+    [
+        ({"exe_sha256": _EXE_SHA, "archive": None}, True),
+        ({"exe_sha256": "0" * 64, "archive": {"sha256_ok": True}}, True),
+        ({"exe_sha256": "0" * 64, "archive": {"sha256_ok": False}}, False),
+        ({"exe_sha256": "0" * 64, "archive": None}, False),
+        ({}, False),
+    ],
+)
+def test_the_binary_must_be_the_recorded_one(bench, server, ok):
+    assert bench.llama_binary_pinned(server) is ok
+    v = _status(bench, "julia1", **_julia1_measured(llama_server=server))
+    assert next(c for c in v["criteria"] if c["id"] == "pinned")["ok"] is ok
+    assert v["status"] == ("retenu" if ok else "à surveiller")
+
+
+def test_a_gguf_other_than_the_pinned_one_is_never_served(bench, tmp_path):
+    c = bench.candidate("laya")
+    _fake_snapshot(bench, tmp_path, c, sha=c.revision)  # its sha256 is not the pinned one
+    ops = _FakeLlamaOps()
+    report = bench.run_measure(
+        c,
+        tmp_path,
+        tmp_path / "slm.gguf",
+        runner=_fail,
+        downloader=_fail,
+        server_ops=ops,
+        **_common(),
+    )
+    assert ops.calls == [("preflight",)]  # never started
+    assert report["status"].startswith("non mesuré : GGUF non conforme : Laya-Q8_0.gguf")
+    assert report["server_error"] == "gguf_mismatch"
+    assert report["verdict"]["status"] == "non mesuré"
+
+
+def test_llama_server_env_drops_its_cache_variable(bench):
+    assert bench.llama_server_env({"LLAMA_CACHE": "D:\\cache", "PATH": "x"}) == {"PATH": "x"}
+
+
+def _fake_psutil(monkeypatch, procs=(), process=None):
+    import psutil
+
+    fake = types.SimpleNamespace(
+        process_iter=lambda attrs: iter(procs),
+        Process=process,
+        AccessDenied=psutil.AccessDenied,
+        Error=psutil.Error,
+    )
+    monkeypatch.setitem(sys.modules, "psutil", fake)
+
+
+def test_llama_processes_match_the_binary(bench, monkeypatch, tmp_path):
+    exe = _fake_exe(tmp_path)
+    ns = types.SimpleNamespace
+    procs = [
+        ns(pid=1, info={"name": "llama-server.exe", "exe": str(exe)}),
+        ns(pid=2, info={"name": "llama-server.exe", "exe": str(tmp_path / "other.exe")}),
+        ns(pid=3, info={"name": "llama-server.exe", "exe": None}),  # AccessDenied: no path
+        ns(pid=4, info={"name": "python.exe", "exe": str(exe)}),
+        ns(pid=5, info={"name": None, "exe": None}),
+    ]
+    _fake_psutil(monkeypatch, procs=procs)
+    assert bench._llama_processes(exe) == [1]
+
+
+def test_pid_connections_over_faked_psutil(bench, monkeypatch):
+    import psutil
+
+    ns = types.SimpleNamespace
+    conns = [
+        ns(laddr=("127.0.0.1", 5123), raddr=(), status="LISTEN"),
+        ns(laddr=("10.0.0.2", 5000), raddr=("34.1.2.3", 443), status="ESTABLISHED"),
+    ]
+
+    def process(pid):
+        if pid == 9:
+            raise psutil.AccessDenied(pid)
+        return ns(net_connections=lambda kind: conns)
+
+    _fake_psutil(monkeypatch, process=process)
+    assert bench._pid_connections(4242) == (["34.1.2.3:443"], ["127.0.0.1:5123"])
+    with pytest.raises(psutil.AccessDenied):
+        bench._pid_connections(9)  # recorded by `start` as a start-up error
+
+
+def test_stop_survives_a_server_that_does_not_die(bench, tmp_path):
+    import subprocess
+
+    class _Stuck(_FakeServerProc):
+        def wait(self, timeout=None):
+            raise subprocess.TimeoutExpired("llama-server", timeout)
+
+        def terminate(self):
+            self.terminated = True  # ignored: still running
+
+    ops = _llama_ops(bench, tmp_path, left=(4242,))
+    ops.proc = _Stuck()
+    stop = ops.stop()
+    assert stop["killed"] is True and "TimeoutExpired" in stop["kill_error"]
+    assert stop["still_running"] is True and stop["remaining_pids"] == [4242]
+
+
+def test_main_exits_non_zero_when_llama_server_is_left_running(
+    bench, monkeypatch, tmp_path, capsys
+):
+    class _Left(_FakeLlamaOps):
+        def stop(self):
+            self.calls.append(("stop",))
+            return {"started": True, "pid": 4242, "returncode": None, "still_running": True}
+
+    _pinned_julia1(bench, monkeypatch, tmp_path)
+    slm = tmp_path / "slm.gguf"
+    slm.write_bytes(b"x")
+    real = bench.run_measure
+
+    def run_measure(cand, models_dir, slm_path, download=False, llama_server=None):
+        return real(
+            cand,
+            models_dir,
+            slm_path,
+            download,
+            runner=_llama_measured_runner(agreement={"cost": "9/20", "specialty": "8/20"}),
+            server_ops=_Left(),
+            **_common(),
+        )
+
+    monkeypatch.setattr(bench, "run_measure", run_measure)
+    assert bench.main(["measure", "julia1", "--slm", str(slm), "--models-dir", str(tmp_path)]) == 2
+    assert "encore lancé : True" in capsys.readouterr().out
+
+
+def test_an_unknown_server_label_never_raises(bench):
+    import dataclasses
+
+    c = dataclasses.replace(bench.candidate("julia1"), server="autre_serveur")
+    v = bench.decision_verdict(c, _measured(**_julia1_measured()))
+    offline = next(x for x in v["criteria"] if x["id"] == "offline")
+    assert "processus autre_serveur" in offline["label"]
+    ceiling = {"status": "erreur", "llama_server_ceiling": {"rss_at_stop_mb": 7000}}
+    assert "processus autre_serveur" in bench.decision_verdict(c, ceiling)["reason"]

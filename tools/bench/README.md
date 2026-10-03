@@ -64,6 +64,8 @@ Ces seuils ont été fixés quand la mesure du RSS était fausse. Avec les pics 
 uv run python tools/bench/v2s6_decision_bench.py list   # candidats, commande de chacun, verdicts d'office
 ```
 
+Certains candidats sont servis hors de l'enfant de mesure, sur `/v1/systemone` : `tev1` par Ollama (story 8), `julia1` et `laya` par un llama-server portable (story 9). Le banc ne télécharge jamais ce binaire : décompresser une fois `llama-b11378-bin-win-cpu-x64.zip` (release `b11378` de ggml-org/llama.cpp) dans `%LOCALAPPDATA%\WaveStack\bench\llama-b11378\`, ou passer `--llama-server <chemin>` (ou `WAVESTACK_LLAMA_SERVER`). Le banc lance le serveur sur 127.0.0.1, le GGUF par chemin local, et l'arrête à la fin quoi qu'il arrive.
+
 Les commandes exactes du relevé, le sens des critères et le tableau à remplir sont dans `_bmad-output/implementation-artifacts/rapport-test-prealable-modeles-de-decision.md`. L'option `--out` écrit le résultat en JSON UTF-8 : sous PowerShell 5.1, une redirection `>` l'écrirait en UTF-16.
 
 ## Limites
