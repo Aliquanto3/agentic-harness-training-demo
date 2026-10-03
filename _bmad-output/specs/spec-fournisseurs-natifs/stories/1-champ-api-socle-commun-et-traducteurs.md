@@ -73,6 +73,22 @@ context:
 - Given la branche après la story, when on joue `pytest` en quarts, then tout est vert, et `test_net_single_factory.py` passe sans exception nouvelle.
 - Given les entrées de `wavestack.toml` inchangées, when on charge la configuration, then chacune a `api == "openai_chat"` et `extra_headers == {}`.
 
+### Review Findings
+
+Revue de la PR #20 du 2026-10-03, groupe 1 (voir aussi les stories 3 et 4).
+
+- [x] [Review][Patch] Docstrings de `cloud_base` en retard : « the native ones to come » alors que les deux adaptateurs natifs sont là ; `ChatCall.thinking_blocks` et `ProviderError.usage` annotés « Native providers 3/5 » seulement, alors que Responses les remplit aussi. [`src/wavestack/models/cloud_base.py:3`]
+
+**Rejetées (socle commun) :**
+- `false` : des arguments invalides deviendraient `{}` dans `tool_use.input`. Un appel mal formé est rangé avec `tool_calls: []` (`app_session.py:5084`), et un appel du harnais est sérialisé en JSON.
+- `false` : un outil sans `parameters` n'aurait pas d'`input_schema`. `registry.definition` en donne toujours (`registry.py:205`).
+- `false` : un message `system` au milieu de la conversation serait remonté en tête. Le harnais n'en envoie qu'un, en tête (`app_session.py:4017`).
+- `false` : une cale de compatibilité d'`openai_chat` qui casserait un `monkeypatch`. Les tests mutent le même objet `_last_start`, et aucun ne patche `openai_chat.pace`.
+- `false` : un `_count` dupliqué dans deux adaptateurs. Aucun tort nommé (deux fonctions d'une ligne).
+- `low` : `_OWNED` code ses sentinelles en dur et sa capture est gloutonne. Les morceaux d'une même `Part` ont le même propriétaire, `_MARKER` (ligne 38) les code déjà en dur, et un marqueur de gabarit dans des arguments d'outil est peu plausible.
+- `low` : aucun validateur ne lie `api` et `reasoning.format` (par exemple `content_blocks` sur une entrée native rendrait le texte vide). Il faudrait une mauvaise configuration, et le correctif ajouterait un validateur.
+- `low` : un `code` d'erreur non hachable ferait lever `no_credit`. Jamais observé.
+
 ## Implementation Notes
 
 - Empreintes relevées avant toute modification de `src/` : `tests/test_cloud_api.py` (historique de référence) écrit et `tests/fixtures/openai_chat_bodies.json` généré sur le code de `e09cfa6`, test vert, puis refactorisation ; le test est resté vert sans régénération. L'historique donne au raisonnement renvoyé la forme du `format` de chaque entrée (`field`, `content_blocks`, `think_tags`), que l'entrée le renvoie ou non, et les appels portent `tool_call_extra` (Gemini, Gemma). Groq raisonne toujours (`always`) : ses empreintes on et off sont égales.

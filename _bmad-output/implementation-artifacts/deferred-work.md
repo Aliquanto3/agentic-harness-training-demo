@@ -868,3 +868,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/resultats-batterie-2026-10-03.md`
   summary: E2E `stream_resync` échoue à chaque passage (« état et flux d'instances différentes : un seul rechargement — 1 navigation(s) ») : la page ne se recharge pas quand `/api/state` et le flux nomment des instances différentes.
   evidence: Batterie du 2026-10-03 : échec reproduit trois fois sur `feat/stories-restantes-2026-10`, et aussi sur `main` (`e09cfa6`, worktree jetable) : défaut antérieur au lot, pas une régression. Il passait lors de la batterie du 2026-10-01. Piste : la route Playwright qui réécrit `instance_id` (`route.fetch()` suivi d'une console « net::ERR_FAILED »), ou un changement de Chrome/Playwright ; à diagnostiquer seul.
+
+## Deferred from: code review of 3-anthropic-par-l-api-messages (2026-10-03)
+
+- source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/3-anthropic-par-l-api-messages.md`
+  summary: Réflexion entrelacée : `_anthropic_messages` (`context/render.py`) renvoie tous les `thinking_blocks` en tête du message assistant, avant le texte et les `tool_use`. Si Claude produit thinking → texte → thinking → tool_use dans une même réponse, l'ordre renvoyé diffère de l'ordre reçu. Non vérifié ; serait moyen.
+  evidence: Revue de la PR #20 (Edge Case Hunter). Aucune mesure du 2026-10-03 ne montre de bloc `thinking` après un texte dans une même réponse, et la recette a passé. Pour trancher : un appel Sonnet 5 (réflexion adaptative) qui écrit un texte avant un `tool_use`, en relevant l'ordre des blocs bruts, puis le renvoi (accepté, `reasoning_dropped` ou 400).

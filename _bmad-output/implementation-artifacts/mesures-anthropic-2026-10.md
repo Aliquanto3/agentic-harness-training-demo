@@ -46,3 +46,16 @@ Un tour Outils et un tour Raisonnement avec chaque modèle aboutissent (`turn_en
 `completed`, aucun `harness_error`), la réflexion s'affiche (Haiku au tour Raisonnement, Sonnet
 aux deux) et les blocs `thinking` repartent signés dans l'appel suivant, acceptés par Anthropic.
 Coût total des mesures : 0,0258 $, sous le plafond de 1 $ de l'acceptation.
+
+## Mesure de la revue de la PR #20 (2026-10-03 au soir)
+
+Question : la brique Outils éteinte après un tour avec appels, le corps garde ses blocs
+`tool_use` et `tool_result` mais part sans `tools`. L'API Messages le refuse-t-elle ?
+
+| # | Corps (`claude-haiku-4-5`, `max_tokens` 32, non streamé, en-têtes de l'entrée) | Statut | Réponse | Usage |
+|---|---|---|---|---|
+| T1 | user, assistant `tool_use` (`get_datetime`, `input: {}`), user `tool_result`, assistant texte, user ; **sans `tools`** | **200** | « Samedi. », `end_turn` | 109 / 7 |
+| T2 | le même, avec `tools` (`get_datetime`) | **200** | « Samedi. », `end_turn` | 645 / 7 |
+
+Réponse : **accepté**. Aucun refus quand `tools` manque, donc rien à corriger dans le traducteur.
+Coût : ≈ 0,0008 $ (2 appels).

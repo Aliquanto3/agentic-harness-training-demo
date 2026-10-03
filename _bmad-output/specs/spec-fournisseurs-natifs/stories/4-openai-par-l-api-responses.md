@@ -78,6 +78,18 @@ context:
 - Given la clé réelle, when on joue un tour Outils raisonnement allumé et un tour Raisonnement, then ils aboutissent, et les mesures coûtent moins de 0,50 $.
 - Given `pytest` en quarts, when on le joue, then tout est vert.
 
+### Review Findings
+
+Revue de la PR #20 du 2026-10-03, groupe 1 (voir aussi la story 3 : les tests d'arrêt et la règle « une réponse finie reste finie » couvrent aussi Responses).
+
+- [x] [Review][Patch] Import montant `models` → `context` : `openai_responses.py` importe `FOLLOWS` de `context/render.py`, contre le sens des flèches de l'ARCHITECTURE-SPINE. Définir `FOLLOWS` dans `models/cloud_base.py` et l'importer depuis `render.py` (`context` → `models`, autorisé). [`src/wavestack/context/render.py:534`]
+
+**Rejetées (Responses) :**
+- `false` : `arguments` non textuel dans le traducteur. En mode chat, `arguments` est toujours la `Part` d'`arguments_json`, une chaîne.
+- `low` : un événement `error` dont `error` vaut `null`. Jamais observé : la forme mesurée porte un objet.
+- `low` : l'ordre des items `reasoning` entre `message` et `function_call` est reconstruit dans l'ordre du pivot. Les formes mesurées le 2026-10-03 sont acceptées.
+- rejetée par règle : écarts au texte figé de la story (`strict: false`, placement par `FOLLOWS`, `model_context_window_exceeded` en « contexte dépassé » à la story 3), sans entrée au Spec Change Log. Le correctif modifierait la spec relue.
+
 ## Implementation Notes
 
 - Clé réelle : `OPENAI_API_KEY` est dans l'environnement UTILISATEUR de Windows (registre), pas dans celui des shells ouverts. La lire par `powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('OPENAI_API_KEY','User')"` et la passer au seul processus de mesure, sans jamais l'afficher, la journaliser, l'écrire dans un fichier ni la commiter. `tests/conftest.py` doit retirer `OPENAI_API_KEY` de l'environnement des tests, comme `ANTHROPIC_API_KEY`.

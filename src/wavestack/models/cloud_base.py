@@ -1,13 +1,13 @@
 """The common base of the cloud adapters (AD-5, AD-26): what every provider API shares.
 
-An adapter (`openai_chat`, and the native ones to come) sends the body the harness wrote,
-byte for byte, to `{base_url}{endpoint}`, with `Content-Type`, the authentication header and
-the entry's fixed `extra_headers` only, set per request (never on the shared client, which
-comes from `net/factory.create_client`). The key comes from `config.cloud_key` only; every
-provider string that enters an event goes through `mask_key` first (AD-15). A provider's
-refusal is a `ProviderError` from AD-16's closed list, never retried; `tool_use_failed` ends
-the call with `provider_error`, for the malformed-call path (AD-10). Each adapter reads its
-own stream (`_read`); the rest is here.
+An adapter (`openai_chat`, `anthropic_messages`, `openai_responses`) sends the body the
+harness wrote, byte for byte, to `{base_url}{endpoint}`, with `Content-Type`, the
+authentication header and the entry's fixed `extra_headers` only, set per request (never on
+the shared client, which comes from `net/factory.create_client`). The key comes from
+`config.cloud_key` only; every provider string that enters an event goes through `mask_key`
+first (AD-15). A provider's refusal is a `ProviderError` from AD-16's closed list, never
+retried; `tool_use_failed` ends the call with `provider_error`, for the malformed-call path
+(AD-10). Each adapter reads its own stream (`_read`); the rest is here.
 
 `run_call` is the one place that turns a completion into `model_*` events, for a turn's
 call as for the diagnostic's test. It first spaces the sends to one entry by its
@@ -120,8 +120,8 @@ class ProviderError(KeyedError):
         self.cost: CallCost | None = None
         # GreenOps: its estimated footprint, likewise.
         self.impact: Impact | None = None
-        # Native providers 3/5: the pivot usage the stream gave before the error (the input
-        # is billed even without output), and the provider's `input_transformations`
+        # Native providers 3/5 and 4/5: the pivot usage the stream gave before the error (the
+        # input is billed even without output), and Anthropic's `input_transformations`
         # entries read by then (CAP-5); set by the adapter, read by `run_call`.
         self.usage: dict[str, Any] | None = None
         self.dropped: list[dict[str, Any]] = []
@@ -742,8 +742,15 @@ class ChatCall:
     output_tps: int | None = None
     cost: CallCost | None = None  # FinOps: set when the entry declares its prices
     impact: Impact | None = None  # GreenOps: its footprint, or why it has none
-    # Native providers 3/5: the provider's reasoning blocks, verbatim, for its own entry only.
+    # Native providers 3/5 and 4/5: the provider's reasoning blocks (Anthropic) or `reasoning`
+    # items (OpenAI's Responses API), verbatim, for its own entry only.
     thinking_blocks: list[dict[str, Any]] = field(default_factory=list)
+
+
+# Native providers 4/5: the key a kept `reasoning` item carries for the `openai_responses`
+# translator only (never sent): the item that followed it in the output, `message` or
+# `call:<n>` (the n-th call). Here, so that `context/render.py` imports it from `models`.
+FOLLOWS = "_follows"
 
 
 # CAP-5: why a provider threw away the reasoning of an earlier turn (`input_transformations`);
@@ -756,10 +763,14 @@ DROP_REASONS = (
 
 
 def reasoning_dropped(
-    dropped: list[dict[str, Any]], provider: str, lang: str = "fr"
+    dropped: list[dict[str, Any]],
+    provider: str,
+    lang: str = "fr",
+    mask: Callable[[str], str] = lambda text: text,
 ) -> list[dict[str, Any]]:
     """The `reasoning_dropped` payloads of a call's `input_transformations` (CAP-5): one per
-    `thinking_dropped` entry of a known reason, `message_text` in `lang`."""
+    `thinking_dropped` entry of a known reason, `message_text` in `lang`, its `path` (the
+    provider's string) through `mask` (AD-15)."""
     payloads = []
     for item in dropped:
         if not isinstance(item, dict) or item.get("type") != "thinking_dropped":
@@ -767,7 +778,7 @@ def reasoning_dropped(
         reason = item.get("reason")
         if reason not in DROP_REASONS:
             continue
-        path = str(item.get("path") or "")
+        path = mask(str(item.get("path") or ""))
         text = Message(
             f"models.openai_chat.reasoning_dropped.{reason}", provider=provider, path=path
         )
@@ -966,7 +977,7 @@ def run_call(
         if isinstance(exc, ProviderError):  # native providers 3/5: what came before the error
             out.usage = exc.usage
             provider = entry.provider if isinstance(entry, CloudModel) else ""
-            for dropped in reasoning_dropped(exc.dropped, provider, lang):
+            for dropped in reasoning_dropped(exc.dropped, provider, lang, mask):
                 journal.emit("reasoning_dropped", dropped)
         ended("error", "")
         if isinstance(exc, ProviderError):
@@ -978,7 +989,7 @@ def run_call(
     out.thinking_blocks = end.thinking_blocks
     # CAP-5: the reasoning of an earlier turn the provider threw away, said with its cause.
     provider = entry.provider if isinstance(entry, CloudModel) else ""
-    for dropped in reasoning_dropped(end.dropped, provider, lang):
+    for dropped in reasoning_dropped(end.dropped, provider, lang, mask):
         journal.emit("reasoning_dropped", dropped)
     if end.provider_error is not None:
         detail = (

@@ -24,7 +24,7 @@ from wavestack.context import render as render_module
 from wavestack.context.render import render_chat_body
 from wavestack.context.segments import Part, SegmentKind
 from wavestack.models.cloud_api import create_cloud_engine
-from wavestack.models.cloud_base import ChatBody, ProviderError, reset_spend
+from wavestack.models.cloud_base import ChatBody, ProviderError, reset_spend, run_call
 from wavestack.models.engine import DEFAULT_SAMPLING, CancelToken
 from wavestack.models.openai_responses import OpenAIResponsesEngine
 from wavestack.session.app_session import AppSession
@@ -511,6 +511,56 @@ def test_a_flat_error_event_is_read_too():
     stream = sse(created(), {"type": "error", "code": "server_error", "message": "Oups"})
     events, _ = _one_turn(stream)
     assert "indisponible (server_error)" in _of(events, "harness_error")[0].payload["message_text"]
+
+
+def _stopped_between(first: bytes, rest: bytes) -> tuple[Any, list]:
+    """One `run_call` through the adapter, outside any session, whose « Arrêter » comes once
+    `first` is read, before `rest`: what it returned (or raised), and its events."""
+    cancel = CancelToken()
+
+    def chunks():  # noqa: ANN202
+        yield first
+        cancel.cancel()
+        yield rest
+
+    stream = httpx.Response(200, content=chunks(), headers={"content-type": "text/event-stream"})
+    engine = OpenAIResponsesEngine(
+        _entry(), SecretStr(SENTINEL), transport=httpx.MockTransport(Provider(stream))
+    )
+    mark = get_journal().last_seq()
+    try:
+        result: Any = run_call(
+            engine,
+            ChatBody(b"{}"),
+            cancel,
+            phase_label="test",
+            estimated_prompt=10,
+            chars_per_token=4.0,
+            call_id=lambda index: f"c{index}",
+        )
+    except ProviderError as error:
+        result = error
+    finally:
+        engine.close()
+    return result, get_journal().events_since(mark)
+
+
+def test_a_stop_during_the_stream_ends_the_call_cancelled():
+    call, events = _stopped_between(sse(created(), *message(0, "Bonj")), sse(completed(100, 5)))
+    assert not isinstance(call, ProviderError) and call.stop_reason == "cancelled"
+    assert call.text == "Bonj" and _of(events, "harness_error") == []
+    assert _of(events, "model_call_ended")[0].payload["stop_reason"] == "cancelled"
+
+
+def test_a_stop_after_an_error_event_ends_the_call_cancelled_not_failed():
+    error = {"type": "server_error", "code": "server_error", "message": "Oups"}
+    failed = {
+        "type": "response.failed",
+        "response": {"id": "resp_1", "status": "failed", "error": error, "usage": None},
+    }
+    call, events = _stopped_between(sse(created(), {"type": "error", "error": error}), sse(failed))
+    assert not isinstance(call, ProviderError) and call.stop_reason == "cancelled"
+    assert _of(events, "model_call_ended")[0].payload["stop_reason"] == "cancelled"
 
 
 @pytest.mark.parametrize(

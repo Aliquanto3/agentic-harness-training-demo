@@ -85,6 +85,25 @@ context:
 - Given la clé réelle, when on joue un tour Outils et un tour Raisonnement avec chaque modèle, then ils aboutissent et le coût total des mesures reste sous 1 $.
 - Given `pytest` en quarts et les tranches E2E touchées par le journal, when on les joue, then tout est vert.
 
+### Review Findings
+
+Revue de la PR #20 du 2026-10-03, groupe 1 (`src/wavestack/models/`, `context/render.py`), quatre couches (Blind Hunter, Edge Case Hunter, Verification Gap, Acceptance Auditor).
+
+- [x] [Review][Patch] Test : un message assistant qui ne porte que des `thinking_blocks` (texte vide, sans appel) est omis du corps Anthropic. Aujourd'hui, remplacer `len(blocks) > thought` par `blocks` ne fait échouer aucun test. [`tests/test_anthropic_messages.py:651`]
+- [x] [Review][Patch] Tests : un « Arrêter » pendant le flux donne `stop_reason == "cancelled"` et aucun `harness_error`, pour Anthropic et pour Responses (variante avec un événement `error` avant l'arrêt). Aucun test ne lève le jeton pendant un flux. [`src/wavestack/models/anthropic_messages.py:96`, `src/wavestack/models/openai_responses.py:127`]
+- [x] [Review][Patch] Test : `reasoning_dropped` est émis quand l'appel échoue après `input_transformations` (refus, ou événement `error`). Seul le chemin réussi est testé. [`src/wavestack/models/cloud_base.py:758`]
+- [x] [Review][Patch] Masquer `path` dans `reasoning_dropped` (AD-15 : toute chaîne venue du fournisseur passe par le masque avant d'entrer dans un événement). [`src/wavestack/models/cloud_base.py:758`]
+- [x] [Review][Patch] Règle « une réponse finie reste finie » à l'arrêt. Anthropic écrase un `stop` déjà lu dans `message_delta` par `cancelled`, ce qui fait perdre les appels d'une réponse complète et facturée ; corriger en `stop = stop or "cancelled"`. Responses porte ce `or`, mais il y est mort, car chaque fin fait `break` : simplifier et corriger le commentaire. [`src/wavestack/models/anthropic_messages.py:96`, `src/wavestack/models/openai_responses.py:128`]
+- [x] [Review][Defer] Réflexion entrelacée : `_anthropic_messages` place tous les `thinking_blocks` en tête du message, avant le texte et les `tool_use`. Si un appel reçoit thinking → texte → thinking → tool_use, l'ordre renvoyé diffère de l'ordre reçu. [`src/wavestack/context/render.py:502`] — deferred: non vérifié, serait moyen ; à trancher par un appel Sonnet 5 qui produit un texte avant un `tool_use`, en relevant l'ordre des blocs bruts et la réponse au renvoi (accepté, `reasoning_dropped` ou 400).
+
+**Rejetées (Anthropic) :**
+- `false` (décision d'Anaël : mesurer d'abord) : un corps qui porte des `tool_use`/`tool_result` sans `tools` serait refusé quand la brique Outils est éteinte après un tour avec appels. Haiku l'accepte (200, `mesures-anthropic-2026-10.md`, « Mesure de la revue de la PR #20 »).
+- `low` : un `index` absent dans les événements `content_block_*` : l'API en donne toujours un, entier.
+- `false` : un refus traité autrement que par Responses. Les sémantiques diffèrent : `stop_reason: refusal` est un arrêt de l'API, alors que le `refusal` d'OpenAI est un contenu d'une réponse complète.
+- `false` : un `raw_output` sans `message_start`/`message_delta`. Il suit la convention d'`openai_chat` (deltas de contenu seuls, `openai_chat.py:154`) ; la fin et l'usage sont dans `model_call_ended`.
+- `low` : un `ReadTimeout` après `message_start` et avant tout delta perd l'usage et les abandons. C'est rare, et le correctif devrait porter l'usage à travers `complete()`.
+- `low` : des `NaN` dans les arguments d'un appel. Peu plausible, et le correctif ajouterait une garde.
+
 ## Implementation Notes
 
 - Clé réelle : `ANTHROPIC_API_KEY` est définie dans l'environnement UTILISATEUR de Windows (registre), pas dans celui des shells déjà ouverts. La lire par `powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','User')"` (ou `winreg`) et la passer au seul processus de mesure, sans jamais l'afficher, la journaliser, l'écrire dans un fichier ni la commiter.

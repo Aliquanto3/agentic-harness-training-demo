@@ -94,7 +94,8 @@ class AnthropicMessagesEngine(CloudEngine):
         stop = None
         for line in response.iter_lines():
             if cancel.cancelled:
-                stop = "cancelled"
+                # An answer whose `message_delta` gave its `stop_reason` stays finished.
+                stop = stop or "cancelled"
                 break  # leaving the `with` closes the stream (AD-5)
             if not line or line.startswith((":", "event:", "id:", "retry:")):
                 continue

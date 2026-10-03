@@ -630,6 +630,85 @@ def test_reasoning_dropped_speaks_the_sessions_language(lang, said):
     assert len(dropped) == 2 and said in dropped[0]["message_text"]
 
 
+def _call(answer: bytes | httpx.Response, cancel: CancelToken | None = None) -> tuple[Any, list]:
+    """One `run_call` through the adapter, outside any session: what it returned (or the
+    `ProviderError` it raised), and the events it emitted."""
+    engine = AnthropicMessagesEngine(
+        _entry(), SecretStr(SENTINEL), transport=httpx.MockTransport(Provider(answer))
+    )
+    mark = get_journal().last_seq()
+    try:
+        result: Any = run_call(
+            engine,
+            ChatBody(b"{}"),
+            cancel or CancelToken(),
+            phase_label="test",
+            estimated_prompt=10,
+            chars_per_token=4.0,
+            call_id=lambda index: f"c{index}",
+        )
+    except ProviderError as error:
+        result = error
+    finally:
+        engine.close()
+    return result, get_journal().events_since(mark)
+
+
+def _stopped_between(first: bytes, rest: bytes) -> tuple[Any, list]:
+    """A call whose « Arrêter » comes once `first` is read, before `rest`."""
+    cancel = CancelToken()
+
+    def chunks():  # noqa: ANN202
+        yield first
+        cancel.cancel()
+        yield rest
+
+    stream = httpx.Response(200, content=chunks(), headers={"content-type": "text/event-stream"})
+    return _call(stream, cancel)
+
+
+def test_a_stop_during_the_stream_ends_the_call_cancelled():
+    call, events = _stopped_between(sse(start(100), *text(0, "Bonj")), sse(*end("end_turn", 5)))
+    assert not isinstance(call, ProviderError) and call.stop_reason == "cancelled"
+    assert call.text == "Bonj" and _of(events, "harness_error") == []
+    assert _of(events, "model_call_ended")[0].payload["stop_reason"] == "cancelled"
+
+
+def test_a_stop_after_the_stop_reason_keeps_the_answer_finished():
+    finish, stop = end("tool_use", 20)
+    call, events = _stopped_between(
+        sse(start(100), *tool_use(0, "toolu_01", "calculator", '{"expression": "2+3"}'), finish),
+        sse(stop),
+    )
+    assert not isinstance(call, ProviderError) and call.stop_reason == "stop"
+    assert [c["name"] for c in call.calls] == ["calculator"] and call.calls[0]["id"] == "c0"
+    assert _of(events, "model_call_ended")[0].payload["stop_reason"] == "stop"
+
+
+def test_reasoning_dropped_is_said_even_when_the_call_fails():
+    begin = start(100)
+    begin["message"]["input_transformations"] = DROPPED
+    error, events = _call(sse(begin, *text(0, "Je "), *end("refusal", 3)))
+    assert isinstance(error, ProviderError)
+    dropped = [e.payload for e in _of(events, "reasoning_dropped")]
+    assert [d["reason"] for d in dropped] == ["prefix_binding_mismatch", "model_binding_mismatch"]
+    assert _of(events, "model_call_ended")[0].payload["stop_reason"] == "error"
+
+
+def test_the_dropped_path_goes_through_the_key_mask():
+    begin = start(100)
+    begin["message"]["input_transformations"] = [
+        {
+            "type": "thinking_dropped",
+            "path": f"messages.{SENTINEL[-4:]}",
+            "reason": "prefix_binding_mismatch",
+        }
+    ]
+    _, events = _call(sse(begin, *text(0, "Bonjour."), *end("end_turn", 5)))
+    dropped = _of(events, "reasoning_dropped")[0].payload
+    assert dropped["path"] == "messages.•••" and SENTINEL[-4:] not in dropped["message_text"]
+
+
 # ---------- the translator (AD-4, AD-26) ----------
 
 
@@ -695,6 +774,24 @@ def test_the_translator_joins_the_systems_and_gathers_the_tool_results():
     # The call's name and its string values stay attributed to the call (one segment each).
     calls = [s for s in segments if s.kind == SegmentKind.ASSISTANT_TURN and "calculator" in s.text]
     assert len(calls) >= 2 and '"1+1"' in calls[0].text
+
+
+def test_a_past_answer_of_thinking_alone_is_left_out():
+    # The history's form (`omit_empty=False`): a signed thinking, an empty text, no call.
+    model = Part(SegmentKind.HISTORY, "", "short_memory", "short_memory.history")
+    blocks = [{"type": "thinking", "thinking": "Je réfléchis.", "signature": "sig"}]
+    message = AppSession._assistant_message(
+        model,
+        "Je réfléchis.",
+        chat=True,
+        resend="thinking_blocks",
+        omit_empty=False,
+        blocks=blocks,
+    )
+    assert message["thinking_blocks"]
+    user = {"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, "Q")]}
+    body, _ = _body([user, message, user])
+    assert [m["role"] for m in json.loads(body)["messages"]] == ["user", "user"]
 
 
 def test_a_thinking_text_with_outer_blanks_keeps_its_bytes():

@@ -24,10 +24,10 @@ from typing import Any
 
 import httpx
 
-from wavestack.context.render import FOLLOWS
 from wavestack.messages import Message
 from wavestack.models.cloud_base import (
     _BACK_TO_LOCAL_FR,
+    FOLLOWS,
     ChatEnd,
     CloudEngine,
     ProviderError,
@@ -125,7 +125,8 @@ class OpenAIResponsesEngine(CloudEngine):
         stop = None
         for line in response.iter_lines():
             if cancel.cancelled:
-                stop = stop or "cancelled"  # an answer already completed stays completed
+                # A terminal event ends the loop: an answer read to its end is never here.
+                stop = "cancelled"
                 break  # leaving the `with` closes the stream (AD-5)
             if not line or line.startswith((":", "event:", "id:", "retry:")):
                 continue

@@ -31,6 +31,7 @@ from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from wavestack.context.segments import Joined, Part, Segment, SegmentKind
 from wavestack.messages import msg
+from wavestack.models.cloud_base import FOLLOWS  # native providers 4/5
 from wavestack.models.engine import Engine
 from wavestack.trace.journal import get_journal
 
@@ -527,11 +528,6 @@ def _anthropic_messages(
             for tool in tools
         ]
     return body | tail
-
-
-# Native providers 4/5: the key a kept `reasoning` item carries for this translator only (never
-# sent): the item that followed it in the output, `message` or `call:<n>` (the n-th call).
-FOLLOWS = "_follows"
 
 
 def _openai_responses(
