@@ -1,0 +1,290 @@
+{
+ "candidate": "decision20",
+ "tier": "2",
+ "models_dir": "C:\\Users\\anael.yahi\\.cache\\wavestack-bench",
+ "platform": "Windows-11-10.0.26200-SP0",
+ "machine": "AMD64",
+ "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+ "cpu_count": 8,
+ "python": "3.13.5",
+ "measured_at": "2026-10-03T07:56",
+ "target_pc": true,
+ "windows_release": "11",
+ "admin": false,
+ "bench_sha256": "e7f987490657412977922db3a82c35085ab9b527735a48a50a7362aa7a4e6758",
+ "repo_commit": "b53b054dd145bcbd3a2713282f269955606a7fcb",
+ "ram_total_mb": 16064,
+ "command": "uv run --with torch --with transformers --with safetensors --with huggingface-hub python tools/bench/v2s6_decision_bench.py measure decision20 --download --slm $SLM --out \"$OUT\\decision20.json\"",
+ "rss_added_method": "pic",
+ "v1_rag_rss_mb": 1170,
+ "status": "erreur",
+ "error": "ValueError('Model identity differs from the scored checkpoint')",
+ "blocked": null,
+ "attempts": [],
+ "llama_cpp_version": "0.3.35",
+ "slm_load_s": 1.77,
+ "rss_with_slm_mb": 1939,
+ "torch_loaded": true,
+ "heavy_modules_loaded": [
+  "torch",
+  "transformers"
+ ],
+ "ram_watchdog": {
+  "status": "active",
+  "budget_mb": 4096,
+  "period_s": 0.5
+ },
+ "packages": [
+  {
+   "name": "annotated-doc",
+   "version": "0.0.5",
+   "license": "MIT",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "anyio",
+   "version": "4.15.1",
+   "license": "MIT",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "certifi",
+   "version": "2026.7.22",
+   "license": "Mozilla Public License 2.0 (MPL 2.0)",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "click",
+   "version": "8.5.0",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "colorama",
+   "version": "0.4.6",
+   "license": "BSD License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "filelock",
+   "version": "4.0.3",
+   "license": "MIT",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "fsspec",
+   "version": "2026.9.0",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "h11",
+   "version": "0.16.0",
+   "license": "MIT License",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "hf-xet",
+   "version": "1.6.0",
+   "license": "Apache-2.0",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "httpcore",
+   "version": "1.0.9",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "httpx",
+   "version": "0.28.1",
+   "license": "BSD License",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "huggingface_hub",
+   "version": "1.33.0",
+   "license": "Apache Software License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "idna",
+   "version": "3.20",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "Jinja2",
+   "version": "3.1.6",
+   "license": "BSD License",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "markdown-it-py",
+   "version": "4.2.0",
+   "license": "MIT License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "MarkupSafe",
+   "version": "3.0.3",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "mdurl",
+   "version": "0.1.2",
+   "license": "MIT License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "mpmath",
+   "version": "1.3.0",
+   "license": "BSD License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "networkx",
+   "version": "3.7",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "numpy",
+   "version": "2.5.3",
+   "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "packaging",
+   "version": "26.3",
+   "license": "Apache-2.0 OR BSD-2-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "Pygments",
+   "version": "2.21.0",
+   "license": "BSD-2-Clause",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "PyYAML",
+   "version": "6.0.3",
+   "license": "MIT License",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "regex",
+   "version": "2026.9.10",
+   "license": "Apache-2.0 AND CNRI-Python",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "rich",
+   "version": "15.0.0",
+   "license": "MIT License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "safetensors",
+   "version": "0.8.0",
+   "license": "Apache Software License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "setuptools",
+   "version": "84.0.0",
+   "license": "MIT",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "shellingham",
+   "version": "1.5.4",
+   "license": "ISC License (ISCL)",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "sympy",
+   "version": "1.14.0",
+   "license": "BSD License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "tokenizers",
+   "version": "0.23.2",
+   "license": "Apache Software License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "torch",
+   "version": "2.14.1",
+   "license": "Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "tqdm",
+   "version": "4.70.1",
+   "license": "MPL-2.0 AND MIT",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "transformers",
+   "version": "5.18.0",
+   "license": "Apache 2.0 License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "typer",
+   "version": "0.27.2",
+   "license": "MIT",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "typing_extensions",
+   "version": "4.16.0",
+   "license": "PSF-2.0",
+   "class": "ok",
+   "added": false
+  }
+ ],
+ "verdict": {
+  "status": "non mesuré",
+  "reason": "erreur : ValueError('Model identity differs from the scored checkpoint')",
+  "criteria": [],
+  "target_pc": true
+ }
+}

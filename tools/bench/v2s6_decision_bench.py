@@ -1,4 +1,5 @@
-"""V2 story 6 benchmark: the prior test of the decision models (CAP-6).
+"""V2 story 6 benchmark: the prior test of the decision models (CAP-6), extended by story 7
+(mDeBERTa, multilingual MiniLM, Decision 2.0 Kai; memory watchdog in the child).
 
 Measures each candidate of `decision-model-candidates.md` (spec-wavestack-v2) on the six
 criteria of the prior test, next to the default SLM, on twenty fixed prompts drawn from the
@@ -288,9 +289,9 @@ def check_prompts() -> list[str]:
 
 
 # --------------------------------------------------------------------------
-# Candidates. Facts read on the Hugging Face model cards on 2026-10-01 (HF MCP, no
-# download): licence, files, labels. Each `doc_name` is the first cell of its row in
-# `decision-model-candidates.md`.
+# Candidates. Facts read on the Hugging Face model cards on 2026-10-01, and 2026-10-03 for
+# story 7 (HF MCP, no download): licence, files, labels. Each `doc_name` is the start of the
+# first cell of its row in `decision-model-candidates.md` (or the row starts with its id).
 # --------------------------------------------------------------------------
 
 
@@ -311,11 +312,20 @@ class Candidate:
     office: str = ""  # verdict without measurement
     office_reason: str = ""
     note: str = ""
+    revision: str = ""  # reviewed commit: download and measure pinned to it (empty: `main`)
+    full_snapshot: bool = False  # download the whole repository (files: presence witnesses)
+    trust_remote_code: bool = False  # runs code shipped by the model repository
 
 
 _NLI_MODULES = ("onnxruntime", "tokenizers", "numpy", "huggingface_hub")
 # tokenizers and huggingface-hub only come with the `compression` extra: not the core project.
 _NLI_PACKAGES = ("onnxruntime", "tokenizers", "huggingface-hub")
+# Decision 2.0 Kai: the commit whose shipped code (`modeling_decision2.py`,
+# `pipeline_decision2.py`, `configuration_decision2.py`, `decision2/`) was reviewed (story 7).
+DECISION20_REPO = "vllm-sr/Decision-2.0-Kai-0.6B"
+DECISION20_REVISION = "881bee413681d80ebeac86afcda8b4138dae516e"
+DECISION20_INSTRUCTIONS = "Classe la demande de l'utilisateur selon les critères."
+_DECISION20_PACKAGES = ("torch", "transformers", "safetensors", "huggingface-hub")
 
 CANDIDATES: list[Candidate] = [
     Candidate(
@@ -362,6 +372,73 @@ CANDIDATES: list[Candidate] = [
         modules=_NLI_MODULES,
         roots=_NLI_PACKAGES,
         note="ONNX quantifié de 87 Mo ; entraîné en anglais",
+    ),
+    Candidate(
+        id="mdeberta",
+        doc_name="mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+        tier="2",
+        backend="nli_onnx",
+        repos=(
+            (
+                "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+                ("config.json", "tokenizer.json", "onnx/model_quantized.onnx"),
+            ),
+        ),
+        onnx_file="onnx/model_quantized.onnx",
+        model_license="MIT",
+        with_packages=_NLI_PACKAGES,
+        modules=_NLI_MODULES,
+        roots=_NLI_PACKAGES,
+        note="ONNX quantifié de 339 Mo ; multilingue (français et allemand à l'entraînement)",
+    ),
+    Candidate(
+        id="minilm_multi",
+        doc_name="multilingual-MiniLMv2-L6-mnli-xnli",
+        tier="2",
+        backend="nli_onnx",
+        repos=(
+            (
+                "MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli",
+                ("config.json", "tokenizer.json", "onnx/model.onnx"),
+            ),
+        ),
+        onnx_file="onnx/model.onnx",
+        model_license="MIT",
+        with_packages=_NLI_PACKAGES,
+        modules=_NLI_MODULES,
+        roots=_NLI_PACKAGES,
+        note="ONNX de 428 Mo, architecture XLM-R (sans token_type_ids, comme l'ONNX de mDeBERTa) ; "
+        "multilingue, "
+        "option légère",
+    ),
+    Candidate(
+        id="decision20",
+        doc_name="Decision 2.0 Kai",
+        tier="2",
+        backend="decision20_torch",
+        repos=(
+            (
+                DECISION20_REPO,
+                (
+                    "MODEL_MANIFEST.json",
+                    "config.json",
+                    "modeling_decision2.py",
+                    "decision_head.safetensors",
+                    "backbone/model.safetensors",
+                ),
+            ),
+        ),
+        model_license="Apache-2.0",
+        with_packages=_DECISION20_PACKAGES,
+        modules=("torch", "transformers", "safetensors", "huggingface_hub"),
+        roots=_DECISION20_PACKAGES,
+        remote_code=f"trust_remote_code : code du dépôt relu au commit {DECISION20_REVISION} "
+        "(modeling_decision2.py, pipeline_decision2.py, configuration_decision2.py, decision2/)",
+        note="Qwen3 0.6B non génératif, en FP32 sur CPU, torch ; instantané complet (≈ 1,53 Go) "
+        "épinglé au commit relu ; question choice par tâche (system_one)",
+        revision=DECISION20_REVISION,
+        full_snapshot=True,
+        trust_remote_code=True,
     ),
     Candidate(
         id="gliformer",
@@ -536,6 +613,39 @@ def pick_nli_label(keys: list[str], logits: list[list[float]], entail: int) -> s
     as the Hugging Face pipeline does)."""
     scores = [row[entail] for row in logits]
     return keys[max(range(len(keys)), key=scores.__getitem__)]
+
+
+def onnx_feeds(encs, names) -> dict[str, list[list[int]]]:
+    """The NLI inputs of a batch of encodings, kept to the inputs the ONNX session declares:
+    some exports take no `token_type_ids` (the quantized mDeBERTa ONNX, MiniLM's XLM-R)."""
+    feeds = {
+        "input_ids": [e.ids for e in encs],
+        "attention_mask": [e.attention_mask for e in encs],
+        "token_type_ids": [e.type_ids for e in encs],
+    }
+    return {k: v for k, v in feeds.items() if k in names}
+
+
+def decision20_questions(task: str) -> dict:
+    """Decision 2.0's `system_one` questions for a task: one `choice` question, whose
+    criteria are the written rules of `TASKS`."""
+    return {
+        task: {
+            "type": "choice",
+            "instructions": DECISION20_INSTRUCTIONS,
+            "criteria": {key: crit.text for key, crit in TASKS[task].items()},
+        }
+    }
+
+
+def decision20_label(answer) -> str:
+    """The key Decision 2.0 chose, or `erreur : <code>` (`{"error": code}`)."""
+    if not isinstance(answer, dict):
+        return f"erreur : réponse inattendue {type(answer).__name__}"
+    if answer.get("error"):
+        return f"erreur : {answer['error']}"
+    choice = answer.get("choice")
+    return str(choice) if choice not in (None, "") else "erreur : sans choix"
 
 
 def nvidia_scores(logits: list[list[float]], cfg: dict) -> dict:
@@ -725,6 +835,18 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
     suffix = "" if target else " (indicatif, hors PC cible)"
     if report.get("status") != "measured":
         hosts = s12.summarize_attempts(report.get("attempts", []))
+        if report.get("error") == "ram_ceiling":  # the child's memory watchdog stopped it
+            reason = (
+                f"RAM : mesure arrêtée par le garde-fou à {report.get('rss_at_stop_mb')} Mo de "
+                f"RSS (au-delà de {RAM_BUDGET_MB} Mo, SLM par défaut chargé), sans latence ni "
+                f"accord ; hôtes tentés : {hosts or 'aucun'}"
+            )
+            return {
+                "status": "écarté (RAM)" + suffix,
+                "reason": reason,
+                "criteria": [],
+                "target_pc": target,
+            }
         if report.get("blocked") or hosts:  # the guard stopped it: the offline criterion fails
             reason = (
                 "Hors ligne : tentative réseau bloquée par la garde d'AD-15 "
@@ -815,14 +937,20 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
         all(is_commit_sha(v) for v in revisions.values())
         and (bool(revisions) or not c.repos)
         and all(versions.get(root) for root in c.roots)
+        and (not c.revision or c.revision in revisions.values())
+    )
+    remote = (
+        f" ; trust_remote_code exécuté, code relu au commit {c.revision} : au mieux à surveiller"
+        if c.trust_remote_code
+        else ""
     )
     criteria.append(
         {
             "id": "pinned",
             "label": "Code relu et figé : commit et versions consignés, pas de trust_remote_code",
-            "ok": pinned,
+            "ok": pinned and not c.trust_remote_code,
             "detail": f"commits {revisions or 'aucun (pas de dépôt)'} ; versions "
-            f"{versions or 'aucune'} ; code : {c.remote_code}",
+            f"{versions or 'aucune'} ; code : {c.remote_code}{remote}",
         }
     )
     packages = [p for p in report.get("packages", []) if p.get("added")]
@@ -891,12 +1019,28 @@ def hf_cache(models_dir: Path) -> Path:
     return models_dir / "hf"
 
 
-def snapshot_present(models_dir: Path, repo: str, files: tuple[str, ...] = ()) -> bool:
-    """A snapshot of `repo` holds every file the measure needs (a partial download is absent)."""
-    snapshots = hf_cache(models_dir) / f"models--{repo.replace('/', '--')}" / "snapshots"
+def _snapshots_dir(models_dir: Path, repo: str) -> Path:
+    return hf_cache(models_dir) / f"models--{repo.replace('/', '--')}" / "snapshots"
+
+
+def snapshot_present(
+    models_dir: Path, repo: str, files: tuple[str, ...] = (), revision: str = ""
+) -> bool:
+    """A snapshot of `repo` holds every file the measure needs (a partial download is absent).
+    With a pinned `revision`, only `snapshots/<revision>` counts."""
+    snapshots = _snapshots_dir(models_dir, repo)
     if not snapshots.is_dir():
         return False
-    return any(all((snap / f).is_file() for f in files) for snap in snapshots.iterdir())
+    candidates = [snapshots / revision] if revision else list(snapshots.iterdir())
+    return any(snap.is_dir() and all((snap / f).is_file() for f in files) for snap in candidates)
+
+
+def other_snapshots(models_dir: Path, repo: str, revision: str) -> list[str]:
+    """Commits of `repo` in the cache other than the pinned `revision` (sorted)."""
+    snapshots = _snapshots_dir(models_dir, repo)
+    if not revision or not snapshots.is_dir():
+        return []
+    return sorted(p.name for p in snapshots.iterdir() if p.is_dir() and p.name != revision)
 
 
 def wavestack_settings(root: Path | None = None) -> dict:
@@ -933,15 +1077,26 @@ def missing_modules(c: Candidate, find_spec=importlib.util.find_spec) -> list[st
 # --------------------------------------------------------------------------
 
 
-def _snapshot(models_dir: Path, repo: str, files: tuple[str, ...]) -> Path:
+def snapshot_kwargs(c: Candidate, files: tuple[str, ...]) -> dict:
+    """`snapshot_download` arguments of a candidate: pinned to its reviewed commit if any,
+    and the whole repository when it needs it (its files are then presence witnesses)."""
+    kwargs: dict = {}
+    if not c.full_snapshot:
+        kwargs["allow_patterns"] = list(files)
+    if c.revision:
+        kwargs["revision"] = c.revision
+    return kwargs
+
+
+def _snapshot(models_dir: Path, repo: str, files: tuple[str, ...], c: Candidate) -> Path:
     from huggingface_hub import snapshot_download
 
     return Path(
         snapshot_download(
             repo_id=repo,
-            allow_patterns=list(files),
             cache_dir=str(hf_cache(models_dir)),
             local_files_only=True,
+            **snapshot_kwargs(c, files),
         )
     )
 
@@ -952,7 +1107,7 @@ def _load_nli(c: Candidate, models_dir: Path, slm_llm):
     from tokenizers import Tokenizer
 
     repo, files = c.repos[0]
-    root = _snapshot(models_dir, repo, files)
+    root = _snapshot(models_dir, repo, files, c)
     cfg = json.loads((root / "config.json").read_text("utf-8"))
     entail = entailment_index(cfg["id2label"])
     tok = Tokenizer.from_file(str(root / "tokenizer.json"))
@@ -964,12 +1119,8 @@ def _load_nli(c: Candidate, models_dir: Path, slm_llm):
     def decide(text: str, task: str) -> str:
         keys = list(TASKS[task])
         encs = tok.encode_batch([(text, TASKS[task][k].text) for k in keys])
-        feeds = {
-            "input_ids": np.array([e.ids for e in encs], dtype=np.int64),
-            "attention_mask": np.array([e.attention_mask for e in encs], dtype=np.int64),
-            "token_type_ids": np.array([e.type_ids for e in encs], dtype=np.int64),
-        }
-        logits = session.run(None, {k: v for k, v in feeds.items() if k in names})[0]
+        feeds = {k: np.array(v, dtype=np.int64) for k, v in onnx_feeds(encs, names).items()}
+        logits = session.run(None, feeds)[0]
         return pick_nli_label(keys, logits.tolist(), entail)
 
     return decide, {"revisions": {repo: root.name}, "onnx_inputs": sorted(names)}
@@ -982,8 +1133,8 @@ def _load_nvidia(c: Candidate, models_dir: Path, slm_llm):
     from transformers import DebertaV2Config, DebertaV2Model
 
     (repo, files), (backbone_repo, backbone_files) = c.repos
-    root = _snapshot(models_dir, repo, files)
-    backbone_root = _snapshot(models_dir, backbone_repo, backbone_files)
+    root = _snapshot(models_dir, repo, files, c)
+    backbone_root = _snapshot(models_dir, backbone_repo, backbone_files, c)
     cfg = json.loads((root / "config.json").read_text("utf-8"))
     # The card builds the backbone with `AutoModel.from_pretrained` (a second download of
     # the base weights): only its configuration is needed, the weights are in the checkpoint.
@@ -1026,7 +1177,7 @@ def _load_nvidia(c: Candidate, models_dir: Path, slm_llm):
 
 def _load_gliformer(c: Candidate, models_dir: Path, slm_llm):
     repo, files = c.repos[0]
-    root = _snapshot(models_dir, repo, files)
+    root = _snapshot(models_dir, repo, files, c)
     if c.backend == "gliformer_torch":
         import torch
         from gliformer import GLiFormer
@@ -1072,17 +1223,120 @@ def _load_slm_judge(c: Candidate, models_dir: Path, slm_llm):
     return decide, {"revisions": {}}
 
 
+def _load_decision20(c: Candidate, models_dir: Path, slm_llm):
+    """Decision 2.0 Kai through the code its repository ships, reviewed at `c.revision`
+    (`trust_remote_code`), on CPU: one `choice` question per task (`system_one`)."""
+    from transformers import AutoModel
+
+    repo, files = c.repos[0]
+    root = _snapshot(models_dir, repo, files, c)
+    if root.name != c.revision:
+        raise RuntimeError(f"instantané {root.name} chargé au lieu du commit relu {c.revision}")
+    model = AutoModel.from_pretrained(str(root), trust_remote_code=True, device="cpu")
+    questions = {task: decision20_questions(task) for task in TASKS}
+
+    def decide(text: str, task: str) -> str:
+        out = model.system_one(state=text, questions=questions[task])
+        if not isinstance(out, dict) or out.get("error"):
+            return decision20_label(out)
+        return decision20_label((out.get("answers") or {}).get(task))
+
+    info = {
+        "revisions": {repo: root.name},
+        "reviewed_revision": c.revision,
+        "trust_remote_code": True,
+    }
+    return decide, info
+
+
 LOADERS = {
     "nli_onnx": _load_nli,
     "nvidia_torch": _load_nvidia,
     "gliformer_torch": _load_gliformer,
     "gliformer_onnx": _load_gliformer,
     "slm_judge": _load_slm_judge,
+    "decision20_torch": _load_decision20,
 }
+
+RAM_WATCH_PERIOD_S = 0.5
+
+
+def ram_ceiling_report(rss_mb: int, attempts: list) -> dict:
+    """The child's last JSON line when the memory watchdog stops it."""
+    return {
+        "error": "ram_ceiling",
+        "rss_at_stop_mb": rss_mb,
+        "ram_budget_mb": RAM_BUDGET_MB,
+        "attempts": list(attempts),
+    }
+
+
+def start_ram_watchdog(
+    attempts: list,
+    budget_mb: int | None = None,
+    period_s: float = RAM_WATCH_PERIOD_S,
+    read_rss=None,
+    emit=None,
+    exit_=os._exit,
+):
+    """A daemon thread that reads the RSS every `period_s`: beyond `budget_mb`, it prints
+    the report as the child's last JSON line, then stops the process (the shared target PC
+    must not swap). Returns the thread, the event that stops it once the measure is over,
+    and its state (`status` active or inactive, with the `reason` when the RSS cannot be
+    read), recorded in the child's JSON."""
+    import threading
+
+    budget = RAM_BUDGET_MB if budget_mb is None else budget_mb
+    read = read_rss or s12._rss_mb
+    stop = threading.Event()
+    state = {"status": "active", "budget_mb": budget, "period_s": period_s}
+
+    def say(line: str) -> None:
+        if emit is not None:
+            emit(line)
+        else:
+            print(line, flush=True)  # os._exit flushes nothing
+
+    def watch() -> None:
+        while not stop.is_set():
+            try:
+                rss = read()
+            except Exception as exc:  # noqa: BLE001 - no RSS (psutil): the measure goes on
+                state.update(status="inactive", reason=repr(exc)[:200])
+                return
+            if rss > budget and not stop.is_set():
+                try:
+                    say(json.dumps(ram_ceiling_report(rss, attempts), ensure_ascii=False))
+                finally:
+                    exit_(0)  # stop the child even if the line cannot be written
+                return
+            stop.wait(period_s)
+
+    thread = threading.Thread(target=watch, name="ram-watchdog", daemon=True)
+    thread.start()
+    return thread, stop, state
 
 
 def _measure_child(candidate_id: str, models_dir: Path, slm: Path) -> dict:
     attempts, guard = s12._record_and_guard(allowed_hosts=[])
+    _, stop_watchdog, watchdog = start_ram_watchdog(attempts)  # from the start: SLM included
+    try:
+        out = _measure(candidate_id, models_dir, slm, attempts, guard)
+        out["ram_watchdog"] = dict(watchdog)  # its state while the measure ran
+        return out
+    finally:
+        stop_watchdog.set()
+
+
+def _loaded_modules() -> dict:
+    """torch and the heavy modules loaded so far (kept on a failed measure too)."""
+    return {
+        "torch_loaded": "torch" in sys.modules,
+        "heavy_modules_loaded": [m for m in s12.HEAVY_MODULES if m in sys.modules],
+    }
+
+
+def _measure(candidate_id: str, models_dir: Path, slm: Path, attempts: list, guard: str) -> dict:
     c = candidate(candidate_id)
     n_ctx = slm_n_ctx(wavestack_settings())
     out: dict = {"id": c.id, "guard": guard, "slm": str(slm), "slm_n_ctx": n_ctx}
@@ -1106,6 +1360,7 @@ def _measure_child(candidate_id: str, models_dir: Path, slm: Path) -> dict:
         out.update(s12._loaded_rss())
     except Exception as exc:  # noqa: BLE001 - a failed load or decision is a finding
         out.update(error=repr(exc)[:400], blocked=s12._blocked_host(exc), attempts=attempts)
+        out.update(_loaded_modules())  # the SLM fields already read stay in `out`
         return out
     out["warmup_ms"] = warmup_ms
     out["rows"] = rows
@@ -1118,8 +1373,7 @@ def _measure_child(candidate_id: str, models_dir: Path, slm: Path) -> dict:
         (out["rss_loaded_mb"],),
     )
     out["versions"] = _versions(c.roots)  # the packages this very measure ran with
-    out["torch_loaded"] = "torch" in sys.modules
-    out["heavy_modules_loaded"] = [m for m in s12.HEAVY_MODULES if m in sys.modules]
+    out.update(_loaded_modules())
     out["attempts"] = attempts
     return out
 
@@ -1131,7 +1385,8 @@ def _measure_child(candidate_id: str, models_dir: Path, slm: Path) -> dict:
 
 def download_candidate(c: Candidate, models_dir: Path) -> dict:
     """Fetch the candidate's files under the guard (HF hosts only), proxy and system trust
-    store kept, as WaveStack does (AD-15). Follows `main`; the commit is recorded."""
+    store kept, as WaveStack does (AD-15). Follows `main`, or the reviewed commit of a
+    candidate that pins one; the commit is recorded."""
     os.environ["HF_HUB_DISABLE_XET"] = "1"
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
     attempts, guard = s12._record_and_guard(allowed_hosts=s12.DOWNLOAD_HOSTS, strip_proxy=False)
@@ -1147,7 +1402,7 @@ def download_candidate(c: Candidate, models_dir: Path) -> dict:
     for repo, files in c.repos:
         try:
             path = snapshot_download(
-                repo_id=repo, allow_patterns=list(files), cache_dir=str(hf_cache(models_dir))
+                repo_id=repo, cache_dir=str(hf_cache(models_dir)), **snapshot_kwargs(c, files)
             )
             revisions[repo] = Path(path).name
         except Exception as exc:  # noqa: BLE001 - recorded, the measure says what is missing
@@ -1160,11 +1415,22 @@ def download_candidate(c: Candidate, models_dir: Path) -> dict:
     }
 
 
-def _default_runner(c: Candidate, models_dir: Path, slm: Path) -> dict:
-    env = dict(os.environ)
+def child_env(base: dict[str, str], models_dir: Path) -> dict[str, str]:
+    """The measurement child's environment: no proxy, Hugging Face offline, Transformers'
+    dynamic modules written under the bench folder, and Decision 2.0 on its default CPU path
+    (no `DECISION2_*` switch: FAST, KERNELS, GRAPHS)."""
+    env = dict(base)
     s12._strip_proxy_env(env)
+    for name in [n for n in env if n.upper().startswith("DECISION2_")]:
+        del env[name]
     env["HF_HUB_OFFLINE"] = "1"
     env["HF_HUB_DISABLE_TELEMETRY"] = "1"
+    env["HF_MODULES_CACHE"] = str(models_dir / "hf_modules")
+    return env
+
+
+def _default_runner(c: Candidate, models_dir: Path, slm: Path) -> dict:
+    env = child_env(os.environ, models_dir)
     cmd = [
         sys.executable,
         str(Path(__file__).resolve()),
@@ -1250,6 +1516,18 @@ def _repo_commit() -> str | None:
     return (proc.stdout.strip() or None) if proc.returncode == 0 else None
 
 
+# Kept from a failed child: the SLM part, the modules loaded, the watchdog and its stop.
+_PARTIAL_FIELDS = (
+    "llama_cpp_version",
+    "slm_load_s",
+    "rss_with_slm_mb",
+    "torch_loaded",
+    "heavy_modules_loaded",
+    "ram_watchdog",
+    "rss_at_stop_mb",
+)
+
+
 def run_measure(
     c: Candidate,
     models_dir: Path,
@@ -1279,8 +1557,20 @@ def run_measure(
                 report["download"] = downloader(c, models_dir)
             except Exception as exc:  # noqa: BLE001 - reported, the status says what is absent
                 report["download"] = {"hosts": [], "errors": {"*": repr(exc)[:300]}}
-        absent = [repo for repo, files in c.repos if not snapshot_present(models_dir, repo, files)]
-        if absent:
+        absent = [
+            repo
+            for repo, files in c.repos
+            if not snapshot_present(models_dir, repo, files, c.revision)
+        ]
+        unreviewed = sorted(
+            {sha for repo in absent for sha in other_snapshots(models_dir, repo, c.revision)}
+        )
+        if unreviewed:  # never run code shipped by a commit nobody has reviewed
+            report["status"] = (
+                f"non mesuré : code non relu à ce commit ({', '.join(unreviewed)}) ; "
+                f"relu : {c.revision}"
+            )
+        elif absent:
             errors = (report.get("download") or {}).get("errors") or {}
             report["status"] = (
                 f"absent ou incomplet : {', '.join(absent)} "
@@ -1297,6 +1587,9 @@ def run_measure(
                 report["error"] = measured.get("fatal") or measured.get("error")
                 report["blocked"] = measured.get("blocked")
                 report["attempts"] = measured.get("attempts", [])
+                for key in _PARTIAL_FIELDS:  # what the failed child had already measured
+                    if key in measured:
+                        report[key] = measured[key]
             else:
                 report.update(measured)
                 report["status"] = "measured"
@@ -1319,6 +1612,8 @@ def print_list() -> None:
             print(f"   verdict d'office : {c.office} — {c.office_reason}")
         else:
             print(f"   {command_for(c)}")
+        if c.revision:
+            print(f"   commit relu (téléchargement et mesure épinglés) : {c.revision}")
         if c.note:
             print(f"   note : {c.note}")
 

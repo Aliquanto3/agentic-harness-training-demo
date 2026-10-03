@@ -1,0 +1,545 @@
+{
+ "candidate": "minilm_multi",
+ "tier": "2",
+ "models_dir": "C:\\Users\\anael.yahi\\.cache\\wavestack-bench",
+ "platform": "Windows-11-10.0.26200-SP0",
+ "machine": "AMD64",
+ "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+ "cpu_count": 8,
+ "python": "3.13.5",
+ "measured_at": "2026-10-03T07:56",
+ "target_pc": true,
+ "windows_release": "11",
+ "admin": false,
+ "bench_sha256": "e7f987490657412977922db3a82c35085ab9b527735a48a50a7362aa7a4e6758",
+ "repo_commit": "b53b054dd145bcbd3a2713282f269955606a7fcb",
+ "ram_total_mb": 16064,
+ "command": "uv run --with onnxruntime --with tokenizers --with huggingface-hub python tools/bench/v2s6_decision_bench.py measure minilm_multi --download --slm $SLM --out \"$OUT\\minilm_multi.json\"",
+ "rss_added_method": "pic",
+ "v1_rag_rss_mb": 1170,
+ "id": "minilm_multi",
+ "guard": "wavestack.net.guard",
+ "slm": "C:\\Users\\anael.yahi\\AppData\\Local\\WaveStack\\models\\Qwen3.5-2B-Q4_K_M.gguf",
+ "slm_n_ctx": 4096,
+ "llama_cpp_version": "0.3.35",
+ "slm_load_s": 2.13,
+ "rss_with_slm_mb": 1938,
+ "load_s": 2.92,
+ "revisions": {
+  "MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli": "0a71e92a985b6e1ad1828cf67ce9c459639c1dca"
+ },
+ "onnx_inputs": [
+  "attention_mask",
+  "input_ids"
+ ],
+ "rss_before_load_mb": 1938,
+ "peak_before_load_mb": 1938,
+ "rss_loaded_mb": 2656,
+ "rss_peak_mb": 3005,
+ "warmup_ms": 83.6,
+ "rows": [
+  {
+   "prompt": "bare_llm.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 18.2
+  },
+  {
+   "prompt": "bare_llm.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "general",
+   "ms": 48.7
+  },
+  {
+   "prompt": "reasoning.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 37.2
+  },
+  {
+   "prompt": "reasoning.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "general",
+   "ms": 78.3
+  },
+  {
+   "prompt": "system_prompt.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 21.6
+  },
+  {
+   "prompt": "system_prompt.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "general",
+   "ms": 33.1
+  },
+  {
+   "prompt": "global_memory.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 29.0
+  },
+  {
+   "prompt": "global_memory.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "general",
+   "ms": 61.5
+  },
+  {
+   "prompt": "native_tools.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 25.7
+  },
+  {
+   "prompt": "native_tools.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "general",
+   "ms": 52.8
+  },
+  {
+   "prompt": "caveman.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 19.4
+  },
+  {
+   "prompt": "caveman.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "general",
+   "ms": 62.0
+  },
+  {
+   "prompt": "native_tools.2",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 29.4
+  },
+  {
+   "prompt": "native_tools.2",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 61.4
+  },
+  {
+   "prompt": "rag.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 24.0
+  },
+  {
+   "prompt": "rag.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "documents",
+   "ms": 41.5
+  },
+  {
+   "prompt": "hooks.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 31.4
+  },
+  {
+   "prompt": "hooks.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 52.9
+  },
+  {
+   "prompt": "compression.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 28.4
+  },
+  {
+   "prompt": "compression.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 61.5
+  },
+  {
+   "prompt": "compression.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 26.4
+  },
+  {
+   "prompt": "compression.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "documents",
+   "ms": 61.2
+  },
+  {
+   "prompt": "network_tools.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 27.8
+  },
+  {
+   "prompt": "network_tools.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "recherche",
+   "ms": 41.6
+  },
+  {
+   "prompt": "network_tools.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 19.6
+  },
+  {
+   "prompt": "network_tools.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "recherche",
+   "ms": 47.8
+  },
+  {
+   "prompt": "mcp_lazy.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 35.1
+  },
+  {
+   "prompt": "mcp_lazy.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "recherche",
+   "ms": 71.7
+  },
+  {
+   "prompt": "sovereignty.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 65.5
+  },
+  {
+   "prompt": "sovereignty.0",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "recherche",
+   "ms": 93.0
+  },
+  {
+   "prompt": "rag.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 20.1
+  },
+  {
+   "prompt": "rag.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 61.2
+  },
+  {
+   "prompt": "soc.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 55.6
+  },
+  {
+   "prompt": "soc.0",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 85.4
+  },
+  {
+   "prompt": "soc.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 66.1
+  },
+  {
+   "prompt": "soc.1",
+   "task": "specialty",
+   "label": "securite",
+   "expected": "securite",
+   "ms": 117.3
+  },
+  {
+   "prompt": "iam.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 50.1
+  },
+  {
+   "prompt": "iam.0",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "securite",
+   "ms": 117.6
+  },
+  {
+   "prompt": "iam.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 77.1
+  },
+  {
+   "prompt": "iam.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "securite",
+   "ms": 123.1
+  }
+ ],
+ "decisions": 40,
+ "latency_median_ms": 49.4,
+ "latency_max_ms": 123.1,
+ "agreement": {
+  "cost": "10/20",
+  "specialty": "8/20"
+ },
+ "rss_added_mb": 1067,
+ "versions": {
+  "onnxruntime": "1.30.0",
+  "tokenizers": "0.23.2",
+  "huggingface-hub": "1.33.0"
+ },
+ "torch_loaded": false,
+ "heavy_modules_loaded": [
+  "onnxruntime"
+ ],
+ "attempts": [],
+ "ram_watchdog": {
+  "status": "active",
+  "budget_mb": 4096,
+  "period_s": 0.5
+ },
+ "status": "measured",
+ "packages": [
+  {
+   "name": "anyio",
+   "version": "4.15.1",
+   "license": "MIT",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "certifi",
+   "version": "2026.7.22",
+   "license": "Mozilla Public License 2.0 (MPL 2.0)",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "click",
+   "version": "8.5.0",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "colorama",
+   "version": "0.4.6",
+   "license": "BSD License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "filelock",
+   "version": "4.0.3",
+   "license": "MIT",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "flatbuffers",
+   "version": "25.12.19",
+   "license": "Apache Software License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "fsspec",
+   "version": "2026.9.0",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "h11",
+   "version": "0.16.0",
+   "license": "MIT License",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "hf-xet",
+   "version": "1.6.0",
+   "license": "Apache-2.0",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "httpcore",
+   "version": "1.0.9",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "httpx",
+   "version": "0.28.1",
+   "license": "BSD License",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "huggingface_hub",
+   "version": "1.33.0",
+   "license": "Apache Software License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "idna",
+   "version": "3.20",
+   "license": "BSD-3-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "numpy",
+   "version": "2.5.3",
+   "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "onnxruntime",
+   "version": "1.30.0",
+   "license": "MIT License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "packaging",
+   "version": "26.3",
+   "license": "Apache-2.0 OR BSD-2-Clause",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "protobuf",
+   "version": "7.36.2",
+   "license": "3-Clause BSD License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "PyYAML",
+   "version": "6.0.3",
+   "license": "MIT License",
+   "class": "ok",
+   "added": false
+  },
+  {
+   "name": "tokenizers",
+   "version": "0.23.2",
+   "license": "Apache Software License",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "tqdm",
+   "version": "4.70.1",
+   "license": "MPL-2.0 AND MIT",
+   "class": "ok",
+   "added": true
+  },
+  {
+   "name": "typing_extensions",
+   "version": "4.16.0",
+   "license": "PSF-2.0",
+   "class": "ok",
+   "added": false
+  }
+ ],
+ "verdict": {
+  "status": "retenu",
+  "reason": "tous les critères passent",
+  "criteria": [
+   {
+    "id": "cpu_windows",
+    "label": "CPU sous Windows 11, sans droits admin",
+    "ok": true,
+    "detail": "Windows 11, session sans droits admin ; vérifier dans la sortie de uv qu'aucun paquet n'a été compilé (« Building … »)"
+   },
+   {
+    "id": "ram",
+    "label": "RAM : pic total ≤ 4096 Mo, SLM par défaut chargé (NFR-2)",
+    "ok": true,
+    "detail": "pic total 3005 Mo (SLM chargé : 1938 Mo), ajouté par le candidat 1067 Mo au pic ; avec l'embedding et le reranker V1 (1170 Mo mesurés), 4175 Mo"
+   },
+   {
+    "id": "latency",
+    "label": "Latence : médiane ≤ 1000 ms, maximum ≤ 3000 ms",
+    "ok": true,
+    "detail": "médiane 49.4 ms, maximum 123.1 ms sur 40 décisions (échauffement 83.6 ms, chargement 2.92 s)"
+   },
+   {
+    "id": "offline",
+    "label": "Hors ligne : aucune tentative réseau sous la garde d'AD-15",
+    "ok": true,
+    "detail": "hôtes tentés : aucun"
+   },
+   {
+    "id": "pinned",
+    "label": "Code relu et figé : commit et versions consignés, pas de trust_remote_code",
+    "ok": true,
+    "detail": "commits {'MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli': '0a71e92a985b6e1ad1828cf67ce9c459639c1dca'} ; versions {'onnxruntime': '1.30.0', 'tokenizers': '0.23.2', 'huggingface-hub': '1.33.0'} ; code : aucun"
+   },
+   {
+    "id": "license",
+    "label": "Licences compatibles avec une remise du code (NFR-10)",
+    "ok": true,
+    "forbidden": false,
+    "detail": "modèle : MIT (ok) ; 10 paquet(s) ajouté(s) ; interdites : aucune ; à vérifier : aucune"
+   },
+   {
+    "id": "no_torch",
+    "label": "Sans torch",
+    "ok": true,
+    "detail": "modules lourds chargés : ['onnxruntime']"
+   }
+  ],
+  "target_pc": true
+ }
+}

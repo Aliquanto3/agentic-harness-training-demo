@@ -812,3 +812,7 @@
   summary: Le préréglage Mistral (`wavestack.toml`, commentaire et `notes_text`) dit « plan gratuit toujours actif » et « coût réel nul », mais le compte d'Anaël répondait 429 sur tout appel (`x-ratelimit-limit-req-minute: 0`) jusqu'à l'activation d'un plan (paiement à l'usage, 2026-10-03).
   evidence: Recette du 2026-10-02 (`resultats-restes-pc-2026-10.md` R5). WaveStack explique bien le 429 (« Aucun quota actif sur ce compte », D6), mais le README et les notes du préréglage devraient dire qu'un plan (gratuit « Experiment » ou payant) s'active dans la console Mistral avant le premier appel, et que le coût n'est plus nul sur un plan payant.
 
+
+- source_spec: `_bmad-output/specs/spec-wavestack-v2/stories/7-banc-des-nouveaux-candidats-de-decision.md`
+  summary: Story 8 de la V2 (à écrire par bmad-spec) : banc du modèle de décision tev1 0.8B (Together AI) servi par Ollama 0.35 (point d'accès `/v1/systemone`), seul modèle Ollama de décision qui peut tenir les 4 096 Mo avec le SLM chargé ; mise à jour d'Ollama à ce moment-là.
+  evidence: Question d'Anaël du 2026-10-03 pendant la story 7 ; décision : hors story 7, story 8 avec le seul tev1 0.8B (Nimble 9B, tev1 4B, Clef 27B et Clef Flash 9B hors budget). Le banc actuel mesure la RAM et le réseau dans son propre processus enfant : la story 8 doit mesurer le processus Ollama et vérifier le hors-ligne côté serveur. À vérifier : licence de tev1, CPU sous Windows, import possible d'autres modèles de décision (notes de version de la 0.35.1 muettes).
