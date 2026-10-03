@@ -463,6 +463,7 @@ session:
         min_p: min-p
       by_provider: "Von {provider} eingestellt: WaveStack sendet keine Sampling-Einstellung."
       not_settable: "{names} bei {provider} nicht einstellbar."
+      with_reasoning: "{provider} lehnt Temperatur und Top-p ab, während das Modell nachdenkt: WaveStack sendet keine Sampling-Einstellung. Schalten Sie „Vor dem Antworten nachdenken“ aus, um sie einzustellen."
       local: "Bei jeder Generierung der Ansicht an die Engine gesendet; die Werkstatt behält die Werte des Harness."
       no_api: "{label} bei {provider} nicht einstellbar: Die OpenAI-kompatible API sieht es nicht vor."
       not_declared: "{label} bei {provider} nicht einstellbar: Das Modell deklariert es nicht in der Konfiguration (sampling); der Anbieter behält seinen Wert."
@@ -1184,6 +1185,12 @@ models:
     unreadable_stream: "Unlesbare Antwort: Eine Zeile des Streams von {provider} hat nicht das erwartete Format (SSE)."
     interrupted: "{provider} hat die Antwort wegen eines Fehlers abgebrochen."
     stopped: "{provider} hat die Antwort beendet ({finish})."
+    refusal: "{provider} hat die Antwort verweigert (Sicherheitsverweigerung des Modells)."
+    refusal_category: "{provider} hat die Antwort verweigert (Sicherheitsverweigerung des Modells, Kategorie „{category}“)."
+    reasoning_dropped:
+      prefix_binding_mismatch: "{provider} hat den Denkprozess einer früheren Runde verworfen ({path}): Der Harness hat den Verlauf seitdem umgeschrieben (Fenster, gekürztes Werkzeugergebnis, Kompression, Gedächtnis oder während der Sitzung geänderter Baustein), und ein signierter Denkprozess gilt nur für genau den Verlauf, der ihn erzeugt hat. Das Modell macht ohne ihn weiter."
+      model_binding_mismatch: "{provider} hat den Denkprozess einer früheren Runde verworfen ({path}): Ein anderes Modell hat ihn erzeugt, und nur dieses kann ihn wieder lesen. Das Modell macht ohne ihn weiter."
+      organization_binding_mismatch: "{provider} hat den Denkprozess einer früheren Runde verworfen ({path}): Er wurde unter einer anderen Organisation erzeugt (einem anderen API-Schlüssel). Das Modell macht ohne ihn weiter."
     # Native providers 2/5 (CAP-4): a priced call refused before it is sent, `[finops] max_session_usd`.
     session_cap: "Ausgabenobergrenze der Sitzung erreicht: {total} ausgegeben bei einer Obergrenze von {cap}. Der Aufruf wurde nicht gesendet und kostet nichts. Um die Obergrenze anzuheben, ändern Sie [finops] max_session_usd in settings.json bei gestopptem WaveStack und starten Sie WaveStack dann neu (die Summe der Sitzung wird erst beim Neustart auf null zurückgesetzt)."
     hint:

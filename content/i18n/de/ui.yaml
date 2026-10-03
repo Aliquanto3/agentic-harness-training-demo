@@ -573,6 +573,7 @@ main:
       common_tokens: "{tokens} gemeinsame Tokens"
       reasoning_cut: "Denkprozess abgeschnitten"
       reasoning_cut_figure: "{tokens} Tokens · {reserve} für die Antwort"
+      reasoning_dropped: "Denkprozess vom Anbieter verworfen"
     sub:
       title: "Delegation an den Sub-Agenten"
       stopped_title: "Delegation gestoppt"
@@ -659,6 +660,7 @@ main:
       context_overflow: "Kontext überschritten"
       output_truncated: "Ausgabe abgeschnitten"
       reasoning_cut: "Denkprozess abgeschnitten"
+      reasoning_dropped: "Denkprozess verworfen"
       model_call_started: "Modellaufruf begonnen"
       model_first_token: "Erstes Token"
       model_delta: "Antwortstück"
@@ -773,6 +775,11 @@ main:
     rerank_first: "erster: {title} (vorher: #{before})"
     search_best: "bester: {title} ({score})"
     reasoning_cut: "abgeschnitten bei {tokens} Tokens (Budget {budget}) · {reserve} für die Antwort"
+    reasoning_dropped: "{reason} · {path}"
+    drop_reasons:
+      prefix_binding_mismatch: "Verlauf umgeschrieben"
+      model_binding_mismatch: "anderes Modell"
+      organization_binding_mismatch: "andere Organisation"
     estimate: "{tokens} Tokens (Schätzung)"
     cleared: "die vorigen Runden bleiben in diesem Protokoll"
     reset: "zurück zum nackten LLM; die vorigen Ereignisse bleiben auf dem Server"

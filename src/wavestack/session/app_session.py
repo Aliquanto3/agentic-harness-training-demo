@@ -64,6 +64,7 @@ from wavestack.context.render import (
     reasoning_wrap,
     render_chat_body,
     render_context,
+    verbatim,
     with_total,
 )
 from wavestack.context.segments import (
@@ -409,6 +410,10 @@ class Exchange(NamedTuple):
     reasoning: str
     steps: tuple[dict[str, Any], ...] = ()
     injection: str = ""
+    # Native providers 3/5: the final answer's reasoning blocks (Anthropic's `thinking`, with
+    # their signature), verbatim, and the entry that produced them, the only one they go to.
+    thinking: tuple[dict[str, Any], ...] = ()
+    thinking_for: str | None = None
 
 
 class _TokenTap:
@@ -450,6 +455,9 @@ class _ModelOutput:
     # `id` of the entry that sent them; only that entry ever gets them back (Gemini 3.x).
     extras: list[dict[str, Any] | None] = field(default_factory=list)
     extra_for: str | None = None
+    # Native providers 3/5: the provider's reasoning blocks (Anthropic's `thinking` and
+    # `redacted_thinking`), verbatim; they go back to `extra_for` only, like `extras`.
+    thinking: list[dict[str, Any]] = field(default_factory=list)
     # Chat mode: the call's `context_reconciled` payload once `usage` came back (AD-4); a
     # provider's refusal: its French message (for a failed delegation, AD-11).
     reconciled: dict[str, Any] | None = None
@@ -840,6 +848,8 @@ class AppSession:
         # running turn's frozen state and stop token, for `delegate`.
         self._subs = 0
         self._turn_ctx: tuple[TurnState, CancelToken] | None = None
+        # Native providers 3/5: the reasoning blocks of the turn's final answer and their entry.
+        self._final_thinking: tuple[tuple[dict[str, Any], ...], str | None] = ((), None)
         # E122 (story 4 of the deferred leftovers): the running prefill's stop token, and
         # the scenario whose prefill waits for its MCP connections to end.
         self._prefill_cancel: _PrefillToken | None = None
@@ -3754,6 +3764,7 @@ class AppSession:
         wrap: tuple[str, str] | None = None,
         cloud_id: str | None = None,
         tags: tuple[str, str] = THINK_TAGS,
+        markers: list[str] | tuple[str, ...] = (),
     ) -> list[dict[str, Any]]:
         """Intermediate messages of a turn: `assistant_turn`/`tool_result` in the turn itself
         (or the step's own `kind`), `history` afterwards, where a step's `stub` replaces its
@@ -3764,7 +3775,9 @@ class AppSession:
         message. `wrap` (lot A, local mode): a past step rendered as it was produced
         (`_as_produced`). A call's `extra` fields (Gemini's thought signature, under
         `extra_content`) go back in chat mode only to the entry they are for: `extra_for`
-        equal to `cloud_id`; they never replace `id`, `type` nor `function`."""
+        equal to `cloud_id`; they never replace `id`, `type` nor `function`. So do a step's
+        reasoning blocks (`thinking_blocks`, native providers 3/5), with `thinking_for`;
+        `markers` say which of their texts can be attributed (`verbatim`)."""
         memory = (SegmentKind.HISTORY, "short_memory", "short_memory.history")
         messages: list[dict[str, Any]] = []
         for i, step in enumerate(steps):
@@ -3816,6 +3829,10 @@ class AppSession:
                     resend=resend,
                     omit_empty=chat,
                     tags=tags,
+                    blocks=step.get("thinking_blocks")
+                    if step.get("thinking_for") == cloud_id
+                    else None,
+                    markers=markers,
                 )
             if step["tool_calls"]:
                 answer["tool_calls"] = []
@@ -3848,10 +3865,15 @@ class AppSession:
         resend: str | None,
         omit_empty: bool,
         tags: tuple[str, str] = THINK_TAGS,
+        blocks: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+        markers: list[str] | tuple[str, ...] = (),
     ) -> dict[str, Any]:
         """An assistant message with its reasoning, attributed like its text (AD-4): locally
         the `reasoning_content` variable, the template deciding whether it keeps it; in chat
-        mode, only with `resend`, in the form of the entry's `format`."""
+        mode, only with `resend`, in the form of the entry's `format`. `thinking_blocks`
+        (native providers 3/5): the provider's own `blocks`, given only when they are for the
+        active entry, verbatim; a block's text is attributed like the reasoning when step 2
+        leaves it whole (`verbatim`), else to `template`, and its signature to `template`."""
         answer: dict[str, Any] = {"role": "assistant"}
         text = [content] if content.text or not omit_empty else []
         thought = content._replace(text=reasoning) if reasoning else None
@@ -3871,6 +3893,13 @@ class AppSession:
             answer["reasoning_content"] = thought
         elif thought is not None and chat and resend == "field":
             answer["reasoning"] = thought
+        if chat and resend == "thinking_blocks" and blocks:
+            answer["thinking_blocks"] = [
+                block | {"thinking": verbatim(content._replace(text=block["thinking"]), markers)}
+                if block.get("type") == "thinking" and block.get("thinking")
+                else dict(block)
+                for block in blocks
+            ]
         return answer
 
     @staticmethod
@@ -3954,6 +3983,7 @@ class AppSession:
         resend = state.resend if chat else None
         cloud_id = self._cloud.id if chat and self._cloud is not None else None
         tags = state.resend_tags
+        markers = self.cfg.cloud_markers if chat else ()
         wrap = None
         if not chat and self._caps is not None and self._caps.chat_template:
             wrap = reasoning_wrap(self._caps.chat_template)  # lot A: None for most templates
@@ -3975,6 +4005,7 @@ class AppSession:
                     wrap=wrap,
                     cloud_id=cloud_id,
                     tags=tags,
+                    markers=markers,
                 )
                 if chat and not ex.text and not (resend and ex.reasoning):
                     # Story 7 of the deferred leftovers (E049): an answer of reasoning only,
@@ -3993,6 +4024,8 @@ class AppSession:
                         resend=resend,
                         omit_empty=False,  # a past answer keeps its `content`, even empty
                         tags=tags,
+                        blocks=ex.thinking if ex.thinking_for == cloud_id else None,
+                        markers=markers,
                     )
                 )
         # Story 15 (AD-4): the RAG's intro and excerpts, each its own part, before the message.
@@ -4014,6 +4047,7 @@ class AppSession:
             resend=resend,
             cloud_id=cloud_id,
             tags=tags,
+            markers=markers,
         )
         return messages
 
@@ -4101,6 +4135,7 @@ class AppSession:
                 resend=resend if chat else None,
                 cloud_id=self._cloud.id if chat and self._cloud is not None else None,
                 tags=tags,
+                markers=self.cfg.cloud_markers if chat else (),
             ),
         ]
 
@@ -5080,7 +5115,8 @@ class AppSession:
         """The assistant step of an output with tool calls: each call with its session id,
         its arguments and their JSON, as emitted in chat mode, else serialized once (AD-4);
         in chat mode, a call's `extra_content` (`extra`) and the entry it goes back to
-        (`extra_for`)."""
+        (`extra_for`), and the output's reasoning blocks (`thinking_blocks`, native providers
+        3/5) with the entry they go back to (`thinking_for`)."""
         calls = []
         for j, (c, call_ref) in enumerate(zip(out.calls, out.ids, strict=True)):
             call: dict[str, Any] = {
@@ -5097,9 +5133,12 @@ class AppSession:
             if extra:
                 call |= {"extra": {"extra_content": extra}, "extra_for": out.extra_for}
             calls.append(call)
-        return {"role": "assistant", "content": out.text, "tool_calls": calls} | (
+        step = {"role": "assistant", "content": out.text, "tool_calls": calls} | (
             {"reasoning": out.reasoning} if out.reasoning else {}
         )
+        if out.thinking:
+            step |= {"thinking_blocks": list(out.thinking), "thinking_for": out.extra_for}
+        return step
 
     @staticmethod
     def _reply_step(
@@ -6281,6 +6320,7 @@ class AppSession:
                 if decided is not None and decided[1].injection:  # computed once for the turn
                     state = replace(state, injection=decided[1].injection)
                 self._turn_ctx = (state, cancel)  # what `delegate` reads (AD-11)
+                self._final_thinking = ((), None)
                 status, text, reasoning = self._turn(turn_id, message, cancel, state, steps)
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._error(
@@ -6306,7 +6346,13 @@ class AppSession:
                     status = "blocked"  # the answer stays out of the history
                 if status == "completed":  # AD-17: recorded even with short memory off
                     exchange = Exchange(
-                        turn_id, message, text, reasoning, tuple(steps), state.injection
+                        turn_id,
+                        message,
+                        text,
+                        reasoning,
+                        tuple(steps),
+                        state.injection,
+                        *self._final_thinking,
                     )
                     with self._lock:
                         self._history.append(exchange)
@@ -6409,6 +6455,8 @@ class AppSession:
             if out.status != "completed":
                 return out.status, "", ""
             if not out.calls and out.malformed is None:
+                # Native providers 3/5: the answer's reasoning blocks join the history.
+                self._final_thinking = (tuple(out.thinking), out.extra_for)
                 return "completed", out.text, out.reasoning
             if isinstance(rendered, RenderedContext):
                 previous = (rendered.ids, out.raw)
@@ -7962,6 +8010,7 @@ class AppSession:
             out.arguments = [c["arguments"] for c in call.calls]
             out.extras = [c.get("extra_content") for c in call.calls]
             out.extra_for = entry.id
+            out.thinking = list(call.thinking_blocks)  # native providers 3/5
         if call.stop_reason == "length":
             journal.emit(
                 "output_truncated",
@@ -8180,11 +8229,12 @@ class AppSession:
     # The sampling settings, their names in `messages.yaml` (`session.llm_lab.sampling`).
     _SAMPLING_NAMES = ("temperature", "top_k", "top_p", "min_p")
 
-    def _sampling_trace(self, sampling: Sampling | None) -> dict[str, Any]:
+    def _sampling_trace(self, sampling: Sampling | None, reasons: bool = False) -> dict[str, Any]:
         """`model_call_started.sampling` (story 29): a local engine always takes the four
         values, the harness's (`harness`) or the screen's (`screen`); a cloud model takes
         only what its entry declares, and only from the screen, else nothing is sent and the
-        provider keeps its own (`provider`)."""
+        provider keeps its own (`provider`). Native providers 3/5: nothing either to Anthropic
+        while the model thinks (`reasons`), which the note says."""
         cloud = self._cloud
         if cloud is None:
             chosen = sampling or DEFAULT_SAMPLING
@@ -8196,11 +8246,18 @@ class AppSession:
                 "source": "screen" if sampling is not None else "harness",
                 "note_text": None,
             }
-        sent = list(cloud.sampling) if sampling is not None else []
+        sent = cloud.sampling_sent(reasons) if sampling is not None else []
         values = {
             name: (getattr(sampling, name) if name in sent else None)
             for name in self._SAMPLING_NAMES
         }
+        if not sent and sampling is not None and cloud.sampling:
+            return values | {
+                "source": "provider",
+                "note_text": self._t(
+                    "session.llm_lab.sampling.with_reasoning", provider=cloud.provider
+                ),
+            }
         if not sent:
             return values | {
                 "source": "provider",
@@ -8556,7 +8613,7 @@ class AppSession:
                 assert engine is not None and caps is not None
                 reasons = reasoning or caps.reasoning_always
                 reserve = output_reserve(reasons)
-                trace = self._sampling_trace(sampling)
+                trace = self._sampling_trace(sampling, reasons)
                 message = [{"role": "user", "content": Part(SegmentKind.USER_MESSAGE, prompt)}]
                 if cloud is None:
                     meta = engine.metadata()

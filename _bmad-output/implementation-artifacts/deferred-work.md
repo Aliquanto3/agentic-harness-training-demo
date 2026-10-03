@@ -824,3 +824,7 @@
 - source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/2-plafond-de-seance-et-prix-de-cache.md`
   summary: Le plafond de séance (`[finops] max_session_usd`) n'est visible qu'au refus : ni la jauge de dépense ni son infobulle ni le diagnostic n'affichent « x $ sur 5 $ » ou ne préviennent à l'approche.
   evidence: Revue de la story 2 (blind-hunter, 2026-10-03). La spec exclut une interface pour régler le plafond, pas pour l'afficher ; amélioration pédagogique (montrer la garde FinOps avant qu'elle ne morde).
+
+- source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/3-anthropic-par-l-api-messages.md`
+  summary: Le rendu de l'événement `reasoning_dropped` dans `app.js` (ligne d'orchestration, résumé du journal, libellé de la raison) n'est couvert par aucun scénario E2E.
+  evidence: Revue de la story 3 (verification-gap, blind-hunter, 2026-10-03). Le faux fournisseur de l'E2E ne parle que Chat Completions ; il faudrait un faux flux Anthropic avec `input_transformations`. `reasoning_cut`, son voisin, est vérifié par `run_e2e.py`.

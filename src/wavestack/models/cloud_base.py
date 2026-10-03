@@ -39,7 +39,14 @@ from wavestack.net.guard import find_blocked
 from wavestack.trace.journal import get_journal
 
 DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
-_CONTEXT_WORDS = ("context length", "context_length", "context window", "maximum context")
+# Anthropic's 400 says « prompt is too long » (native providers 3/5).
+_CONTEXT_WORDS = (
+    "context length",
+    "context_length",
+    "context window",
+    "maximum context",
+    "prompt is too long",
+)
 PROVIDER_MESSAGE_MAX = 500  # characters of the provider's own message shown, then « … »
 
 # The message keys keep their `models.openai_chat.*` names on purpose (native providers 1/5:
@@ -66,7 +73,12 @@ class ChatEnd:
     `model_call_ended.tool_calls` (`run_call`); the next call's body carries it verbatim, and
     so do `context_rendered.body` and `outbound_request.body`, which trace the bytes sent
     (AD-5). A key fragment of 4 characters found inside that base64 signature is a random
-    match, not a leak: the provider never sees the key there, it made the signature."""
+    match, not a leak: the provider never sees the key there, it made the signature.
+
+    Native providers 3/5 (Anthropic): `thinking_blocks`, the `thinking` (text and
+    `signature`) and `redacted_thinking` (`data`) blocks in the order received, verbatim like
+    `extra_content` (masked only in `raw_output`); `dropped`, the provider's
+    `input_transformations` entries (blocks of an earlier turn it threw away, CAP-5)."""
 
     stop_reason: str
     tool_calls: list[dict[str, Any]]
@@ -74,6 +86,8 @@ class ChatEnd:
     raw_output: str
     provider_error: str | None = None
     provider_message: str | None = None
+    thinking_blocks: list[dict[str, Any]] = field(default_factory=list)
+    dropped: list[dict[str, Any]] = field(default_factory=list)
 
 
 class ProviderError(KeyedError):
@@ -104,6 +118,11 @@ class ProviderError(KeyedError):
         self.cost: CallCost | None = None
         # GreenOps: its estimated footprint, likewise.
         self.impact: Impact | None = None
+        # Native providers 3/5: the pivot usage the stream gave before the error (the input
+        # is billed even without output), and the provider's `input_transformations`
+        # entries read by then (CAP-5); set by the adapter, read by `run_call`.
+        self.usage: dict[str, Any] | None = None
+        self.dropped: list[dict[str, Any]] = []
 
     def payload(self, effect_text: str, lang: str = "fr") -> dict[str, Any]:
         """The `harness_error` payload, its texts in `lang` (the session's); `effect_text`
@@ -701,6 +720,37 @@ class ChatCall:
     output_tps: int | None = None
     cost: CallCost | None = None  # FinOps: set when the entry declares its prices
     impact: Impact | None = None  # GreenOps: its footprint, or why it has none
+    # Native providers 3/5: the provider's reasoning blocks, verbatim, for its own entry only.
+    thinking_blocks: list[dict[str, Any]] = field(default_factory=list)
+
+
+# CAP-5: why a provider threw away the reasoning of an earlier turn (`input_transformations`);
+# an unknown type or reason is ignored (Anthropic adds values over time).
+DROP_REASONS = (
+    "prefix_binding_mismatch",
+    "model_binding_mismatch",
+    "organization_binding_mismatch",
+)
+
+
+def reasoning_dropped(
+    dropped: list[dict[str, Any]], provider: str, lang: str = "fr"
+) -> list[dict[str, Any]]:
+    """The `reasoning_dropped` payloads of a call's `input_transformations` (CAP-5): one per
+    `thinking_dropped` entry of a known reason, `message_text` in `lang`."""
+    payloads = []
+    for item in dropped:
+        if not isinstance(item, dict) or item.get("type") != "thinking_dropped":
+            continue
+        reason = item.get("reason")
+        if reason not in DROP_REASONS:
+            continue
+        path = str(item.get("path") or "")
+        text = Message(
+            f"models.openai_chat.reasoning_dropped.{reason}", provider=provider, path=path
+        )
+        payloads.append({"path": path, "reason": reason, "message_text": text.render(lang)})
+    return payloads
 
 
 def _reinjected(text: str, calls: list[dict[str, Any]]) -> str:
@@ -839,8 +889,9 @@ def run_call(
             "usage_source": source,
         }
         pricing = entry.pricing if isinstance(entry, CloudModel) else None
-        # FinOps: a call refused before any output (an HTTP error, the network) is not billed.
-        produced = stop_reason != "error" or first_at is not None
+        # FinOps: a call refused before any output (an HTTP error, the network) is not billed,
+        # unless the provider's usage came before the error (native providers 3/5).
+        produced = stop_reason != "error" or first_at is not None or out.usage is not None
         if pricing is not None and produced:
             cached_read, cached_write = _cached_tokens(usage)
             out.cost = call_cost(
@@ -890,6 +941,11 @@ def run_call(
     except Exception as exc:  # a provider's refusal or anything else: the call still ends
         flush()
         out.text, out.reasoning = "".join(channels["text"]), "".join(channels["reasoning"])
+        if isinstance(exc, ProviderError):  # native providers 3/5: what came before the error
+            out.usage = exc.usage
+            provider = entry.provider if isinstance(entry, CloudModel) else ""
+            for dropped in reasoning_dropped(exc.dropped, provider, lang):
+                journal.emit("reasoning_dropped", dropped)
         ended("error", "")
         if isinstance(exc, ProviderError):
             exc.cost, exc.impact = out.cost, out.impact
@@ -897,6 +953,11 @@ def run_call(
     assert end is not None
     out.text, out.reasoning = "".join(channels["text"]), "".join(channels["reasoning"])
     out.stop_reason, out.usage, out.calls = end.stop_reason, end.usage, end.tool_calls
+    out.thinking_blocks = end.thinking_blocks
+    # CAP-5: the reasoning of an earlier turn the provider threw away, said with its cause.
+    provider = entry.provider if isinstance(entry, CloudModel) else ""
+    for dropped in reasoning_dropped(end.dropped, provider, lang):
+        journal.emit("reasoning_dropped", dropped)
     if end.provider_error is not None:
         detail = (
             Message("models.openai_chat.call.refused_with", said=end.provider_message)

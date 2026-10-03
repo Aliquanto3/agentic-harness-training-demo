@@ -464,6 +464,7 @@ session:
         min_p: min-p
       by_provider: "Réglé par {provider} : WaveStack n'envoie aucun réglage d'échantillonnage."
       not_settable: "{names} non réglables chez {provider}."
+      with_reasoning: "{provider} refuse la température et le top-p quand le modèle raisonne : WaveStack n'envoie aucun réglage d'échantillonnage. Éteignez « Raisonner avant de répondre » pour les régler."
       local: "Envoyés au moteur à chaque génération de l'écran ; l'atelier garde les valeurs du harnais."
       no_api: "{label} non réglable chez {provider} : l'API compatible OpenAI ne le prévoit pas."
       not_declared: "{label} non réglable chez {provider} : le modèle ne le déclare pas (sampling) dans la configuration ; le fournisseur garde sa valeur."
@@ -1186,6 +1187,14 @@ models:
     unreadable_stream: "Réponse illisible : une ligne du flux de {provider} n'est pas au format attendu (SSE)."
     interrupted: "{provider} a interrompu la réponse sur une erreur."
     stopped: "{provider} a arrêté la réponse ({finish})."
+    # Native providers 3/5 (Anthropic): `stop_reason: refusal`, with `stop_details.category` when given.
+    refusal: "{provider} a refusé de répondre (refus de sécurité du modèle)."
+    refusal_category: "{provider} a refusé de répondre (refus de sécurité du modèle, catégorie « {category} »)."
+    # CAP-5: a reasoning block of an earlier turn the provider threw away (`input_transformations`).
+    reasoning_dropped:
+      prefix_binding_mismatch: "{provider} a jeté le raisonnement d'un tour précédent ({path}) : le harnais a réécrit l'historique depuis qu'il a été produit (fenêtre, troncature d'un résultat d'outil, compression, mémoire ou brique changée en séance), et un raisonnement signé ne vaut que pour l'historique exact qui l'a produit. Le modèle continue sans lui."
+      model_binding_mismatch: "{provider} a jeté le raisonnement d'un tour précédent ({path}) : il a été produit par un autre modèle, qui seul peut le relire. Le modèle continue sans lui."
+      organization_binding_mismatch: "{provider} a jeté le raisonnement d'un tour précédent ({path}) : il a été produit sous une autre organisation (une autre clé d'API). Le modèle continue sans lui."
     # Native providers 2/5 (CAP-4): a priced call refused before it is sent, `[finops] max_session_usd`.
     session_cap: "Plafond de dépense de la séance atteint : {total} dépensés pour un plafond de {cap}. L'appel n'est pas parti et ne coûte rien. Pour relever le plafond, modifiez [finops] max_session_usd dans settings.json, WaveStack arrêté, puis relancez-le (le total de la séance ne revient à zéro qu'au relancement)."
     hint:

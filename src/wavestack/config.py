@@ -115,7 +115,8 @@ PUBLIC_HEADERS = frozenset(
 # Recette du 02/10 (R2): the only response headers of an error (`outbound_response`) traced
 # in clear, lower-cased, plus the quota prefixes: the proof of a refusal, nothing else.
 PUBLIC_RESPONSE_HEADERS = frozenset({"content-type", "content-length", "date", "retry-after"})
-PUBLIC_RESPONSE_PREFIXES = ("x-ratelimit-", "ratelimit-")
+# Native providers 3/5: Anthropic's quota headers (`anthropic-ratelimit-*`).
+PUBLIC_RESPONSE_PREFIXES = ("x-ratelimit-", "ratelimit-", "anthropic-ratelimit-")
 
 
 class AuthHeader(_Strict):
@@ -137,9 +138,11 @@ class AuthHeader(_Strict):
 class CloudReasoning(_Strict):
     """What the reasoning brick adds to the body (AD-6). `resend`: the reasoning received goes
     back to the provider in the form of `format` (AD-4). `tags`: the opening and closing tags
-    `think_tags` reads in `content` (Gemini writes `<thought>`)."""
+    `think_tags` reads in `content` (Gemini writes `<thought>`). `thinking_blocks` (native
+    providers 3/5, Anthropic): the provider's own blocks, sent back verbatim, signature
+    included, to the entry that produced them only."""
 
-    format: Literal["field", "content_blocks", "think_tags"]
+    format: Literal["field", "content_blocks", "think_tags", "thinking_blocks"]
     on: dict[str, Any] = {}
     off: dict[str, Any] = {}
     always: bool = False
@@ -212,16 +215,16 @@ class CloudModel(_Strict):
     """One `[[cloud.models]]` entry (AD-20). No key field: `key_env` names an environment
     variable, never holds a value. `min_interval_s`: the least time between two sends to
     this entry (AD-16). `api` (AD-26, CAP-1): the provider API the entry speaks, which picks
-    its engine and the translator of its body; `openai_chat` (Chat Completions) by default,
-    the only one until an adapter widens the list. `extra_headers` (AD-5): fixed, non-secret
-    headers sent after the authentication header; a header traced in clear, `Content-Type`
-    or the authentication header itself is refused."""
+    its engine and the translator of its body; `openai_chat` (Chat Completions) by default, or
+    `anthropic_messages` (Anthropic's Messages API, native providers 3/5). `extra_headers`
+    (AD-5): fixed, non-secret headers sent after the authentication header; a header traced
+    in clear, `Content-Type` or the authentication header itself is refused."""
 
     id: str = Field(pattern=r"^[a-z0-9_]+$")
     provider: str = Field(min_length=1)
     base_url: str
     model: str = Field(min_length=1)
-    api: Literal["openai_chat"] = "openai_chat"
+    api: Literal["openai_chat", "anthropic_messages"] = "openai_chat"
     auth_header: AuthHeader = AuthHeader()
     extra_headers: dict[str, str] = {}
     max_tokens_field: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
@@ -301,6 +304,14 @@ class CloudModel(_Strict):
     def reserve(self) -> int:
         """The reserve with the reasoning brick off (« Tester », the window check)."""
         return self.reserve_for(False)
+
+    def sampling_sent(self, reasoning: bool) -> list[str]:
+        """Story 29: the sampling settings the « LLM nu » screen may send. Native providers
+        3/5: Anthropic refuses `temperature` and `top_p` while the model thinks, so an
+        `anthropic_messages` entry sends none then (brick on, or `always`)."""
+        if self.api == "anthropic_messages" and (reasoning or self.always_reasons):
+            return []
+        return list(self.sampling)
 
     def reasoning_params(self, reasoning: bool) -> dict[str, Any]:
         """AD-6: `on` while the model reasons (brick on, or `always`), else `off`. A field set

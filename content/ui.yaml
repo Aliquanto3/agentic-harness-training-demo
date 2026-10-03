@@ -582,6 +582,7 @@ main:
       common_tokens: "{tokens} tokens communs"
       reasoning_cut: "Raisonnement coupé"
       reasoning_cut_figure: "{tokens} tokens · {reserve} pour la réponse"
+      reasoning_dropped: "Raisonnement jeté par le fournisseur"
     sub:
       title: "Délégation au sous-agent"
       stopped_title: "Délégation arrêtée"
@@ -668,6 +669,7 @@ main:
       context_overflow: "Contexte dépassé"
       output_truncated: "Sortie coupée"
       reasoning_cut: "Raisonnement coupé"
+      reasoning_dropped: "Raisonnement jeté"
       model_call_started: "Appel au modèle commencé"
       model_first_token: "Premier token"
       model_delta: "Morceau de réponse"
@@ -782,6 +784,11 @@ main:
     rerank_first: "premier : {title} (avant : #{before})"
     search_best: "meilleur : {title} ({score})"
     reasoning_cut: "coupé à {tokens} tokens (budget {budget}) · {reserve} pour la réponse"
+    reasoning_dropped: "{reason} · {path}"
+    drop_reasons:
+      prefix_binding_mismatch: "historique réécrit"
+      model_binding_mismatch: "autre modèle"
+      organization_binding_mismatch: "autre organisation"
     estimate: "{tokens} tokens (estimation)"
     cleared: "les tours précédents restent dans ce journal"
     reset: "retour au LLM nu ; les événements précédents restent sur le serveur"

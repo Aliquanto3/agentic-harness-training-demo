@@ -12,10 +12,14 @@ import httpx
 from pydantic import SecretStr
 
 from wavestack.config import CloudModel
+from wavestack.models.anthropic_messages import AnthropicMessagesEngine
 from wavestack.models.cloud_base import CloudEngine
 from wavestack.models.openai_chat import OpenAIChatEngine
 
-ENGINES: dict[str, type[CloudEngine]] = {OpenAIChatEngine.api: OpenAIChatEngine}
+ENGINES: dict[str, type[CloudEngine]] = {
+    OpenAIChatEngine.api: OpenAIChatEngine,
+    AnthropicMessagesEngine.api: AnthropicMessagesEngine,  # native providers 3/5
+}
 
 
 def create_cloud_engine(

@@ -373,6 +373,19 @@ class ReasoningCutPayload(BaseModel):
     message_text: str
 
 
+class ReasoningDroppedPayload(BaseModel):
+    """Native providers 3/5 (CAP-5): the provider threw away a reasoning block of an earlier
+    turn (Anthropic's `input_transformations`, `thinking_dropped`) at `path` of the body
+    sent, for `reason`; `message_text` says why, in the session's language. The call goes on
+    without that reasoning."""
+
+    path: str
+    reason: Literal[
+        "prefix_binding_mismatch", "model_binding_mismatch", "organization_binding_mismatch"
+    ]
+    message_text: str
+
+
 class SamplingTrace(BaseModel):
     """Story 29: the sampling a call sends, each value `None` when it is not sent; `source`:
     the harness's defaults (`harness`), the « LLM nu » screen's (`screen`), or the
@@ -1372,6 +1385,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "context_window_state": ContextWindowStatePayload,
     "output_truncated": OutputTruncatedPayload,
     "reasoning_cut": ReasoningCutPayload,
+    "reasoning_dropped": ReasoningDroppedPayload,
     "model_call_started": ModelCallStartedPayload,
     "model_first_token": ModelFirstTokenPayload,
     "model_delta": ModelDeltaPayload,

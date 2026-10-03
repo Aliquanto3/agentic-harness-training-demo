@@ -762,7 +762,8 @@ NVIDIA et OpenRouter y figurent en exemples commentés, avec leur avertissement.
 
    **Ou par variable d'environnement.** Chaque préréglage nomme une variable (`key_env`) :
    `GROQ_API_KEY` pour Groq, `MISTRAL_API_KEY` pour Mistral, `GEMINI_API_KEY` pour Gemini et
-   Gemma (même clé). Sous Windows, sans droits administrateur :
+   Gemma (même clé), `ANTHROPIC_API_KEY` pour Claude (Haiku et Sonnet, même clé). Sous Windows,
+   sans droits administrateur :
 
    ```bat
    setx GROQ_API_KEY votre-clé
@@ -829,12 +830,33 @@ sur la ligne Gemma, ou posez `GEMINI_API_KEY`, qui sert aux deux préréglages. 
 `{"id": "gemma", "model": "gemma-4-31b-it", "impacts": {"provider": "google_genai", "model":
 "gemma-4-31b-it"}}`.
 
+**Claude (Anthropic, API Messages).** `claude_haiku` (`claude-haiku-4-5`, 200 000 tokens,
+1 $ / 5 $ par million de tokens) et `claude_sonnet` (`claude-sonnet-5`, 1 000 000 tokens,
+2 $ / 10 $) passent par l'API native d'Anthropic (`api = "anthropic_messages"`), pas par une
+couche compatible OpenAI : elle seule renvoie le raisonnement et accepte les outils avec lui.
+Clé : `ANTHROPIC_API_KEY` ou saisie au diagnostic (envoyée dans l'en-tête `x-api-key`).
+Conditions relevées le 2026-10-03 : les données de l'API ne servent pas à l'entraînement sans
+permission expresse et sont supprimées sous 30 jours ; inférence « global » par défaut (ou
+« us »), stockage aux États-Unis, pas de résidence dans l'UE. Brique Raisonnement allumée :
+Haiku raisonne avec un budget de 1 024 tokens, Sonnet en mode adaptatif (il décide s'il
+raisonne), raisonnement résumé ; le résumé s'affiche au canal Raisonnement. Les blocs de
+raisonnement reçus repartent tels quels, signature comprise, au seul modèle qui les a produits.
+WaveStack réécrivant l'historique par conception (fenêtre, troncature, compression, mémoire,
+briques changées), chaque requête demande à Anthropic de jeter un raisonnement devenu invalide
+plutôt que de refuser l'appel ; quand il le fait, le journal le dit (« Raisonnement jeté », avec
+la cause). Seuls les modèles qui font ce contrôle d'historique (Opus 5.5, Fable 5.1, Sonnet 5.5)
+peuvent produire cette ligne : avec les préréglages actifs, Haiku 4.5 et Sonnet 5, elle
+n'apparaît pas. Température et top-p (écran « LLM nu », Haiku seulement) ne partent que
+raisonnement éteint : Anthropic les refuse avec le raisonnement. Le cache de prompt d'Anthropic
+n'est jamais activé. Opus 5.5 figure en commentaire dans `wavestack.toml` (son raisonnement ne
+s'éteint pas).
+
 **Revenir au modèle local.** Choisissez un fichier GGUF dans le sélecteur de la barre haute, ou
 cliquez sur « Choisir » en face d'un fichier sur la page de diagnostic : le modèle local est
 rechargé sans relance, conversation gardée.
 
-**Hôtes à autoriser** sur le réseau de l'entreprise : `api.groq.com`, `api.mistral.ai` et
-`generativelanguage.googleapis.com` (plus l'hôte de tout modèle ajouté dans `settings.json`).
+**Hôtes à autoriser** sur le réseau de l'entreprise : `api.groq.com`, `api.mistral.ai`,
+`generativelanguage.googleapis.com` et `api.anthropic.com` (plus l'hôte de tout modèle ajouté dans `settings.json`).
 
 **Ajouter un modèle.** Les exemples NVIDIA et OpenRouter de `wavestack.toml` sont en TOML :
 recopiez-en les champs, en JSON, dans `settings.json` (dossier de données, WaveStack arrêté). Une

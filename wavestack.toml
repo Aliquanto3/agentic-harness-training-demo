@@ -442,6 +442,111 @@ off = { reasoning_effort = "minimal" }
 always = false
 resend = false
 
+# Fournisseurs natifs 3/5 : Claude d'Anthropic par l'API Messages (api = "anthropic_messages",
+# HTTP brut, sans SDK ; la couche compatible OpenAI d'Anthropic ne renvoie pas la réflexion).
+# Prix relevés sur platform.claude.com/docs/en/about-claude/pricing le 2026-10-03 : cache lu
+# à 0,1 fois l'entrée, écrit (5 minutes) à 1,25 fois ; WaveStack n'active jamais le cache de
+# prompt (pas de cache_control), ces prix ne servent qu'à compter juste si Anthropic en fait.
+# Conditions relevées le 2026-10-03 : les données de l'API ne servent pas à l'entraînement
+# sans permission expresse ; suppression sous 30 jours ; inférence « global » par défaut (ou
+# « us » à 1,1 fois le prix, inference_geo, Claude 4.6 et après seulement), stockage aux
+# États-Unis : pas de résidence dans l'UE.
+# En-têtes fixes : anthropic-version, et la bêta thinking-binding-controls-2026-08-01 qui
+# permet block_binding. WaveStack réécrit l'historique par conception (fenêtre, troncature,
+# compression, mémoire, briques changées) : avec prefix_mismatch_behavior = "drop_block",
+# Anthropic jette la réflexion devenue invalide au lieu de refuser l'appel (400), et le journal
+# le dit (événement reasoning_dropped). Haiku 4.5 et Sonnet 5 ne font pas ce contrôle
+# d'historique (propre à Opus 5.5, Fable 5.1 et Sonnet 5.5, seuls à pouvoir produire cet
+# événement) : l'en-tête leur est envoyé quand même.
+# block_binding n'est déclaré que dans reasoning.on : avec { type = "disabled" }, Anthropic le
+# refuse (400 « thinking.disabled.block_binding: Extra inputs are not permitted », mesuré sur
+# les deux modèles le 2026-10-03), et sans réflexion aucun bloc n'est renvoyé.
+# Réflexion : renvoyée telle quelle, signature comprise (resend, format thinking_blocks), au
+# seul modèle qui l'a produite ; sans elle, une boucle d'outils avec réflexion est refusée.
+# La clé vient de ANTHROPIC_API_KEY ou se saisit au diagnostic (en-tête x-api-key).
+# Haiku 4.5 : réflexion manuelle, budget de 1 024 tokens, sous la réserve de 1 536 (512 restent
+# à la réponse) ; température et top-p réglables au « LLM nu », réflexion éteinte seulement
+# (Anthropic les refuse avec la réflexion).
+[[cloud.models]]
+id = "claude_haiku"
+provider = "Anthropic"
+base_url = "https://api.anthropic.com/v1"
+model = "claude-haiku-4-5"
+api = "anthropic_messages"
+auth_header = { name = "x-api-key", scheme = "" }
+extra_headers = { "anthropic-version" = "2023-06-01", "anthropic-beta" = "thinking-binding-controls-2026-08-01" }
+tools = true
+context = 200000
+hosting_text = "Anthropic, États-Unis (inférence « global » par défaut ; pas de résidence dans l'UE)"
+training = "no"
+notes_text = "Les données envoyées par l'API ne servent pas à l'entraînement sans permission expresse et sont supprimées sous 30 jours (conditions relevées le 2026-10-03). Prix et quotas à lire dans la console Anthropic."
+key_env = "ANTHROPIC_API_KEY"
+sampling = ["temperature", "top_p"]
+pricing = { input_usd_per_mtok = 1.0, output_usd_per_mtok = 5.0, cache_read_usd_per_mtok = 0.10, cache_write_usd_per_mtok = 1.25, checked = "2026-10-03" }
+# GreenOps : EcoLogits 0.11.2 connaît claude-haiku-4-5 chez anthropic.
+impacts = { provider = "anthropic", model = "claude-haiku-4-5" }
+
+[cloud.models.reasoning]
+format = "thinking_blocks"
+on = { thinking = { type = "enabled", budget_tokens = 1024, block_binding = { prefix_mismatch_behavior = "drop_block" } } }
+off = { thinking = { type = "disabled" } }
+always = false
+resend = true
+
+# Sonnet 5 : réflexion adaptative (le modèle décide s'il réfléchit et combien), résumée
+# (display "summarized" : sans elle, le texte de la réflexion arrive vide) ; budget_tokens est
+# refusé (400). Fenêtre native de 1 000 000 tokens au prix standard. Aucun réglage
+# d'échantillonnage (température et top-p refusés par Sonnet 5).
+[[cloud.models]]
+id = "claude_sonnet"
+provider = "Anthropic"
+base_url = "https://api.anthropic.com/v1"
+model = "claude-sonnet-5"
+api = "anthropic_messages"
+auth_header = { name = "x-api-key", scheme = "" }
+extra_headers = { "anthropic-version" = "2023-06-01", "anthropic-beta" = "thinking-binding-controls-2026-08-01" }
+tools = true
+context = 1000000
+hosting_text = "Anthropic, États-Unis (inférence « global » par défaut, ou « us » ; pas de résidence dans l'UE)"
+training = "no"
+notes_text = "Les données envoyées par l'API ne servent pas à l'entraînement sans permission expresse et sont supprimées sous 30 jours (conditions relevées le 2026-10-03). Prix et quotas à lire dans la console Anthropic."
+key_env = "ANTHROPIC_API_KEY"
+pricing = { input_usd_per_mtok = 2.0, output_usd_per_mtok = 10.0, cache_read_usd_per_mtok = 0.20, cache_write_usd_per_mtok = 2.50, checked = "2026-10-03" }
+# GreenOps : EcoLogits 0.11.2 connaît claude-sonnet-5 chez anthropic.
+impacts = { provider = "anthropic", model = "claude-sonnet-5" }
+
+[cloud.models.reasoning]
+format = "thinking_blocks"
+on = { thinking = { type = "adaptive", display = "summarized", block_binding = { prefix_mismatch_behavior = "drop_block" } } }
+off = { thinking = { type = "disabled" } }
+always = false
+resend = true
+
+# Claude Opus 5.5 (non activé : à recopier dans settings.json, enabled = true) : 4 $ / 20 $ par
+# million de tokens, cache lu 0,20 $, écrit 5 $ ; 1 000 000 tokens. Sa réflexion ne s'éteint
+# pas (disabled et budget_tokens refusés, 400) : always = true, l'effort seul la règle
+# (output_config.effort, medium par défaut, low pour l'éteindre au mieux). Il fait le contrôle
+# d'historique de la réflexion conservée : block_binding et l'en-tête bêta y sont nécessaires.
+# impacts : vérifier qu'EcoLogits connaît claude-opus-5-5 (sinon le retirer, ou estimer par
+# un modèle proche avec note_text).
+# {"id": "claude_opus", "provider": "Anthropic", "base_url": "https://api.anthropic.com/v1",
+#  "model": "claude-opus-5-5", "api": "anthropic_messages",
+#  "auth_header": {"name": "x-api-key", "scheme": ""},
+#  "extra_headers": {"anthropic-version": "2023-06-01",
+#    "anthropic-beta": "thinking-binding-controls-2026-08-01"},
+#  "enabled": true, "tools": true, "context": 1000000, "key_env": "ANTHROPIC_API_KEY",
+#  "hosting_text": "Anthropic, États-Unis (inférence « global » par défaut ; pas de résidence dans l'UE)",
+#  "training": "no",
+#  "notes_text": "Les données envoyées par l'API ne servent pas à l'entraînement sans permission expresse et sont supprimées sous 30 jours (conditions relevées le 2026-10-03). Prix et quotas à lire dans la console Anthropic.",
+#  "impacts": {"provider": "anthropic", "model": "claude-opus-5-5"},
+#  "pricing": {"input_usd_per_mtok": 4.0, "output_usd_per_mtok": 20.0,
+#    "cache_read_usd_per_mtok": 0.20, "cache_write_usd_per_mtok": 5.0, "checked": "2026-10-03"},
+#  "reasoning": {"format": "thinking_blocks", "always": true, "resend": true,
+#    "on": {"thinking": {"type": "adaptive", "display": "summarized",
+#      "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
+#      "output_config": {"effort": "medium"}},
+#    "off": {"output_config": {"effort": "low"}}}}
+
 # Exemples à recopier dans settings.json (entrée complète, enabled = true), avec leur
 # avertissement. Leur hôte rejoint alors la liste d'adresses autorisées.
 # Champs facultatifs de toute entrée : key_env (nom d'une variable d'environnement qui

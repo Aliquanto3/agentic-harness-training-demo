@@ -573,6 +573,7 @@ main:
       common_tokens: "{tokens} tokens in common"
       reasoning_cut: "Reasoning cut"
       reasoning_cut_figure: "{tokens} tokens · {reserve} for the answer"
+      reasoning_dropped: "Reasoning thrown away by the provider"
     sub:
       title: "Delegation to the sub-agent"
       stopped_title: "Delegation stopped"
@@ -659,6 +660,7 @@ main:
       context_overflow: "Context exceeded"
       output_truncated: "Output cut"
       reasoning_cut: "Reasoning cut"
+      reasoning_dropped: "Reasoning thrown away"
       model_call_started: "Model call started"
       model_first_token: "First token"
       model_delta: "Answer chunk"
@@ -773,6 +775,11 @@ main:
     rerank_first: "first: {title} (before: #{before})"
     search_best: "best: {title} ({score})"
     reasoning_cut: "cut at {tokens} tokens (budget {budget}) · {reserve} for the answer"
+    reasoning_dropped: "{reason} · {path}"
+    drop_reasons:
+      prefix_binding_mismatch: "history rewritten"
+      model_binding_mismatch: "another model"
+      organization_binding_mismatch: "another organization"
     estimate: "{tokens} tokens (estimate)"
     cleared: "earlier turns stay in this log"
     reset: "back to the Bare LLM; earlier events stay on the server"

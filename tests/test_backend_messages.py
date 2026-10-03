@@ -328,6 +328,7 @@ PERIMETER = (
     "models/gguf_meta.py",
     "models/load_registry.py",
     "models/cloud_api.py",
+    "models/anthropic_messages.py",  # native providers 3/5
     "models/cloud_base.py",
     "models/openai_chat.py",
     "models/probe.py",

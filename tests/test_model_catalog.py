@@ -359,6 +359,7 @@ def test_groups_local_first_publishers_in_order_others_last(tmp_path):
         "Réseau · Gemini (Google)",
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
+        "Réseau · Claude (Anthropic)",
     ]
 
 
@@ -542,6 +543,7 @@ def test_shipped_publishers_file_is_valid():
         "LFM (Liquid AI)",
         "Nemotron (NVIDIA)",
         "gpt-oss (OpenAI)",
+        "Claude (Anthropic)",
         "MiniCPM (OpenBMB)",
         "DeepSeek (DeepSeek AI)",
         "SmolLM (Hugging Face)",
@@ -753,6 +755,7 @@ def test_api_diagnostic_carries_the_models(monkeypatch, tmp_path):
         "Réseau · Gemini (Google)",
         "Réseau · Mistral (Mistral AI)",
         "Réseau · gpt-oss (OpenAI)",
+        "Réseau · Claude (Anthropic)",
     ]
     groq = models["groups"][3]["models"][0]
     assert (groq["value"], groq["reasoning"], groq["params_label"]) == (

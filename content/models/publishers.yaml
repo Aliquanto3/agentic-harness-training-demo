@@ -72,6 +72,10 @@ publishers:
     label_text: gpt-oss (OpenAI)
     architectures: [gpt-oss, gpt_oss]
     names: ['gpt[-_ ]?oss']
+  - id: claude
+    label_text: Claude (Anthropic)
+    architectures: []
+    names: ['claude']
   - id: minicpm
     label_text: MiniCPM (OpenBMB)
     architectures: [minicpm]

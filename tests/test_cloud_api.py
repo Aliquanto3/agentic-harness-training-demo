@@ -165,10 +165,16 @@ def test_openai_chat_bodies_are_byte_for_byte_those_before_the_refactoring():
 
 
 def test_every_entry_of_wavestack_toml_speaks_openai_chat_without_extra_headers():
+    """Except Anthropic's (native providers 3/5), with its two fixed headers."""
     raw = config.load_config().get("cloud", "models", default=[])
     entries = [config.CloudModel.model_validate(item) for item in raw]
     assert {e.id for e in entries} >= set(ENTRIES)
-    assert all(e.api == "openai_chat" and e.extra_headers == {} for e in entries)
+    native = [e for e in entries if e.provider == "Anthropic"]
+    assert {e.id for e in native} == {"claude_haiku", "claude_sonnet"}
+    assert all(e.api == "anthropic_messages" for e in native)
+    assert all(set(e.extra_headers) == {"anthropic-version", "anthropic-beta"} for e in native)
+    others = [e for e in entries if e not in native]
+    assert all(e.api == "openai_chat" and e.extra_headers == {} for e in others)
 
 
 def _declaration(**fields: Any) -> dict[str, Any]:
@@ -186,7 +192,9 @@ def _declaration(**fields: Any) -> dict[str, Any]:
 
 def test_api_accepts_only_an_api_with_an_adapter():
     assert config.CloudModel.model_validate(_declaration()).api == "openai_chat"
-    for api in ("anthropic_messages", "openai_responses", "fake_api"):
+    native = config.CloudModel.model_validate(_declaration(api="anthropic_messages"))
+    assert native.api == "anthropic_messages"  # native providers 3/5
+    for api in ("openai_responses", "fake_api"):
         with pytest.raises(ValidationError):
             config.CloudModel.model_validate(_declaration(api=api))
 

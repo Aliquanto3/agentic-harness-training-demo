@@ -97,8 +97,8 @@ def chat_fields(
     reasons, else `off`). The workshop's bodies stay byte for byte what they were."""
     fields: dict[str, Any] = {"model": entry.model, "stream": True}
     fields[entry.max_tokens_field] = max_tokens
-    if sampling is not None:
-        for name in entry.sampling:
+    if sampling is not None:  # native providers 3/5: none to Anthropic while it thinks
+        for name in entry.sampling_sent(reasoning):
             fields[name] = getattr(sampling, name)
     if entry.stream_usage:
         fields["stream_options"] = {"include_usage": True}
