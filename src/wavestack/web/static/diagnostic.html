@@ -39,6 +39,12 @@
     .diagnostic-list > li.fail, .diagnostic-list > li.incompatible { background: var(--color-danger-soft); }
     .diagnostic-list > li.found, .diagnostic-list > li.server { background: var(--color-accent-soft); }
     .diagnostic-list > li.server.warn { background: var(--color-warning-soft); }
+    /* R1 (recette du 02/10): the wait for /api/diagnostic, until each list's first rendering. */
+    .diagnostic-list > li.loading-note {
+      color: var(--color-ink-soft);
+      border-style: dashed;
+      border-color: var(--color-ink-soft);
+    }
     .served, .action {
       margin-top: var(--spacing-1);
       color: var(--color-ink-soft);
@@ -170,7 +176,8 @@
 
     <section class="diagnostic-section" aria-labelledby="checks-title">
       <h2 id="checks-title" data-i18n="diagnostic.checks_title">Contrôles</h2>
-      <ul id="checks" class="diagnostic-list"></ul>
+      <!-- Recette du 02/10 (R1): until each list's first rendering, what the page waits for. -->
+      <ul id="checks" class="diagnostic-list"><li class="loading-note" data-i18n="diagnostic.loading">Diagnostic en cours…</li></ul>
     </section>
 
     <section class="diagnostic-section" aria-labelledby="candidates-title">
@@ -182,7 +189,7 @@
         <p id="candidates-progress-text" class="search-count" hidden></p>
         <progress id="candidates-progress" class="search-bar" max="1" value="0" aria-labelledby="candidates-progress-text" hidden></progress>
       </div>
-      <ul id="candidates" class="diagnostic-list"></ul>
+      <ul id="candidates" class="diagnostic-list"><li class="loading-note" data-i18n="diagnostic.loading">Diagnostic en cours…</li></ul>
       <div id="select-model">
         <p id="model-path-label" data-i18n="diagnostic.path_label">Ou indiquez le chemin d'un fichier GGUF :</p>
         <div class="path-row">
@@ -196,7 +203,7 @@
     <section class="diagnostic-section" aria-labelledby="cloud-title">
       <h2 id="cloud-title" data-i18n="diagnostic.cloud_title">Modèles cloud</h2>
       <p class="diagnostic-help" data-i18n="diagnostic.cloud_help">Hors du poste : chaque appel envoie tout le contexte au fournisseur.</p>
-      <ul id="cloud-models" class="diagnostic-list"></ul>
+      <ul id="cloud-models" class="diagnostic-list"><li class="loading-note" data-i18n="diagnostic.loading">Diagnostic en cours…</li></ul>
     </section>
   </main>
 
@@ -296,6 +303,12 @@
       while (container.children.length > rows.length) container.lastElementChild.remove();
     }
 
+    // R1: « Diagnostic en cours… » leaves the checks at their first line from the stream;
+    // `patchList` replaces it in the two other lists at their first rendering.
+    function dropLoadingNote() {
+      checksEl.querySelector(":scope > .loading-note")?.remove();
+    }
+
     // `live`: false for the journal's history, replayed by the stream when the page opens;
     // /api/diagnostic already says what it led to (the lists, each model's last test).
     function renderCheck(payload, live) {
@@ -310,6 +323,7 @@
       if (!li) {
         li = document.createElement("li");
         items.set(key, li);
+        dropLoadingNote();
         checksEl.appendChild(li);
       }
       li.className = payload.status;
@@ -321,6 +335,7 @@
       const li = document.createElement("li");
       li.className = "fail";
       fillLine(li, t("diagnostic.error"), payload.message_text, payload.cause);
+      dropLoadingNote();
       checksEl.appendChild(li);
     }
 

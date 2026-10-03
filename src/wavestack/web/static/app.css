@@ -751,6 +751,85 @@ body.is-resizing-y * {
   border: 1px solid var(--color-line);
 }
 
+/* Recette du 02/10: the answer rendered from its Markdown (markdown.js). Its own line
+   breaks are `<br>`, so normal white space; a code block keeps its spaces and scrolls. */
+.bubble-text.is-markdown {
+  white-space: normal;
+}
+
+.bubble-text.is-markdown > :first-child {
+  margin-top: 0;
+}
+
+.bubble-text.is-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.bubble-text.is-markdown p {
+  margin: 0 0 var(--spacing-2);
+}
+
+.bubble-text.is-markdown ul,
+.bubble-text.is-markdown ol {
+  margin: 0 0 var(--spacing-2);
+  padding-left: var(--spacing-5);
+}
+
+.bubble-text.is-markdown li > ul,
+.bubble-text.is-markdown li > ol {
+  margin-bottom: 0;
+}
+
+.bubble-text.is-markdown h3,
+.bubble-text.is-markdown h4,
+.bubble-text.is-markdown h5,
+.bubble-text.is-markdown h6 {
+  margin: var(--spacing-3) 0 var(--spacing-1);
+  font-family: var(--typography-heading-font-family);
+  font-weight: var(--typography-heading-font-weight);
+  line-height: var(--typography-heading-line-height);
+}
+
+.bubble-text.is-markdown h3 {
+  font-size: var(--typography-heading-font-size);
+}
+
+.bubble-text.is-markdown h4,
+.bubble-text.is-markdown h5,
+.bubble-text.is-markdown h6 {
+  font-size: inherit;
+}
+
+.bubble-text.is-markdown code {
+  padding: 0 var(--spacing-1);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-code-font-weight) var(--typography-code-font-size) /
+    var(--typography-code-line-height) var(--typography-code-font-family);
+}
+
+.bubble-text.is-markdown pre {
+  margin: 0 0 var(--spacing-2);
+  padding: var(--spacing-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.bubble-text.is-markdown pre code {
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.bubble-text.is-markdown a {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
 /* DESIGN.md reasoning-block: folded on cream, body-sm, ink-soft. */
 .reasoning-block {
   margin: 0 0 var(--spacing-1);
@@ -807,6 +886,28 @@ body.is-resizing-y * {
 .bubble-note.is-error {
   color: var(--color-danger);
   font-weight: 600;
+}
+
+/* D5 of 2026-10-01: the tools the turn consulted, each name a link to its step. */
+.answer-tools {
+  margin: var(--spacing-1) 0 0;
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink-soft);
+}
+
+.answer-tool {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.answer-tool:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .sr-only {
@@ -2153,6 +2254,14 @@ body.focus-mode .top-row {
   flex-direction: column;
 }
 
+/* Recette du 02/10: in a column, `.right` would keep its content's height (Orchestration
+   unfolded) and push the page past `100vh`, the bottom bar with it. Only when the focused
+   pane is in it: with Briques focused, `.right` (flex-basis 0) would shrink to nothing and
+   its collapsed headers would overflow the page instead. */
+body.focus-mode .right:has(> .pane.is-focused, > .top-row > .pane.is-focused) {
+  min-height: 0;
+}
+
 body.focus-mode .pane:not(.is-hidden) {
   flex: 0 0 auto;
 }
@@ -2459,6 +2568,20 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   font-style: italic;
 }
 
+/* AD-9 (E089): an MCP server's live tools drift from its snapshot. */
+.brick-drift {
+  margin: 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  font-size: var(--typography-body-sm-font-size);
+  color: var(--color-ink);
+  background: var(--color-warning-soft);
+  border-left: 3px solid var(--color-warning);
+}
+
+.brick-drift::before {
+  content: "⚠ ";
+}
+
 .brick-limits {
   margin: 0;
   font-size: var(--typography-body-sm-font-size);
@@ -2522,6 +2645,23 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   min-width: 0;
 }
 
+/* D3 of 2026-10-01: the forced actions' switch in its own titled section, a dashed ink frame
+   that no brick card has, so it is not taken for one more brick. */
+.force-section {
+  padding: var(--spacing-1) var(--spacing-2);
+  border: 1px dashed var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+}
+
+.force-section-title {
+  margin: 0;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .force-toggle {
   display: flex;
   align-items: center;
@@ -2529,6 +2669,11 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   min-height: var(--spacing-hit-target-min);
   font-size: var(--typography-body-sm-font-size);
   cursor: pointer;
+}
+
+.force-toggle-icon {
+  font-size: var(--typography-body-font-size);
+  line-height: 1;
 }
 
 /* DESIGN.md force-button: ink outline, hand icon, as the « Forcé par l'utilisateur » badge. */

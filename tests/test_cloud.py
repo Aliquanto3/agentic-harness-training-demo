@@ -18,6 +18,7 @@ from starlette.testclient import TestClient
 
 from wavestack import config
 from wavestack.context.render import distribute
+from wavestack.messages import msg
 from wavestack.models import discovery
 from wavestack.models.openai_chat import OpenAIChatEngine, _quota_scope
 from wavestack.session.app_session import AppSession
@@ -869,6 +870,89 @@ def test_unknown_quota_names_the_three_scopes():
     assert not any("min_interval_s" in hint for hint in harness["hints_text"])
 
 
+# D6 (2026-10-01): Mistral's answer to a workspace without any active quota (probe of
+# 2026-09-26 on the target PC).
+_NO_QUOTA_BODY = {"message": "Rate limit exceeded", "type": "rate_limited", "code": "1300"}
+_NO_QUOTA_HEADERS = {
+    "x-ratelimit-limit-req-minute": "0",
+    "x-ratelimit-remaining-req-minute": "0",
+    "retry-after": "60",
+}
+
+
+def test_a_429_without_any_quota_says_so_and_asks_no_wait():
+    provider = Provider(httpx.Response(429, json=_NO_QUOTA_BODY, headers=_NO_QUOTA_HEADERS))
+    session = _cloud_session("mistral", provider)
+
+    harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
+
+    assert harness["message_text"].startswith(
+        "Mistral AI refuse l'appel. Aucun quota actif sur ce compte : vérifiez le plan dans la "
+        "console du fournisseur."
+    )
+    assert harness["message_text"].endswith("Message du fournisseur : Rate limit exceeded")
+    hints = " ".join(harness["hints_text"])
+    assert "Attendez" not in hints and "min_interval_s" not in hints  # neither wait nor spacing
+    assert "Revenez au modèle local" in hints
+    assert harness["http_status"] == 429
+    assert harness["retry_after_s"] is None and harness["quota_scope"] is None
+    assert len(provider.requests) == 1  # never retried
+
+
+def test_a_refusal_leaves_its_status_and_quota_headers_in_the_journal():
+    """Recette du 02/10 (R2): `outbound_request`, then `outbound_response` (429, the quota
+    headers in clear, the request id masked), then the call ended in error; D6 unchanged."""
+    headers = {**_NO_QUOTA_HEADERS, "x-request-id": "abc"}
+    provider = Provider(httpx.Response(429, json=_NO_QUOTA_BODY, headers=headers))
+    session = _cloud_session("mistral", provider)
+
+    events = _turn(session, "Bonjour")
+    kinds = [e.kind for e in events]
+
+    assert (
+        kinds.index("outbound_request")
+        < kinds.index("outbound_response")
+        < kinds.index("model_call_ended")
+        < kinds.index("harness_error")
+    )
+    (response,) = _of(events, "outbound_response")
+    assert response.payload["status"] == 429
+    assert response.payload["origin"] == "model"
+    assert response.payload["method"] == "POST"
+    assert response.payload["url"].endswith("/chat/completions")
+    traced = {h["name"]: (h["value"], h["masked"]) for h in response.payload["headers"]}
+    assert traced["x-ratelimit-limit-req-minute"] == ("0", False)
+    assert traced["x-ratelimit-remaining-req-minute"] == ("0", False)
+    assert traced["retry-after"] == ("60", False)
+    assert traced["x-request-id"] == ("[masqué]", True)
+    assert _of(events, "model_call_ended")[0].payload["stop_reason"] == "error"
+    harness = _of(events, "harness_error")[0].payload
+    assert "Aucun quota actif sur ce compte" in harness["message_text"]  # D6 unchanged
+    _no_sentinel(response.model_dump_json())
+
+
+def test_a_429_with_a_quota_keeps_the_quota_message():
+    headers = {**_NO_QUOTA_HEADERS, "x-ratelimit-limit-req-minute": "60"}
+    answer = httpx.Response(429, json=_NO_QUOTA_BODY, headers=headers)
+    session = _cloud_session("mistral", Provider(answer))
+
+    harness = _of(_turn(session, "Bonjour"), "harness_error")[0].payload
+
+    assert "aucun quota actif" not in harness["message_text"]
+    assert "quota dépassé" in harness["message_text"] and harness["retry_after_s"] == 60
+
+
+@pytest.mark.parametrize(
+    ("lang", "said"),
+    [
+        ("en", "No active quota on this account: check the plan in the provider's console"),
+        ("de", "Kein aktives Kontingent auf diesem Konto: Prüfen Sie den Tarif in der Konsole"),
+    ],
+)
+def test_a_429_without_any_quota_in_english_and_german(lang, said):
+    assert said in msg("models.openai_chat.no_quota", lang, provider="Mistral")
+
+
 # ---------- story 11b: spacing of the sends (min_interval_s) ----------
 
 
@@ -1361,6 +1445,57 @@ def test_calls_without_index_keep_their_arrival_order():
     engine.close()
 
 
+def _tool_calls_of(*fragments: dict) -> list[dict]:
+    """The calls `openai_chat` reads from one streamed answer, a fragment per chunk."""
+    from wavestack.models.engine import CancelToken
+    from wavestack.models.openai_chat import ChatBody, ChatEnd
+
+    stream = sse(*(delta(tool_calls=[f]) for f in fragments), delta("tool_calls"))
+    entry = config.load_config().cloud_model("groq")
+    engine = Provider(stream).factory(entry, SecretStr(SENTINEL))
+    end = list(engine.complete(ChatBody(b"{}"), CancelToken()))[-1]
+    engine.close()
+    assert isinstance(end, ChatEnd)
+    return end.tool_calls
+
+
+def test_two_parallel_calls_under_one_index_stay_two_calls():
+    """E048: a provider that sends two calls under the same `index` (or none), each with its
+    own `id`: two calls, never one with the names glued together."""
+    first = {"index": 0, "id": "call_a", "function": {"name": "get_datetime", "arguments": "{}"}}
+    second = {"index": 0, "id": "call_b", "function": {"name": "calculator", "arguments": ""}}
+    rest = {"index": 0, "function": {"arguments": '{"expression": "2+2"}'}}
+
+    calls = _tool_calls_of(first, second, rest)
+
+    assert [(c["provider_id"], c["name"]) for c in calls] == [
+        ("call_a", "get_datetime"),
+        ("call_b", "calculator"),
+    ]
+    assert [c["arguments"] for c in calls] == ["{}", '{"expression": "2+2"}']
+    no_index = [{k: v for k, v in f.items() if k != "index"} for f in (first, second)]
+    assert [c["name"] for c in _tool_calls_of(*no_index)] == ["get_datetime", "calculator"]
+
+
+def test_fragments_of_one_call_stay_one_call():
+    """E048: the fragments that follow a call's first one (same `index`, no `id`, the same
+    `id` again, or a fresh `id` without a name) extend it: one call, its arguments put
+    together."""
+    head = {"index": 0, "id": "call_a", "function": {"name": "calculator", "arguments": '{"ex'}}
+    tail = {"index": 0, "function": {"arguments": 'pression": '}}
+    again = {"index": 0, "id": "call_a", "function": {"arguments": '"1'}}
+    fresh = {"index": 0, "id": "delta_3", "function": {"arguments": '+1"}'}}
+    other = {"index": 1, "id": "call_b", "function": {"name": "get_datetime", "arguments": "{}"}}
+
+    calls = _tool_calls_of(head, tail, again, fresh, other)
+
+    assert [(c["name"], c["arguments"]) for c in calls] == [
+        ("calculator", '{"expression": "1+1"}'),
+        ("get_datetime", "{}"),
+    ]
+    assert calls[1]["provider_id"] == "call_b"
+
+
 def test_a_sub_agent_on_gemini_replays_its_own_signature():
     """The sub-agent's context (`_sub_messages`) sends its call back signed, as the main one."""
     provider = GeminiProvider(
@@ -1623,3 +1758,21 @@ def test_a_priced_call_cut_by_an_error_after_its_output_is_billed_to_the_turn():
     assert turn_ended["status"] == "error" and turn_ended["cost_source"] == "estimate"
     assert turn_ended["cost_in_usd"] == ended["cost_in_usd"]
     assert turn_ended["cost_out_usd"] == ended["cost_out_usd"]
+
+
+# ---------- story 4 of the deferred leftovers (E122): no prefill in chat mode ----------
+
+
+def test_a_scenario_launched_in_chat_mode_prefills_nothing():
+    """Nothing can be evaluated ahead at a provider: the launch renders its preview and
+    emits no `context_prefill_*`."""
+    session = _cloud_session("groq", Provider(GROQ_TEXT))
+    mark = get_journal().last_seq()
+
+    session.launch_scenario("system_prompt")
+    session.join()
+
+    kinds = [e.kind for e in get_journal().events_since(mark)]
+    assert "context_prefill_started" not in kinds and "context_prefill_ended" not in kinds
+    assert "context_preview" in kinds
+    session.close()

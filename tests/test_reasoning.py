@@ -376,9 +376,15 @@ def test_a_past_answer_of_reasoning_only_sends_no_empty_text_block():
     session.close()
 
 
+def _without_resend(model_id: str) -> config.CloudModel:
+    entry = _preset(model_id)
+    reasoning = entry.reasoning.model_copy(update={"resend": False})
+    return entry.model_copy(update={"reasoning": reasoning})
+
+
 def test_without_resend_the_reasoning_never_goes_back():
     provider = Provider(TOOL_WITH_BLOCKS, TEXT_WITH_BLOCKS, TEXT)
-    session = _cloud(_preset("mistral"), provider, "tools", "short_memory", "reasoning")
+    session = _cloud(_without_resend("mistral"), provider, "tools", "short_memory", "reasoning")
 
     _run(session, "Quelle heure est-il ?")
     _run(session, "Merci")
@@ -387,6 +393,52 @@ def test_without_resend_the_reasoning_never_goes_back():
         text = request.content.decode("utf-8")
         assert "Il faut l'heure." not in text and "Lire l'outil." not in text
         assert "thinking" not in text
+    session.close()
+
+
+# ---------- story 7 of the deferred leftovers (E049, E055, E057) ----------
+
+
+def test_the_mistral_preset_sends_its_reasoning_back():
+    """E055: Mistral accepts its `thinking` blocks sent back, and loops on the same tool
+    without them (measured on the target PC, 2026-10-03)."""
+    reasoning = _preset("mistral").reasoning
+    assert reasoning.format == "content_blocks" and reasoning.resend is True
+
+
+def test_past_reasoning_goes_back_only_while_the_brick_is_effective():
+    """E057: the format is frozen at the turn's start, and only with the reasoning brick
+    effective; turned off, the next turn sends the past answer's text alone."""
+    provider = Provider(TEXT_WITH_BLOCKS, TEXT)
+    session = _cloud(_preset("mistral"), provider, "short_memory", "reasoning")
+    assert session.build_turn_state().resend == "content_blocks"
+
+    _run(session, "Quelle heure est-il ?")
+    session.set_brick("reasoning", False)
+    session.join()
+    assert session.build_turn_state().resend is None
+    _run(session, "Merci")
+
+    text = provider.requests[1].content.decode("utf-8")
+    assert "Lire l'outil." not in text and "thinking" not in text
+    assert _assistant(_bodies(provider)[1])[-1]["content"] == "Il est 9 h."
+    session.close()
+
+
+def test_a_past_answer_of_reasoning_only_without_resend_is_left_out():
+    """E049: in chat mode, a past answer of reasoning only, its reasoning not sent back, is
+    no assistant message (Mistral answers 400 to one with neither content nor calls); the
+    user's message stays."""
+    provider = Provider(sse(_thinking("Rien à dire."), _usage()), TEXT)
+    session = _cloud(_without_resend("mistral"), provider, "short_memory", "reasoning")
+
+    _run(session, "Bonjour")
+    _run(session, "Encore")
+
+    body = _bodies(provider)[1]
+    assert _assistant(body) == []
+    users = [m for m in body["messages"] if m["role"] == "user"]
+    assert [str(m["content"]) for m in users] == ["Bonjour", "Encore"]
     session.close()
 
 

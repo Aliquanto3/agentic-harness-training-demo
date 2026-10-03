@@ -249,6 +249,46 @@ def test_h2_write_failure_is_traced_and_the_turn_goes_on():
     session.close()
 
 
+def test_h2_takes_back_the_lines_of_a_failed_write_at_its_next_trigger(monkeypatch, tmp_path):
+    """Restes différés, story 1 (E025): the `after_tool` write fails once, the `on_turn_end`
+    one writes its lines and the lost ones, without a gap or a duplicate."""
+    folder = tmp_path / "audit-folder"
+    folder.mkdir()  # a folder in the log's place: the append fails
+    real_apply, real_path, failures = AppSession._apply_audit, config.audit_path, []
+
+    def apply_failing_once(self, lines):
+        if failures:
+            return real_apply(self, lines)
+        failures.append(lines)
+        monkeypatch.setattr(config, "audit_path", lambda: folder)
+        try:
+            return real_apply(self, lines)
+        finally:
+            monkeypatch.setattr(config, "audit_path", real_path)
+
+    monkeypatch.setattr(AppSession, "_apply_audit", apply_failing_once)
+    _, session = hooks_session([call("calculator", expression="2+2"), "Cela fait 4."])
+    mark = get_journal().last_seq()
+
+    events = _run(session, "Combien font 2 + 2 ?")
+
+    assert [p for h, p, _ in decisions(events) if h == "h2"] == ["after_tool", "on_turn_end"]
+    (error,) = [e.payload for e in since(mark, "harness_error")]
+    assert "journal d'audit" in error["message_text"]
+    lines = audit_lines()
+    assert [line.split(" | ")[2] for line in lines] == [
+        "appel au modèle",
+        "appel d'outil",
+        "appel au modèle",
+        "fin du tour",
+    ]
+    assert lines[:2] == failures[0]  # the lines lost at `after_tool`, written once
+    (applied,) = since(mark, "effect_applied")
+    assert applied.payload["lines"] == lines
+    assert events["turn_ended"][0]["status"] == "completed"
+    session.close()
+
+
 def test_audit_endpoint_reads_the_whole_log():
     _, session = hooks_session(tools=False)
     client = _client(session)
@@ -691,6 +731,37 @@ def test_h5_host_outside_the_list_is_left_to_the_executor(web):  # noqa: F811
     assert events["tool_ended"][0]["status"] == "error"
     assert "Adresse refusée" in events["tool_ended"][0]["error_text"]
     check(events, mark)
+    session.close()
+
+
+def test_h5_previews_and_sends_the_arguments_a_hook_modified_before_it(web):  # noqa: F811
+    """Restes différés, story 1 (E027): a `before_tool` hook placed before H5 changes the
+    arguments; the human approves what leaves, and what leaves is what was approved."""
+    sent = web(lambda r: httpx.Response(200, json=HOLIDAYS))
+    modified = {"year": 2027}
+    hooks = fake_hooks("h1", "before_tool", "modify", arguments=modified)
+    _, session = hooks_session(
+        [call("public_holidays", year="2026"), "Le 1er janvier."], hooks=hooks
+    )
+    session.set_tool("public_holidays", True)
+    session.set_hook("h5", True)
+    session.join()
+
+    events = run_asked(session, "Jours fériés 2026 ?", answer(session, True))
+
+    assert [d for d in decisions(events) if d[1] == "before_tool"] == [
+        ("h1", "before_tool", "modify"),
+        ("h5", "before_tool", "ask_human"),
+    ]
+    spec = session._registry.get("public_holidays")
+    preview = spec.preview(**modified)
+    assert preview != spec.preview(year=2026)
+    (asked,) = events["approval_requested"]
+    assert asked["preview"] == preview
+    (outbound,) = events["outbound_request"]
+    assert {k: outbound[k] for k in ("method", "url", "body")} == preview
+    assert [str(r.url) for r in sent] == [preview["url"]]
+    assert events["tool_started"][0]["arguments"] == modified
     session.close()
 
 

@@ -58,6 +58,11 @@ from wavestack.web.app import create_app  # noqa: E402
 VERSION = "0.1.0"
 BROWSER_DELAY_S = 1.0  # the page opens 1 s after the start at the earliest
 LAUNCH_WAIT_S = 30.0  # past this, the diagnostic page opens while the checks go on
+# Story 7 of the deferred leftovers (E077): an open page keeps its SSE stream, which uvicorn
+# would wait for forever at Ctrl+C; past this delay the streams are cancelled and the
+# lifespan still closes the engines (a second Ctrl+C would skip it, an Ollama model staying
+# loaded).
+SHUTDOWN_GRACE_S = 2.0
 # Languages (5/5): the terminal speaks English, whatever the session's language; never
 # read from settings.json.
 TERMINAL_LANGUAGE = "en"
@@ -245,7 +250,13 @@ def main(argv: list[str] | None = None) -> int:
         daemon=True,
     ).start()
 
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=args.port,
+        log_level="warning",
+        timeout_graceful_shutdown=SHUTDOWN_GRACE_S,
+    )
     return 0
 
 

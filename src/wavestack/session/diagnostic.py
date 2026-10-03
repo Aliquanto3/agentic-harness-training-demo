@@ -44,7 +44,7 @@ from wavestack.config import mo_fr as _mo
 from wavestack.context.render import render_chat_body
 from wavestack.context.segments import Part, SegmentKind
 from wavestack.messages import KeyedError, Lazy, Message, Said, msg, render
-from wavestack.models import discovery, probe
+from wavestack.models import catalog, discovery, probe
 from wavestack.models.engine import CancelToken
 from wavestack.models.load_registry import ModelChoice
 from wavestack.models.openai_chat import ChatBody, OpenAIChatEngine, ProviderError, run_call
@@ -432,8 +432,12 @@ class DiagnosticSession:
         Story 3 (corrections): with `report_progress` (the launch search only), one
         `diagnostic_progress{done: 0, total}` once the cache has been read (`total` = the
         probes actually needed), then one after each probe. Several Ollama tags sharing one
-        blob are probed once; the others take its outcome."""
+        blob are probed once; the others take its outcome. R1: their headers are read for
+        the model table in the background (`catalog.warm_headers`)."""
         candidates = discovery.discover(explicit_path)
+        # R1: the model table's headers read now, beside the probes, not by the first
+        # `/api/diagnostic` after the search.
+        catalog.warm_headers(candidates)
         to_probe: list[discovery.ModelCandidate] = []
         siblings: dict[str, list[discovery.ModelCandidate]] = {}
         for candidate in candidates:

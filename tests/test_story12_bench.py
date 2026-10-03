@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import dataclasses
 import importlib.util
+import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -75,6 +78,14 @@ def test_ranks_recall_and_mrr(bench):
         ("GNU General Public License v3 (GPLv3)", "forbidden"),
         ("AGPL-3.0-only", "forbidden"),
         ("Business Source License 1.1", "forbidden"),
+        ("BUSL-1.1", "forbidden"),
+        ("BSL 1.1", "forbidden"),
+        ("BSL-1.0", "ok"),  # SPDX: the Boost licence
+        (
+            "Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause"
+            " AND BSL-1.0 AND MIT",
+            "ok",
+        ),  # torch 2.14, read on the target PC (V2 S6 bench, 2026-10-03)
         ("gemma", "forbidden"),
         ("LGPL-3.0-or-later", "unknown"),
         ("?", "unknown"),
@@ -513,3 +524,29 @@ def test_embed_only_with_an_unknown_or_removed_id_stops_and_says_why(bench, tmp_
     assert "granite107m_q8" in out and "Verdict" not in out
     assert bench.main(["embed", "--models-dir", str(tmp_path), "--only", "nimporte"]) == 2
     assert "Candidat inconnu : nimporte" in capsys.readouterr().out
+
+
+# -- story 1e: the download hands the confiscated proxy back ---------------
+
+
+@pytest.mark.parametrize(
+    ("strip_proxy", "expected"), [(False, "http://127.0.0.1:9000"), (True, None)]
+)
+def test_record_and_guard_hands_the_proxy_back_for_downloads_only(strip_proxy, expected):
+    """The real `_record_and_guard`, in a child process (its guard cannot be uninstalled)."""
+    child = (
+        "import importlib.util, json, sys, urllib.request\n"
+        f"spec = importlib.util.spec_from_file_location('story12_bench', {str(_PATH)!r})\n"
+        "bench = importlib.util.module_from_spec(spec)\n"
+        "sys.modules['story12_bench'] = bench\n"
+        "spec.loader.exec_module(bench)\n"
+        f"bench._record_and_guard(allowed_hosts=[], strip_proxy={strip_proxy})\n"
+        "print(json.dumps(urllib.request.getproxies().get('https')))\n"
+    )
+    env = {k: v for k, v in os.environ.items() if not k.lower().endswith("_proxy")}
+    env["HTTPS_PROXY"] = "http://127.0.0.1:9000"
+    result = subprocess.run(
+        [sys.executable, "-c", child], capture_output=True, text=True, env=env, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == expected

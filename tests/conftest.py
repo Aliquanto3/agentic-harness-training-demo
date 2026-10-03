@@ -8,20 +8,22 @@ import pytest
 
 from wavestack.net.guard import install
 
-_PROXY_VARS = ("http_proxy", "https_proxy", "all_proxy", "no_proxy")
+# This machine's proxy is removed as soon as conftest loads, before any test module is
+# collected: importing `wavestack.cli` installs the guard, whose first `install` copies
+# the proxy once and for all (story 1e). The guard's copy (`office_proxies`) thus stays
+# empty whatever the development machine, and the suite runs the same with or without
+# `HTTPS_PROXY`. The confiscation itself is covered by dedicated tests
+# (`test_net_guard.py`, `test_net_factory.py`).
+for _name in [n for n in os.environ if n.lower().endswith("_proxy")]:
+    del os.environ[_name]
+for _lookup in ("getproxies_registry", "getproxies_macosx_sysconf"):  # the system's proxy
+    if hasattr(urllib.request, _lookup):
+        setattr(urllib.request, _lookup, lambda: {})
 
 
 @pytest.fixture(autouse=True, scope="session")
 def _network_guard() -> None:
-    """AD-15: pytest installs the same guard, restricted to loopback only.
-
-    This machine's proxy is ignored: a loopback proxy would be accepted by the
-    guard and would carry any destination past it (story 1e).
-    """
-    for name in list(os.environ):
-        if name.lower() in _PROXY_VARS:
-            del os.environ[name]
-    urllib.request.getproxies_registry = lambda: {}
+    """AD-15: pytest installs the same guard, restricted to loopback only."""
     install(allowed_hosts=[])
 
 
@@ -107,6 +109,22 @@ def _windows_file_rules_opt_in(request):
     """Lot G: `WAVESTACK_TEST_WINDOWS_FILES=1` puts every test under `windows_file_rules`."""
     if os.environ.get("WAVESTACK_TEST_WINDOWS_FILES") == "1":
         request.getfixturevalue("windows_file_rules")
+
+
+@pytest.fixture(autouse=True)
+def _joined_header_warm_up(monkeypatch):
+    """R1: the search's warm-up of the model table headers ends inside the test that started
+    it: no thread left reading a temporary file during another test."""
+    from wavestack.models import catalog  # here: after the proxy is removed (above)
+
+    real = catalog.warm_headers
+
+    def joined(candidates):  # noqa: ANN001, ANN202
+        thread = real(candidates)
+        thread.join(timeout=30)
+        return thread
+
+    monkeypatch.setattr(catalog, "warm_headers", joined)
 
 
 @pytest.fixture(autouse=True)

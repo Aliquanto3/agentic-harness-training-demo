@@ -138,7 +138,6 @@ class RagLabContent(_Strict):
 
     title_text: str = Field(min_length=1)
     intro_text: str = Field(min_length=1)
-    back_text: str = Field(min_length=1)
     busy_text: str = Field(min_length=1)
     chain_title_text: str = Field(min_length=1)
     chain_help_text: str = Field(min_length=1)

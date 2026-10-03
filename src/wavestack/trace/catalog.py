@@ -58,6 +58,18 @@ class OutboundRequestPayload(BaseModel):
     body: str = ""
 
 
+class OutboundResponsePayload(BaseModel):
+    """Recette du 02/10 (R2): an error response (status 400 or more) from a destination
+    outside the loopback range, with its headers in the order received. Outside
+    `PUBLIC_RESPONSE_HEADERS` and the quota prefixes, each value is « [masqué] »."""
+
+    origin: Literal["brick", "diagnostic", "download", "model"]
+    method: str
+    url: str
+    status: int
+    headers: list[OutboundHeader] = []
+
+
 class HarnessErrorPayload(BaseModel):
     message_text: str
     cause: str | None = None
@@ -482,6 +494,9 @@ class BrickOption(BaseModel):
     tools: list[str] = []
     # Lot K, MCP servers: the form of each tool's forced call (« Forcer l'appel »).
     calls: list[McpCallOption] = []
+    # AD-9 (E089), public MCP servers: the live tools drift from the versioned snapshot
+    # beyond `[mcp] snapshot_drift_threshold` (None: no snapshot, or within it).
+    drift_text: str | None = None
 
 
 class BrickForce(BaseModel):
@@ -637,6 +652,30 @@ class PrefixNotReusedPayload(BaseModel):
     cause: PrefixCause = "in_turn"
 
 
+# ---------- story 4 of the deferred leftovers (E122): the first turn's context prefilled ----------
+
+
+class ContextPrefillStartedPayload(BaseModel):
+    """The engine starts reading, at a scenario's launch, the part of the first turn's
+    context that does not depend on the message (`tokens` ids), while the instructions
+    are read. Journal only, never the turn's rail."""
+
+    tokens: int
+    phase_label: str  # AD-2: every `*_started` names its phase
+    message_text: str
+
+
+class ContextPrefillEndedPayload(BaseModel):
+    """`completed`: every id is in cache; `abandoned`: a turn, a load, a setting or another
+    scenario came first (the ids evaluated stay useful); `error`: the engine failed."""
+
+    status: Literal["completed", "abandoned", "error"]
+    tokens: int
+    evaluated_tokens: int
+    duration_ms: int
+    message_text: str
+
+
 # ---------- story 6: MCP servers (AD-12, AD-15) ----------
 
 
@@ -651,6 +690,8 @@ class McpConnectEndedPayload(BaseModel):
     tools: list[str]
     error_text: str | None = None
     duration_ms: int
+    # AD-9 (E089): the same warning as the MCP card's, when the live tools drift.
+    drift_text: str | None = None
 
 
 # ---------- story 8: hooks (AD-13, AD-23) ----------
@@ -1317,6 +1358,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
     "diagnostic_progress": DiagnosticProgressPayload,
     "outbound_request": OutboundRequestPayload,
+    "outbound_response": OutboundResponsePayload,
     "harness_error": HarnessErrorPayload,
     "server_cache_used": ServerCacheUsedPayload,
     "session_state": SessionStatePayload,
@@ -1343,6 +1385,8 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "tool_call_malformed": ToolCallMalformedPayload,
     "limit_reached": LimitReachedPayload,
     "prefix_not_reused": PrefixNotReusedPayload,
+    "context_prefill_started": ContextPrefillStartedPayload,
+    "context_prefill_ended": ContextPrefillEndedPayload,
     "mcp_connect_started": McpConnectStartedPayload,
     "mcp_connect_ended": McpConnectEndedPayload,
     "hook_decided": HookDecidedPayload,

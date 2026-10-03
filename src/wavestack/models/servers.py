@@ -26,7 +26,7 @@ import re
 import socket
 import threading
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from functools import partial
 from importlib.metadata import PackageNotFoundError, version
@@ -76,6 +76,33 @@ class ServerError(KeyedError):
         self.message_text = self.message
 
 
+class UnsupportedArchitecture(ServerError):
+    """Story 2 of the deferred leftovers (E119): Ollama accepted the model (WaveStack only
+    reads its tokenizer when it is chosen) but cannot run its architecture, `qwen35` for an
+    Ollama too old: `/api/generate` answers 500 « unknown model architecture ». The message
+    names the cause and the ways out; `cause` keeps the server's own text, a detail."""
+
+    def __init__(self, url: str, architecture: str, cause: str) -> None:
+        self.url, self.cause, self.architecture = url, cause, architecture
+        KeyedError.__init__(
+            self, "models.servers.unsupported_architecture", architecture=architecture
+        )
+        self.message_text = self.message
+
+
+# llama.cpp's refusal, as Ollama relays it: « unknown model architecture: 'qwen35' »; its own
+# engine says « unsupported model architecture ».
+_ARCHITECTURE_REFUSED = re.compile(
+    r"(?:unknown|unsupported) model architecture\W*([A-Za-z0-9_.\-]+)", re.IGNORECASE
+)
+
+
+def _unsupported(url: str, cause: Any) -> UnsupportedArchitecture | None:
+    """The refusal of an architecture in a server's error text, else `None`."""
+    found = _ARCHITECTURE_REFUSED.search(cause if isinstance(cause, str) else "")
+    return UnsupportedArchitecture(url, found.group(1), cause) if found else None
+
+
 class Tokenizer(Protocol):
     def tokenize(self, text: str) -> list[int]: ...
 
@@ -103,7 +130,11 @@ def _client(
     connect_timeout_s: float, read_timeout_s: float, transport: httpx.BaseTransport | None
 ) -> httpx.Client:
     timeout = httpx.Timeout(read_timeout_s, connect=connect_timeout_s)
-    return create_loopback_client(timeout=timeout, transport=transport or default_transport)
+    client = create_loopback_client(timeout=timeout, transport=transport or default_transport)
+    # Story 7 of the deferred leftovers (E078): no connection is reused, so each streamed
+    # request opens its own and `_stream` learns its socket before any answer.
+    client.headers["Connection"] = "close"
+    return client
 
 
 def _json(
@@ -132,10 +163,24 @@ def _json(
     return data
 
 
+def _shut(sock: socket.socket) -> None:
+    """Unblocks a read in progress on `sock` from another thread, before any answer: shut
+    down, then closed, since under Windows only the close wakes a blocked `recv` (measured,
+    story 7 of the deferred leftovers). The connection is never reused (`_client`), and
+    httpcore holds this same socket object: its own later close is a no-op."""
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    try:
+        sock.close()
+    except OSError:
+        pass
+
+
 def _abort(response: httpx.Response) -> None:
     """Unblocks a read in progress on `response` from another thread: the socket is shut
-    down (a plain close would leave the reader waiting until its timeout), then the
-    response is closed."""
+    down, then the response is closed."""
     stream = response.extensions.get("network_stream")
     sock = stream.get_extra_info("socket") if stream is not None else None
     if isinstance(sock, socket.socket):
@@ -152,38 +197,68 @@ def _abort(response: httpx.Response) -> None:
 @contextmanager
 def _stream(
     client: httpx.Client, base: str, path: str, body: Any, cancel: CancelToken
-) -> Iterator[httpx.Response]:
-    """A streamed POST, closed on exit. Cancelling closes it at once, even while the server
-    has sent nothing yet (Ollama loading its model): a watcher thread aborts the read. HTTP
+) -> Iterator[httpx.Response | None]:
+    """A streamed POST, closed on exit. Cancelling closes it at once once connected, even
+    before the server answers: Ollama sends its headers only once its model is loaded (7.6 s
+    for qwen3.5:2b on the target PC, story 7 of the deferred leftovers, E078). A watcher
+    thread, started before the request, shuts down the connection's socket, known from its
+    `connect_tcp` (`_client` reuses none); a cancel during the connect itself waits for it
+    (at most `connect_timeout_s`). `None` then stands for the answer that never came. HTTP
     errors, before or during the stream, become `ServerError`."""
+    held: list[socket.socket | httpx.Response] = []
+    done = threading.Event()
+
+    def trace(event: str, info: dict[str, Any]) -> None:
+        if event == "connection.connect_tcp.complete":
+            stream = info.get("return_value")
+            sock = stream.get_extra_info("socket") if stream is not None else None
+            if isinstance(sock, socket.socket):
+                held.append(sock)
+
+    def watch() -> None:
+        while not done.is_set():
+            if not cancel.wait(_CANCEL_POLL_S):
+                continue
+            if held:
+                for item in list(held):
+                    if isinstance(item, httpx.Response):
+                        _abort(item)
+                    else:
+                        _shut(item)
+                return
+            done.wait(_CANCEL_POLL_S)  # still connecting: its socket comes with it
+
+    threading.Thread(target=watch, daemon=True, name="wavestack-cancel").start()
     try:
-        with client.stream("POST", base + path, json=body) as response:
-            if response.status_code >= 400:
-                response.read()
-                raise ServerError(base, f"HTTP {response.status_code} : {response.text[:200]}")
-            done = threading.Event()
-
-            def watch() -> None:
-                while not done.is_set():
-                    if cancel.wait(_CANCEL_POLL_S):
-                        _abort(response)
-                        return
-
-            threading.Thread(target=watch, daemon=True, name="wavestack-cancel").start()
+        with ExitStack() as stack:
+            response: httpx.Response | None = None
             try:
-                yield response
-            finally:
-                done.set()
+                response = stack.enter_context(
+                    client.stream("POST", base + path, json=body, extensions={"trace": trace})
+                )
+            except httpx.HTTPError:
+                if not cancel.cancelled:
+                    raise
+            if response is not None:
+                held.append(response)
+                if response.status_code >= 400:
+                    response.read()
+                    raise ServerError(base, f"HTTP {response.status_code} : {response.text[:200]}")
+            yield response
     except httpx.HTTPError as exc:
         raise ServerError(base, _cause(exc)) from exc
+    finally:
+        done.set()
 
 
 def _lines(
-    response: httpx.Response, base: str, cancel: CancelToken, prefix: str = ""
+    response: httpx.Response | None, base: str, cancel: CancelToken, prefix: str = ""
 ) -> Iterator[dict]:
     """The stream's JSON objects (`prefix`: `data:` for SSE). `[DONE]` and blank lines are
     skipped; any other line that is not a JSON object is a `ServerError`. A read error once
-    cancelled simply ends the stream."""
+    cancelled simply ends the stream, as does a request stopped before any answer (`None`)."""
+    if response is None:
+        return
     try:
         for raw in response.iter_lines():
             line = raw.strip()
@@ -359,6 +434,9 @@ class LlamaServerEngine:
     def restore(self, snapshot: EngineSnapshot) -> bool:
         return False
 
+    def prefill(self, ids: Sequence[int], cancel: CancelToken) -> int | None:
+        return None  # E122: the server's cache is out of reach
+
     @property
     def last_evaluated(self) -> int | None:
         """The prompt tokens the server says it evaluated in the last call, if it said."""
@@ -510,6 +588,9 @@ class OllamaRawEngine:
     def restore(self, snapshot: EngineSnapshot) -> bool:
         return False
 
+    def prefill(self, ids: Sequence[int], cancel: CancelToken) -> int | None:
+        return None  # E122: the server's cache is out of reach
+
     @property
     def last_evaluated(self) -> int | None:
         """The prompt tokens the server says it evaluated in the last call, if it said."""
@@ -522,6 +603,27 @@ class OllamaRawEngine:
         return self._tokenizer.token_pieces(ids)
 
     def complete(
+        self,
+        prompt_ids: Sequence[int],
+        stop: Sequence[str],
+        max_tokens: int,
+        cancel: CancelToken,
+        *,
+        sampling: Sampling | None = None,
+    ) -> Iterator[Fragment]:
+        """E119: an architecture Ollama cannot run (its 500, or an error in the stream)
+        becomes `UnsupportedArchitecture`, which names the cause and the ways out."""
+        try:
+            yield from self._complete(prompt_ids, stop, max_tokens, cancel, sampling=sampling)
+        except UnsupportedArchitecture:
+            raise
+        except ServerError as exc:
+            refused = _unsupported(self.url, exc.cause)
+            if refused is None:
+                raise
+            raise refused from exc
+
+    def _complete(
         self,
         prompt_ids: Sequence[int],
         stop: Sequence[str],

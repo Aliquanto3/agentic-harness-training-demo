@@ -1,0 +1,380 @@
+{
+ "candidate": "slm_judge",
+ "tier": "3",
+ "models_dir": "C:\\Users\\anael.yahi\\.cache\\wavestack-bench",
+ "platform": "Windows-11-10.0.26200-SP0",
+ "machine": "AMD64",
+ "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+ "cpu_count": 8,
+ "python": "3.13.5",
+ "measured_at": "2026-10-03T00:44",
+ "target_pc": true,
+ "windows_release": "11",
+ "admin": false,
+ "bench_sha256": "39f249115745bb7060a06ef8fde8aeb3d346a8be609d9371dd5e895aa115c1ae",
+ "repo_commit": "731564765ed0fd25c8c6516472903d9b231b37c7",
+ "ram_total_mb": 16064,
+ "command": "uv run python tools/bench/v2s6_decision_bench.py measure slm_judge --slm $SLM --out \"$OUT\\slm_judge.json\"",
+ "rss_added_method": "pic",
+ "v1_rag_rss_mb": 1170,
+ "id": "slm_judge",
+ "guard": "wavestack.net.guard",
+ "slm": "C:\\Users\\anael.yahi\\AppData\\Local\\WaveStack\\models\\Qwen3.5-2B-Q4_K_M.gguf",
+ "slm_n_ctx": 4096,
+ "llama_cpp_version": "0.3.35",
+ "slm_load_s": 4.52,
+ "rss_with_slm_mb": 1937,
+ "load_s": 0.0,
+ "revisions": {},
+ "rss_before_load_mb": 1937,
+ "peak_before_load_mb": 1937,
+ "rss_loaded_mb": 2050,
+ "rss_peak_mb": 2080,
+ "warmup_ms": 9096.7,
+ "rows": [
+  {
+   "prompt": "bare_llm.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 3088.4
+  },
+  {
+   "prompt": "bare_llm.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "general",
+   "ms": 4748.1
+  },
+  {
+   "prompt": "reasoning.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 4242.9
+  },
+  {
+   "prompt": "reasoning.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "general",
+   "ms": 5554.9
+  },
+  {
+   "prompt": "system_prompt.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 2954.6
+  },
+  {
+   "prompt": "system_prompt.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "general",
+   "ms": 4685.3
+  },
+  {
+   "prompt": "global_memory.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 3436.1
+  },
+  {
+   "prompt": "global_memory.1",
+   "task": "specialty",
+   "label": "general",
+   "expected": "general",
+   "ms": 5082.9
+  },
+  {
+   "prompt": "native_tools.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 3385.8
+  },
+  {
+   "prompt": "native_tools.1",
+   "task": "specialty",
+   "label": "general",
+   "expected": "general",
+   "ms": 5168.9
+  },
+  {
+   "prompt": "caveman.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 3288.4
+  },
+  {
+   "prompt": "caveman.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "general",
+   "ms": 4730.4
+  },
+  {
+   "prompt": "native_tools.2",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 3812.2
+  },
+  {
+   "prompt": "native_tools.2",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "documents",
+   "ms": 5271.5
+  },
+  {
+   "prompt": "rag.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 3431.2
+  },
+  {
+   "prompt": "rag.1",
+   "task": "specialty",
+   "label": "general",
+   "expected": "documents",
+   "ms": 5170.6
+  },
+  {
+   "prompt": "hooks.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 3750.3
+  },
+  {
+   "prompt": "hooks.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "documents",
+   "ms": 4937.7
+  },
+  {
+   "prompt": "compression.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 4054.3
+  },
+  {
+   "prompt": "compression.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "documents",
+   "ms": 5115.9
+  },
+  {
+   "prompt": "compression.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 3452.3
+  },
+  {
+   "prompt": "compression.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "documents",
+   "ms": 5086.9
+  },
+  {
+   "prompt": "network_tools.0",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 3118.2
+  },
+  {
+   "prompt": "network_tools.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "recherche",
+   "ms": 4939.8
+  },
+  {
+   "prompt": "network_tools.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 3715.1
+  },
+  {
+   "prompt": "network_tools.1",
+   "task": "specialty",
+   "label": "general",
+   "expected": "recherche",
+   "ms": 4555.4
+  },
+  {
+   "prompt": "mcp_lazy.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "simple",
+   "ms": 3660.4
+  },
+  {
+   "prompt": "mcp_lazy.1",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "recherche",
+   "ms": 5230.4
+  },
+  {
+   "prompt": "sovereignty.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 5699.8
+  },
+  {
+   "prompt": "sovereignty.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "recherche",
+   "ms": 7156.7
+  },
+  {
+   "prompt": "rag.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "simple",
+   "ms": 3327.2
+  },
+  {
+   "prompt": "rag.0",
+   "task": "specialty",
+   "label": "general",
+   "expected": "securite",
+   "ms": 4662.9
+  },
+  {
+   "prompt": "soc.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 4309.0
+  },
+  {
+   "prompt": "soc.0",
+   "task": "specialty",
+   "label": "recherche",
+   "expected": "securite",
+   "ms": 6927.3
+  },
+  {
+   "prompt": "soc.1",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 4267.7
+  },
+  {
+   "prompt": "soc.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "securite",
+   "ms": 5720.6
+  },
+  {
+   "prompt": "iam.0",
+   "task": "cost",
+   "label": "simple",
+   "expected": "complexe",
+   "ms": 4816.4
+  },
+  {
+   "prompt": "iam.0",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "securite",
+   "ms": 6362.9
+  },
+  {
+   "prompt": "iam.1",
+   "task": "cost",
+   "label": "complexe",
+   "expected": "complexe",
+   "ms": 5774.9
+  },
+  {
+   "prompt": "iam.1",
+   "task": "specialty",
+   "label": "documents",
+   "expected": "securite",
+   "ms": 7106.2
+  }
+ ],
+ "decisions": 40,
+ "latency_median_ms": 4707.9,
+ "latency_max_ms": 7156.7,
+ "agreement": {
+  "cost": "12/20",
+  "specialty": "7/20"
+ },
+ "rss_added_mb": 143,
+ "versions": {},
+ "torch_loaded": false,
+ "heavy_modules_loaded": [],
+ "attempts": [],
+ "status": "measured",
+ "packages": [],
+ "verdict": {
+  "status": "repli (référence)",
+  "reason": "tous les critères passent",
+  "criteria": [
+   {
+    "id": "cpu_windows",
+    "label": "CPU sous Windows 11, sans droits admin",
+    "ok": true,
+    "detail": "Windows 11, session sans droits admin ; vérifier dans la sortie de uv qu'aucun paquet n'a été compilé (« Building … »)"
+   },
+   {
+    "id": "ram",
+    "label": "RAM : pic total ≤ 4096 Mo, SLM par défaut chargé (NFR-2)",
+    "ok": true,
+    "detail": "pic total 2080 Mo (SLM chargé : 1937 Mo), ajouté par le candidat 143 Mo au pic ; avec l'embedding et le reranker V1 (1170 Mo mesurés), 3250 Mo"
+   },
+   {
+    "id": "latency",
+    "label": "Latence d'une décision (référence du repli)",
+    "ok": true,
+    "detail": "médiane 4707.9 ms, maximum 7156.7 ms sur 40 décisions (échauffement 9096.7 ms, chargement 0.0 s)"
+   },
+   {
+    "id": "offline",
+    "label": "Hors ligne : aucune tentative réseau sous la garde d'AD-15",
+    "ok": true,
+    "detail": "hôtes tentés : aucun"
+   },
+   {
+    "id": "pinned",
+    "label": "Code relu et figé : commit et versions consignés, pas de trust_remote_code",
+    "ok": true,
+    "detail": "commits aucun (pas de dépôt) ; versions aucune ; code : aucun"
+   },
+   {
+    "id": "license",
+    "label": "Licences compatibles avec une remise du code (NFR-10)",
+    "ok": true,
+    "forbidden": false,
+    "detail": "modèle : celle du SLM par défaut, déjà retenue en V1 (ok) ; 0 paquet(s) ajouté(s) ; interdites : aucune ; à vérifier : aucune"
+   },
+   {
+    "id": "no_torch",
+    "label": "Sans torch",
+    "ok": true,
+    "detail": "modules lourds chargés : aucun"
+   }
+  ],
+  "target_pc": true
+ }
+}

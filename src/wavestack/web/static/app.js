@@ -7,6 +7,8 @@
 import { dateTimeFormat, joinList, numberFormat as intlNumber, ready as textsReady, section, t } from "./i18n.js";
 // Story 2 (2026-09-30): « Affichage ▾ » and the language picker, shared by the five pages.
 import { languageChanging, renderLanguagePicker as drawLanguagePicker, setDisplayMenu, useSessionState } from "./site-nav.js";
+// Recette du 02/10: the final answer's Markdown, rendered in the Vue humain only.
+import { renderMarkdown } from "./markdown.js";
 
 const PANES = ["bricks", "human", "ctx", "orch", "schema"];
 const PANE_LABELS = section("main.pane_titles");
@@ -63,6 +65,7 @@ const store = {
   resetSeq: null,
   logFrom: 0,
   topStatus: null,
+  connectionLost: false, // E003: the live stream failed several times in a row
   serverInstance: null, // A1: the journal instance this page follows
   composerError: null,
   // Story 9b: the turn comparison open in Contexte LLM, UI state only: { left, right } turn ids.
@@ -197,13 +200,20 @@ function rangeText(low, high, unit) {
 // ---------- SSE: manual parsing, because the server names each event after
 // its `kind` and EventSource cannot listen for an unknown kind generically. ----------
 
-async function streamEvents(fromSeq, onEnvelope) {
+// Story 2 of the deferred leftovers (E003): after this many attempts in a row without a
+// single event, the top bar says the connection is lost; the first event received clears it.
+const STREAM_FAILURES_SHOWN = 3;
+
+async function streamEvents(fromSeq, onEnvelope, onConnection = () => {}) {
   let lastSeq = fromSeq;
+  let failures = 0;
   for (;;) {
+    let received = false;
     try {
       const response = await fetch("/api/stream", {
         headers: lastSeq ? { "Last-Event-ID": String(lastSeq) } : {},
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -216,6 +226,12 @@ async function streamEvents(fromSeq, onEnvelope) {
           const rawEvent = buffer.slice(0, sep);
           buffer = buffer.slice(sep + 2);
           const { event, data } = parseSseEvent(rawEvent);
+          if ((event || data) && !received) {
+            // The server always sends `server_instance` first: the connection is back.
+            received = true;
+            failures = 0;
+            onConnection(true);
+          }
           if (event === "server_instance") {
             // A1: another process's journal, where lastSeq means nothing: resync by reloading.
             if (!sameServerInstance(data?.instance_id)) return;
@@ -228,6 +244,8 @@ async function streamEvents(fromSeq, onEnvelope) {
     } catch {
       // Reconnection below picks up at lastSeq: no event lost or duplicated.
     }
+    // The retry keeps its pace (1 s); after a few in a row, the top bar says why nothing moves.
+    if (!received && ++failures >= STREAM_FAILURES_SHOWN) onConnection(false);
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 }
@@ -672,6 +690,7 @@ const SUB_KINDS = new Set([
   "tool_started",
   "tool_ended",
   "outbound_request",
+  "outbound_response",
   "hook_decided",
   "effect_applied",
   "approval_requested",
@@ -1227,6 +1246,15 @@ function renderBricks() {
       card.appendChild(why);
     }
     if (brick.note_text) card.appendChild(el("p", "brick-note", brick.note_text));
+    // AD-9 (E089): a public MCP server whose live tools drift from its snapshot, outside the
+    // folded options so that it is seen.
+    for (const option of brick.id === "mcp" ? brick.options || [] : []) {
+      if (!option.drift_text) continue;
+      const warning = el("p", "brick-drift", option.drift_text);
+      warning.setAttribute("role", "note");
+      warning.dataset.server = option.id;
+      card.appendChild(warning);
+    }
     // Story 23: what leaves the workstation and where to read it, outside the folded options.
     if (brick.outbound_text) card.appendChild(el("p", "brick-outbound", brick.outbound_text));
     // Story 6 (2026-09-30): the MCP card leads to the MCP workshop, the protocol laid bare.
@@ -1579,7 +1607,13 @@ function saveShowForced() {
   }
 }
 
+// D3 of 2026-10-01: a titled section with the ✋, told apart from the bricks' switches.
 function forcedToggle() {
+  const box = el("section", "force-section");
+  // Its own class: the E2E reads the two groups' titles by `.brick-group-title`.
+  const title = el("h3", "force-section-title", t("main.force.section_title"));
+  title.id = "force-section-title";
+  box.setAttribute("aria-labelledby", title.id);
   const row = el("label", "force-toggle");
   const toggle = el("input", "brick-toggle");
   toggle.type = "checkbox";
@@ -1588,7 +1622,12 @@ function forcedToggle() {
   toggle.dataset.focusKey = "force-toggle";
   toggle.addEventListener("change", () => {
     store.showForced = toggle.checked;
-    if (!store.showForced) {
+    if (store.showForced) {
+      // The Forcer buttons are in the bricks' folded option lists: unfold those lists.
+      for (const brick of store.bricks?.bricks || []) {
+        if (hasOptionForce(brick)) store.openExplanations.add(`options:${brick.id}`);
+      }
+    } else {
       store.forceForm = null;
       store.armError = null;
     }
@@ -1596,8 +1635,19 @@ function forcedToggle() {
     renderedBricks = null; // the Forcer buttons appear or leave
     scheduleRender();
   });
-  row.append(toggle, el("span", "", t("main.force.show")));
-  return row;
+  const hand = el("span", "force-toggle-icon", "✋");
+  hand.setAttribute("aria-hidden", "true"); // the label alone is read aloud
+  row.append(toggle, hand, el("span", "", t("main.force.show")));
+  box.append(title, row);
+  return box;
+}
+
+// D3: whether the brick's option list holds a Forcer button (`forceButton`'s rule, an MCP
+// tool's forced call included).
+function hasOptionForce(brick) {
+  return (brick.options || []).some(
+    (option) => optionForceLabel(brick, option) !== null || (brick.id === "mcp" && (option.calls || []).length > 0)
+  );
 }
 
 function handIcon() {
@@ -1623,12 +1673,19 @@ function mcpCallOption(call) {
   };
 }
 
-function forceButton(brick, option) {
-  // Tools, skills, and in lazy loading only, the documentation of an MCP server's tool; lot K:
-  // the call of an MCP tool (`option.call`), in both modes.
+// The label of the option's Forcer button, `null` when it has none. Tools, skills, and in lazy
+// loading only, the documentation of an MCP server's tool; lot K: the call of an MCP tool
+// (`option.call`), in both modes.
+function optionForceLabel(brick, option) {
   const label = option.call ? FORCE_LABELS.tools : FORCE_LABELS[brick.id];
   if (!label) return null;
   if (brick.id === "mcp" && !option.call && (brick.mode !== "lazy" || !option.tools?.length)) return null;
+  return label;
+}
+
+function forceButton(brick, option) {
+  const label = optionForceLabel(brick, option);
+  if (!label) return null;
   const button = el("button", "force-button");
   button.type = "button";
   button.append(handIcon(), option.call ? `${label} · ${option.label_text}` : label);
@@ -2087,6 +2144,17 @@ function closeMemoryDrawer(force = false) {
   document.getElementById("edit-memory")?.focus();
 }
 
+// D7: `created_at` (ISO 8601 with its offset, `memory.py`) as a `<time>`, its date and hour
+// short in the session's language; `null` for a missing or unreadable date.
+function memoryDate(createdAt) {
+  const date = createdAt ? new Date(createdAt) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const node = el("time", "memory-entry-date", dateTimeFormat({ dateStyle: "short", timeStyle: "short" }).format(date));
+  node.dateTime = createdAt;
+  node.title = t("main.memory.written_at");
+  return node;
+}
+
 function renderMemoryDrawer() {
   // Rebuilt from the last `memory_changed`, the texts being typed kept (AD-1).
   if (memoryDrawer().hidden) return;
@@ -2108,7 +2176,11 @@ function renderMemoryDrawer() {
     const item = el("li", "memory-entry");
     const label = t("main.memory.entry", { n: String(i + 1) });
     const head = el("div", "memory-entry-head");
-    head.append(el("span", "memory-entry-name", label), el("span", "memory-entry-source", MEMORY_SOURCES[entry.source] ?? entry.source));
+    const source = el("span", "memory-entry-source", MEMORY_SOURCES[entry.source] ?? entry.source);
+    // D7 of 2026-10-01: when it was written, short, in the workstation's time zone.
+    const written = memoryDate(entry.created_at);
+    if (written) source.append(" · ", written);
+    head.append(el("span", "memory-entry-name", label), source);
     const text = el("textarea", "memory-entry-text");
     text.rows = 3;
     if (memory?.max_chars) text.maxLength = memory.max_chars;
@@ -2930,6 +3002,20 @@ function toggleShowReasoning(event) {
 // 250 ms stopwatch would otherwise swap the buttons under the pointer and lose a click.
 let approvalCards = new Map(); // approval id -> { key, node }
 
+// Recette du 02/10: each turn's rendered answer, kept while its text is unchanged (no re-parse
+// while streaming); a changed text is rendered again.
+let answerNodes = new Map(); // turn id -> { text, nodes }
+
+// The answer's Markdown as DOM nodes (never an HTML string), in a new `.bubble-text`.
+function answerText(turn, kept) {
+  const old = answerNodes.get(turn.id);
+  const entry = old?.text === turn.text ? old : { text: turn.text, nodes: [...renderMarkdown(turn.text).childNodes] };
+  kept.set(turn.id, entry);
+  const div = el("div", "bubble-text is-markdown");
+  div.append(...entry.nodes);
+  return div;
+}
+
 function renderChat() {
   const chat = document.getElementById("chat");
   const followTail = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
@@ -2937,6 +3023,7 @@ function renderChat() {
   const focusKey = chat.contains(document.activeElement) ? document.activeElement.dataset.focusKey : null;
   const nodes = [];
   const cards = new Map();
+  const answers = new Map();
   const turns = shownTurns();
   if (turns.length === 0) nodes.push(emptyNote(cleared() ? clearedText() : noTurnText()));
   let shownBefore = null;
@@ -2972,7 +3059,7 @@ function renderChat() {
       const since = turn.callStartedAt ?? turn.startedAt;
       answer.appendChild(el("div", "working-indicator", `${t("main.chat.reasoning_now")} ${seconds(Date.now() - since)}`));
     }
-    if (turn.text) answer.appendChild(el("div", "bubble-text", turn.text));
+    if (turn.text) answer.appendChild(answerText(turn, answers));
     if (turn.status === null && !turn.firstToken) {
       const since = turn.callStartedAt ?? turn.startedAt;
       const label = turn.stopRequested ? t("main.chat.stop_requested") : turn.phaseLabel || t("main.chat.preparing");
@@ -2988,6 +3075,8 @@ function renderChat() {
     if (turn.status === "completed" && !turn.text) {
       answer.appendChild(el("div", "bubble-note", t("main.chat.empty_answer")));
     }
+    const consulted = consultedTools(turn);
+    if (consulted.length) answer.appendChild(consultedLine(turn, consulted));
     nodes.push(answer);
     // H5: the validation is the user's to give, in the thread of its turn, under the answer;
     // a sub-agent's too (story 19), though its text never shows here.
@@ -3007,6 +3096,7 @@ function renderChat() {
     }
   }
   approvalCards = cards;
+  answerNodes = answers;
   const loading = modelLoadText();
   if (loading) nodes.push(el("div", "working-indicator model-load-indicator", loading));
   patchChildren(chat, nodes);
@@ -3020,6 +3110,63 @@ function renderChat() {
     quietFocus(target);
   }
   if (followTail) chat.scrollTop = chat.scrollHeight;
+}
+
+// D5 of 2026-10-01: the tools whose result the answer could draw on, each with its step's
+// index in `turn.steps` (the key of its Orchestration line is `{turn.id}:{index}`): ended
+// `ok` only (a failed, refused or still running call brought nothing). The harness's own
+// tools (`load_skill`, `load_tool_doc`, `remember`) bring no information to cite; a
+// delegation brings the sub-agent's answer, so it counts.
+function consultedTools(turn) {
+  const found = [];
+  turn.steps.forEach((step, index) => {
+    if (step.type !== "tool" || !step.started || step.ended?.status !== "ok") return;
+    if (step.started.source === "harness" && step.started.tool !== "delegate") return;
+    found.push({ step, index });
+  });
+  return found;
+}
+
+// « Outils consultés pendant ce tour : A, B », each name a button that opens its step.
+function consultedLine(turn, consulted) {
+  const line = el("p", "answer-tools");
+  line.appendChild(el("span", "answer-tools-label", t("main.chat.tools_used")));
+  consulted.forEach(({ step, index }, n) => {
+    const name = step.started.tool === "delegate" ? t("main.orch.sub.title") : toolLabel(step.started.tool);
+    const button = el("button", "answer-tool", name);
+    button.type = "button";
+    button.title = t("main.chat.tools_used_title", { tool: name });
+    button.dataset.focusKey = `tools:${turn.id}:${index}`;
+    setLinks(button, stepLinks(step));
+    const reveal = () => revealStep(turn, `${turn.id}:${index}`, stepLinks(step));
+    // The bubble is rebuilt at every render (a turn streaming): a mouse acts on its press, as
+    // `selectOnActivate` does, before a rebuild can split the press from the release.
+    button.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" && event.button === 0) reveal();
+    });
+    button.addEventListener("click", (event) => {
+      if (event.pointerType !== "mouse") reveal(); // keyboard, touch, pen
+    });
+    line.append(n === 0 ? " " : ", ", button);
+  });
+  return line;
+}
+
+// D5: the step of a turn opened in Orchestration, as a click on it does (`toggleStep`, which
+// freezes the live view) and as `revealOutbound` brings it into view, then selected.
+function revealStep(turn, key, links) {
+  const o = store.orch;
+  if (store.hiddenPanes.has("orch")) showPane("orch");
+  if (store.focusedPane !== null && store.focusedPane !== "orch") store.focusedPane = null;
+  o.turnOpen.set(turn.id, true);
+  if (o.live) {
+    o.live = false;
+    o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+  }
+  o.userOpen.add(key);
+  o.selected = key;
+  setSelection(`step:${key}`, links); // renders: the step open, its linked elements outlined
+  railNodes.get(key)?.line.scrollIntoView({ block: "nearest" });
 }
 
 function patchChildren(parent, nodes) {
@@ -3189,8 +3336,10 @@ function renderScenarioControls(state) {
   const reset = document.getElementById("reset-button");
   reset.disabled = !idle;
   reset.title = reason || t("main.top_bar.reset_title");
-  const topText = modelLoadText() ?? store.topStatus ?? "";
-  setTopStatus(topText, modelLoadTitle() ?? topText);
+  // E003: a lost connection first, whatever the page last heard (a load, a reset…).
+  const lost = store.connectionLost ? t("main.top_bar.connection_lost") : null;
+  const topText = lost ?? modelLoadText() ?? store.topStatus ?? "";
+  setTopStatus(topText, lost ?? modelLoadTitle() ?? topText);
 
   // Vue humain: the active scenario's instructions behind the « i » of the header, then one
   // chip per suggested prompt.
@@ -6246,6 +6395,17 @@ const SESSION_STATES = section("main.log.session_states");
 
 // Story 29: how a generation of the « LLM nu » screen ended.
 const LAB_STATUS = section("main.log.lab_status");
+// Correctif du 2026-10-02: how a RAG workshop's stage or run ended, and the language names.
+const RAG_LAB_STATUS = section("main.log.rag_lab_status");
+const LANGUAGE_NAMES = section("main.log.languages");
+
+// A RAG workshop stage, « Chaîne A · Recherche vectorielle »: its label is in the run's
+// `rag_lab_run_started`, its kind when that event is not on the page.
+function ragLabStage(p) {
+  const run = store.journal.findLast((e) => e.kind === "rag_lab_run_started" && e.payload.run_id === p.run_id);
+  const stage = run?.payload.lanes.find((l) => l.lane === p.lane)?.stages.find((s) => s.stage_id === p.stage_id);
+  return `${t("rag.chain", { label: p.lane.toUpperCase() })} · ${stage?.label_text ?? p.kind}`;
+}
 
 // Story 29: « T 0,7 · top-k 20 · top-p 0,8 · min-p 0 », a value not sent as « — ».
 function samplingSummary(s) {
@@ -6269,9 +6429,16 @@ function eventSummary(group) {
       return t("main.log.bricks_wanted", { wanted: String(p.bricks.filter((b) => b.wanted).length), total: String(p.bricks.length) });
     case "context_rendered":
     case "context_preview":
+    case "context_reconciled":
       return `${t("main.orch.overflow.figures", { used: p.used, usable: p.usable })} · ${plural(p.segments.length, "segment")}`;
     case "context_overflow":
       return t("main.orch.overflow.figures", { used: p.used, usable: p.usable });
+    case "context_window_state": {
+      const chosen = p.configured !== p.window ? t("main.window.chosen", { window: p.configured }) : "";
+      return [p.model_label, `${t("main.window.choice", { window: p.window })}${chosen}`].filter(Boolean).join(" · ");
+    }
+    case "language_changed":
+      return LANGUAGE_NAMES[p.language] ?? p.language;
     case "turn_started":
       return quote(p.message);
     case "turn_ended":
@@ -6297,7 +6464,36 @@ function eventSummary(group) {
     case "mcp_connect_started":
     case "model_load_started":
     case "llm_generation_started":
+    case "rag_lab_run_started":
       return p.phase_label;
+    // Correctif du 2026-10-02: the RAG workshop's run, in the log only.
+    case "rag_lab_stage_started":
+      return `${t("rag.chain", { label: p.lane.toUpperCase() })} · ${p.phase_label}`;
+    case "rag_lab_stage_progress":
+      return `${ragLabStage(p)} · ${t("main.log.rag_lab_progress", { done: p.done, total: p.total })}`;
+    case "rag_lab_stage_ended":
+      return [
+        ragLabStage(p),
+        RAG_LAB_STATUS[p.status] ?? p.status,
+        p.status === "ok" && p.items.length ? plural(p.items.length, "excerpt") : null,
+        ["ok", "error", "cancelled"].includes(p.status) ? seconds(p.duration_ms) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "rag_lab_run_ended":
+      return [
+        RAG_LAB_STATUS[p.status] ?? p.status,
+        seconds(p.duration_ms),
+        p.comparison
+          ? t("main.log.rag_lab_compared", {
+              common: p.comparison.common.length,
+              only_a: p.comparison.only_a.length,
+              only_b: p.comparison.only_b.length,
+            })
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
     case "llm_token":
       return group.events
         .filter((x) => x.kind === "llm_token")
@@ -6325,6 +6521,14 @@ function eventSummary(group) {
       return `${p.status}${p.truncated ? ` · ${t("main.orch.rows.truncated")}` : ""} · ${seconds(p.duration_ms)}`;
     case "outbound_request":
       return `${p.method} ${p.url}`;
+    // Recette du 02/10 (R2): a refusal's status, then the quota headers left in clear.
+    case "outbound_response": {
+      const quota = (p.headers ?? [])
+        .filter((h) => !h.masked && /^(x-)?ratelimit-|^retry-after$/i.test(h.name))
+        .map((h) => `${h.name}: ${h.value}`)
+        .join(", ");
+      return [String(p.status), `${p.method} ${p.url}`, quota].filter(Boolean).join(" · ");
+    }
     case "mcp_connect_ended":
       return p.status === "ok"
         ? `${labelValue(mcpServerLabel(p.server), plural(p.tools.length, "tool"))} · ${seconds(p.duration_ms)}`
@@ -7363,7 +7567,7 @@ async function boot() {
     if (store.modelLoad) {
       renderChat();
       const loadText = modelLoadText();
-      setTopStatus(loadText, modelLoadTitle() ?? loadText);
+      if (!store.connectionLost) setTopStatus(loadText, modelLoadTitle() ?? loadText);
     }
   }, 250);
 
@@ -7430,10 +7634,21 @@ async function boot() {
   // reaches the snapshot's tip, the page says so (`data-journal-replayed`, read by the E2E run).
   const replayed = () => (document.body.dataset.journalReplayed = "true");
   if (store.liveFrom === 0) replayed();
-  streamEvents(0, (envelope) => {
-    applyEnvelope(envelope);
-    if (envelope.seq >= store.liveFrom) replayed();
-  });
+  streamEvents(
+    0,
+    (envelope) => {
+      applyEnvelope(envelope);
+      if (envelope.seq >= store.liveFrom) replayed();
+    },
+    (connected) => {
+      // E003: « Connexion au serveur perdue… » in the top bar, gone with the first event.
+      if (store.connectionLost === !connected) return;
+      store.connectionLost = !connected;
+      if (connected) delete document.body.dataset.connection;
+      else document.body.dataset.connection = "lost";
+      render();
+    }
+  );
 }
 
 boot();

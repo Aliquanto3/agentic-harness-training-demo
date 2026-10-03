@@ -105,7 +105,7 @@ session:
   prefix:
     causes:
       system: "Le message système a changé depuis le tour précédent (prompt système, mémoire globale, descriptions d'outils, catalogue de skills ou skill chargé)."
-      history: "L'historique n'est plus rendu tel que le modèle l'a lu (mémoire courte éteinte : l'échange précédent n'est pas renvoyé ; extraits RAG retirés, documentation remplacée par son talon, texte compressé ou réponse réécrite)."
+      history: "L'historique n'est plus rendu tel que le modèle l'a lu (mémoire courte éteinte : l'échange précédent n'est pas renvoyé ; extraits RAG retirés, texte compressé ou réponse réécrite)."
       template: "Une brique activée ou désactivée, ou le gabarit, rend autrement une partie du contexte déjà lue."
       reset: "La conversation a été vidée, ou un scénario ou la réinitialisation l'a remplacée : le cache du moteur contient encore l'ancienne."
       replay: "Rejeu : le tour repart de l'état qui précédait le tour rejoué, alors que le cache du moteur contient ce tour."
@@ -182,6 +182,11 @@ session:
       and_previous: "{message} Le modèle précédent ({label}) n'a pas pu être rechargé."
       window: "Fenêtre de {window} tokens non appliquée ({cause}) : {label} est de nouveau actif avec {current} tokens."
       restored: "{label} n'a pas pu être chargé ({cause}) : {previous} est de nouveau actif."
+    # E119: a served model whose architecture its server cannot run, seen at the first turn.
+    unsupported:
+      back: "WaveStack revient au modèle précédent, {label}."
+      none: "Le tour est terminé ; choisissez un autre modèle dans la barre haute."
+      restored: "{label} ne tourne pas sous Ollama (architecture « {architecture} ») : {previous} est de nouveau actif."
     stopped:
       none: "Chargement arrêté : aucun modèle n'est actif."
       previous_failed: "Chargement arrêté ; le modèle précédent ({label}) n'a pas pu être rechargé."
@@ -276,6 +281,14 @@ session:
     error:
       message: L'aperçu du contexte n'a pas pu être calculé.
       effect: La jauge reste vide jusqu'au premier tour.
+  # Story 4 of the deferred leftovers (E122): the first turn's context evaluated at the
+  # scenario's launch, while the instructions are read (journal only).
+  prefill:
+    phase: "Préremplissage du cache ({tokens} tokens)"
+    started: "Préremplissage du cache : le moteur lit les {tokens} tokens du contexte du premier tour (message système, outils, mémoire) pendant la lecture de la consigne."
+    completed: "Préremplissage terminé : {evaluated} tokens évalués en {seconds} s. Le premier message ne fera relire que ce qui le suit."
+    abandoned: "Préremplissage abandonné après {evaluated} tokens sur {tokens} (un tour, un chargement, un atelier, un réglage ou un autre scénario est arrivé) : la partie évaluée reste réutilisable."
+    error: "Préremplissage interrompu par une erreur après {evaluated} tokens sur {tokens} : {cause}. Le premier tour lira le contexte normalement."
   # Story 9 (AD-3): an action armed for the next turn, or why it is not.
   arm:
     unknown_tool: "Outil inconnu : « {target} » n'est ni un outil de la brique Outils ni l'outil d'un serveur MCP. Rien n'est armé."
@@ -300,6 +313,16 @@ session:
     connecting: "Connexion au serveur MCP {server}"
     no_loop: "Connexion impossible : la boucle asyncio de WaveStack n'est pas démarrée."
     abandoned: "Connexion abandonnée : le serveur a été désactivé."
+    # AD-9 (E089): the live tools/list against content/mcp_snapshots/, beyond the threshold.
+    drift:
+      message: "{server} s'écarte de son instantané de {gap} % (seuil : {threshold} %) : {changes}. La jauge prévue pour ses scénarios peut ne plus tenir ; relancez scripts/snapshot_mcp.py pour mettre l'instantané à jour."
+      added:
+        one: "{count} outil ajouté ({names})"
+        other: "{count} outils ajoutés ({names})"
+      removed:
+        one: "{count} outil retiré ({names})"
+        other: "{count} outils retirés ({names})"
+      weight: "documentation de {before} caractères dans l'instantané, {after} en direct"
   language:
     not_saved: "La langue n'a pas pu être enregistrée dans {path} ({cause}) : elle reste inchangée."
     both_invalid:
@@ -1146,6 +1169,8 @@ models:
     redirect: "Redirection refusée : {provider} a répondu {status} vers {location}. La clé n'est jamais renvoyée ailleurs."
     another_address: une autre adresse
     quota_refused: "Le fournisseur refuse l'appel : {quota}."
+    # D6 (2026-10-01) : 429 avec `x-ratelimit-limit-req-minute: 0`, ni attente ni nouvel essai.
+    no_quota: "{provider} refuse l'appel. Aucun quota actif sur ce compte : vérifiez le plan dans la console du fournisseur."
     quota:
       second: quota dépassé par seconde
       minute: quota dépassé par minute
@@ -1207,6 +1232,8 @@ models:
       message: "Ollama n'a pas déchargé le modèle {name}."
       effect: "WaveStack continue ; Ollama le déchargera de lui-même après son délai d'inactivité."
     tokenizer_refused: "{lib} ne sait pas lire le tokenizer de ce modèle (certains modèles récents d'Ollama) : servez-le plutôt avec llama-server, qui tokenise lui-même."
+    # E119: Ollama read the model's tokenizer at its choice, but cannot run its architecture.
+    unsupported_architecture: "Ollama ne sait pas faire tourner ce modèle : son architecture « {architecture} » est inconnue de cette version d'Ollama, sans doute trop ancienne. Mettez Ollama à jour, ou servez le modèle avec llama-server."
     # Story 29: where a served model's sizes were read.
     dimensions:
       names:

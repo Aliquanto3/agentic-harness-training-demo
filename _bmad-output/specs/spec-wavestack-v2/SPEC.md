@@ -9,6 +9,7 @@ companions:
   - ../../planning-artifacts/architecture/architecture-agentic-harness-training-demo-2026-09-23/ARCHITECTURE-SPINE.md
 sources:
   - ../../forge/wavestack-v2-demo-client-vente-formations/forged-idea.md
+  - ../../implementation-artifacts/rapport-test-prealable-modeles-de-decision.md
 ---
 
 > **Non déclenchée : conditions de la forged idea non remplies au 2026-10-01.**
@@ -81,7 +82,7 @@ Repères : **[V1]** marque une base existante, **[neuf]** ce qui manque. Le dét
 - **Diagnostiquer dans le contexte, pas dans la réponse.** Mesures d'avant génération. La qualité de la réponse reste secondaire (SM-C1). On garde le SLM sur CPU et le budget de 4 Go (NFR-2).
 - **Jamais deux modèles génératifs chargés.** Classifieurs et encodeurs passent par le `LoadRegistry`, dans le budget, comme l'embedding et le reranker de la V1. Un modèle gardien génératif (Llama-Guard, Qwen3Guard) tombe sous la règle d'un seul modèle génératif.
 - **Le jeu de questions reste une démonstration.** Chaque question sert un scénario. L'interface n'affiche aucune métrique agrégée (rappel, MRR, score de réponse) : ce n'est pas un banc d'essai.
-- **Modèle de décision : même règle que Headroom.** La spec nomme la catégorie, « modèle de décision programmable » ; Decision 1.0 (vLLM Semantic Router) est le candidat. Le test préalable est obligatoire, avec ses critères dans `decision-model-candidates.md`. Au 2026-09-25, il échoue : ni GGUF ni ONNX, pas de chemin CPU. Le repli est le SLM utilisé comme juge (critères dans le prompt, sortie contrainte), et la leçon « où vit la règle » reste intacte.
+- **Modèle de décision : même règle que Headroom.** La spec nomme la catégorie, « modèle de décision programmable ». Le test préalable est obligatoire, et ses critères sont dans `decision-model-candidates.md`. Relevés du 2026-10-03 sur le PC cible (stories 6 et 7) : à l'échelon 2, `deberta_xsmall` est retenu par défaut, et mDeBERTa est retenu aussi. `deberta_base` et MiniLM multilingue ne sont retenus que pour un routage démontré RAG éteint. Aucun candidat n'est retenu à l'échelon 1. Decision 2.0 Kai est écarté sur le PC cible au commit relu, à cause d'un défaut amont sous Windows ; on le réessaiera si le code est corrigé. tev1 0.8B, servi par Ollama 0.35, se mesure dans une nouvelle story de banc (story 8). C'est un modèle causal, donc au mieux « à surveiller » tant que la règle d'un seul modèle génératif n'est pas revue. Les variantes multilingues ne départagent pas mieux les prompts français. Le repli de la catégorie reste le SLM utilisé comme juge (critères dans le prompt, sortie contrainte), et la leçon « où vit la règle » reste intacte.
 - **Prix et énergie sont des hypothèses.** Les prix sont datés, sourcés et donnés en ordre de grandeur ; la grille vieillit vite. L'énergie consommée dans le cloud n'est pas publiée : toute comparaison d'énergie est une hypothèse, affichée comme telle.
 - **Un module vendu = un scénario WaveStack + des slides récap à emporter.** Les slides portent la méthode actionnable ; le démonstrateur ne la porte pas seul.
 - **Dépôt et diffusion.** Dépôt privé : GitHub, puis GitLab interne. Licences compatibles avec une remise du code à des clients, contenu non confidentiel (NFR-10, NFR-11). Chez le client, la démo se fait par défaut sur le poste du consultant ; la remise du code se négocie au cas par cas.
@@ -129,3 +130,7 @@ Dans une session d'essai avec des profils techniques, le formateur joue les cas 
 3. **La réponse attendue sert-elle à noter la réponse du modèle ?** Recommandation : non. Elle s'affiche pour le formateur, sans score (SM-C1, « pas un banc d'essai »).
 4. **Contre quels modèles chiffrer le coût contrefactuel ?** Recommandation : les seuls modèles cloud déclarés avec un prix (Groq, Mistral, Gemini). Ajouter une grille de grands modèles payants ferait une deuxième source de prix qui vieillit.
 5. **Où vivent les slides récap des modules ?** Recommandation : hors du dépôt, dans l'espace documentaire Wavestone de la practice. Le dépôt reste remettable à un client, et les slides vendues n'y circulent pas.
+
+**Ouverte depuis le relevé du 2026-10-03 :**
+
+6. **Les clauses de la NVIDIA Open Model License (attribution, garde-fous) permettent-elles de remettre le code à des clients (NFR-10) ?** À relire avant de retenir nvidia à l'échelon 1.

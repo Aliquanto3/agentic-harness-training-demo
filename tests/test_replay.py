@@ -98,7 +98,13 @@ def test_a_documentation_loaded_in_the_origin_turn_is_unloaded_an_earlier_one_st
 
     ctx = replay(session)["context_rendered"][0]
 
-    assert definition_names(ctx) == [LOCAL[0], "load_tool_doc"]
+    # D16 (story 4 of the deferred leftovers, local mode): `tools` never changes; the branch
+    # decides which documentation the history still carries (AD-17).
+    assert definition_names(ctx) == ["load_tool_doc"]
+    history = [s["text"] for s in _segments(ctx, "history")]
+    assert any(f'"name": "{LOCAL[0]}"' in t for t in history)
+    assert not any(f'"name": "{LOCAL[1]}"' in t for t in history)
+    assert session.build_turn_state().documented == (LOCAL[0],)
     session.close()
 
 

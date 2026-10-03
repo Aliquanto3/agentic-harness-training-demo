@@ -11,8 +11,10 @@ import threading
 import time
 from collections.abc import Iterator, Sequence
 
+import pytest
 from fake_engine import CHATML, FakeEngine, booted_session
 from test_global_memory import DEMO, PREFERENCE, memory_session, memory_texts, remember
+from test_mcp import McpWeb, loop, mcp_session, wait_for, web  # noqa: F401
 from test_rag import COVERED, OFF_CORPUS, index, place_model, rag_config, rag_session  # noqa: F401
 from test_subagent import RESULT, delegation, sub_session
 from test_tools import QWEN, call
@@ -333,7 +335,11 @@ def test_a_cleared_conversation_is_a_reset():
 
 
 def test_a_scenario_change_is_a_reset():
-    engine = FakeEngine(outputs=["Bonjour.", "Oui."], template=QWEN_TEXT, architecture="qwen35")
+    # Without a prefill (E122): with one, the engine's cache holds the new scenario's prefix
+    # once it ends, and the first turn extends it (`test_a_prefill_after_a_conversation…`).
+    engine = EngineWithoutPrefill(
+        outputs=["Bonjour.", "Oui."], template=QWEN_TEXT, architecture="qwen35"
+    )
     session = booted_session(engine, window=16384)
     session.launch_scenario("short_memory")
     session.join()
@@ -529,4 +535,282 @@ def test_an_engine_without_cache_names_a_past_answer_rewritten():
     (reread,) = of(run(session, "Ça va ?"), "prefix_not_reused")
 
     assert reread["cause"] == "history"
+    session.close()
+
+
+# ---------- story 4 of the deferred leftovers (E122): the first turn prefilled ----------
+
+
+class EngineWithoutPrefill(FakeEngine):
+    """A server-like engine, with a cache but without `prefill`: the session emits nothing."""
+
+    prefill = None  # type: ignore[assignment]
+
+
+class EnginePrefillFails(FakeEngine):
+    """`prefill` fails after its first batch, whose ids stay in the cache."""
+
+    def prefill(self, ids: Sequence[int], cancel: CancelToken) -> int | None:
+        wanted = list(ids)
+        self.prefills.append(wanted)
+        self.cache = wanted[: self.prefill_batch]
+        raise RuntimeError("moteur en panne")
+
+
+def prefill_of(mark: int) -> tuple[list[dict], list[dict]]:
+    events = get_journal().events_since(mark)
+    return of(events, "context_prefill_started", None), of(events, "context_prefill_ended", None)
+
+
+def launch(session, scenario_id: str) -> tuple[dict, dict]:
+    """Launch `scenario_id`, wait for its prefill to end; its started and ended payloads."""
+    mark = get_journal().last_seq()
+    session.launch_scenario(scenario_id)
+    wait_for(session, "context_prefill_ended", mark)
+    (started,), (ended,) = prefill_of(mark)
+    return started, ended
+
+
+def until(predicate, what: str) -> None:  # noqa: ANN001
+    """Poll `predicate` without `join` (the worker may be waiting on a gate)."""
+    deadline = time.monotonic() + 10
+    while not predicate():
+        assert time.monotonic() < deadline, what
+        time.sleep(0.01)
+
+
+def prefilling_session(gate: threading.Event, scenario_id: str = "native_tools"):
+    """A scenario launched, its prefill holding on `gate` after its first batch of 64 ids."""
+    engine = FakeEngine(
+        outputs=["Bonjour !"],
+        template=QWEN_TEXT,
+        architecture="qwen35",
+        prefill_batch=64,
+        prefill_gate=gate,
+    )
+    session = booted_session(engine, window=16384)
+    mark = get_journal().last_seq()
+    session.launch_scenario(scenario_id)
+    until(lambda: len(engine.cache) >= 64, "first batch evaluated")
+    return engine, session, mark
+
+
+def test_a_scenario_launch_prefills_and_the_first_call_extends_the_prefix():
+    engine = FakeEngine(outputs=["Bonjour !"], template=QWEN_TEXT, architecture="qwen35")
+    session = booted_session(engine, window=16384)
+    plain = EngineWithoutPrefill(outputs=["Bonjour !"], template=QWEN_TEXT, architecture="qwen35")
+    witness = booted_session(plain, window=16384)
+
+    started, ended = launch(session, "native_tools")
+
+    (prefix,) = engine.prefills
+    assert started["tokens"] == ended["tokens"] == len(prefix) > 0
+    assert ended["status"] == "completed" and ended["evaluated_tokens"] == len(prefix)
+    assert engine.prefilled == [len(prefix)] and engine.calls == [] and engine.evaluated == []
+    assert "pendant la lecture de la consigne" in started["message_text"]
+    assert ended["message_text"].startswith("Préremplissage terminé")
+    # The boundary: before the message, one token short of the template's own newline.
+    assert bytes(prefix).decode("utf-8").endswith("<|im_start|>user")
+
+    events = run(session, "Quelle heure est-il ?")
+    witness.launch_scenario("native_tools")
+    witness.join()
+    control = run(witness, "Quelle heure est-il ?")
+
+    assert engine.calls[0][: len(prefix)] == prefix  # the first call extends the prefix
+    (call,) = of(events, "model_call_ended")
+    assert call["evaluated_tokens"] == engine.evaluated[0] == len(engine.calls[0]) - len(prefix)
+    assert of(events, "prefix_not_reused", None) == []
+    # The same context, id for id, as without any prefill (E122: nothing sent changes).
+    assert engine.calls[0] == plain.calls[0] and plain.evaluated[0] == len(plain.calls[0])
+    mine, theirs = of(events, "context_rendered")[0], of(control, "context_rendered")[0]
+    assert prompt(mine) == prompt(theirs) and mine["used"] == theirs["used"]
+    assert of(control, "context_prefill_started", None) == [] and plain.prefills == []
+    exact(events)
+    session.close()
+    witness.close()
+
+
+def test_a_message_during_the_prefill_abandons_it_and_reuses_the_part_evaluated():
+    gate = threading.Event()
+    engine, session, mark = prefilling_session(gate)
+
+    session.send("Bonjour")  # accepted at once: the prefill never blocks the user
+    gate.set()
+    session.join()
+
+    events = get_journal().events_since(mark)
+    (ended,) = of(events, "context_prefill_ended", None)
+    assert ended["status"] == "abandoned" and ended["evaluated_tokens"] == 64 < ended["tokens"]
+    assert ended["message_text"].startswith("Préremplissage abandonné après 64 tokens")
+    assert engine.prefilled == [64]
+    kinds = [e.kind for e in events]
+    assert kinds.index("context_prefill_ended") < kinds.index("model_call_started")
+    assert engine.calls[0][:64] == engine.prefills[0][:64]  # the part evaluated is reused
+    assert engine.evaluated[0] == len(engine.calls[0]) - 64
+    assert of(events, "prefix_not_reused", None) == []
+    assert of(events, "turn_ended")[0]["status"] == "completed"
+    session.close()
+
+
+def test_a_setting_changed_during_the_prefill_abandons_it():
+    gate = threading.Event()
+    engine, session, mark = prefilling_session(gate)
+
+    session.set_brick("hooks", True)  # class (a): the preview is rendered again, not prefilled
+    gate.set()
+    session.join()
+
+    started, ended = prefill_of(mark)
+    assert len(started) == 1 and [e["status"] for e in ended] == ["abandoned"]
+    assert engine.prefilled == [64]
+    assert of(get_journal().events_since(mark), "context_preview", None)[-1]  # the preview
+    session.close()
+
+
+def test_a_model_load_during_the_prefill_abandons_it():
+    gate = threading.Event()
+    engine, session, mark = prefilling_session(gate)
+
+    session.set_context_window(8192)  # class (b): leaves `idle` for a reload
+    gate.set()
+    session.join()
+
+    started, ended = prefill_of(mark)
+    assert len(started) == 1 and [e["status"] for e in ended] == ["abandoned"]
+    assert engine.prefilled == [64]
+    session.close()
+
+
+def test_a_prefill_that_fails_is_traced_as_an_error_and_the_turn_follows():
+    engine = EnginePrefillFails(
+        outputs=["Bonjour !"], template=QWEN_TEXT, architecture="qwen35", prefill_batch=64
+    )
+    session = booted_session(engine, window=16384)
+
+    started, ended = launch(session, "native_tools")
+
+    assert started["phase_label"].startswith("Préremplissage du cache (")  # AD-2: a phase
+    assert started["phase_label"].endswith(" tokens)")
+    assert ended["status"] == "error" and "moteur en panne" in ended["message_text"]
+    assert ended["evaluated_tokens"] == 64 < ended["tokens"]  # what sits in the cache
+    events = run(session, "Bonjour")
+    assert of(events, "turn_ended")[0]["status"] == "completed"
+    assert of(events, "prefix_not_reused", None) == []
+    assert engine.evaluated[0] == len(engine.calls[0]) - 64
+    session.close()
+
+
+def test_a_prefill_after_a_conversation_leaves_no_false_reset():
+    """`_main_cache` held the previous conversation: once the prefill ends it follows the
+    engine's cache, which the first turn extends (no `prefix_not_reused{reset}`)."""
+    engine = FakeEngine(outputs=["Bonjour.", "Oui."], template=QWEN_TEXT, architecture="qwen35")
+    session = booted_session(engine, window=16384)
+    session.launch_scenario("short_memory")
+    session.join()
+    run(session, "Bonjour")
+
+    _, ended = launch(session, "system_prompt")
+    events = run(session, "Ça va ?")
+
+    assert ended["status"] == "completed"
+    prefix = engine.prefills[-1]
+    assert engine.calls[-1][: len(prefix)] == prefix
+    assert of(events, "prefix_not_reused", None) == []
+    (call,) = of(events, "model_call_ended")
+    assert call["evaluated_tokens"] == engine.evaluated[-1] == len(engine.calls[-1]) - len(prefix)
+    session.close()
+
+
+def test_another_scenario_during_the_prefill_abandons_it_and_prefills_its_own():
+    gate = threading.Event()
+    engine, session, mark = prefilling_session(gate)
+
+    session.launch_scenario("short_memory")
+    gate.set()
+    wait_for(session, "context_prefill_ended", mark, n=2)
+
+    started, ended = prefill_of(mark)
+    assert [e["status"] for e in ended] == ["abandoned", "completed"]
+    assert len(started) == 2 and engine.prefilled[0] == 64
+    assert engine.cache == engine.prefills[1]  # the second scenario's prefix is in cache
+    session.close()
+
+
+@pytest.mark.parametrize("engine_kind", ["without_prefill", "stateless"])
+def test_an_engine_that_cannot_prefill_gets_no_event(engine_kind):
+    if engine_kind == "without_prefill":
+        engine = EngineWithoutPrefill(
+            outputs=["Bonjour !"], template=QWEN_TEXT, architecture="qwen35"
+        )
+    else:  # a server: `cached_ids` is None, `prefill` too
+        engine = FakeEngine(
+            outputs=["Bonjour !"], template=QWEN_TEXT, architecture="qwen35", stateful=False
+        )
+    session = booted_session(engine, window=16384)
+    mark = get_journal().last_seq()
+
+    session.launch_scenario("native_tools")
+    session.join()
+
+    assert prefill_of(mark) == ([], []) and engine.prefills == []
+    assert of(run(session, "Bonjour"), "turn_ended")[0]["status"] == "completed"
+    session.close()
+
+
+def test_the_prefix_holds_with_h3s_injection_before_the_message():
+    """The `subagent` scenario keeps H3 on: its injection precedes the message, within the
+    prefix (the preview's injection is the turn's)."""
+    engine = FakeEngine(outputs=["Bonjour !"], template=QWEN_TEXT, architecture="qwen35")
+    session = booted_session(engine, window=16384)
+    _, ended = launch(session, "subagent")
+    assert ended["status"] == "completed"
+    (prefix,) = engine.prefills
+
+    events = run(session, "Bonjour")
+
+    ctx = of(events, "context_rendered")[0]
+    (injection,) = [s["text"] for s in ctx["segments"] if s["kind"] == "hook_injection"]
+    assert injection.encode("utf-8") in bytes(prefix)
+    assert engine.calls[0][: len(prefix)] == prefix
+    assert engine.evaluated[0] == len(engine.calls[0]) - len(prefix)
+    assert of(events, "prefix_not_reused", None) == []
+    exact(events)
+    session.close()
+
+
+DATAGOUV = [
+    {
+        "name": "search_datasets",
+        "description": "Recherche des jeux de données publics.",
+        "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}},
+    }
+]
+
+
+def test_the_mcp_lazy_scenario_prefills_after_its_connections_with_the_catalog(loop, web):  # noqa: F811
+    web(McpWeb(DATAGOUV))
+    session = mcp_session(loop, ["Voilà."], window=16384)
+    engine = session._engine
+    mark = get_journal().last_seq()
+
+    session.launch_scenario("mcp_lazy")
+    wait_for(session, "context_prefill_ended", mark)
+
+    events = get_journal().events_since(mark)
+    kinds = [e.kind for e in events]
+    connected = [i for i, k in enumerate(kinds) if k == "mcp_connect_ended"]
+    assert len(connected) == 2 and kinds.index("context_prefill_started") > max(connected)
+    (ended,) = of(events, "context_prefill_ended", None)
+    assert ended["status"] == "completed"
+    (prefix,) = engine.prefills
+    text = bytes(prefix).decode("utf-8")
+    assert "- local__define_term" in text and "- datagouv__search_datasets" in text
+    assert '"name": "load_tool_doc"' in text
+
+    turn = run(session, "Que veut dire MCP ?")
+
+    assert engine.calls[0][: len(prefix)] == prefix
+    assert of(turn, "prefix_not_reused", None) == []
+    exact(turn)
     session.close()

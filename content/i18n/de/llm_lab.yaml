@@ -7,7 +7,6 @@ intro_text: >-
   Gedächtnis. Wir sehen, was das Modell selbst tut: den Text in Tokens zerlegen, sie in
   Vektoren umwandeln und dann eine Antwort erzeugen, Token für Token. Diese Ansicht arbeitet
   mit dem aktiven Modell der Werkstatt, ohne deren Unterhaltung anzutasten.
-back_text: "← Werkstatt"
 change_model_text: "Modell in der Werkstatt wechseln"
 active_model_text: "Aktives Modell"
 no_model_text: "Kein aktives Modell: Wählen Sie eines in der Werkstatt."
@@ -81,8 +80,16 @@ tokenization:
   default_text_text: "Guten Tag, wie geht es Ihnen?"
   button_text: "In Tokens zerlegen"
   running_text: "Zerlegung läuft…"
-  counts_text: "{tokens} Tokens für {caracteres} Zeichen"
-  more_text: "… und {reste} weitere Tokens, nicht angezeigt (höchstens 512 Chips)."
+  token_noun:
+    one: "{n} Token"
+    other: "{n} Tokens"
+  character_noun:
+    one: "{n} Zeichen"
+    other: "{n} Zeichen"
+  counts_text: "{tokens_phrase} für {caracteres_phrase}"
+  more_text:
+    one: "… und {reste} weiteres Token, nicht angezeigt (höchstens 512 Chips)."
+    other: "… und {reste} weitere Tokens, nicht angezeigt (höchstens 512 Chips)."
   special_text: "Spezial"
   special_help_text: >-
     Spezial-Token: eine Markierung der Vorlage (Anfang oder Ende einer Nachricht), die als
@@ -90,7 +97,7 @@ tokenization:
   blanks_text: "␣ markiert ein Leerzeichen, ↵ einen Zeilenumbruch: Sie sind Tokens wie alle anderen."
   exact_text: "Exakte Zerlegung durch den Tokenizer des aktiven Modells."
   estimate_text: >-
-    Schätzung des Harness: ≈ {estimation} Tokens ({caracteres} Zeichen, bei {ratio} Zeichen
+    Schätzung des Harness: ≈ {estimation_phrase} ({caracteres_phrase}, bei {ratio} Zeichen
     pro Token).
   empty_text: "Zerlegen Sie einen Text: Seine Tokens erscheinen hier."
 
@@ -143,7 +150,10 @@ reading:
   empty_text: "Generieren Sie eine Antwort: Der von der Vorlage des Modells gerenderte Prompt erscheint hier."
   rendered_label_text: "Von der Vorlage gerenderter Prompt (exakter, an das Modell gesendeter Text)"
   body_label_text: "An den Anbieter gesendeter JSON-Body (die Vorlage wird dort angewendet)"
-  tokens_text: "{tokens} Tokens zu lesen, Ausgabereserve von {reserve} Tokens"
+  token_noun:
+    one: "{n} Token"
+    other: "{n} Tokens"
+  tokens_text: "{tokens_phrase} zu lesen, Ausgabereserve von {reserve_phrase}"
   waiting_text: "Prompt wird gelesen… {duree}"
   first_token_text: "Erstes Token nach {duree}"
   read_rate_text: "Lesedurchsatz: {debit} Tokens/s"
@@ -155,8 +165,12 @@ generation:
   stop_text: "Stoppen"
   running_text: "Generierung läuft…"
   empty_text: "Die erzeugten Tokens erscheinen hier, eines nach dem anderen."
-  count_text: "{tokens} Tokens erzeugt"
-  fragments_text: "{tokens} Fragmente empfangen"
+  count_text:
+    one: "{tokens} Token erzeugt"
+    other: "{tokens} Tokens erzeugt"
+  fragments_text:
+    one: "{tokens} Fragment empfangen"
+    other: "{tokens} Fragmente empfangen"
   rate_text: "Ausgabedurchsatz: {debit} Tokens/s"
   cloud_text: >-
     Cloud-Modell: Das sind vom Anbieter empfangene Fragmente, keine einzelnen Tokens. Der
@@ -188,9 +202,15 @@ reasoning:
   thinking_text: "Überlegung"
   answer_text: "Antwort"
   empty_text: "Noch nichts."
-  count_text: "{tokens} Tokens"
-  fragments_count_text: "{tokens} Fragmente"
-  reserve_text: "Ausgabereserve: {reserve} Tokens, wenn das Modell nachdenkt."
+  count_text:
+    one: "{tokens} Token"
+    other: "{tokens} Tokens"
+  fragments_count_text:
+    one: "{tokens} Fragment"
+    other: "{tokens} Fragmente"
+  reserve_text:
+    one: "Ausgabereserve: {reserve} Token, wenn das Modell nachdenkt."
+    other: "Ausgabereserve: {reserve} Tokens, wenn das Modell nachdenkt."
 
 candidates:
   toggle_text: "Kandidaten-Tokens zeigen"
@@ -252,8 +272,12 @@ window:
   prompt_text: "Prompt: {tokens}"
   free_text: "Frei"
   reserve_text: "Ausgabereserve: {reserve}"
-  output_text: "Antwort: {tokens} Tokens"
-  output_fragments_text: "Antwort: {tokens} Fragmente empfangen"
+  output_text:
+    one: "Antwort: {tokens} Token"
+    other: "Antwort: {tokens} Tokens"
+  output_fragments_text:
+    one: "Antwort: {tokens} Fragment empfangen"
+    other: "Antwort: {tokens} Fragmente empfangen"
   caption_text: >-
     Das Fenster fasst {fenetre} Tokens: {utilisables} für den Prompt, {reserve} für die
     Antwort reserviert. Bei jedem Schritt liest das Modell das ganze bisher gefüllte Fenster

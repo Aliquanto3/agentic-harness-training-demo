@@ -18,7 +18,7 @@ import json
 import re
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -184,6 +184,12 @@ def _quota_scope(message: str) -> str:
     return "unknown"
 
 
+def _no_quota(response: httpx.Response) -> bool:
+    """D6 (2026-10-01): a 429 whose `x-ratelimit-limit-req-minute` is `0`, the account has no
+    active quota at all. Read for the explanation only, never to wait or retry."""
+    return response.headers.get("x-ratelimit-limit-req-minute", "").strip() == "0"
+
+
 _QUOTA_FR = {
     scope: Message(f"models.openai_chat.quota.{scope}") for scope in ("second", "minute", "day")
 }
@@ -198,7 +204,8 @@ _last_start: dict[str, float] = {}  # entry.id → the monotonic time of its las
 def pace(entry: CloudModel, cancel: CancelToken) -> bool:
     """Wait until `min_interval_s` has passed since the last send to `entry.id`, from any
     adapter instance (« Tester » builds its own). `False` when cancelled while waiting: the
-    call is then not sent. Never read from `x-ratelimit-*` headers."""
+    call is then not sent. Never read from `x-ratelimit-*` headers (`_no_quota` reads one, for
+    a message only)."""
     interval = entry.min_interval_s
     if not interval:
         return True
@@ -372,6 +379,9 @@ class OpenAIChatEngine:
     def restore(self, snapshot: EngineSnapshot) -> bool:
         return False
 
+    def prefill(self, ids: Sequence[int], cancel: CancelToken) -> int | None:
+        return None  # E122: nothing to evaluate ahead at a provider
+
     @property
     def last_evaluated(self) -> int | None:
         return None
@@ -482,6 +492,17 @@ class OpenAIChatEngine:
                 ),
                 cause,
                 [Message("models.openai_chat.hint.check_base_url"), *local],
+                http_status=status,
+                **said,
+            )
+        if status == 429 and _no_quota(response):
+            # D6 of 2026-10-01: an account without any active quota (Mistral's workspace
+            # without a plan) refuses every call; waiting or spacing would not help. The one
+            # reading of an `x-ratelimit-*` header, for this message only (never a wait).
+            raise self._error(
+                self._text("no_quota", provider=provider),
+                cause,
+                local,
                 http_status=status,
                 **said,
             )
@@ -663,9 +684,10 @@ class OpenAIChatEngine:
         if splitter is not None:
             for channel, text in splitter.flush():
                 yield channel, self.mask(text)
-        # By `index` when every call has one; else (Gemini sends none, calls keyed by `id`) in
-        # arrival order: ids do not sort (`call_99999` would follow `call_100002`).
-        indexed = all(isinstance(key, int) for key in calls)
+        # By `index` (then opening order) when every call has one; else (Gemini sends none,
+        # calls keyed by `id`) in arrival order: ids do not sort (`call_99999` would follow
+        # `call_100002`).
+        indexed = all(isinstance(key, int) for key, _ in calls)
         ordered = [
             {
                 k: self.mask(v) if isinstance(v, str) and k != "extra_content" else v
@@ -704,8 +726,18 @@ class OpenAIChatEngine:
                         if isinstance(text, str) and text:
                             yield "reasoning", text
         for call in delta.get("tool_calls") or []:
+            # Story 2 of the deferred leftovers (E048): keyed `(index or id, n)`. A fragment
+            # that starts a call (a `function.name`) under another `id` than the call open on
+            # its key opens a new call there: two parallel calls sent under the same `index`
+            # stay two calls. Without a name, it continues the open call (a server that sends
+            # a fresh `id` on each delta of one call).
             key = call.get("index", call.get("id"))
-            acc = calls.setdefault(key, {"provider_id": None, "name": "", "arguments": ""})
+            n = max((k[1] for k in calls if k[0] == key), default=None)
+            open_id = calls[(key, n)]["provider_id"] if n is not None else None
+            named = bool((call.get("function") or {}).get("name"))
+            if n is None or (named and call.get("id") and open_id and call["id"] != open_id):
+                n = 0 if n is None else n + 1
+            acc = calls.setdefault((key, n), {"provider_id": None, "name": "", "arguments": ""})
             if call.get("id"):
                 acc["provider_id"] = call["id"]
             if isinstance(call.get("extra_content"), dict):  # Gemini 3.x: thought signature

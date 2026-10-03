@@ -9,7 +9,6 @@ intro_text: >-
   in den Kontext des Modells gelangen. Starten Sie die Kette mit einer Frage, um zu sehen, was
   jeder Schritt erhält, was er erzeugt und was er kostet. Das ist eine Spielwiese: Der
   RAG-Baustein der Werkstatt ändert sich nicht.
-back_text: "← Werkstatt"
 busy_text: "Derzeit nicht verfügbar: {raison}"
 
 chain_title_text: "Die Kette"

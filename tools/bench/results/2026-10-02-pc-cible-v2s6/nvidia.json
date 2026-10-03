@@ -1,0 +1,650 @@
+{
+  "candidate": "nvidia",
+  "tier": "1",
+  "models_dir": "C:\\Users\\anael.yahi\\.cache\\wavestack-bench",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "machine": "AMD64",
+  "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+  "cpu_count": 8,
+  "python": "3.13.5",
+  "measured_at": "2026-10-03T00:50",
+  "target_pc": true,
+  "windows_release": "11",
+  "admin": false,
+  "bench_sha256": "39f249115745bb7060a06ef8fde8aeb3d346a8be609d9371dd5e895aa115c1ae",
+  "repo_commit": "731564765ed0fd25c8c6516472903d9b231b37c7",
+  "ram_total_mb": 16064,
+  "command": "uv run --with torch --with transformers --with safetensors python tools/bench/v2s6_decision_bench.py measure nvidia --download --slm $SLM --out \"$OUT\\nvidia.json\"",
+  "rss_added_method": "pic",
+  "v1_rag_rss_mb": 1170,
+  "download": {
+    "guard": "wavestack.net.guard",
+    "hosts": [],
+    "revisions": {
+      "nvidia/prompt-task-and-complexity-classifier": "fea1121511eafabaf7dd6fc66863dcb04f74defb",
+      "microsoft/deberta-v3-base": "8ccc9b6f36199bec6961081d44eb72fb3f7353f3"
+    },
+    "errors": {}
+  },
+  "id": "nvidia",
+  "guard": "wavestack.net.guard",
+  "slm": "C:\\Users\\anael.yahi\\AppData\\Local\\WaveStack\\models\\Qwen3.5-2B-Q4_K_M.gguf",
+  "slm_n_ctx": 4096,
+  "llama_cpp_version": "0.3.35",
+  "slm_load_s": 3.15,
+  "rss_with_slm_mb": 1939,
+  "load_s": 29.33,
+  "revisions": {
+    "nvidia/prompt-task-and-complexity-classifier": "fea1121511eafabaf7dd6fc66863dcb04f74defb",
+    "microsoft/deberta-v3-base": "8ccc9b6f36199bec6961081d44eb72fb3f7353f3"
+  },
+  "load_warnings": {
+    "missing_keys": 0,
+    "unexpected_keys": 0
+  },
+  "rss_before_load_mb": 1939,
+  "peak_before_load_mb": 1939,
+  "rss_loaded_mb": 3043,
+  "rss_peak_mb": 3640,
+  "warmup_ms": 570.4,
+  "rows": [
+    {
+      "prompt": "bare_llm.0",
+      "task": "cost",
+      "label": "simple",
+      "expected": "simple",
+      "ms": 295.7
+    },
+    {
+      "prompt": "bare_llm.0",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "general",
+      "ms": 300.5
+    },
+    {
+      "prompt": "reasoning.0",
+      "task": "cost",
+      "label": "simple",
+      "expected": "complexe",
+      "ms": 476.3
+    },
+    {
+      "prompt": "reasoning.0",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "general",
+      "ms": 536.6
+    },
+    {
+      "prompt": "system_prompt.0",
+      "task": "cost",
+      "label": "simple",
+      "expected": "simple",
+      "ms": 310.9
+    },
+    {
+      "prompt": "system_prompt.0",
+      "task": "specialty",
+      "label": "Text Generation",
+      "expected": "general",
+      "ms": 296.7
+    },
+    {
+      "prompt": "global_memory.1",
+      "task": "cost",
+      "label": "simple",
+      "expected": "complexe",
+      "ms": 485.3
+    },
+    {
+      "prompt": "global_memory.1",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "general",
+      "ms": 429.3
+    },
+    {
+      "prompt": "native_tools.1",
+      "task": "cost",
+      "label": "simple",
+      "expected": "simple",
+      "ms": 317.0
+    },
+    {
+      "prompt": "native_tools.1",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "general",
+      "ms": 286.7
+    },
+    {
+      "prompt": "caveman.0",
+      "task": "cost",
+      "label": "simple",
+      "expected": "simple",
+      "ms": 446.1
+    },
+    {
+      "prompt": "caveman.0",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "general",
+      "ms": 418.4
+    },
+    {
+      "prompt": "native_tools.2",
+      "task": "cost",
+      "label": "simple",
+      "expected": "simple",
+      "ms": 402.4
+    },
+    {
+      "prompt": "native_tools.2",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "documents",
+      "ms": 420.3
+    },
+    {
+      "prompt": "rag.1",
+      "task": "cost",
+      "label": "simple",
+      "expected": "simple",
+      "ms": 416.1
+    },
+    {
+      "prompt": "rag.1",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "documents",
+      "ms": 430.3
+    },
+    {
+      "prompt": "hooks.0",
+      "task": "cost",
+      "label": "simple",
+      "expected": "complexe",
+      "ms": 482.4
+    },
+    {
+      "prompt": "hooks.0",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "documents",
+      "ms": 424.5
+    },
+    {
+      "prompt": "compression.0",
+      "task": "cost",
+      "label": "complexe",
+      "expected": "complexe",
+      "ms": 485.0
+    },
+    {
+      "prompt": "compression.0",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "documents",
+      "ms": 513.5
+    },
+    {
+      "prompt": "compression.1",
+      "task": "cost",
+      "label": "simple",
+      "expected": "simple",
+      "ms": 451.9
+    },
+    {
+      "prompt": "compression.1",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "documents",
+      "ms": 425.0
+    },
+    {
+      "prompt": "network_tools.0",
+      "task": "cost",
+      "label": "simple",
+      "expected": "simple",
+      "ms": 415.0
+    },
+    {
+      "prompt": "network_tools.0",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "recherche",
+      "ms": 397.7
+    },
+    {
+      "prompt": "network_tools.1",
+      "task": "cost",
+      "label": "simple",
+      "expected": "complexe",
+      "ms": 408.4
+    },
+    {
+      "prompt": "network_tools.1",
+      "task": "specialty",
+      "label": "Summarization",
+      "expected": "recherche",
+      "ms": 412.8
+    },
+    {
+      "prompt": "mcp_lazy.1",
+      "task": "cost",
+      "label": "simple",
+      "expected": "simple",
+      "ms": 378.9
+    },
+    {
+      "prompt": "mcp_lazy.1",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "recherche",
+      "ms": 430.1
+    },
+    {
+      "prompt": "sovereignty.0",
+      "task": "cost",
+      "label": "simple",
+      "expected": "complexe",
+      "ms": 631.4
+    },
+    {
+      "prompt": "sovereignty.0",
+      "task": "specialty",
+      "label": "Text Generation",
+      "expected": "recherche",
+      "ms": 675.2
+    },
+    {
+      "prompt": "rag.0",
+      "task": "cost",
+      "label": "simple",
+      "expected": "simple",
+      "ms": 446.0
+    },
+    {
+      "prompt": "rag.0",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "securite",
+      "ms": 442.8
+    },
+    {
+      "prompt": "soc.0",
+      "task": "cost",
+      "label": "simple",
+      "expected": "complexe",
+      "ms": 487.6
+    },
+    {
+      "prompt": "soc.0",
+      "task": "specialty",
+      "label": "Closed QA",
+      "expected": "securite",
+      "ms": 455.5
+    },
+    {
+      "prompt": "soc.1",
+      "task": "cost",
+      "label": "simple",
+      "expected": "complexe",
+      "ms": 610.2
+    },
+    {
+      "prompt": "soc.1",
+      "task": "specialty",
+      "label": "Text Generation",
+      "expected": "securite",
+      "ms": 544.9
+    },
+    {
+      "prompt": "iam.0",
+      "task": "cost",
+      "label": "simple",
+      "expected": "complexe",
+      "ms": 490.1
+    },
+    {
+      "prompt": "iam.0",
+      "task": "specialty",
+      "label": "Open QA",
+      "expected": "securite",
+      "ms": 519.1
+    },
+    {
+      "prompt": "iam.1",
+      "task": "cost",
+      "label": "simple",
+      "expected": "complexe",
+      "ms": 635.2
+    },
+    {
+      "prompt": "iam.1",
+      "task": "specialty",
+      "label": "Closed QA",
+      "expected": "securite",
+      "ms": 711.0
+    }
+  ],
+  "decisions": 40,
+  "latency_median_ms": 436.6,
+  "latency_max_ms": 711.0,
+  "agreement": {
+    "cost": "11/20",
+    "specialty": "sans objet (étiquettes fixes du modèle)"
+  },
+  "rss_added_mb": 1701,
+  "versions": {
+    "torch": "2.14.1",
+    "transformers": "5.18.0",
+    "safetensors": "0.8.0"
+  },
+  "torch_loaded": true,
+  "heavy_modules_loaded": [
+    "torch",
+    "transformers"
+  ],
+  "attempts": [],
+  "status": "measured",
+  "packages": [
+    {
+      "name": "annotated-doc",
+      "version": "0.0.5",
+      "license": "MIT",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "anyio",
+      "version": "4.15.1",
+      "license": "MIT",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "certifi",
+      "version": "2026.7.22",
+      "license": "Mozilla Public License 2.0 (MPL 2.0)",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "click",
+      "version": "8.5.0",
+      "license": "BSD-3-Clause",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "colorama",
+      "version": "0.4.6",
+      "license": "BSD License",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "filelock",
+      "version": "4.0.3",
+      "license": "MIT",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "fsspec",
+      "version": "2026.9.0",
+      "license": "BSD-3-Clause",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "h11",
+      "version": "0.16.0",
+      "license": "MIT License",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "hf-xet",
+      "version": "1.6.0",
+      "license": "Apache-2.0",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "httpcore",
+      "version": "1.0.9",
+      "license": "BSD-3-Clause",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "httpx",
+      "version": "0.28.1",
+      "license": "BSD License",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "huggingface_hub",
+      "version": "1.33.0",
+      "license": "Apache Software License",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "idna",
+      "version": "3.20",
+      "license": "BSD-3-Clause",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "Jinja2",
+      "version": "3.1.6",
+      "license": "BSD License",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "markdown-it-py",
+      "version": "4.2.0",
+      "license": "MIT License",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "MarkupSafe",
+      "version": "3.0.3",
+      "license": "BSD-3-Clause",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "mdurl",
+      "version": "0.1.2",
+      "license": "MIT License",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "mpmath",
+      "version": "1.3.0",
+      "license": "BSD License",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "networkx",
+      "version": "3.7",
+      "license": "BSD-3-Clause",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "numpy",
+      "version": "2.5.3",
+      "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "Pygments",
+      "version": "2.21.0",
+      "license": "BSD-2-Clause",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "PyYAML",
+      "version": "6.0.3",
+      "license": "MIT License",
+      "class": "ok",
+      "added": false
+    },
+    {
+      "name": "regex",
+      "version": "2026.9.10",
+      "license": "Apache-2.0 AND CNRI-Python",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "rich",
+      "version": "15.0.0",
+      "license": "MIT License",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "safetensors",
+      "version": "0.8.0",
+      "license": "Apache Software License",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "setuptools",
+      "version": "84.0.0",
+      "license": "MIT",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "shellingham",
+      "version": "1.5.4",
+      "license": "ISC License (ISCL)",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "sympy",
+      "version": "1.14.0",
+      "license": "BSD License",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "tokenizers",
+      "version": "0.23.2",
+      "license": "Apache Software License",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "torch",
+      "version": "2.14.1",
+      "license": "Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "tqdm",
+      "version": "4.70.1",
+      "license": "MPL-2.0 AND MIT",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "transformers",
+      "version": "5.18.0",
+      "license": "Apache 2.0 License",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "typer",
+      "version": "0.27.2",
+      "license": "MIT",
+      "class": "ok",
+      "added": true
+    },
+    {
+      "name": "typing_extensions",
+      "version": "4.16.0",
+      "license": "PSF-2.0",
+      "class": "ok",
+      "added": false
+    }
+  ],
+  "verdict": {
+    "status": "à surveiller",
+    "reason": "Sans torch",
+    "criteria": [
+      {
+        "id": "cpu_windows",
+        "label": "CPU sous Windows 11, sans droits admin",
+        "ok": true,
+        "detail": "Windows 11, session sans droits admin ; vérifier dans la sortie de uv qu'aucun paquet n'a été compilé (« Building … »)"
+      },
+      {
+        "id": "ram",
+        "label": "RAM : pic total ≤ 4096 Mo, SLM par défaut chargé (NFR-2)",
+        "ok": true,
+        "detail": "pic total 3640 Mo (SLM chargé : 1939 Mo), ajouté par le candidat 1701 Mo au pic ; avec l'embedding et le reranker V1 (1170 Mo mesurés), 4810 Mo"
+      },
+      {
+        "id": "latency",
+        "label": "Latence : médiane ≤ 1000 ms, maximum ≤ 3000 ms",
+        "ok": true,
+        "detail": "médiane 436.6 ms, maximum 711.0 ms sur 40 décisions (échauffement 570.4 ms, chargement 29.33 s)"
+      },
+      {
+        "id": "offline",
+        "label": "Hors ligne : aucune tentative réseau sous la garde d'AD-15",
+        "ok": true,
+        "detail": "hôtes tentés : aucun"
+      },
+      {
+        "id": "pinned",
+        "label": "Code relu et figé : commit et versions consignés, pas de trust_remote_code",
+        "ok": true,
+        "detail": "commits {'nvidia/prompt-task-and-complexity-classifier': 'fea1121511eafabaf7dd6fc66863dcb04f74defb', 'microsoft/deberta-v3-base': '8ccc9b6f36199bec6961081d44eb72fb3f7353f3'} ; versions {'torch': '2.14.1', 'transformers': '5.18.0', 'safetensors': '0.8.0'} ; code : code de la carte HF relu et reproduit dans ce banc (dorsale, huit têtes, score de complexité), pas de trust_remote_code"
+      },
+      {
+        "id": "license",
+        "label": "Licences compatibles avec une remise du code (NFR-10)",
+        "ok": true,
+        "forbidden": false,
+        "detail": "modèle : NVIDIA Open Model License (usage commercial autorisé) (ok) ; 21 paquet(s) ajouté(s) ; interdites : aucune ; à vérifier : aucune"
+      },
+      {
+        "id": "no_torch",
+        "label": "Sans torch",
+        "ok": false,
+        "detail": "modules lourds chargés : ['torch', 'transformers']"
+      }
+    ],
+    "target_pc": true
+  },
+  "verdict_recomputed": "2026-10-03 : classes de licence recalculées après correction de classify_license (BSL-1.0 de torch = licence Boost, permissive, et non Business Source License) ; mesures inchangées ; verdict d'origine : écarté"
+}

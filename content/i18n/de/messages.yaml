@@ -104,7 +104,7 @@ session:
   prefix:
     causes:
       system: "Die Systemnachricht hat sich seit der vorigen Runde geändert (System-Prompt, globales Gedächtnis, Tool-Beschreibungen, Skill-Katalog oder geladener Skill)."
-      history: "Der Verlauf wird nicht mehr so gerendert, wie das Modell ihn gelesen hat (Kurzzeitgedächtnis ausgeschaltet: Der vorige Wechsel wird nicht erneut gesendet; RAG-Auszüge entfernt, Dokumentation durch ihre Kurzfassung ersetzt, Text komprimiert oder Antwort umgeschrieben)."
+      history: "Der Verlauf wird nicht mehr so gerendert, wie das Modell ihn gelesen hat (Kurzzeitgedächtnis ausgeschaltet: Der vorige Wechsel wird nicht erneut gesendet; RAG-Auszüge entfernt, Text komprimiert oder Antwort umgeschrieben)."
       template: "Ein aktivierter oder deaktivierter Baustein, oder die Vorlage, rendert einen bereits gelesenen Teil des Kontexts anders."
       reset: "Die Unterhaltung wurde geleert, oder ein Szenario bzw. das Zurücksetzen hat sie ersetzt: Der Cache der Engine enthält noch die alte."
       replay: "Wiederholung: Die Runde startet wieder vom Zustand vor der wiederholten Runde, während der Cache der Engine diese Runde enthält."
@@ -181,6 +181,11 @@ session:
       and_previous: "{message} Das vorige Modell ({label}) konnte nicht neu geladen werden."
       window: "Fenster von {window} Tokens nicht angewendet ({cause}): {label} ist wieder mit {current} Tokens aktiv."
       restored: "{label} konnte nicht geladen werden ({cause}): {previous} ist wieder aktiv."
+    # E119: a served model whose architecture its server cannot run, seen at the first turn.
+    unsupported:
+      back: "WaveStack kehrt zum vorherigen Modell zurück: {label}."
+      none: "Die Runde ist beendet; wählen Sie in der oberen Leiste ein anderes Modell."
+      restored: "{label} läuft nicht unter Ollama (Architektur „{architecture}“): {previous} ist wieder aktiv."
     stopped:
       none: "Laden gestoppt: Es ist kein Modell aktiv."
       previous_failed: "Laden gestoppt; das vorige Modell ({label}) konnte nicht neu geladen werden."
@@ -275,6 +280,14 @@ session:
     error:
       message: Die Kontextvorschau konnte nicht berechnet werden.
       effect: Die Füllstandsanzeige bleibt bis zur ersten Runde leer.
+  # Story 4 of the deferred leftovers (E122): the first turn's context evaluated at the
+  # scenario's launch, while the instructions are read (journal only).
+  prefill:
+    phase: "Cache-Vorbefüllung ({tokens} Tokens)"
+    started: "Cache-Vorbefüllung: Die Engine liest die {tokens} Tokens des Kontexts der ersten Runde (Systemnachricht, Tools, Gedächtnis), während die Anleitung gelesen wird."
+    completed: "Vorbefüllung abgeschlossen: {evaluated} Tokens in {seconds} s ausgewertet. Die erste Nachricht lässt nur noch lesen, was auf sie folgt."
+    abandoned: "Vorbefüllung nach {evaluated} von {tokens} Tokens abgebrochen (eine Runde, ein Ladevorgang, eine Werkstatt, eine Einstellung oder ein anderes Szenario kam zuvor): Der ausgewertete Teil bleibt wiederverwendbar."
+    error: "Vorbefüllung nach {evaluated} von {tokens} Tokens durch einen Fehler unterbrochen: {cause}. Die erste Runde liest den Kontext wie gewohnt."
   # Story 9 (AD-3): an action armed for the next turn, or why it is not.
   arm:
     unknown_tool: "Unbekanntes Tool: „{target}“ ist weder ein Tool des Bausteins Tools noch das Tool eines MCP-Servers. Nichts wird scharf geschaltet."
@@ -299,6 +312,16 @@ session:
     connecting: "Verbindung zum MCP-Server {server}"
     no_loop: "Verbindung nicht möglich: Die asyncio-Schleife von WaveStack ist nicht gestartet."
     abandoned: "Verbindung abgebrochen: Der Server wurde deaktiviert."
+    # AD-9 (E089): the live tools/list against content/mcp_snapshots/, beyond the threshold.
+    drift:
+      message: "{server} weicht um {gap} % von seinem Snapshot ab (Schwelle: {threshold} %): {changes}. Die für seine Szenarien vorgesehene Füllstandsanzeige stimmt möglicherweise nicht mehr; führen Sie scripts/snapshot_mcp.py erneut aus, um den Snapshot zu aktualisieren."
+      added:
+        one: "{count} Tool hinzugefügt ({names})"
+        other: "{count} Tools hinzugefügt ({names})"
+      removed:
+        one: "{count} Tool entfernt ({names})"
+        other: "{count} Tools entfernt ({names})"
+      weight: "Dokumentation mit {before} Zeichen im Snapshot, {after} live"
   language:
     not_saved: "Die Sprache konnte nicht in {path} gespeichert werden ({cause}): Sie bleibt unverändert."
     both_invalid:
@@ -1145,6 +1168,7 @@ models:
     redirect: "Umleitung abgelehnt: {provider} hat mit {status} nach {location} geantwortet. Der Schlüssel wird nie an eine andere Stelle gesendet."
     another_address: einer anderen Adresse
     quota_refused: "Der Anbieter lehnt den Aufruf ab: {quota}."
+    no_quota: "{provider} lehnt den Aufruf ab. Kein aktives Kontingent auf diesem Konto: Prüfen Sie den Tarif in der Konsole des Anbieters."
     quota:
       second: Kontingent pro Sekunde überschritten
       minute: Kontingent pro Minute überschritten
@@ -1206,6 +1230,8 @@ models:
       message: "Ollama hat das Modell {name} nicht entladen."
       effect: "WaveStack läuft weiter; Ollama entlädt es nach seiner Leerlaufzeit von selbst."
     tokenizer_refused: "{lib} kann den Tokenizer dieses Modells nicht lesen (manche neueren Modelle von Ollama): Stellen Sie es stattdessen mit llama-server bereit, der selbst tokenisiert."
+    # E119: Ollama read the model's tokenizer at its choice, but cannot run its architecture.
+    unsupported_architecture: "Ollama kann dieses Modell nicht ausführen: Seine Architektur „{architecture}“ ist dieser Ollama-Version unbekannt, die vermutlich zu alt ist. Aktualisieren Sie Ollama oder stellen Sie das Modell mit llama-server bereit."
     # Story 29: where a served model's sizes were read.
     dimensions:
       names:

@@ -73,17 +73,25 @@ FIRST_RESULT_ROOM = {"network_tools", "data_flows", "iam", "sovereignty"}
 LOCAL_FIRST = {"mcp_full", "mcp_lazy"}
 LOCAL_FIRST_CALL = ("local__define_term", {"term": "MCP"})
 LOCAL_ANSWER_MAX = 200  # the measure above, with margin: a longer answer revisits the room
-# Lot K (A5): every prompt, not the first only, after the previous exchange of the scenario
-# (its prompt, its tool result, at most the bound, and an answer that fills the output
-# reserve), as the short memory keeps it. Only the previous exchange is simulated, not the
-# whole history: at the worst case of every exchange, a scenario of more than two prompts
-# overflows (`subagent` p4: 1 326 + 2 267 > 3 584) although its real answers are short; a
-# cumulative count needs measured answers, deferred (spec of lot K). The scenarios whose
-# instructions empty the conversation between their prompts are counted without history
-# (« Vider la conversation » : two public search results, 1 200 tokens each at most, never
-# fit together).
+# Lot K (A5): every prompt, not the first only, after the scenario's previous exchanges, as
+# the short memory keeps them all (D18 of 2026-10-01: the whole history, cumulated). Each
+# exchange: its prompt, its tool result (at most the bound), its answer and the template's
+# tags. The answers are counted at the size measured on the target PC (lot K,
+# `resultats-lot-k-2026-09-29.md`, `subagent`: 470, 245, 223 and 213 tokens), not at the
+# output reserve: at the reserve, `subagent` p4 overflowed by 9 tokens (1 326 + 2 267 >
+# 3 584) whereas the real gauge read 2 997 / 3 584. The whole history is counted with the
+# GGUF's tokenizer (`WAVESTACK_TEST_GGUF`, the exact gauge where the overflow was raised);
+# the 2-character estimate already counts `subagent`'s context 40 % over (1 848 against
+# 1 326 exact), so there only the previous exchange is added, its answer at the reserve as
+# before (the worst case of one exchange, never weaker than the check it replaces). The
+# scenarios whose instructions empty the conversation between their prompts are counted
+# without history (« Vider la conversation » : two public search results, 1 200 tokens each
+# at most, never fit together).
 CLEARED_BETWEEN_PROMPTS = {"iam", "sovereignty"}
 EXCHANGE_TEMPLATE = 40  # the tags of an exchange's four messages (user, call, result, answer)
+# The first answer of a scenario, then each following one: the measures rounded up (470, then
+# 245, 223 and 213 tokens).
+MEASURED_ANSWERS = (500, 250)
 _PUBLIC_SUBJECTS = ("data.gouv.fr", "Microsoft Learn")  # results that fill the bound
 # The network tools' results are short: 11 public holidays, a Wikipedia summary (≈ 800
 # characters); their first prompt keeps the bound's room (lot B), the next ones this.
@@ -601,12 +609,11 @@ def test_every_scenario_fits_the_default_window_with_every_prompt(index, loop, w
     or fixture); and, when the first prompt calls a public server or a network tool, the room
     of its first bounded result (lot B).
 
-    Lot K (A5): every prompt of the scenario, in order, after the previous exchange when the
-    short memory keeps it (its prompt, its result, an answer at the reserve, the template's
-    tags), except where the instructions empty the conversation between the prompts
-    (`CLEARED_BETWEEN_PROMPTS`). Only the previous exchange is simulated, never the whole
-    history: a scenario of more than two prompts is undercounted (its worst case overflows,
-    see `CLEARED_BETWEEN_PROMPTS`'s comment); a cumulative count is deferred."""
+    Lot K (A5): every prompt of the scenario, in order, after its previous exchanges when the
+    short memory keeps them (D18: each its prompt, its result, an answer of the measured size
+    `MEASURED_ANSWERS`, the template's tags; all of them with the GGUF's tokenizer; with the
+    2-character estimate, the last one only, its answer at the reserve), except where the
+    instructions empty the conversation between the prompts (`CLEARED_BETWEEN_PROMPTS`)."""
     public = PublicServers()
     web(public)
     place_model()
@@ -676,10 +683,15 @@ def test_every_scenario_fits_the_default_window_with_every_prompt(index, loop, w
                 measured[(scenario_id, n + 1)] = (used, ctx["usable"], history, room)
                 verdict = _verdict(scenario, used, ctx, history + prompt, room, safety)
                 assert verdict is None, (scenario_id, f"prompt {n + 1}", verdict)
-                if keeps:  # the previous exchange, as the next prompt reads it; its result
-                    # at most the bound (`compression`: Headroom on for the second prompt)
+                if keeps:  # this exchange joins the history the next prompt reads; its
+                    # result at most the bound (`compression`: Headroom on for the second
+                    # prompt), its answer of the measured size (D18)
                     kept = min(room, cfg.tool_result_max_tokens)
-                    history = prompt + kept + reserve + EXCHANGE_TEMPLATE
+                    if tokenizer is not None:  # the whole history, answers as measured
+                        answer = min(reserve, MEASURED_ANSWERS[min(n, len(MEASURED_ANSWERS) - 1)])
+                        history += prompt + kept + answer + EXCHANGE_TEMPLATE
+                    else:  # the previous exchange, its answer at the reserve (the worst case)
+                        history = prompt + kept + reserve + EXCHANGE_TEMPLATE
             segments = " ".join(s["text"] for s in ctx["segments"])
             if "rag" in scenario.bricks:  # counted: the brick is available here
                 assert any(s["kind"] == "rag_excerpt" for s in ctx["segments"]), scenario_id

@@ -2,11 +2,11 @@
 title: 'Correctif 1e : un proxy en boucle locale ne doit pas ouvrir la garde réseau'
 type: 'bugfix'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
 route: ''
 review_loop_iteration: 0
 context: []
-baseline_commit: ''
+baseline_commit: '2269793edb480b92807883613809b1b421ec92cf'
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
@@ -135,14 +135,14 @@ Les lignes du bloc gelé valent toujours. Pour la ligne « Client hors fabrique 
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/wavestack/net/guard.py` -- copie unique du proxy, confiscation (environnement, registre, macOS), `office_proxies()`, `_proxy_hosts()` sur la copie, `ponytail:` -- AD-15
-- [ ] `src/wavestack/net/factory.py` -- `_proxy_mounts` (règle httpx, plus la boucle locale en direct), `trust_env=False` sur les deux clients publics, aucun montage avec un transport injecté -- AD-15
-- [ ] `tests/test_net_guard.py` -- lignes de la matrice côté garde, en sous-processus, faux proxy en boucle locale, aucun accès réseau
-- [ ] `tests/test_net_factory.py` -- lignes de la matrice côté fabrique
-- [ ] `tests/test_e2e_stack.py` -- `_apply_proxies` pose la copie de la garde
-- [ ] `tests/test_net_single_factory.py` -- test statique, exemptions nommées
-- [ ] `tests/conftest.py` -- docstring
-- [ ] `ARCHITECTURE-SPINE.md` -- AD-15 amendé (confiscation, plafond, test statique)
+- [x] `src/wavestack/net/guard.py` -- copie unique du proxy, confiscation (environnement, registre, macOS), `office_proxies()`, `_proxy_hosts()` sur la copie, `ponytail:` -- AD-15
+- [x] `src/wavestack/net/factory.py` -- `_proxy_mounts` (règle httpx, plus la boucle locale en direct), `trust_env=False` sur les deux clients publics, aucun montage avec un transport injecté -- AD-15
+- [x] `tests/test_net_guard.py` -- lignes de la matrice côté garde, en sous-processus, faux proxy en boucle locale, aucun accès réseau
+- [x] `tests/test_net_factory.py` -- lignes de la matrice côté fabrique
+- [x] `tests/test_e2e_stack.py` -- `_apply_proxies` pose la copie de la garde
+- [x] `tests/test_net_single_factory.py` -- test statique, exemptions nommées
+- [x] `tests/conftest.py` -- docstring
+- [x] `ARCHITECTURE-SPINE.md` -- AD-15 amendé (confiscation, plafond, test statique)
 
 **Acceptance Criteria:**
 - Given `HTTPS_PROXY=http://127.0.0.1:9000` posé avant le lancement, when la garde est installée, then aucune variable `*_proxy` ne reste dans `os.environ`, `urllib.request.getproxies()` rend `{}`, et la fabrique connaît le proxy.
@@ -161,10 +161,38 @@ Les lignes du bloc gelé valent toujours. Pour la ligne « Client hors fabrique 
 3. **Les deux `urlopen` de `cli.py` vers `127.0.0.1` : (A) exemption nommée dans le test statique, ou (B) passage à `create_loopback_client` ?** Recommandation : **A**. Ils ne visent que la boucle locale et ne trouveront plus de proxy après la confiscation. B touche le démarrage pour un gain nul en sécurité.
 4. **Montrer la confiscation dans l'interface (une ligne du diagnostic : « Proxy du poste : réservé aux requêtes tracées ») dans cette story ?** Recommandation : **non**. C'est un correctif de sécurité. La ligne pédagogique ferait une petite story à part (textes en, de, fr, journal), sans jamais afficher l'URL ni les identifiants.
 
+## Review Triage Log
+
+Revue du 2026-10-01 (couches Blind Hunter, Edge Case Hunter, Verification Gap).
+
+| # | Source | Constat | Verdict | Preuve | Route |
+|---|---|---|---|---|---|
+| 1 | Edge | `NO_PROXY` avec un CIDR IPv6 (`fe80::/10`) : `all://[fe80::/10]` lève `InvalidURL`, toute requête de la fabrique échoue | medium | Vérifié : httpx et httpx2 refusent `all://[fe80::/10]`, acceptent `all://[fe80::]/10` | patch |
+| 2 | Blind, Edge | Le test statique laisse passer `streamable_http_client(..., http_client=None)`, et le test du chercheur l'entérine | medium | `visit_Call` ne regarde que la présence du mot-clé ; `None` fait créer son client au SDK | patch |
+| 3 | Blind, Edge, VG | Le test statique ignore `mcp.Client(url)`, `urlretrieve`, `sse_client`, `requests`, `urllib3`, `aiohttp` | medium | Critère d'acceptation : un client hors fabrique dans `src/` doit faire échouer le test ; `mcp.Client` avec une URL ouvre son propre client (`test_net_guard.py`) | patch |
+| 4 | Blind | Exemptions indexées par (fichier, fonction) : tout nouvel appel interdit dans ces fonctions passe | low | Correction directe : ajouter le nom qualifié à la clé | patch |
+| 5 | Blind | Rien n'empêche un module de `src/` de lire `office_proxies()` ou `guard._proxies` hors de `net/` ; AD-15 dit le contraire | low | Grep : seule la fabrique les lit aujourd'hui ; règle statique simple | patch |
+| 6 | Blind, Edge | `conftest.py`, les préambules de `test_net_guard.py` et `test_compression.py` n'aveuglent pas `getproxies_macosx_sysconf` ; `test_compression.py:911` filtre encore par la liste fixe de quatre noms | low | Correction directe, une ligne chacune | patch |
+| 7 | Blind, Edge | Sous Windows, un enfant (sonde, serveur MCP local) relit le proxy du registre à son `install` ; docstring et AD-15 disent « aucun proxy hérité » | low | Les enfants n'ont pas besoin du réseau et leurs clients hors fabrique restent aveuglés : seule la formulation est fausse | patch (formulation) |
+| 8 | Blind | `ProxyOverride` du registre jamais copié en `no` | false | Avant la story, `getproxies_registry()` ne rendait pas non plus de `no`, et httpx l'ignorait : comportement inchangé | rejet |
+| 9 | Blind, Edge | Motifs de boucle locale plus étroits que `is_loopback` (`127.0.0.2` part au proxy) | low | Réel, mais aucune configuration ne vise autre chose que `127.0.0.1` ; le correctif demande un transport enveloppant | rejet |
+| 10 | Blind | Le banc rouvre le trou de 1e et son commentaire dit à tort que la garde vérifie l'hôte du proxy | low | Avec un proxy en boucle locale, la garde ne voit que `127.0.0.1` ; correction du commentaire et une phrase dans AD-15 | patch |
+| 11 | Blind | `_apply_proxies` laisse les variables de proxy dans le processus de pytest ; docstring fausse | low | Correction directe : copie tirée des variables, puis retrait | patch |
+| 12 | Blind | Tests absents : client asynchrone vers la boucle locale, identifiants absents du journal quand le proxy est injoignable | low | Deux tests courts | patch |
+| 13 | Blind | Autres tests absents (`[::1]`, `http://` en clair par le proxy, `/api/*`, trace du proxy distant) | low | Aucun chemin ne met l'URL du proxy dans `/api/*` ; correctif = tests supplémentaires sans défaut démontré | rejet |
+| 14 | Blind | Le fichier de story manque au diff | false | Exclu volontairement : la spec va à la seule couche Edge | rejet |
+| 15 | Edge | Sans `install`, la fabrique ne trouve plus le proxy | false | Tout processus qui utilise la fabrique installe la garde (`cli`, sonde, serveur MCP local) ; `tools/` n'utilise pas la fabrique | rejet |
+| 16 | VG | Le saut de `no` dans `_proxy_hosts()` n'est pas testé | gap | Supprimer le `continue` ne fait échouer aucun test | patch |
+| 17 | VG | La remise du proxy dans l'environnement du banc n'est pas testée | gap | `_record_and_guard` est toujours remplacé par un bouchon dans `test_story12_bench.py` | patch |
+| 18 | VG | `test_the_test_session_holds_no_proxy` passe trivialement sur un poste sans proxy | gap | Il faudrait un pytest imbriqué ; la garantie tient sur le PC pro | defer |
+
 ## Spec Change Log
 
 - 2026-10-01 -- Spec complétée hors du bloc gelé : relevé de l'existant, approche recommandée (pistes 2 + 3), compléments de contraintes et de matrice, Code Map, tâches, vérification et quatre décisions à prendre. Statut laissé à `draft` en attendant les réponses d'Anaël.
 - 2026-10-01 -- Décisions 1 à 4 tranchées par Anaël (recommandations suivies). Statut passé à `ready-for-dev`.
+- 2026-10-01 -- Implémentation : en plus de la Code Map, `tools/bench/story12_bench.py` remet la copie du proxy dans l'environnement du banc quand `strip_proxy` est faux (le banc télécharge par `huggingface_hub` et `fastembed`, hors fabrique). `tests/conftest.py` retire le proxy dès son chargement, car l'import de `wavestack.cli` à la collecte installe la garde avant la fixture de session.
+- 2026-10-01 -- Revue triée (18 constats : 12 corrigés, 5 rejetés, 1 reporté dans `deferred-work.md`). Vérification : `ruff` propre ; pytest en quarts avec `HTTPS_PROXY=http://127.0.0.1:9000` : 3569 + 682 + 314 + 327 passés, un échec étranger (`test_rag_lab::test_nothing_is_written_under_the_repository`, écritures d'un autre agent dans `.claude/worktrees/`). Statut `done` ; les vérifications manuelles sur le PC pro restent à faire par Anaël.
+- 2026-10-02 -- confirmé par Anaël : `tools/bench/story12_bench.py` remet le proxy du poste dans l'environnement du banc, qui télécharge hors fabrique.
 
 ## Verification
 

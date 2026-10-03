@@ -75,8 +75,11 @@ OK_LICENSE_TOKENS = (
     "CNRI",
     "UNLICENSE",
     "ZLIB",
+    "BOOST",
 )
 # Substrings that forbid a licence (NFR-10); "NC", "BSL" and "SSPL" are matched as words.
+# The SPDX `BSL-1.0` is the permissive Boost licence (torch's expression has it), not the
+# Business Source License (`BUSL-1.1`, « BSL 1.1 »): it is renamed before the word match.
 FORBIDDEN_LICENSE_TOKENS = (
     "AGPL",
     "NON-COMMERCIAL",
@@ -85,7 +88,17 @@ FORBIDDEN_LICENSE_TOKENS = (
     "PROPRIETARY",
     "GEMMA",
 )
-FORBIDDEN_LICENSE_WORDS = {"NC", "BSL", "SSPL", "GPL", "GPLV2", "GPLV3", "GPL-2.0", "GPL-3.0"}
+FORBIDDEN_LICENSE_WORDS = {
+    "NC",
+    "BSL",
+    "BUSL",
+    "SSPL",
+    "GPL",
+    "GPLV2",
+    "GPLV3",
+    "GPL-2.0",
+    "GPL-3.0",
+}
 
 
 # --------------------------------------------------------------------------
@@ -359,7 +372,7 @@ def candidate(candidate_id: str) -> Candidate:
 
 def classify_license(text: str) -> str:
     """'ok', 'forbidden' or 'unknown' for a licence string (NFR-10)."""
-    upper = (text or "").upper()
+    upper = re.sub(r"(?<![A-Z0-9.+-])BSL-1\.0(?![0-9.])", "BOOST-1.0", (text or "").upper())
     words = set(re.findall(r"[A-Z0-9.+]+(?:-[A-Z0-9.+]+)*", upper))
     words |= {part for w in words for part in w.split("-")} | {w.rstrip("+") for w in words}
     if "LGPL" in upper or "LESSER" in upper:
@@ -569,10 +582,18 @@ def _record_and_guard(
 
         urllib.request.getproxies_registry = lambda: {}  # Windows registry proxy (story 1e)
     try:
-        from wavestack.net.guard import install
+        from wavestack.net.guard import install, office_proxies
     except ImportError:
         return attempts, "absente (lancer depuis le dépôt avec uv run)"
     install(allowed_hosts=allowed_hosts)
+    if not strip_proxy:
+        # Story 1e: the guard confiscates the proxy for WaveStack's factory alone; this
+        # bench downloads with `huggingface_hub` and `fastembed` directly, so it hands the
+        # copy back to the environment, knowingly reopening the 1e hole for its own
+        # downloads: behind a loopback proxy the guard sees 127.0.0.1 only, never the host
+        # the tunnel reaches. A developer's tool, never WaveStack itself (AD-15).
+        for scheme, url in office_proxies().items():
+            os.environ[f"{scheme}_proxy"] = url
     return attempts, "wavestack.net.guard"
 
 

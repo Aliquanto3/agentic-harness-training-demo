@@ -15,6 +15,8 @@ uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py
 - `--keep` : garde le dossier de données temporaire (journaux `wavestack.log`,
   `fake_openai.log`, `settings.json`, `audit.log`) ; son chemin s'affiche au début.
 - `--headed` : navigateur visible.
+- `--channel msedge` (story 6 des restes différés) : un navigateur installé (Edge, Chrome) au
+  lieu du Chromium de Playwright ; absent du poste, le parcours le dit et sort avec le code 2.
 - `--no-rag-alt` (story 30) : WaveStack comme sur un poste sans l'extra `rag-alt` (FAISS et
   LanceDB indisponibles) ; le scénario `rag_lab` prend alors la branche « sans l'extra ».
 - `--no-headroom` : WaveStack comme sur un poste sans l'extra `compression` ; le scénario
@@ -52,7 +54,9 @@ vrais services.
   `/v1/models`, `/_e2e/requests` pour relire les corps reçus). Clé attendue : `e2e-fake-key`.
   `/_e2e/model.gguf` est le fichier du faux modèle d'embedding : 503 tant que
   `POST /_e2e/model_ready` n'a pas été appelé (un téléchargement qui échoue, puis réussit).
-  `/_e2e/reranker.gguf` est celui du faux reranker (story 16), toujours servi.
+  `/_e2e/reranker.gguf` est celui du faux reranker (story 16), servi sauf après
+  `POST /_e2e/reranker_fail` `{"fail": true}` (503 jusqu'à `{"fail": false}`, story 6 des
+  restes différés).
   Mode Gemini quand le `model` du corps commence par `gemini`, calqué sur les formes relevées
   sur le vrai `gemini-3.5-flash-lite` le 2026-09-29 : appels d'outil en un seul fragment, sans
   `index`, le premier seul avec `extra_content.google.thought_signature` (`signature-fausse-…`),
@@ -67,12 +71,14 @@ vrais services.
   le corps est un tableau JSON
   (`[{"error": …}]`, « missing a thought_signature … `default_api:nom` , position n »).
 - `stack.py` : réseau sortant de WaveStack coupé (proxy fermé, voir plus haut), dossier de
-  données temporaire, `settings.json` qui déclare quatre modèles sur le faux serveur (tous avec `sampling = ["temperature", "top_p"]` depuis la story 29), `fake`
+  données temporaire, `settings.json` qui déclare cinq modèles sur le faux serveur (tous avec `sampling = ["temperature", "top_p"]` depuis la story 29), `fake`
   (`wavestack-fake`), `fake_b` (`faux-modele-b`, pour le changement de modèle de la
   story 17), `fake_r` (`faux-modele-raisonne`, `reasoning: {format: "field", always: true}`,
   pour la carte Raisonnement verrouillée de la story 33) et `fake_g` (`gemini-e2e-flash-lite`,
   « Faux Gemini (e2e) », avec le `reasoning` et le `tool_call_extra` du préréglage `gemini` lus
-  dans `wavestack.toml`), clé par
+  dans `wavestack.toml`) et, depuis la story 6 des restes différés, `fake_m`
+  (`faux-modele-tarife`, « Faux fournisseur M (e2e) », prix du préréglage `mistral`,
+  `stream_usage = false` : coûts estimés, « ≈ »), clé par
   `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux serveurs sur
   `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
   `settings.json` pointe `[rag]` vers un index dans ce dossier, absent au départ comme sur
@@ -89,10 +95,13 @@ vrais services.
   tel quel (garde réseau d'abord), la brique RAG chargeant le faux modèle d'embedding de
   `tests/fake_embedder.py` (sac de mots haché, 64 dimensions, aucun GGUF nécessaire) et le
   faux reranker de `tests/fake_reranker.py` (part des mots de la question présents dans
-  l'extrait), et applique `launch_app.py`.
+  l'extrait), qui lève sur une question portant `[reranker-en-panne]` (story 6 des restes
+  différés), et applique `launch_app.py`.
 - `launch_app.py` : ralentit la seule préparation de `fake_b` (`WAVESTACK_E2E_LOAD_DELAY_S`,
   2 s par défaut) : sans cela, un modèle cloud se prépare trop vite pour que le parcours voie
-  le chronomètre « Chargement du modèle… ».
+  le chronomètre « Chargement du modèle… ». Story 6 des restes différés : `read_file` de
+  `confidentiel/outil-lent-e2e` attend `WAVESTACK_E2E_TOOL_DELAY_S` (1,5 s) avant d'échouer
+  (fichier absent), un outil assez lent pour voir le schéma au travail.
 - `run_e2e.py` : les scénarios Playwright ; le journal est lu en parallèle sur `/api/stream`.
 - `tests/test_e2e_fake_openai.py` : tests pytest du faux serveur, sans navigateur.
 
@@ -559,6 +568,108 @@ Vérifications ajoutées aux scénarios existants :
   est refusé sur la carte dès la saisie (« Lancer » grisé), et le 409 donne la même raison.
   Retour à `/` en fin de scénario, thème « Système ».
 
+## Options, cartes et interrupteurs (story 5 des restes différés)
+
+Contrôles préfixés de leur entrée de `deferred-work.md` ; chacun échoue si l'on retire de
+`app.js` la ligne qui produit le comportement (vérifié à la main le 2026-10-02). `app.js` est un
+module : les contrôles lisent le DOM, `localStorage`, les requêtes (`expect_request`) et, pour
+deux états difficiles à atteindre, réécrivent une réponse par `page.route`.
+
+- `mcp_full` (E016, E030) : serveur « Glossaire WaveStack » décoché puis recoché dans la carte
+  MCP (corps postés à `/api/intentions/mcp_server`) ; la nouvelle connexion, après le tour, dit
+  « connecté », aucune ligne « connexion… », badge « MCP » une fois dépliée ; outils du serveur
+  dans l'infobulle de son nœud ; « Vider la conversation » masque cette connexion.
+- `mcp_lazy` (E017) : « Lazy loading » décoché puis recoché (`/api/intentions/mcp_mode`) ; étape
+  « Chargement de la documentation » avec le badge « MCP ».
+- `skills` (E023) : skill décoché puis recoché (`/api/intentions/skill`) ; nœud du schéma
+  « Non chargé », puis `is-loaded` et « Chargé dans la conversation. » après le tour.
+- `h5` (E028, E030) : « En attente de validation » dans la Vue humain et Orchestration ; carte
+  répondue : « Décision : Refusé » puis « Décision : Annulé : tour arrêté », sans bouton ; deux
+  clics synchrones sur « Refuser » = une requête ; rechargement avec `/api/state` réécrit en
+  `state: turn` : trois boutons inactifs ; validation répondue par l'API puis par la page : 409
+  affiché sous le champ (un `MutationObserver` garde chaque texte de `#composer-reason`) ;
+  « Vider la conversation » : aucune carte, étape ni appel, nœud « Jours fériés » sans « Au tour ».
+- `forced_native` (E035) : « Afficher les actions forcées » gardé après rechargement ; action
+  armée puis outil décoché : « Action forcée abandonnée · Heure et date ».
+- `reload_and_reset` (E043, E047) : serveur MCP local connecté avant les tours, gardé dans la
+  préparation du harnais après « Réinitialiser » ; liste d'options ouverte refermée.
+- `bare_llm` (E053) : « Afficher le raisonnement » décoché (Vue humain sans bloc, Contexte LLM
+  avec la réflexion), gardé au rechargement, puis recoché.
+- `Run.open_options` vérifie que la liste est ouverte et reclique sinon : depuis D3,
+  « Afficher les actions forcées » la déplie au rendu suivant, et un clic juste après la
+  repliait (`mcp_full`, « Forcer l'appel · local__define_term » absent).
+
+Sous Windows, une sortie redirigée vers un fichier demande `PYTHONIOENCODING=utf-8` (sinon
+`UnicodeEncodeError` sur « ℹ »).
+
+## Schéma, rail, volets, comparaison, cas d'erreur (story 6 des restes différés)
+
+Contrôles préfixés de leur entrée de `deferred-work.md` ; chacun échoue si l'on retire de
+`app.js` la ligne qui produit le comportement (vérifié à la main le 2026-10-02). `app.js` étant
+un module, `robotPose`, `moveBoundary` ou `loadPaneLayout` se lisent par ce qu'ils produisent.
+
+- `native_tools` (E020, E031, E032) : quatrième tour « Lis le fichier
+  confidentiel/outil-lent-e2e [lent] » (`read_file` ralenti de 1,5 s par `launch_app.py`). Un
+  `MutationObserver` note le nom accessible du robot (« réfléchit », puis « utilise un outil »
+  avant tout clic sur le rail, puis « au repos »), le halo de « Lecture de fichier » et le chemin
+  tracé vers lui ; l'étape de l'outil porte `tools.read_file` dans ses liens. Rail : le tour
+  précédent, ouvert à la main, se replie au nouveau tour ; en direct, seule la ligne courante est
+  dépliée ; un clic sur « Décrit les outils » fige la vue, la ligne reste dépliée, celles venues
+  après non ; « Suivre le direct » revient au direct, défilé en bas. Journal : le titre compte
+  les événements reçus, les lignes (« Morceaux de réponse × N » = les `model_delta` du dernier
+  appel) font ce compte, chaque ligne dit le libellé de son type et le résume ; chaque type du
+  catalogue a son libellé en `fr`/`en`/`de` et un résumé (les manques déjà notés sortent en
+  `KNOWN`).
+- `system_prompt` (E042) : un tour après le rejeu ; « Comparer » s'ouvre toujours sur l'origine
+  (à gauche) et son rejeu.
+- `h5` (E032) : nœuds rangés par type et hébergement (outils du poste, outils réseau) ; pendant
+  l'attente, halo sur H5 et chemin arrêté sur ✋ ; après « ne plus demander », H5
+  « · désactivé » dans la bande. `hooks` : premier tour en « [lent] » : halo sur H1 et ✖ à la
+  bande pendant la suite du tour, « · ✖ a bloqué » ensuite, l'étape du blocage liée à
+  `hooks.h1`. `data_flows` : serveur local et data.gouv.fr dans leurs zones.
+- `panes` (E033), scénario nouveau : flèches sur les poignées (16 px, seuls les voisins
+  bougent, minimum de 240 px), poignée du schéma (↓ : le schéma perd 16 px), double clic
+  (proportions par défaut, oubliées du stockage), masquage inscrit aussitôt dans
+  `localStorage["wavestack.panes"]`, disposition mémorisée rendue au rechargement, stockage
+  illisible, cinq volets masqués et tailles invalides refusés.
+- `rag_rerank` (E094) : `POST /_e2e/reranker_fail` fait refuser le fichier du reranker (503) :
+  l'échec est dit sous l'interrupteur « Reranking », « Télécharger » revient ; plus loin, une
+  question avec `[reranker-en-panne]` fait lever le faux reranker : étape « Reranking » en
+  erreur, dépliée, l'erreur dite.
+- `subagent` (E125) : `aria-expanded` lu dans le même `evaluate` que le clic, avant la
+  reconstruction du panneau. `--channel msedge` joue la tranche sous Edge.
+- `priced_estimate` (E135), scénario nouveau joué après `gemini_shape` : `fake_m` (prix du
+  préréglage Mistral, `stream_usage = false`) ; « ≈ » sur la ligne de coût de l'appel, dans
+  l'en-tête du tour et devant la dépense de la barre haute.
+- `gemini_shape` (E141) : `_footprint_line` attend que la page ait rendu le tour terminé, puis
+  déplie l'étape « Appelle le modèle » jusqu'à voir son empreinte (sans délai fixe).
+
+## Suites de la recette PC du 02/10
+
+- `markdown`, scénario nouveau : « [markdown] » répond `MARKDOWN_SAMPLE` (`fake_openai.py`).
+  La Vue humain rend titre (`##` en h4), listes à puces imbriquées, liste numérotée
+  (`start="3"`), gras, italique, code en ligne, bloc `~~~` fermé et bloc ```` ``` ```` encore
+  ouvert, et un seul lien (`https://example.org`, `target="_blank"`, `rel="noopener
+  noreferrer"`) ; le HTML du modèle, `javascript:`, le lien relatif, l'image, la règle, le
+  tableau et la citation restent du texte (aucun `img`, `b`, `hr`, `table`, aucune alerte). Un
+  `MutationObserver` vérifie que la `.bubble-text` rendue ne disparaît jamais pendant le flux.
+  Contexte LLM, le journal (`model_delta`) et `#chat-live` gardent les `**` ; Orchestration ne
+  rend rien ; même rendu après rechargement.
+- `diagnostic_wait`, scénario nouveau : `page.route` retient `GET /api/diagnostic` 1,5 s ;
+  pendant ce temps, « Diagnostic en cours… » dans Contrôles, Modèles détectés et Modèles cloud,
+  puis chaque liste le remplace par ses lignes (R1).
+- `provider_errors` : « [quota0] » (429, `x-ratelimit-limit-req-minute: 0`, `x-request-id`)
+  laisse `outbound_response` entre `outbound_request` et `model_call_ended` : 429, quota en
+  clair, `x-request-id` masqué (sa valeur n'entre pas dans le journal) ; libellé « Réponse
+  d'erreur reçue » et résumé `429 · POST url · quota` dans le journal, rien dans Orchestration,
+  message D6 inchangé ; conversation vidée ensuite (R2). Le faux fournisseur écoute sur la
+  boucle locale, jamais tracée (AD-15) : `wavestack_e2e.py` remplace `factory._traced` pour
+  les seules requêtes dont le corps contient `[quota0]`.
+- `panes` : chaque volet en mode focus (⛶), à 1280×672 puis 1440×900 ; défilement
+  d'Orchestration vers son dernier bloc « Données sortantes » (un tour `network_tools` d'abord
+  s'il n'y en a pas), molette, Fin : `document.scrollingElement.scrollTop` reste à 0 et la barre
+  basse reste sous les volets (`body.focus-mode .right:has(…) { min-height: 0; }`).
+
 ## Déclencheurs du faux modèle
 
 La réponse dépend du dernier message de l'utilisateur (sans le texte ajouté par H3 ni les
@@ -583,5 +694,8 @@ d'autres (story 21) :
 | `[mal-formé]` / `[mal-formé-toujours]` / `[outil-inconnu]` | arguments JSON invalides puis correction / à chaque essai / outil inexistant |
 | `[tool_use_failed]` | 400 `tool_use_failed` (façon Groq) |
 | `[erreur429]`, `[erreur500]`, `[erreur401]`, `[flux-erreur]` | refus du fournisseur, erreur au milieu du flux |
+| `[quota0]` (recette du 02/10) | 429 `Rate limit exceeded` avec `x-ratelimit-limit-req-minute: 0`, `x-ratelimit-remaining-req-minute: 0` et `x-request-id` (Mistral sans plan) ; tracé malgré la boucle locale par `wavestack_e2e.py` |
+| `[markdown]` (recette du 02/10) | `MARKDOWN_SAMPLE` : le sous-ensemble Markdown rendu par la Vue humain et les injections qui doivent rester du texte ; son dernier bloc de code reste ouvert |
 | `[coupé]`, `[long]`, `[lent]`, `[raisonne]` | `finish_reason: length`, texte long, flux lent (pour « Arrêter »), champ `reasoning` |
 | `[sans-usage]` | réponse sans `usage` en fin de flux (tokens estimés par WaveStack) |
+| `[reranker-en-panne]` | (lu par le faux reranker de `wavestack_e2e.py`, pas par le faux modèle) le reranking lève, l'étape « Reranking » est en erreur |

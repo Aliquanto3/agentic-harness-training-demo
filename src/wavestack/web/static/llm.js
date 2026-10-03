@@ -7,7 +7,7 @@
 // `t()`, its formats from the language (`i18n.js`); the screen's texts stay those of
 // `content/llm_lab.yaml`, read in the session's language by `GET /api/llm_lab`.
 
-import { numberFormat, ready as textsReady, section, t } from "./i18n.js";
+import { locale, numberFormat, ready as textsReady, section, t } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const quote = (value) => t("common.format.quote", { text: value });
@@ -47,10 +47,26 @@ function el(tag, className, text) {
   return node;
 }
 
+// Correctif nuit du 2026-10-01 (restes différés) : the noun a `{one, other}` value picks,
+// the same way `i18n.js`'s `t()` picks one for `content/ui.yaml` (« 1 tokens produits »).
+let pluralRules = null;
+let pluralLocale = null;
+function pluralSelect(count) {
+  if (pluralRules === null || pluralLocale !== locale()) {
+    pluralLocale = locale();
+    pluralRules = new Intl.PluralRules(pluralLocale);
+  }
+  return pluralRules.select(count);
+}
+
 // A text of content/llm_lab.yaml by its dotted path, `{name}` replaced by `values[name]`.
+// A `{one, other}` value is chosen by `values.count` (a number), as `i18n.js`'s `t()` does.
 function text(path, values = {}) {
   let value = store.content;
   for (const key of path.split(".")) value = value?.[key];
+  if (value !== null && typeof value === "object" && typeof values.count === "number") {
+    value = value[pluralSelect(values.count)] ?? value.other;
+  }
   if (typeof value !== "string") return "";
   return value.replace(/\{(\w+)\}/g, (_, name) => String(values[name] ?? ""));
 }
@@ -202,8 +218,14 @@ function renderTokenized(p) {
     $("token-info").textContent = p.unavailable_text || p.tokenizer_text;
     counts.hidden = false;
     counts.textContent = text("tokenization.estimate_text", {
-      estimation: p.figures_text.estimate,
-      caracteres: p.figures_text.char_count,
+      estimation_phrase: text("tokenization.token_noun", {
+        n: p.figures_text.estimate,
+        count: p.estimate,
+      }),
+      caracteres_phrase: text("tokenization.character_noun", {
+        n: p.figures_text.char_count,
+        count: p.char_count,
+      }),
       ratio: p.figures_text.chars_per_token,
     });
     more.hidden = true;
@@ -212,12 +234,20 @@ function renderTokenized(p) {
     $("token-info").textContent = p.tokenizer_text;
     counts.hidden = false;
     counts.textContent = text("tokenization.counts_text", {
-      tokens: p.figures_text.token_count,
-      caracteres: p.figures_text.char_count,
+      tokens_phrase: text("tokenization.token_noun", {
+        n: p.figures_text.token_count,
+        count: p.token_count,
+      }),
+      caracteres_phrase: text("tokenization.character_noun", {
+        n: p.figures_text.char_count,
+        count: p.char_count,
+      }),
     });
     p.tokens.forEach((token, index) => chips.append(tokenChip(token, index)));
     more.hidden = !p.more;
-    more.textContent = p.more ? text("tokenization.more_text", { reste: p.figures_text.more }) : "";
+    more.textContent = p.more
+      ? text("tokenization.more_text", { reste: p.figures_text.more, count: p.more })
+      : "";
     blanks.hidden = !p.tokens.length;
   }
   renderDiagram(p);
@@ -776,6 +806,7 @@ function windowToken(p) {
   const output = store.gen.fragments ? "window.output_fragments_text" : "window.output_text";
   $("window-reserve-label").textContent = `${store.win.reserveText} · ${text(output, {
     tokens: decimals().format(p.index + 1),
+    count: p.index + 1,
   })}`;
 }
 
@@ -813,8 +844,8 @@ function renderGenerationStarted(p) {
   $("reading-label").textContent = text(p.exact ? "reading.rendered_label_text" : "reading.body_label_text");
   $("reading-rendered").textContent = p.rendered;
   $("reading-tokens").textContent = text("reading.tokens_text", {
-    tokens: p.figures_text.prompt_tokens,
-    reserve: p.figures_text.reserve,
+    tokens_phrase: text("reading.token_noun", { n: p.figures_text.prompt_tokens, count: p.prompt_tokens }),
+    reserve_phrase: text("reading.token_noun", { n: p.figures_text.reserve, count: p.reserve }),
   });
   $("reading-sampling").textContent = text("reading.sampling_text", { reglages: samplingFr(p.sampling) });
   $("reading-first-token").textContent = "";
@@ -852,6 +883,7 @@ function renderToken(p) {
   }
   $("generation-count").textContent = text(store.gen.fragments ? "generation.fragments_text" : "generation.count_text", {
     tokens: decimals().format(p.index + 1),
+    count: p.index + 1,
   });
   if (p.index >= CHIP_LIMIT) {
     $("generation-more").textContent = text("generation.more_text", {
@@ -895,9 +927,15 @@ function renderGenerationEnded(p) {
       : text("reading.read_rate_unknown_text");
   if (!$("generation-tokens").children.length) $("generation-empty").hidden = false;
   const figures = p.figures_text || {};
-  const count = store.gen.fragments ? "reasoning.fragments_count_text" : "reasoning.count_text";
-  $("lane-thinking-count").textContent = text(count, { tokens: figures.reasoning_tokens ?? "0" });
-  $("lane-answer-count").textContent = text(count, { tokens: figures.answer_tokens ?? "0" });
+  const key = store.gen.fragments ? "reasoning.fragments_count_text" : "reasoning.count_text";
+  $("lane-thinking-count").textContent = text(key, {
+    tokens: figures.reasoning_tokens ?? "0",
+    count: p.reasoning_tokens ?? 0,
+  });
+  $("lane-answer-count").textContent = text(key, {
+    tokens: figures.answer_tokens ?? "0",
+    count: p.answer_tokens ?? 0,
+  });
   for (const id of ["lane-thinking", "lane-answer"]) {
     if (!$(id).textContent) $(id).textContent = text("reasoning.empty_text");
   }
@@ -1024,7 +1062,7 @@ function renderReasoning() {
   toggle.title = can ? "" : r.reason_text || "";
   $("reasoning-budget").textContent = [
     r.budget_text,
-    text("reasoning.reserve_text", { reserve: decimals().format(r.reserve) }),
+    text("reasoning.reserve_text", { reserve: decimals().format(r.reserve), count: r.reserve }),
   ]
     .filter(Boolean)
     .join(" ");

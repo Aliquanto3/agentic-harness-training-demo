@@ -1,0 +1,24 @@
+{
+ "candidate": "decision10",
+ "platform": "Windows-11-10.0.26200-SP0",
+ "machine": "AMD64",
+ "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+ "cpu_count": 8,
+ "python": "3.13.5",
+ "measured_at": "2026-10-02T22:54",
+ "target_pc": true,
+ "windows_release": "11",
+ "admin": false,
+ "bench_sha256": "39f249115745bb7060a06ef8fde8aeb3d346a8be609d9371dd5e895aa115c1ae",
+ "repo_commit": "bccf10b0544a52cbfaadd72c9008bfb37cc42a08",
+ "ram_total_mb": 16064,
+ "verdict": {
+  "status": "à surveiller",
+  "reason": "chemin CPU disponible au 2026-10-02 (source : https://huggingface.co/vllm-sr/Decision-1.0-Kai-0.6B (README, Use with Transformers : chargement CPU si aucun GPU, FP32, trust_remote_code=True) ; fichiers du dépôt Kai et Lex : safetensors seulement, ni GGUF ni ONNX) : ajouter Kai ou Lex 0.6B (encodeurs) au banc, par une nouvelle story, avant tout verdict ; Eos, Sol, Nox et Lux (sur Qwen3.5) sont génératifs : jamais classifieurs coexistants",
+  "checked_on": "2026-10-02",
+  "source": "https://huggingface.co/vllm-sr/Decision-1.0-Kai-0.6B (README, Use with Transformers : chargement CPU si aucun GPU, FP32, trust_remote_code=True) ; fichiers du dépôt Kai et Lex : safetensors seulement, ni GGUF ni ONNX",
+  "found": {
+   "chemin CPU": "https://huggingface.co/vllm-sr/Decision-1.0-Kai-0.6B#use-with-🤗-transformers"
+  }
+ }
+}

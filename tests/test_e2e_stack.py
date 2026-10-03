@@ -13,6 +13,7 @@ import os
 import socketserver
 import sys
 import threading
+import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +22,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from wavestack.net import guard
 from wavestack.net.factory import create_client
 from wavestack.trace.journal import get_journal
 
@@ -59,12 +61,17 @@ def closed_port(stack):
 
 
 def _apply_proxies(env: dict[str, str], monkeypatch) -> None:
-    """Applies `env`'s proxy variables to this process, as the launched one sees them."""
+    """Applies `env`'s proxy variables to this process as the launched one ends up with them
+    (story 1e): its guard copies them at start-up, for the factory alone, then removes them
+    from its environment."""
     for name in [n for n in os.environ if n.lower().endswith("_proxy")]:
         monkeypatch.delenv(name)
     for name, value in env.items():
         if name.lower().endswith("_proxy"):
             monkeypatch.setenv(name, value)
+    monkeypatch.setattr(guard, "_proxies", urllib.request.getproxies_environment())
+    for name in [n for n in os.environ if n.lower().endswith("_proxy")]:
+        monkeypatch.delenv(name)
 
 
 @pytest.fixture

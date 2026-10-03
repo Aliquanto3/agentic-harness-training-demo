@@ -54,3 +54,43 @@ def test_a_restored_state_is_extended_after_a_divergent_prompt(engine):
     added = engine.tokenize("<|im_start|>user\nSuite.<|im_end|>\n")
     complete(engine, main + added)
     assert engine.last_evaluated == len(added)
+
+
+# ---------- story 4 of the deferred leftovers (E122): `prefill` ----------
+
+
+def test_a_prefilled_prefix_is_extended_by_the_next_completion(engine):
+    prefix = engine.tokenize("<|im_start|>system\nTu es bref.<|im_end|>\n<|im_start|>user")
+
+    assert engine.prefill(prefix, CancelToken()) == len(prefix)
+    assert engine.cached_ids() == prefix
+
+    rest = engine.tokenize("\nBonjour<|im_end|>\n<|im_start|>assistant\n")
+    complete(engine, prefix + rest)
+    assert engine.last_evaluated == len(rest)
+    # A prefill whose ids are all in cache already touches nothing: the cache stays longer.
+    assert engine.prefill(prefix, CancelToken()) == 0
+    longer = engine.cached_ids()
+    assert longer[: len(prefix)] == prefix and len(longer) > len(prefix)
+
+
+def test_a_prefill_cancelled_after_its_first_batch_keeps_what_it_evaluated(engine, monkeypatch):
+    from wavestack.models import engine as engine_module
+
+    monkeypatch.setattr(engine_module, "PREFILL_BATCH", 4)
+    ids = engine.tokenize("<|im_start|>system\nContexte principal, long de deux lots.<|im_end|>\n")
+    assert len(ids) > 8
+
+    class AfterFirstBatch(CancelToken):
+        reads = 0
+
+        @property
+        def cancelled(self) -> bool:  # read before each batch: false once, then true
+            self.reads += 1
+            return self.reads > 1
+
+    assert engine.prefill(ids, AfterFirstBatch()) == 4
+    assert engine.cached_ids() == ids[:4]
+
+    complete(engine, ids)
+    assert engine.last_evaluated == len(ids) - 4

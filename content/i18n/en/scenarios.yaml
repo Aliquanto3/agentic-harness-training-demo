@@ -44,7 +44,9 @@ scenarios:
       view or in LLM context; the gauge shows the output reserve raised to 1,536 tokens.
       Then turn the brick off, replay the prompt and open “Compare”: fewer output tokens
       and a shorter turn, but an answer that is often less reliable. If the model cannot
-      reason, the brick's card gives the reason. The following modules leave the reasoning
+      reason, the brick's card gives the reason. A small local model thinks up to the end
+      of its budget even for a simple message such as “Hello”: the harness then cuts the
+      thinking short, and the turn stays long. The following modules leave the reasoning
       off, to keep room and short turns: turn it back on by hand to show it at work.
     bricks: [reasoning]
     prompts:
@@ -161,9 +163,12 @@ scenarios:
       The bricks of the previous modules stay on, except the reasoning and the RAG, whose
       excerpts on Exemplia would be off topic here: the local MCP server and data.gouv.fr
       are connected, and the full documentation of every tool enters the context. Look at
-      the gauge before sending the prompt: it is already almost full. The prompt names the
-      glossary tool, local__define_term: a small local model does not always link the
-      question to the tool, a bigger (cloud) model does. If the model answers from memory,
+      the gauge before sending the prompt: it is already almost full. Warn the audience:
+      with the local model, on a workstation without a GPU, the turn takes about two
+      minutes, because the model first reads this whole long context, full documentation
+      included; that is the price lazy loading avoids. The prompt names the glossary tool,
+      local__define_term: a small local model does not always link the question to the
+      tool, a bigger (cloud) model does. If the model answers from memory,
       click “Force the call · local__define_term” under “WaveStack glossary” in the MCP
       card (after “Show the forced actions”), choose the preset “MCP”, “Arm”, then “Replay
       the last prompt”: the call goes out automatically and the model answers with the

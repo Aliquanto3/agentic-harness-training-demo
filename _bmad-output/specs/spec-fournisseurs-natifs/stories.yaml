@@ -1,0 +1,69 @@
+- id: "1"
+  title: "Fournisseurs natifs (1/5) : champ api, socle commun et traducteurs"
+  description: >-
+    Ajouter le champ api et extra_headers à CloudModel, extraire le code commun d'openai_chat.py,
+    choisir l'engine et le traducteur par entry.api, amender AD-5 et écrire AD-26 (CAP-1,
+    section « Socle commun » de formats-natifs.md).
+  spec_checkpoint: true
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Lire SPEC.md et formats-natifs.md avant tout. Refactorisation sans changement de
+    comportement : les corps Groq, Mistral, Gemini et Gemma restent identiques à l'octet près
+    (test dédié qui compare avant et après). Aucun fournisseur nouveau dans cette story. Ne pas
+    toucher au travail non commité d'une autre session. Exécution sur ce PC (16 Go) : pytest
+    en quarts, E2E par tranches --only, au premier plan, jamais deux suites à la fois.
+- id: "2"
+  title: "Fournisseurs natifs (2/5) : plafond de séance et prix de cache"
+  description: >-
+    Refuser avant l'envoi tout appel tarifé quand le total de la séance atteint
+    [finops] max_session_usd (5 par défaut), et compter les tokens en cache au prix déclaré
+    (CAP-4, contrainte « Plafond » de SPEC.md).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Le plafond lit le registre de consumption_updated (record_spend, session_spend) sans le
+    dupliquer ; message en fr, en et de, qui dit comment relever le plafond. Prix de cache
+    facultatifs dans CloudPricing ; sans eux, calcul inchangé. Exécution sur ce PC (16 Go) :
+    pytest en quarts, au premier plan.
+- id: "3"
+  title: "Fournisseurs natifs (3/5) : Anthropic par l'API Messages"
+  description: >-
+    Adaptateur anthropic_messages (traducteur, flux SSE, en-têtes, raisonnement conservé en
+    drop_block avec input_transformations tracé) et entrées claude_haiku et claude_sonnet
+    (CAP-2, CAP-5, section « Anthropic » de formats-natifs.md).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Tests sur un faux serveur SSE, sur le modèle de test_e2e_fake_openai.py : texte,
+    réflexion, appels d'outils parallèles, refusal, overloaded_error, 429 avec retry-after,
+    input_transformations. Mesurer les deux questions ouvertes de la story (appels fabriqués
+    avec réflexion, Sonnet sans réflexion) par quelques appels réels, plafond à 5 $, et
+    consigner les résultats. Relire les conditions d'Anthropic pour hosting_text, training et
+    notes_text, et les prix. Exécution sur ce PC (16 Go) : pytest en quarts, E2E par tranches
+    --only, au premier plan, jamais deux suites à la fois.
+- id: "4"
+  title: "Fournisseurs natifs (4/5) : OpenAI par l'API Responses"
+  description: >-
+    Adaptateur openai_responses (traducteur, flux SSE, items reasoning chiffrés renvoyés,
+    store false) et entrée openai_luna, Sol en commentaire (CAP-3, section « OpenAI » de
+    formats-natifs.md).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Même méthode de test que la story 3, faux serveur SSE au format Responses. Mesurer si
+    Luna accepte temperature et top_p, et quel effort montre un résumé de raisonnement sans
+    gonfler le coût. Relire les conditions d'OpenAI pour hosting_text, training et
+    notes_text, et les prix. Exécution sur ce PC (16 Go) : pytest en quarts, E2E par tranches
+    --only, au premier plan, jamais deux suites à la fois.
+- id: "5"
+  title: "Fournisseurs natifs (5/5) : recette sur le PC cible"
+  description: >-
+    Recette réelle des trois modèles, plafond à 5 $ : « Tester », un tour par brique
+    (Raisonnement, Outils, MCP, Sous-agent), coût affiché comparé à la console, empreinte
+    EcoLogits et passage du proxy (Success signal de SPEC.md).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Tableau de résultats sur le modèle de resultats-restes-pc-2026-10.md. Pas de serveur ni
+    d'E2E pendant les tests manuels d'Anaël. Si EcoLogits ne connaît pas un modèle, estimer
+    par un modèle proche avec note_text, comme Groq.

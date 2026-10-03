@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import threading
+import time
 from collections.abc import Iterable, Sequence
 from functools import cache
 from pathlib import Path
@@ -292,6 +293,7 @@ def size_fr(
 
 _HEADERS: dict[str, tuple[tuple[int, int], tuple[EngineMetadata, dict[str, Any]] | None]] = {}
 _HEADERS_LOCK = threading.Lock()
+_READ_LOCK = threading.Lock()
 
 
 def _positive(value: Any) -> int | None:
@@ -336,11 +338,99 @@ def header_metadata(path: str | None) -> tuple[EngineMetadata, dict[str, Any]] |
         hit = _HEADERS.get(key)
     if hit is not None and hit[0] == stamp:
         return hit[1]
-    raw = gguf_meta.try_read_metadata(path)
-    result = None if raw is None else (_engine_metadata(raw), raw)
-    with _HEADERS_LOCK:
-        _HEADERS[key] = (stamp, result)
+    # R1: one read at a time (pure Python, the GIL shares nothing): a request arriving
+    # during `warm_headers` waits for the file being read, then finds it here.
+    with _READ_LOCK:
+        with _HEADERS_LOCK:
+            hit = _HEADERS.get(key)
+        if hit is not None and hit[0] == stamp:
+            return hit[1]
+        raw = gguf_meta.try_read_metadata(path)
+        result = None if raw is None else (_engine_metadata(raw), raw)
+        with _HEADERS_LOCK:
+            _HEADERS[key] = (stamp, result)
     return result
+
+
+def header_path(candidate: ModelCandidate) -> str | None:
+    """The file of this disk whose header `_local_entry` reads for `candidate`: relative
+    paths resolved (an explicit path, a relative data dir); llama-server reports the file it
+    loaded: only an absolute path is this disk's."""
+    served = candidate.source == "server"
+    path = candidate.gguf_path if served else candidate.path
+    if served and candidate.engine == "llama_server":
+        return path if path and Path(path).is_absolute() else None
+    return os.path.abspath(path) if path else None
+
+
+def warm_headers(candidates: Iterable[ModelCandidate]) -> threading.Thread:
+    """R1 (recette du 02/10): reads the headers of `candidates` into the cache in a
+    background thread, as soon as the search knows them, so that the first
+    `/api/diagnostic` after the search does not (21 s on the PC pro, 39 candidates)."""
+    paths = list(dict.fromkeys(p for c in candidates if (p := header_path(c))))
+
+    def warm() -> None:
+        started = time.perf_counter()
+        try:
+            for path in paths:
+                header_metadata(path)
+        except Exception:  # noqa: BLE001 - AD-16: a warm-up never dies silently
+            log.exception("Préchauffage des en-têtes GGUF interrompu")
+            return
+        # R1: with the diagnostic's line, says whether a request waited for it.
+        log.debug(
+            "Préchauffage des en-têtes GGUF : %d fichiers en %.0f ms",
+            len(paths),
+            (time.perf_counter() - started) * 1000,
+        )
+
+    thread = threading.Thread(target=warm, name="wavestack-headers", daemon=True)
+    thread.start()
+    return thread
+
+
+# ---------- R1: where `models_payload` spends its time ----------
+
+
+LOCAL_STEP = "local_entries"  # the step `PayloadTimings.summary` details per candidate
+
+
+class PayloadTimings:
+    """R1 (recette du 02/10): each step of `models_payload` and, for each local candidate,
+    its header read and the rest of its entry, in seconds; `summary` for the diagnostic's
+    log line (never a journal event)."""
+
+    def __init__(self) -> None:
+        self.steps: dict[str, float] = {}
+        self.candidates: list[tuple[str, float, float]] = []  # (name, header, rest)
+        self._started = time.perf_counter()
+
+    def lap(self, name: str) -> None:
+        now = time.perf_counter()
+        self.steps[name] = now - self._started
+        self._started = now
+
+    def candidate(self, name: str, header: float, rest: float) -> None:
+        self.candidates.append((name, header, rest))
+
+    def summary(self) -> str:
+        """« load_publishers 0 ms, local_entries 5400 ms (headers 5390 ms ; gemma3:1b 482 +
+        1 ms ; …), … » (the functions' names, as the R1 line's steps): each candidate from 1 ms,
+        slowest first, its header read then the rest."""
+        parts = []
+        for name, seconds in self.steps.items():
+            part = f"{name} {seconds * 1000:.0f} ms"
+            if name == LOCAL_STEP and self.candidates:
+                slow = sorted(
+                    (c for c in self.candidates if c[1] + c[2] >= 0.001),
+                    key=lambda c: c[1] + c[2],
+                    reverse=True,
+                )
+                headers = sum(c[1] for c in self.candidates)
+                detail = "".join(f" ; {n} {h * 1000:.0f} + {r * 1000:.0f} ms" for n, h, r in slow)
+                part += f" (headers {headers * 1000:.0f} ms{detail})"
+            parts.append(part)
+        return ", ".join(parts)
 
 
 # ---------- the entries ----------
@@ -451,21 +541,21 @@ def _local_entry(
     cfg: config.Config,
     window: int | None = None,
     lang: str = config.DEFAULT_LANGUAGE,
+    timings: PayloadTimings | None = None,
 ) -> ModelEntry:
+    started = time.perf_counter()
     content, _ = load_publishers(lang)
     configured = cfg.context_window if window is None else window
     served = candidate.source == "server"
     engine = candidate.engine if served else None
     found = candidate.status != "incompatible"
     path = candidate.gguf_path if served else candidate.path
-    # A file of this disk, relative paths resolved (an explicit path, a relative data dir);
-    # llama-server reports the file it loaded: only an absolute path is this disk's. Its
-    # header gives the publisher and the size, never the capabilities (`/props`).
-    if engine == "llama_server":
-        local = path if path and Path(path).is_absolute() else None
-    else:
-        local = os.path.abspath(path) if path else None
+    # llama-server's header gives the publisher and the size, never the capabilities
+    # (`/props`).
+    local = header_path(candidate)
+    read = time.perf_counter()
     header = header_metadata(local)
+    read = time.perf_counter() - read
     raw = header[1] if header else {}
     meta: EngineMetadata | None
     if engine == "llama_server":
@@ -525,7 +615,7 @@ def _local_entry(
     else:
         kind, ref = "file", candidate.path or ""
         title = candidate.path or name
-    return ModelEntry(
+    entry = ModelEntry(
         value=f"{kind}:{ref}",
         kind=kind,
         ref=ref,
@@ -547,6 +637,9 @@ def _local_entry(
         usable=usable,
         disabled_text=None if usable else render(incompatible or unknown_text, lang),
     )
+    if timings is not None:
+        timings.candidate(name, read, time.perf_counter() - started - read)
+    return entry
 
 
 def local_entries(
@@ -554,6 +647,7 @@ def local_entries(
     cfg: config.Config,
     window: int | None = None,
     lang: str = config.DEFAULT_LANGUAGE,
+    timings: PayloadTimings | None = None,
 ) -> list[ModelEntry]:
     """Every local model the last diagnostic found: the files, once per path (a usable
     listing wins over an incompatible one), incompatible ones included (greyed, with their
@@ -568,7 +662,7 @@ def local_entries(
             candidate.path not in files or files[candidate.path].status != "found"
         ):
             files[candidate.path] = candidate
-    return [_local_entry(c, cfg, window, lang) for c in [*files.values(), *served]]
+    return [_local_entry(c, cfg, window, lang, timings) for c in [*files.values(), *served]]
 
 
 def cloud_entries(
@@ -680,17 +774,24 @@ def models_payload(
     cloud_rows: Iterable[dict[str, Any]] = (),
     window: int | None = None,
     lang: str = config.DEFAULT_LANGUAGE,
+    timings: PayloadTimings | None = None,
 ) -> dict[str, Any]:
     """`/api/diagnostic.models`: the legend, the groups, and why the publishers' table could
     not be read, if so. One answer serves the picker and the `/models` page. `window`
     (story 26): the window configured now (`AppSession.configured_window`); `lang`
-    (languages 3/5): the session's language, for the publishers' texts."""
+    (languages 3/5): the session's language, for the publishers' texts; `timings` (R1):
+    filled with each step's duration, for the diagnostic's log line."""
+    timings = timings or PayloadTimings()
     content, error_text = load_publishers(lang)
-    entries = local_entries(candidates, cfg, window, lang) + cloud_entries(
-        cfg, cloud_rows, window, lang
-    )
+    timings.lap("load_publishers")
+    local = local_entries(candidates, cfg, window, lang, timings)
+    timings.lap(LOCAL_STEP)
+    cloud = cloud_entries(cfg, cloud_rows, window, lang)
+    timings.lap("cloud_entries")
+    groups = [g.model_dump(mode="json") for g in group_models(local + cloud, lang)]
+    timings.lap("group_models")
     return {
         "legend_text": content.legend_text,
-        "groups": [g.model_dump(mode="json") for g in group_models(entries, lang)],
+        "groups": groups,
         "publishers_error_text": error_text,
     }

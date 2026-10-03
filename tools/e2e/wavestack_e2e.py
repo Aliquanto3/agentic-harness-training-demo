@@ -26,8 +26,46 @@ from fake_reranker import FakeReranker  # noqa: E402
 
 from wavestack.models import embedding, reranker  # noqa: E402
 
+RERANK_FAILURE_MARK = "[reranker-en-panne]"
+
+
+class _E2EReranker(FakeReranker):
+    """Restes différés, story 6 (E094): the fake reranker breaks down on a question that
+    carries `RERANK_FAILURE_MARK`, as a reranker that raises while it scores (AD-16: the
+    turn goes on, with the embedding's order)."""
+
+    def score(self, query, passages, cancelled=None, progress=None):  # noqa: ANN001, ANN201
+        if RERANK_FAILURE_MARK in query:
+            raise RuntimeError("reranker en panne (e2e)")
+        return super().score(query, passages, cancelled, progress)
+
+
+QUOTA_MARK = b"[quota0]"
+
+
+def _install_quota_trace() -> None:
+    """Recette du 02/10 (R2): the fake provider listens on 127.0.0.1, which the factory never
+    traces (AD-15). A request whose body carries `QUOTA_MARK` is traced all the same, here
+    only, so its refusal reaches the journal as `outbound_response`; every other request of
+    the fake model stays untraced (the data-flow counts of the other scenarios are kept)."""
+    from wavestack.net import factory
+
+    traced = factory._traced
+
+    def traced_or_marked(request) -> bool:  # noqa: ANN001
+        if traced(request):
+            return True
+        try:
+            return QUOTA_MARK in request.content
+        except Exception:  # noqa: BLE001 - a stream not read yet: not a marked model call
+            return False
+
+    factory._traced = traced_or_marked
+
+
+_install_quota_trace()
 embedding.open_embedder = lambda model: FakeEmbedder(model_id=model.id)
-reranker.open_reranker = lambda model: FakeReranker(model_id=model.id)  # story 16
+reranker.open_reranker = lambda model: _E2EReranker(model_id=model.id)  # story 16
 
 if os.environ.get("WAVESTACK_E2E_NO_HEADROOM") == "1":
     # Story 20 (`run_e2e.py --no-headroom`): as a machine without the `compression` extra.

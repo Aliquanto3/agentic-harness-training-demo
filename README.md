@@ -125,7 +125,11 @@ dans la consigne. Les tests du programme (`tests/test_program.py`) vérifient ce
 cumul des modules et l'adéquation de chaque scénario à la fenêtre, sans liste de scénarios à
 mettre à jour. Pour qu'ils comptent la documentation réelle des serveurs MCP publics, lancez une
 fois sur un poste relié au réseau `uv run python scripts/snapshot_mcp.py` : il enregistre leurs
-outils dans `content/mcp_snapshots/`.
+outils dans `content/mcp_snapshots/`. En séance, à la connexion d'un serveur public qui a un
+instantané, WaveStack compare sa liste d'outils à l'instantané : si elle s'en écarte de plus de
+`[mcp] snapshot_drift_threshold` (`wavestack.toml`, 0.2 soit 20 % : outils ajoutés ou retirés,
+ou poids de leur documentation), la carte MCP l'affiche en le nommant ; la jauge prévue pour
+ses scénarios peut alors ne plus tenir, relancez le script pour mettre l'instantané à jour.
 
 ## Changer de modèle
 
@@ -612,8 +616,11 @@ messages au format chat. L'échantillonnage est celui du modèle en processus (t
   lisible y est « incompatible », et un tokenizer que llama-cpp-python ne sait pas lire est
   refusé avec la raison, le modèle précédent restant actif. Qwen3.5 (`qwen3.5:2b`) passe avec un
   Ollama récent (test du 2026-09-27). Avec un Ollama trop ancien pour servir l'architecture
-  `qwen35`, le modèle est accepté, puis le premier tour échoue sur une erreur brute « HTTP 500 »
-  d'Ollama : mettez Ollama à jour, ou servez ce modèle avec llama-server. Si Ollama lit plus
+  `qwen35`, le modèle est accepté (seul son tokenizer est lu au choix), puis le premier tour
+  échoue : l'erreur dit qu'Ollama ne connaît pas cette architecture et propose de mettre Ollama
+  à jour ou de servir ce modèle avec llama-server, et WaveStack revient aussitôt au modèle
+  précédent (enregistré comme choix). Aucune requête légère ne permet de le savoir plus tôt :
+  seul un vrai chargement par Ollama révèle le refus. Si Ollama lit plus
   de tokens que le harnais n'en a comptés, ou renvoie un raisonnement séparé (`thinking`), une
   erreur « transparence réduite » l'explique dans le journal ; s'il en lit moins, c'est son
   cache (début du prompt identique à l'appel précédent), noté pour information. Le tour
@@ -858,6 +865,13 @@ Une entrée de même `id` qu'un préréglage le modifie champ par champ (par exe
 avant la version multilingue reste lu : les anciennes clés `hosting_fr`, `notes_fr`, `note_fr`
 (de `impacts`) et `label_fr` (de `[rag.embedding]`, `[rag.reranker]` ou `[rag_lab.fastembed]`)
 valent `hosting_text`, `notes_text`, `note_text` et `label_text`.
+
+`hosting_text` et `notes_text` sont saisis par l'opérateur, dans `wavestack.toml` ou
+`settings.json`, et affichés tels quels dans l'avertissement et le bandeau du modèle cloud,
+dans toutes les langues de l'interface, y compris après un changement de langue en cours de
+séance : ils n'ont pas de traduction. Ceux des préréglages sont
+en français ; pour une séance en anglais ou en allemand, redéclarez-les dans `settings.json`
+dans la langue de la séance (par exemple `{"id": "groq", "hosting_text": "United States (Groq)"}`).
 
 Quatre champs facultatifs :
 - `key_env` : nom de la variable d'environnement qui fournit la clé (lettres majuscules,
