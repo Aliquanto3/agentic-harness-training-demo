@@ -46,6 +46,8 @@ Total : **1 074 vérifications réussies, 1 en échec**.
 
 **Échec E1 : `stream_resync`.** Sortie : `FAIL [stream_resync] état et flux d'instances différentes : un seul rechargement — 1 navigation(s)` (attendu : 2 navigations, la page doit se recharger une fois quand `/api/state` et le flux nomment des instances différentes). Reproduit deux fois seul. **Reproduit aussi sur `main` (`e09cfa6`)** dans un worktree jetable (même sortie) : défaut antérieur au lot, pas une régression des stories. Il passait à la batterie du 2026-10-01. Noté dans `deferred-work.md` pour un diagnostic à part (piste : la route Playwright qui réécrit `instance_id`, suivie d'un `net::ERR_FAILED` en console).
 
+**Diagnostic et correctif (2026-10-03 au soir, `9795197`).** Défaut du test, pas du produit : `site-nav.js` (story 2, 2026-10-01) lit aussi `/api/state` au chargement, et la route Playwright `times=1` était consommée par lui ; `app.js` recevait la vraie instance et ne rechargeait pas (le cas « sans /api/state » était faussé de la même façon ; l'`ERR_FAILED` vient de ce cas, voulu). Route sans `times`, `fallback` après le rechargement, `unroute` après chaque cas ; T9 : 59 réussies, 0 échec. Le bilan ci-dessous est celui du passage d'origine.
+
 **Constats non bloquants de l'E2E.**
 - T8 : avertissements de console `i18n : clé absente du catalogue : main.gauge.segment` (et `free`, `threshold`, `figures`), alors que les clés existent dans `content/ui.yaml` : appel de `t()` avant le chargement du catalogue lors d'un changement de langue (code de Langues 2/5, antérieur au lot).
 - T3, T7, T9, T10 : `Failed to load resource` (409, `ERR_FAILED`) en console, attendus par ces scénarios (refus volontaires, flux coupé).
