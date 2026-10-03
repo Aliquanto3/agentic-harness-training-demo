@@ -1436,7 +1436,8 @@ def decision_verdict(c: Candidate, report: dict) -> dict:
         criteria.append(
             {
                 "id": "error_rows",
-                "label": "Décisions sans erreur",
+                "label": f"Décisions sans erreur ({errors} sur {report.get('decisions')} "
+                "en erreur)",
                 "ok": False,
                 "detail": f"{errors} décision(s) en erreur sur {report.get('decisions')} : "
                 "latence et accord jugés sur les autres seulement",
@@ -1869,7 +1870,9 @@ def _http_client(base_url: str, transport=None, timeout: float = SYSTEMONE_TIMEO
     import httpx
 
     if not is_loopback_url(base_url):
-        raise ValueError(f"serveur hors boucle locale refusé : {base_url} (127.0.0.1 seulement)")
+        raise ValueError(
+            f"serveur hors boucle locale refusé : {base_url} (boucle locale seulement)"
+        )
     return httpx.Client(base_url=base_url, transport=transport, timeout=timeout, trust_env=False)
 
 
@@ -2226,9 +2229,13 @@ class OllamaOps:
     def _client(self, timeout: float = 30):
         return _http_client(self.base_url, self.transport, timeout)
 
-    def loaded(self, http) -> list[str]:
+    def loaded(self, http) -> list[str] | None:
+        """The models `/api/ps` lists, or None when its answer cannot be read (never taken
+        for "nothing loaded")."""
         models = _json_dict(http.get("/api/ps")).get("models")
-        return [m.get("name") for m in models or [] if isinstance(m, dict)]
+        if not isinstance(models, list):
+            return None
+        return [m.get("name") for m in models if isinstance(m, dict)]
 
     def pull(self, model: str) -> dict:
         """`/api/pull` (on `--download` only): its answer, or `error` when it fails (timeout,
@@ -2295,6 +2302,12 @@ class OllamaOps:
                 out["model"] = ollama_model_record(model, show, tags)
                 before = self.loaded(http)
                 out["loaded_before"] = before
+                if before is None:
+                    return out | {
+                        "error": "ps_unreadable",
+                        "message": "/api/ps illisible : impossible de vérifier qu'aucun modèle "
+                        "n'est chargé dans Ollama ; vérifiez « ollama ps », puis relancez",
+                    }
                 out["other_models_loaded"] = [n for n in before if n != model]
                 if model in before:  # so that the measure sees the model load
                     after = self._wait_unloaded(http, model, self.stop(model))
@@ -2335,13 +2348,15 @@ class OllamaOps:
 
     def _wait_unloaded(self, http, model: str, stopped: dict) -> dict:
         """`stopped` (the result of `stop`), with what `/api/ps` lists once the asynchronous
-        unload is over, or still lists after ~10 s."""
+        unload is over, or still lists after ~10 s; `still_loaded` is None (not verified) when
+        `/api/ps` cannot be read."""
         for _ in range(20):
             loaded = self.loaded(http)
-            if model not in loaded:
+            if loaded is None or model not in loaded:
                 break
             time.sleep(0.5)
-        return stopped | {"still_loaded": model in loaded, "loaded_after": loaded}
+        still = None if loaded is None else model in loaded
+        return stopped | {"still_loaded": still, "loaded_after": loaded}
 
     def unload(self, model: str) -> dict:
         """`ollama stop <model>`, then `/api/ps`: the model must no longer be loaded."""
@@ -3330,10 +3345,11 @@ def main(argv: list[str] | None = None) -> int:
     _write_out(args.out, report)  # after the printout: a bad path never loses the measure
     # Ollama down, model not pulled, or the model still loaded after the measure; llama-server
     # absent, failing to start or still running after the measure; GGUF absent or not the
-    # pinned one.
-    left = (report.get("llama_server_stop") or {}).get("still_running")
-    loaded = (report.get("ollama_unload") or {}).get("still_loaded")
-    return 2 if report.get("server_error") or left is True or loaded is True else 0
+    # pinned one. Not verified (None) counts as left or loaded.
+    stop, unload = report.get("llama_server_stop"), report.get("ollama_unload")
+    left = stop is not None and stop.get("still_running") is not False
+    loaded = unload is not None and unload.get("still_loaded") is not False
+    return 2 if report.get("server_error") or left or loaded else 0
 
 
 def _write_out(path: str | None, report: dict) -> None:

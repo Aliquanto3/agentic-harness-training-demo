@@ -83,6 +83,47 @@ Revue de la PR #20 du 2026-10-03, groupe 3 (`tools/bench/` hors `results/`, stor
 - `low` : blob vide dans le modelfile (le processus du modèle n'est jamais trouvé). Jamais vu sur un modèle tiré ; avec le premier correctif, le verdict devient « à surveiller ».
 - `low` : licence de `/api/show` ni texte ni liste, entrée de `/api/tags` non objet. Spéculatif, garde nouvelle.
 
+Revue de la PR #20 du 2026-10-03, groupe 4b (`tests/test_v2s6_decision_bench.py`, stories 8 et 9 ensemble ; voir aussi la story 9), quatre couches (BH, EC, VG, AA). Base : 195 tests verts, aucun appel réseau, aucun binaire local requis (faux transports, faux `run`/`popen`, faux psutil). Mutations du banc qui laissent les 195 tests verts : remplacement des conditions de sortie par `is not None`, valeurs du parent posées avant l'enfant, liste complète périodique coupée, `except psutil.Error` retiré de `_processes`, lecture limitée à la phase `during`, priorité « non vérifiable » sur une connexion sortante, premier franchissement du seuil écrasé.
+
+- [x] [Review][Patch] (décision d'Anaël du 2026-10-03 : option 1) `/api/ps` illisible compté comme « déchargé » — `OllamaOps.loaded` rend `[]` pour un JSON non objet, donc `unload` et `preflight` concluent que tev1 n'est pas chargé ; `test_ollama_ops_show_failed_timeout_and_non_dict_json` l'épingle (`still_loaded is False` alors que la fausse réponse liste tev1 et que la CLI est introuvable). `main` rend 0 sur `still_loaded`/`still_running` à `None`, sans test. Options : (1) `/api/ps` illisible → `still_loaded: None`, et `main` rend 2 sur `None` comme sur `True` (critère d'acceptation « ne garde pas tev1 chargé » non vérifié = échec de sortie) ; (2) garder le comportement, retirer seulement l'assertion qui l'épingle ; (3) garder tel quel (spéculatif, Ollama 0.35 rend toujours un objet). [`tests/test_v2s6_decision_bench.py:1890`]
+- [x] [Review][Patch] Raison des lignes en erreur partielles sans leur nombre, contre le correctif 2 de G3 (« avec leur nombre dans la raison ») : la raison reprend le libellé fixe « Décisions sans erreur », et `test_partial_error_rows_cap_an_encoder_under_watch` l'épingle. Mettre le nombre dans le libellé du critère et le vérifier dans la raison. [`tools/bench/v2s6_decision_bench.py:1439`]
+- [x] [Review][Patch] Empreinte et version d'Ollama : le runner de `test_run_measure_served_model` rend déjà les `revisions`/`versions` du parent ; poser ces champs avant l'enfant ne fait échouer aucun test. Runner sans ces champs (comme celui de llama-server), puis vérifier le rapport et le critère `pinned`. [`tests/test_v2s6_decision_bench.py:1667`]
+- [x] [Review][Patch] Liste complète des processus toutes les `OLLAMA_FULL_SCAN_EVERY` lectures jamais exercée (coupée : tests verts). Prendre une lecture à `_ticks == OLLAMA_FULL_SCAN_EVERY` et vérifier `scan(None)` et `full_scans`. [`tests/test_v2s6_decision_bench.py:1403`]
+- [x] [Review][Patch] `_processes`, seule énumération psutil des deux surveillances, remplacé dans tous les tests ; retirer son `except psutil.Error` laisse tout vert. Tester `_processes(None)` et `_processes([disparu, présent])` sur `_fake_psutil` (`NoSuchProcess` sauté). [`tests/test_v2s6_decision_bench.py:1501`]
+- [x] [Review][Patch] Sortie 0 d'une mesure servie propre jamais épinglée (Ollama et llama-server) : les quatre appels de `main` sur un candidat servi attendent 2. Ajouter les deux cas propres (`still_loaded`/`still_running` à `False` → 0). [`tests/test_v2s6_decision_bench.py:2862`]
+- [x] [Review][Patch] Connexions sortantes « avant » et « après » jamais montrées écarter : les cas d'écart n'utilisent que `during` ; lire `during` seul laisse tout vert. Ajouter les deux phases aux cas paramétrés (Ollama et llama-server). [`tests/test_v2s6_decision_bench.py:1561`]
+- [x] [Review][Patch] Une connexion sortante avec un relevé incomplet doit écarter (False avant None) ; inverser la priorité laisse tout vert. Cas `during` + `errors`. [`tests/test_v2s6_decision_bench.py:1561`]
+- [x] [Review][Patch] Latence non vérifiable : seul `ok is None` est vérifié, pas le plafond « à surveiller » ni la raison (RAM et hors-ligne le sont). [`tests/test_v2s6_decision_bench.py:1617`]
+- [x] [Review][Patch] « Réponse inattendue » (matrice) jamais jouée de bout en bout : aucun enfant ne reçoit une réponse mal formée en cours de mesure. Une réponse sans probabilités à la 5e décision : 40 décisions, la ligne en erreur, `error_rows == 1`. [`tests/test_v2s6_decision_bench.py:1953`]
+- [x] [Review][Patch] Plafond « un seul génératif » jamais isolé : la licence de tev1 est déjà KO, donc « à surveiller » tient sans lui. Copie de tev1 à licence Apache-2.0 : toujours « à surveiller », raison = règle d'un seul génératif. [`tests/test_v2s6_decision_bench.py:1542`]
+- [x] [Review][Patch] « Le premier franchissement est gardé » non prouvé : le second relevé rend la même valeur ; écraser `ceiling` à chaque franchissement laisse tout vert. Second relevé plus haut, en phase `after`. [`tests/test_v2s6_decision_bench.py:1453`]
+- [x] [Review][Patch] Probabilités vides `{}` absentes des cas de `systemone_label` (sans la garde `not probs`, `max()` lèverait). [`tests/test_v2s6_decision_bench.py:1256`]
+- [x] [Review][Patch] `ollama_role` : pas de cas `ollama.exe runner --model <blob>` → `runner`. [`tests/test_v2s6_decision_bench.py:1300`]
+- [x] [Review][Patch] Licence non vérifiée dans le rapport final : `_PRE` n'a pas de `license_markers`, `test_run_measure_served_model` ne lit pas `report["ollama"]["model"]`. [`tests/test_v2s6_decision_bench.py:1654`]
+- [x] [Review][Patch] Correctif 5 de G3 (client construit avant `watch.start()`) sans test de régression : `server_url` hors boucle locale → `ValueError`, aucune surveillance démarrée. [`tests/test_v2s6_decision_bench.py:1917`]
+- [x] [Review][Patch] Message « (127.0.0.1 seulement) » alors que `localhost`, `127.0.0.0/8` et `::1` sont acceptés (et testés) : dire « boucle locale seulement ». [`tools/bench/v2s6_decision_bench.py:1872`]
+- [x] [Review][Patch] Commentaire faux : « after ten answers » compte le sondage et l'échauffement, soit 7 décisions. [`tests/test_v2s6_decision_bench.py:1961`]
+
+Appliqués le 2026-10-03 (tous les correctifs, choix d'Anaël) : 211 tests verts en ciblé ; les 14 mutations du banc qui passaient (ou auraient passé) sont désormais détectées. `_fail` consigne ses appels et une fixture automatique vérifie qu'aucun n'a été rattrapé par le banc. Verdicts des JSON inchangés (aucun relevé n'a de ligne en erreur).
+
+**Rejetées (groupe 4b, Ollama et commun) :**
+- `false` : les cas d'écart paramétrés passeraient par un autre critère. Chaque surcharge ne touche qu'un critère bloquant, les valeurs par défaut les passent tous ; casser la vérification visée rend « à surveiller » et le test échoue.
+- `false` : URL pièges (`localhost.evil.com`, `127.0.0.1@evil.com`, `127.0.0.1.nip.io`). `urlparse(...).hostname` puis `ip_address` les refuse.
+- `false` : `time.sleep` patché à mi-test laisserait dormir le scénario précédent. `_fake_cli` décharge aussitôt, la première lecture de `/api/ps` sort de la boucle.
+- `low` : tests d'affichage qui injectent `ram_total_peak_mb`. `print_measure` reprend le champ calculé par l'enfant, et `test_measure_child_of_a_served_model` vérifie ce calcul.
+- `low` : `test_tev1_unreadable_server_side_is_not_verifiable`, statut sans valeur probante (tev1 déjà plafonné). Le plafond sur `None` est prouvé pour Julia-1.
+- `low` : sur un premier appel en échec, l'arrêt du fil de surveillance et les champs `ollama_*` ne sont pas vérifiés. L'enfant sort ensuite, et le verdict « non mesuré » ne lit pas ces champs.
+- `low` : licence interdite jamais montrée écarter un candidat servi. Le chemin `license_class` est commun et testé.
+- `low` : tests du document des candidats dans un seul sens. Test antérieur, seul le compte a changé.
+- `low` : préparation dupliquée (`_served_child`, `_llama_child`, filtres des runners). Refactorisation sans défaut nommé.
+- `low` : tests qui touchent l'état privé (`_ticks`, `_scan`, `start_timeout_s`). Fragilité sans défaut.
+- `low` : nom `OLLAMA_ABORT_MB` qui gouverne aussi llama-server. Renommage de code relu en G3.
+- `low` : `_EXE_SHA`/`_IMPL_SHA` en copie des constantes. Voulu : un réépinglage accidentel fait échouer le test.
+- `low` : `main(seen["cmd"][2:])` fragile ; `--server-url` hors boucle locale de l'enfant. Le client le refuse déjà (testé).
+- `low` : nom de `test_unreadable_peak_is_not_a_discard`. Il reste vrai (pas un écart).
+- `low` : règles « Never » sans test de garde. Ce sont des mesures à ne pas faire, pas un comportement du banc.
+- `low` : sortie 2 de `main` non vérifiée pour « modèle absent », « binaire absent », « GGUF absent ». `main` rend 2 sur tout `server_error`, vérifié par le cas « Ollama absent ».
+
 ## Implementation Notes
 
 - PC partagé de 16 Go : une mesure à la fois, au premier plan ; pas de pytest ni de serveur WaveStack pendant la mesure. Vider le dossier `pytest-of-anael.yahi` du Temp local à la fin.

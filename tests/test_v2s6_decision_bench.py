@@ -782,8 +782,21 @@ def _no_packages(roots):
     return []
 
 
-def _fail(*args):
+_FAIL_CALLS: list = []
+
+
+def _fail(*args, **kwargs):
+    _FAIL_CALLS.append(args)  # the bench catches exceptions: the call itself is recorded
     raise AssertionError("ne doit pas être appelé")
+
+
+@pytest.fixture(autouse=True)
+def _fail_never_called():
+    """`_fail` (a runner, downloader, `run` or `popen` that must not run) was not called,
+    even when `run_measure` caught its exception into the report."""
+    _FAIL_CALLS.clear()
+    yield
+    assert _FAIL_CALLS == [], "_fail appelé (exception rattrapée par le banc)"
 
 
 def test_run_measure_without_measurement_package(bench, tmp_path):
@@ -1265,6 +1278,7 @@ _PROBS_KO = "erreur : forme inattendue (answers.cost.probabilities)"
         ({"answers": []}, "erreur : forme inattendue (answers.cost absent)"),
         ({"result": "simple"}, "erreur : forme inattendue (answers.cost absent)"),
         ({"answers": {"cost": {"choice": "simple"}}}, _PROBS_KO),
+        ({"answers": {"cost": {"probabilities": {}}}}, _PROBS_KO),
         ({"answers": {"cost": {"probabilities": {"A": 0.9, "B": 0.1}}}}, _PROBS_KO),
         ({"answers": {"cost": {"probabilities": {"simple": True}}}}, _PROBS_KO),
         ("simple", "erreur : réponse inattendue str"),
@@ -1304,6 +1318,7 @@ _LS = "C:\\Ollama\\lib\\ollama\\llama-server.exe"
         ("llama-server.exe", [_LS, "--model", f"C:\\b\\sha256-{_BLOB}"], "runner"),
         ("llama-server.exe", [_LS, "--model", "C:\\b\\sha256-other"], "other_runner"),
         ("ollama.exe", ["ollama.exe", "runner", "--model", "x"], "other_runner"),
+        ("ollama.exe", ["ollama.exe", "runner", "--model", f"C:\\b\\sha256-{_BLOB}"], "runner"),
         ("ollama app.exe", ["C:\\Ollama\\ollama app.exe"], "app"),
         ("ollama.exe", ["ollama.exe", "ps"], "other"),
         ("llama-server.exe", ["D:\\llama.cpp\\llama-server.exe", "-m", "x.gguf"], None),
@@ -1405,6 +1420,10 @@ def test_ollama_watch_sums_the_server_and_the_model_process(bench):
     watch._scan = lambda pids=None: asked.append(pids) or []
     watch.take("during")
     assert asked[-1] == [1, 2] and watch.full_scans == 3
+    # Every OLLAMA_FULL_SCAN_EVERY samples, a full listing again (a new PID would be seen).
+    watch._ticks = bench.OLLAMA_FULL_SCAN_EVERY
+    watch.take("during")
+    assert asked[-1] is None and watch.full_scans == 4
 
 
 def test_ollama_watch_thread_and_failures(bench):
@@ -1450,8 +1469,13 @@ def test_ollama_watch_sets_the_ceiling_beyond_the_abort_threshold(bench):
     watch._scan = lambda pids=None: [_proc("server", 1, 50), _proc("runner", 2, 980)]
     watch.take("during")
     assert watch.ceiling == {"threshold_mb": 1000, "rss_at_stop_mb": 1030, "phase": "during"}
-    watch.take("during")  # the first crossing is kept
-    assert watch.report()["ollama_ceiling"]["rss_at_stop_mb"] == 1030
+    watch._scan = lambda pids=None: [_proc("server", 1, 50), _proc("runner", 2, 1200)]
+    watch.take("after")  # the first crossing is kept
+    assert watch.report()["ollama_ceiling"] == {
+        "threshold_mb": 1000,
+        "rss_at_stop_mb": 1030,
+        "phase": "during",
+    }
 
 
 def test_ollama_ceiling_discards_for_ram(bench):
@@ -1515,6 +1539,26 @@ def test_scan_ollama_processes_over_faked_processes(bench, monkeypatch):
     assert app == {"pid": 3, "role": "app", "error": "AccessDenied (app 3)"}
 
 
+def test_processes_over_faked_psutil(bench, monkeypatch):
+    import psutil
+
+    ns = types.SimpleNamespace
+    listed = [ns(pid=1, info={"name": "ollama.exe", "cmdline": ["ollama.exe", "serve"]})]
+
+    def process(pid):
+        if pid == 9:  # the model process, gone after `ollama stop`
+            raise psutil.NoSuchProcess(pid)
+        return ns(pid=pid, name=lambda: "ollama.exe", cmdline=lambda: ["ollama.exe", "serve"])
+
+    _fake_psutil(monkeypatch, procs=listed, process=process)  # its `Error` is psutil's
+    full = list(bench._processes(None))
+    assert [(p.pid, name, cmd) for p, name, cmd in full] == [
+        (1, "ollama.exe", ["ollama.exe", "serve"])
+    ]
+    by_pid = list(bench._processes([9, 1]))  # a gone PID is skipped, never raised
+    assert [(p.pid, name) for p, name, _cmd in by_pid] == [(1, "ollama.exe")]
+
+
 def _tev1_measured(**overrides) -> dict:
     tev1 = {
         "rss_peak_mb": 1990,
@@ -1558,19 +1602,39 @@ def test_tev1_is_at_best_under_watch(bench):
     assert "MIT License" in licence["detail"] and not licence["forbidden"]
 
 
+def test_the_single_generative_rule_alone_caps_the_verdict(bench):
+    import dataclasses
+
+    licensed = dataclasses.replace(bench.candidate("tev1"), license_class="ok")
+    v = bench.decision_verdict(licensed, _measured(**_tev1_measured()))
+    assert [c["id"] for c in v["criteria"] if c["ok"] is False] == ["single_generative"]
+    assert v["status"] == "à surveiller" and v["reason"].startswith("Règle d'un seul modèle")
+
+
 @pytest.mark.parametrize(
-    "overrides",
+    ("overrides", "failed"),
     [
-        {"ollama_rss_peak_mb": 2200},  # 1990 + 2200 > 4096: the sum decides
-        {"ollama_network": {"during": ["34.1.2.3:443"], "samples": 3}},
-        {"ollama_network": {"samples": 3, "listen": ["0.0.0.0:11434"], "errors": []}},
-        {"ollama_network": {"samples": 3, "listen": [":::11434"], "errors": []}},
-        {"latency_median_ms": 1200.0},
-        {"attempts": [["socket.connect", "1.2.3.4"]]},
+        ({"ollama_rss_peak_mb": 2200}, "ram"),  # 1990 + 2200 > 4096: the sum decides
+        ({"ollama_network": {"before": ["34.1.2.3:443"], "samples": 3}}, "offline"),
+        ({"ollama_network": {"during": ["34.1.2.3:443"], "samples": 3}}, "offline"),
+        ({"ollama_network": {"after": ["34.1.2.3:443"], "samples": 3}}, "offline"),
+        # An outgoing connection fails the criterion even when the reading is incomplete.
+        (
+            {"ollama_network": {"during": ["34.1.2.3:443"], "samples": 3, "errors": ["x"]}},
+            "offline",
+        ),
+        ({"ollama_network": {"samples": 3, "listen": ["0.0.0.0:11434"], "errors": []}}, "offline"),
+        ({"ollama_network": {"samples": 3, "listen": [":::11434"], "errors": []}}, "offline"),
+        ({"latency_median_ms": 1200.0}, "latency"),
+        ({"attempts": [["socket.connect", "1.2.3.4"]]}, "offline"),
     ],
 )
-def test_tev1_blocking_criteria_discard(bench, overrides):
-    assert _status(bench, "tev1", **_tev1_measured(**overrides))["status"] == "écarté"
+def test_tev1_blocking_criteria_discard(bench, overrides, failed):
+    v = _status(bench, "tev1", **_tev1_measured(**overrides))
+    assert v["status"] == "écarté"
+    assert [c["id"] for c in v["criteria"] if c["ok"] is False and c["id"] in bench.BLOCKING] == [
+        failed
+    ]
 
 
 def test_tev1_unreadable_server_side_is_not_verifiable(bench):
@@ -1617,6 +1681,8 @@ def test_error_rows_are_excluded_from_the_latency(bench):
     # No time at all (an empty run) is not verifiable, never a failure.
     no_rows = _status(bench, "deberta_xsmall", latency_median_ms=None, latency_max_ms=None)
     assert next(c for c in no_rows["criteria"] if c["id"] == "latency")["ok"] is None
+    assert no_rows["status"] == "à surveiller"  # nor a pass: a blocking criterion unchecked
+    assert no_rows["reason"].startswith("Latence") and "(non vérifiable)" in no_rows["reason"]
 
 
 def test_rows_keep_the_probabilities_and_the_server_choice(bench):
@@ -1654,7 +1720,12 @@ class _FakeOps:
 _PRE = {
     "base_url": "http://127.0.0.1:11434",
     "version": "0.35.1",
-    "model": {"name": "tev1:0.8b", "digest": _DIGEST, "blob_sha256": _BLOB},
+    "model": {
+        "name": "tev1:0.8b",
+        "digest": _DIGEST,
+        "blob_sha256": _BLOB,
+        "license_markers": ["MIT License"],
+    },
     "loaded_before": [],
     "other_models_loaded": [],
 }
@@ -1664,9 +1735,13 @@ def test_run_measure_served_model(bench, tmp_path):
     c = bench.candidate("tev1")
     common = dict(find_spec=lambda name: object(), packages=_no_packages, machine=_machine)
 
-    def runner(cand, models_dir, slm_path):
+    def runner(cand, models_dir, slm_path):  # the child's own pins: none (no roots)
         measured = _measured(**_tev1_measured())
-        return {k: v for k, v in measured.items() if k not in ("status", "packages", "ollama")}
+        drop = ("status", "packages", "ollama")
+        return {k: v for k, v in measured.items() if k not in drop} | {
+            "revisions": {},
+            "versions": {},
+        }
 
     ops = _FakeOps(_PRE)
     report = bench.run_measure(
@@ -1674,9 +1749,12 @@ def test_run_measure_served_model(bench, tmp_path):
     )
     assert ops.calls == [("preflight", "tev1:0.8b", False), ("unload", "tev1:0.8b")]
     assert report["status"] == "measured" and report["verdict"]["status"] == "à surveiller"
-    assert report["revisions"] == {"ollama/tev1:0.8b": _DIGEST}
+    assert report["revisions"] == {"ollama/tev1:0.8b": _DIGEST}  # the parent's, never the child's
     assert report["versions"] == {"ollama": "0.35.1"}
+    pinned = next(x for x in report["verdict"]["criteria"] if x["id"] == "pinned")
+    assert pinned["ok"] is True
     assert report["ollama_unload"]["still_loaded"] is False
+    assert report["ollama"]["model"]["license_markers"] == ["MIT License"]  # in the JSON
 
     def broken(cand, models_dir, slm_path):
         raise RuntimeError("enfant mort")
@@ -1880,14 +1958,21 @@ def test_ollama_ops_show_failed_timeout_and_non_dict_json(bench):
     odd = {
         "/api/version": _answer(200, json=["0.35.1"]),
         "/api/tags": _answer(200, json="tags"),
-        "/api/ps": _answer(200, json=[{"name": "tev1:0.8b"}]),
     }
     state = {"pulled": {"tev1:0.8b"}}
     ops = bench.OllamaOps(transport=_ollama_api(state, override=odd), which=lambda n: None)
     pre = ops.preflight("tev1:0.8b")
     assert "error" not in pre and pre["version"] is None and pre["loaded_before"] == []
     assert pre["model"]["digest"] is None
-    assert ops.unload("tev1:0.8b")["still_loaded"] is False
+
+    # An unreadable `/api/ps` (here a list that names tev1) is never "nothing loaded".
+    odd_ps = {"/api/ps": _answer(200, json=[{"name": "tev1:0.8b"}])}
+    ops = bench.OllamaOps(transport=_ollama_api(state, override=odd_ps), which=lambda n: None)
+    pre = ops.preflight("tev1:0.8b")
+    assert pre["error"] == "ps_unreadable" and "ollama ps" in pre["message"]
+    assert pre["loaded_before"] is None
+    unload = ops.unload("tev1:0.8b")
+    assert unload["still_loaded"] is None and unload["loaded_after"] is None
 
 
 def test_a_failing_unload_never_masks_the_report(bench, tmp_path):
@@ -1958,7 +2043,7 @@ def test_a_decision_failing_mid_run_keeps_the_ollama_fields(bench, monkeypatch, 
     ok = _systemone_transport(seen)
 
     def handler(request):
-        if len(seen) >= 10:  # the server goes away after ten answers
+        if len(seen) >= 10:  # gone after ten answers: the load, the warm-up and 7 decisions
             raise httpx.ConnectError("refused", request=request)
         return ok.handle_request(request)
 
@@ -1978,6 +2063,41 @@ def test_a_decision_failing_mid_run_keeps_the_ollama_fields(bench, monkeypatch, 
     assert report["status"] == "erreur" and report["verdict"]["status"] == "non mesuré"
     for key in ("ollama_rss_peak_mb", "ollama_rss", "ollama_processes", "ollama_network"):
         assert report[key] == child[key], key
+
+
+def test_an_unexpected_answer_mid_run_is_an_error_row(bench, monkeypatch, tmp_path):
+    import httpx
+
+    seen = []
+    ok = _systemone_transport(seen)
+
+    def handler(request):
+        if len(seen) == 7:  # the 5th decision (after the load and the warm-up)
+            seen.append("odd")
+            return httpx.Response(200, json={"answers": {"x": {"choice": "simple"}}})
+        return ok.handle_request(request)
+
+    child = _served_child(bench, monkeypatch, tmp_path, httpx.MockTransport(handler))
+    assert "error" not in child, child.get("error")
+    assert child["decisions"] == 40 and child["error_rows"] == 1
+    bad = [r for r in child["rows"] if r["label"].startswith("erreur")]
+    assert len(bad) == 1 and "forme inattendue" in bad[0]["label"]
+
+
+def test_the_client_is_built_before_the_watch_starts(bench, monkeypatch):
+    started = []
+    monkeypatch.setattr(bench.ServerWatch, "start", lambda self: started.append(self) or self)
+
+    def no_client(*args, **kwargs):
+        raise ValueError("client impossible")
+
+    monkeypatch.setattr(bench, "SystemOneClient", no_client)
+    api = _ollama_api({"pulled": {"tev1:0.8b"}})
+    with pytest.raises(ValueError, match="client impossible"):
+        bench._load_systemone(
+            bench.candidate("tev1"), Path("."), None, transport=api, scan=lambda pids=None: []
+        )
+    assert started == []  # no watch thread left behind
 
 
 def test_a_first_answer_without_probabilities_fails_the_load(bench, monkeypatch, tmp_path):
@@ -2110,8 +2230,16 @@ def test_llama_server_command_line_and_environment(bench, tmp_path):
         argv[argv.index("--host") + 1] == "127.0.0.1" and argv[argv.index("--port") + 1] == "5123"
     )
     assert "--offline" in argv and "--no-webui" in argv
+    assert argv[argv.index("-np") + 1] == "1"  # one slot: one model, one request at a time
+    assert argv[argv.index("-a") + 1] == "J"  # the alias the requests send as `model`
     env = bench.llama_server_env(
-        {"HTTPS_PROXY": "http://p:8080", "LLAMA_ARG_HOST": "0.0.0.0", "PATH": "x"}
+        {
+            "HTTPS_PROXY": "http://p:8080",
+            "https_proxy": "http://p:8080",
+            "LLAMA_ARG_HOST": "0.0.0.0",
+            "LLAMA_ARG_HF_REPO": "ggml-org/x",
+            "PATH": "x",
+        }
     )
     assert env == {"PATH": "x"}
 
@@ -2162,9 +2290,25 @@ def test_llama_ops_preflight(bench, tmp_path):
     assert "error" not in pre and pre["version_line"] == _VERSION_LINE and pre["build"] == "11378"
     assert pre["exe_sha256"] == bench.file_sha256(exe) and bench.is_sha256(pre["impl_sha256"])
     assert pre["archive"]["sha256_ok"] is False  # a fake zip: recorded, never trusted
+    assert pre["archive"]["sha256"] == bench.file_sha256(tmp_path / bench.LLAMA_ZIP)
     assert "warning" not in pre
     other = bench.LlamaServerOps(exe, run=_fake_run(stderr="version: 1 (build 1, commit a)"))
     assert other.preflight()["warning"] == "build 1 au lieu de 11378"
+    on_stdout = bench.LlamaServerOps(exe, run=_fake_run(stdout=_VERSION_OUT, stderr="")).preflight()
+    assert on_stdout["build"] == "11378"
+
+    # No DLL next to the launcher, no archive: recorded as absent, never a crash.
+    (exe.parent / "llama-server-impl.dll").unlink()
+    (tmp_path / bench.LLAMA_ZIP).unlink()
+    bare = bench.LlamaServerOps(exe, run=_fake_run()).preflight()
+    assert "error" not in bare and bare["impl_sha256"] is None and bare["archive"] is None
+    assert bench.llama_binary_pinned(bare) is False
+
+    def broken(argv, **kw):  # a wrong binary: present, but `--version` fails
+        raise OSError("not a valid Win32 application")
+
+    failed = bench.LlamaServerOps(exe, run=broken).preflight()
+    assert failed["error"] == "binary_failed" and "Win32" in failed["message"]
 
 
 class _FakeServerProc:
@@ -2208,9 +2352,8 @@ def _llama_ops(bench, tmp_path, proc_kw=None, states=(503, 200), conns=None, lef
     procs = []
 
     def popen(argv, stdout=None, **kw):
-        assert kw["env"].get("LLAMA_ARG_HOST") is None
         proc = _FakeServerProc(log=stdout, **(proc_kw or {}))
-        proc.argv = argv
+        proc.argv, proc.env = argv, kw["env"]
         procs.append(proc)
         return proc
 
@@ -2228,10 +2371,14 @@ def _llama_ops(bench, tmp_path, proc_kw=None, states=(503, 200), conns=None, lef
     return ops
 
 
-def test_llama_ops_start_waits_for_the_health_then_stop(bench, tmp_path):
+def test_llama_ops_start_waits_for_the_health_then_stop(bench, monkeypatch, tmp_path):
+    monkeypatch.setenv("LLAMA_ARG_HOST", "0.0.0.0")  # would expose the server
+    monkeypatch.setenv("HTTPS_PROXY", "http://p:8080")
     ops = _llama_ops(bench, tmp_path, proc_kw={"text": "I srv init: decision model type: laya\n"})
     launch = ops.start(tmp_path / "m.gguf", "Julia-1", tmp_path / "logs" / "julia1.log")
     assert "error" not in launch, launch
+    env = ops.procs[0].env  # what the server really receives
+    assert "LLAMA_ARG_HOST" not in env and "HTTPS_PROXY" not in env and env.get("PATH")
     assert launch["url"] == "http://127.0.0.1:5123" and launch["pid"] == 4242
     assert ops.transport.seen == [("127.0.0.1", "/health")] * 2  # 503 (loading), then 200
     assert launch["startup_remotes"] == [] and launch["startup_listen"] == ["127.0.0.1:5123"]
@@ -2309,6 +2456,13 @@ class _FakeLlamaOps:
         return {"started": True, "pid": 4242, "returncode": 1, "still_running": False}
 
 
+def _gguf_sha_only(c):
+    """A `file_sha256` that gives the pinned sha256 to the candidate's GGUF only: hashing
+    any other file does not match."""
+    name = Path(c.repos[0][1][0]).name
+    return lambda path: c.gguf_sha256 if Path(path).name == name else "0" * 64
+
+
 def _julia1_measured(**overrides) -> dict:
     served = {
         "rss_peak_mb": 1990,
@@ -2352,17 +2506,26 @@ def test_an_encoder_served_by_llama_server_can_be_retained(bench):
 
 
 @pytest.mark.parametrize(
-    "overrides",
+    ("overrides", "failed"),
     [
-        {"llama_server_rss_peak_mb": 2200},  # 1990 + 2200 > 4096: the sum decides
-        {"llama_server_network": {"during": ["34.1.2.3:443"], "samples": 3}},
-        {"llama_server_launch": {"startup_remotes": ["34.1.2.3:443"]}},  # while it started
-        {"llama_server_network": {"samples": 3, "listen": ["0.0.0.0:5123"], "errors": []}},
-        {"latency_median_ms": 1200.0},
+        ({"llama_server_rss_peak_mb": 2200}, "ram"),  # 1990 + 2200 > 4096: the sum decides
+        ({"llama_server_network": {"before": ["34.1.2.3:443"], "samples": 3}}, "offline"),
+        ({"llama_server_network": {"during": ["34.1.2.3:443"], "samples": 3}}, "offline"),
+        ({"llama_server_network": {"after": ["34.1.2.3:443"], "samples": 3}}, "offline"),
+        ({"llama_server_launch": {"startup_remotes": ["34.1.2.3:443"]}}, "offline"),  # its start
+        (
+            {"llama_server_network": {"samples": 3, "listen": ["0.0.0.0:5123"], "errors": []}},
+            "offline",
+        ),
+        ({"latency_median_ms": 1200.0}, "latency"),
     ],
 )
-def test_llama_server_blocking_criteria_discard(bench, overrides):
-    assert _status(bench, "laya", **_julia1_measured(**overrides))["status"] == "écarté"
+def test_llama_server_blocking_criteria_discard(bench, overrides, failed):
+    v = _status(bench, "laya", **_julia1_measured(**overrides))
+    assert v["status"] == "écarté"
+    assert [c["id"] for c in v["criteria"] if c["ok"] is False and c["id"] in bench.BLOCKING] == [
+        failed
+    ]
 
 
 @pytest.mark.parametrize(
@@ -2371,6 +2534,7 @@ def test_llama_server_blocking_criteria_discard(bench, overrides):
         {"gguf": {"sha256": "y", "sha256_ok": False}},
         {"versions": {"llama-server": "version: 0.4 (build 9000, commit abc)"}},
         {"revisions": {"ggml-org/Julia-1-GGUF": "main"}},
+        {"revisions": {"ggml-org/Julia-1-GGUF": "b" * 40}},  # a commit, not the pinned one
     ],
 )
 def test_llama_server_unpinned_is_under_watch(bench, overrides):
@@ -2394,7 +2558,8 @@ def test_partial_error_rows_cap_an_encoder_under_watch(bench):
     v = _status(bench, "julia1", **_julia1_measured(error_rows=39, latency_median_ms=154.7))
     errors = next(c for c in v["criteria"] if c["id"] == "error_rows")
     assert errors["ok"] is False and "39 décision(s) en erreur sur 40" in errors["detail"]
-    assert v["status"] == "à surveiller" and v["reason"] == "Décisions sans erreur"
+    assert v["status"] == "à surveiller"
+    assert v["reason"] == "Décisions sans erreur (39 sur 40 en erreur)"  # the count, in the reason
     assert "error_rows" not in [c["id"] for c in _status(bench, "julia1")["criteria"]]
 
 
@@ -2420,7 +2585,7 @@ def test_run_measure_without_the_llama_server_binary(bench, tmp_path):
 
 def test_run_measure_gguf_absent_then_downloaded(bench, monkeypatch, tmp_path):
     c = bench.candidate("julia1")
-    monkeypatch.setattr(bench, "file_sha256", lambda path: bench.JULIA1_SHA256)
+    monkeypatch.setattr(bench, "file_sha256", _gguf_sha_only(c))
     ops = _FakeLlamaOps()
     report = bench.run_measure(
         c,
@@ -2470,7 +2635,7 @@ def test_run_measure_gguf_absent_then_downloaded(bench, monkeypatch, tmp_path):
 def test_run_measure_retains_a_pinned_encoder_and_stops_the_server(bench, monkeypatch, tmp_path):
     c = bench.candidate("laya")
     _fake_snapshot(bench, tmp_path, c, sha=c.revision)
-    monkeypatch.setattr(bench, "file_sha256", lambda path: bench.LAYA_SHA256)
+    monkeypatch.setattr(bench, "file_sha256", _gguf_sha_only(c))
 
     def runner(cand, models_dir, slm_path, server=None):
         measured = _measured(**_julia1_measured())
@@ -2510,7 +2675,7 @@ def test_run_measure_retains_a_pinned_encoder_and_stops_the_server(bench, monkey
 def test_main_a_llama_server_that_does_not_start(bench, monkeypatch, tmp_path, capsys):
     c = bench.candidate("julia1")
     _fake_snapshot(bench, tmp_path, c, sha=c.revision)
-    monkeypatch.setattr(bench, "file_sha256", lambda path: bench.JULIA1_SHA256)
+    monkeypatch.setattr(bench, "file_sha256", _gguf_sha_only(c))
     slm = tmp_path / "slm.gguf"
     slm.write_bytes(b"x")
     failed = {
@@ -2619,8 +2784,10 @@ def test_measure_child_of_a_llama_server_model(bench, monkeypatch, tmp_path):
     assert out["llama_server_network"]["samples"] >= 2 and "finish" not in out
     assert "ollama_rss_peak_mb" not in out
 
-    no_server = _llama_child(bench, monkeypatch, tmp_path, _systemone_transport([]), None)
+    asked = []
+    no_server = _llama_child(bench, monkeypatch, tmp_path, _systemone_transport(asked), None)
     assert "non démarré par le parent" in no_server["error"]
+    assert asked == []  # not a single request
 
 
 def test_child_command_line_carries_the_llama_server(bench, monkeypatch, tmp_path, capsys):
@@ -2656,7 +2823,7 @@ def _llama_measured_runner(**overrides):
 def _pinned_julia1(bench, monkeypatch, tmp_path):
     c = bench.candidate("julia1")
     _fake_snapshot(bench, tmp_path, c, sha=c.revision)
-    monkeypatch.setattr(bench, "file_sha256", lambda path: bench.JULIA1_SHA256)
+    monkeypatch.setattr(bench, "file_sha256", _gguf_sha_only(c))
     return c
 
 
@@ -2834,13 +3001,14 @@ def test_stop_survives_a_server_that_does_not_die(bench, tmp_path):
     assert stop["still_running"] is True and stop["remaining_pids"] == [4242]
 
 
+@pytest.mark.parametrize(("still_running", "code"), [(True, 2), (None, 2), (False, 0)])
 def test_main_exits_non_zero_when_llama_server_is_left_running(
-    bench, monkeypatch, tmp_path, capsys
+    bench, monkeypatch, tmp_path, capsys, still_running, code
 ):
     class _Left(_FakeLlamaOps):
         def stop(self):
             self.calls.append(("stop",))
-            return {"started": True, "pid": 4242, "returncode": None, "still_running": True}
+            return {"started": True, "pid": 4242, "returncode": 1, "still_running": still_running}
 
     _pinned_julia1(bench, monkeypatch, tmp_path)
     slm = tmp_path / "slm.gguf"
@@ -2859,15 +3027,23 @@ def test_main_exits_non_zero_when_llama_server_is_left_running(
         )
 
     monkeypatch.setattr(bench, "run_measure", run_measure)
-    assert bench.main(["measure", "julia1", "--slm", str(slm), "--models-dir", str(tmp_path)]) == 2
-    assert "encore lancé : True" in capsys.readouterr().out
+    argv = ["measure", "julia1", "--slm", str(slm), "--models-dir", str(tmp_path)]
+    assert bench.main(argv) == code  # not verified: 2
+    assert f"encore lancé : {still_running}" in capsys.readouterr().out
 
 
-def test_main_exits_non_zero_when_ollama_keeps_the_model(bench, monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize(("still_loaded", "code"), [(True, 2), (None, 2), (False, 0)])
+def test_main_exits_non_zero_when_ollama_keeps_the_model(
+    bench, monkeypatch, tmp_path, capsys, still_loaded, code
+):
     class _Kept(_FakeOps):
         def unload(self, model):
             self.calls.append(("unload", model))
-            return {"command": f"ollama stop {model}", "returncode": 0, "still_loaded": True}
+            return {
+                "command": f"ollama stop {model}",
+                "returncode": 0,
+                "still_loaded": still_loaded,
+            }
 
     slm = tmp_path / "slm.gguf"
     slm.write_bytes(b"x")
@@ -2884,8 +3060,8 @@ def test_main_exits_non_zero_when_ollama_keeps_the_model(bench, monkeypatch, tmp
         )
 
     monkeypatch.setattr(bench, "run_measure", run_measure)
-    assert bench.main(["measure", "tev1", "--slm", str(slm)]) == 2
-    assert "encore chargé : True" in capsys.readouterr().out
+    assert bench.main(["measure", "tev1", "--slm", str(slm)]) == code  # not verified: 2
+    assert f"encore chargé : {still_loaded}" in capsys.readouterr().out
 
 
 def test_run_measure_takes_the_llama_server_from_the_flag_or_the_variable(

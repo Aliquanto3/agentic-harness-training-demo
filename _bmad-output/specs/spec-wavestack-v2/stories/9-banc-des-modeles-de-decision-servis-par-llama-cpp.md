@@ -84,6 +84,26 @@ Revue de la PR #20 du 2026-10-03, groupe 3 (voir la story 8 : relecture des verd
 - `low` : « démarrage de llama-server None s » sans `llama_server_launch`, `--llama-server` ignoré sans message pour les autres candidats. Cosmétique, jamais atteint sur une mesure.
 - rejetée par règle (le correctif modifie la spec relue) : `SPEC.md` l. 85 dit encore Julia-1 « sous réserve du critère 1 (à décider par Anaël) », alors que `decision-model-candidates.md` le dit accepté le 2026-10-03 ; et `decision-model-candidates.md` (paragraphe « Critère 1 ») renvoie l'intégration à CAP-6, qui est le banc : c'est CAP-7 ou CAP-8. Corrigées hors revue, à la demande d'Anaël (2026-10-03).
 
+Revue de la PR #20 du 2026-10-03, groupe 4b (`tests/test_v2s6_decision_bench.py` ; constats communs et décision dans la story 8). L'épinglage décidé par Anaël (sha256 de `llama-server.exe` ET de `llama-server-impl.dll`, archive consignée sans suffire) est bien couvert par `test_the_binary_must_be_the_recorded_one`.
+
+- [x] [Review][Patch] `_fail` avalé : `_download_into` et `_run_into` rattrapent toute exception, donc `downloader=_fail` / `runner=_fail` ne prouvent pas « jamais appelé ». Retirer `download and` (téléchargement implicite du GGUF, interdit par la matrice) laisse tout vert. Un `_fail` qui consigne ses appels, vérifiés vides, et `"download" not in report` sans `--download`. [`tests/test_v2s6_decision_bench.py:2420`]
+- [x] [Review][Patch] `c.revision in revisions.values()` non couvert pour llama-server : le retirer laisse tout vert. Cas d'un commit valide autre que celui épinglé (`"b" * 40`). [`tests/test_v2s6_decision_bench.py:2368`]
+- [x] [Review][Patch] Environnement du serveur non prouvé au point d'appel : `_llama_ops` vérifie l'absence de `LLAMA_ARG_HOST` sans jamais le poser ; passer `os.environ` brut à `popen` laisse tout vert. `monkeypatch.setenv` de `LLAMA_ARG_HOST` et `HTTPS_PROXY`, puis vérifier leur absence dans `env`. [`tests/test_v2s6_decision_bench.py:2211`]
+- [x] [Review][Patch] `llama_server_env` testé en majuscules seulement : ajouter `https_proxy` et `LLAMA_ARG_HF_REPO`. [`tests/test_v2s6_decision_bench.py:2113`]
+- [x] [Review][Patch] Chemins de `LlamaServerOps.preflight` non testés : `binary_failed` (« binaire faux » de la matrice), DLL absente (`impl_sha256: None`), archive absente (`_fake_exe(archive=False)` jamais appelé), sha256 de l'archive consigné. [`tests/test_v2s6_decision_bench.py:2150`]
+- [x] [Review][Patch] Arguments de `llama_server_argv` non vérifiés : `-a <alias>` (les requêtes envoient `"model": "Julia-1"`) et `-np 1`. [`tests/test_v2s6_decision_bench.py:2105`]
+- [x] [Review][Patch] `file_sha256` remplacé par une constante pour tout fichier : hacher un autre fichier que le GGUF passerait. Fonction qui ne rend l'empreinte épinglée que pour le nom du GGUF. [`tests/test_v2s6_decision_bench.py:2423`]
+- [x] [Review][Patch] Enfant sans serveur : la liste des requêtes est jetée ; vérifier qu'aucune requête n'est partie. [`tests/test_v2s6_decision_bench.py:2622`]
+
+Appliqués le 2026-10-03 (tous les correctifs, choix d'Anaël) : 211 tests verts en ciblé ; les 14 mutations du banc qui passaient (ou auraient passé) sont désormais détectées. `_fail` consigne ses appels et une fixture automatique vérifie qu'aucun n'a été rattrapé par le banc. Verdicts des JSON inchangés (aucun relevé n'a de ligne en erreur).
+
+**Rejetées (groupe 4b, llama-server) :**
+- `false` : un serveur qui ne démarre pas laisserait l'enfant tourner sans que le test le voie. Retirer le `return` après l'échec du lancement fait échouer `test_main_a_llama_server_that_does_not_start` (mutation vérifiée).
+- `low` : `_llama_processes` testé avec des chemins identiques seulement. `normcase` et `resolve` sont du code standard ; pas de défaut observé.
+- `low` : `free_loopback_port` jamais testé. Trois lignes sur `127.0.0.1`, et l'hôte de l'argv est vérifié.
+- `low` : GGUF non conforme après un `--download`. Même contrôle, testé sur un GGUF déjà présent.
+- `low` : `abort_threshold_mb` non vérifié dans le rapport de llama-server. Le seuil est vérifié de bout en bout (`threshold_mb`).
+
 ## Implementation Notes
 
 - PC partagé de 16 Go : une mesure à la fois, au premier plan ; pas de pytest ni de serveur WaveStack pendant une mesure ; aucun modèle Ollama chargé. Vider le dossier `pytest-of-anael.yahi` du Temp local à la fin.
