@@ -832,3 +832,11 @@
 - source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/4-openai-par-l-api-responses.md`
   summary: Mesures réelles de GPT-6 Luna à rejouer quand le compte OpenAI aura du crédit : résumé visible selon l'effort (`low`, `medium`), items `reasoning` renvoyés avec leur `id` sous `store: false` (et besoin des `id` `fc_`/`msg_` des items qui les suivent), résumé absent faute de vérification d'organisation, tour Outils et tour Raisonnement réels (critère d'acceptation à clé réelle).
   evidence: Le 2026-10-03, chaque appel a rendu 200 puis `error` `credit_balance_exhausted` (voir `mesures-openai-2026-10.md`). Seules les mesures de paramètres (température, contenu en chaîne) ont abouti. Revue de la story 4, constat 11 (maybe-false, medium s'il est vrai).
+
+- source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/5-recette-sur-le-pc-cible.md`
+  summary: Dans le scénario `subagent`, Sonnet 5 écrit un résumé en cinq points plus long que la réserve de sortie de 512 tokens du sous-agent. La première délégation échoue donc (`limit`, « sa sortie a été coupée à 512 tokens »), puis l'agent principal redélègue de lui-même avec une consigne plus courte.
+  evidence: Recette du 2026-10-03, ligne S6 de `resultats-fournisseurs-natifs-pc-2026-10.md`. Haiku 4.5 tient dans la réserve (394 tokens). Le tour aboutit, mais coûte 7 appels au lieu de 4, et la démonstration montre d'abord un échec. Pistes : réserve de sortie plus grande pour le sous-agent d'un modèle cloud, ou consigne du prompt 1 qui borne la longueur du résumé. Ce choix relève du sous-agent (story 19), pas des fournisseurs natifs.
+
+- source_spec: `_bmad-output/specs/spec-fournisseurs-natifs/stories/5-recette-sur-le-pc-cible.md`
+  summary: La recette réelle de GPT-6 Luna (lignes L1 à L6) reste à jouer, et le coût affiché par WaveStack reste à comparer à la console de chaque fournisseur (écart d'au plus 10 %, Success signal de SPEC.md).
+  evidence: Recette du 2026-10-03 : le « Tester » de Luna rend encore « le crédit du compte est épuisé ». La comparaison avec les consoles demande la session d'Anaël. Les chiffres de WaveStack sont dans la section « Actions d'Anaël » de `resultats-fournisseurs-natifs-pc-2026-10.md` (Anthropic : 34 requêtes, 0,112253 $).
