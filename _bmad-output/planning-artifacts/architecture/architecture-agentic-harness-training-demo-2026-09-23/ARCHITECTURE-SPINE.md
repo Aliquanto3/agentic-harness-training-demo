@@ -848,10 +848,13 @@ wavestack/                      # racine du dépôt
   - **Déjà validé.** Le reranking par llama-cpp-python 0.3.35 est validé sur un GGUF synthétique : score lu par `llama_get_embeddings_seq`, car `Llama.embed()` ne convient pas à un reranker. Sa qualité reste à mesurer.
   - **Repli.** fastembed, avec paraphrase-multilingual-MiniLM-L12-v2 pour l’embedding et mmarco-mMiniLMv2 pour le reranking, par `add_custom_model` : le catalogue ne contient aucun reranker multilingue sous licence compatible.
   - **Banc.** `tools/bench/story12_bench.py embed --download`, avant la story 15.
-- **Test préalable du modèle de décision** (V2, story 6, CAP-6) : relevé sur le PC cible le 2026-10-03, verdict validé par Anaël le même jour. À l'échelon 2, **`deberta_xsmall` est retenu par défaut**. De nouveaux candidats restent à mesurer dans la story 7. Aucune story de routage (CAP-7, CAP-8) ne part sans ce verdict.
+- **Test préalable du modèle de décision** (V2, stories 6 et 7, CAP-6) : relevés sur le PC cible le 2026-10-03, verdicts validés par Anaël le même jour. À l'échelon 2, **`deberta_xsmall` est retenu par défaut**. tev1 0.8B, servi par Ollama, reste à mesurer dans la story 8. Aucune story de routage (CAP-7, CAP-8) ne part sans ce verdict.
   - **Verdicts.**
     - `deberta_xsmall` (MoritzLaurer, ONNX quantifié, MIT) est **retenu**, avec 2 285 Mo de pic et SLM compris, 3 455 Mo avec le RAG V1, et 107 / 253 ms.
     - `deberta_base` est **retenu, RAG éteint seulement**, car il monte à 4 332 Mo avec le RAG V1.
+    - mDeBERTa-v3-base-xnli-multilingual-nli-2mil7 est **retenu** : 3 889 Mo avec le RAG V1, et 216 / 529 ms. Son accord sur les prompts français est plus faible : il ne remplace pas `deberta_xsmall` (story 7).
+    - multilingual-MiniLMv2-L6-mnli-xnli est **retenu, RAG éteint seulement** : 4 175 Mo avec le RAG V1, et sa décision de coût est dégénérée (story 7).
+    - Decision 2.0 Kai 0.6B est **écarté sur le PC cible** au commit relu : son code refuse de charger sous Windows (défaut amont). Il sera réessayé si le code est corrigé (story 7).
     - nvidia/prompt-task-and-complexity-classifier est **à surveiller** : torch, étiquettes fixes, licence à relire.
     - gliformer est **écarté** sur ses deux voies, pour la RAM et faute de roue Windows.
     - Decision 1.0 est **à surveiller** : il a maintenant un chemin CPU, par Transformers avec `trust_remote_code` et torch.
@@ -863,7 +866,7 @@ wavestack/                      # racine du dépôt
     - Aucune tentative réseau.
     - Licences des paquets ajoutés, présence de torch, commit et versions consignés, pas de `trust_remote_code` sans relecture.
   - **Déjà tranché sans mesure.** Llama-Guard-3-1B et Qwen3Guard-Gen-0.6B sont génératifs : jamais classifieurs coexistants (AD-8). Arch-Router-1.5B est écarté pour sa licence (NFR-10).
-  - **Reste à mesurer (story 7).** Decision 2.0 Kai 0.6B : code distant relu et épinglé avant la mesure, au mieux « à surveiller ». Encodeurs NLI multilingues : mDeBERTa-v3-base-xnli-multilingual-nli-2mil7, et multilingual-MiniLMv2-L6-mnli-xnli en option légère.
+  - **Reste à mesurer (story 8).** tev1 0.8B, servi par Ollama 0.35 (`/v1/systemone`). C'est un modèle causal : au mieux « à surveiller » tant que la règle d'un seul modèle génératif (AD-8) n'est pas revue. La RAM compte aussi le processus Ollama.
   - **Rapport.** `_bmad-output/implementation-artifacts/rapport-test-prealable-modeles-de-decision.md`. `decision-model-candidates.md` se met à jour par un passage de bmad-spec.
 - **Schéma YAML des scénarios** : fixé par la première story de scénarios dans un modèle pydantic, dans le cadre d’AD-19.
 - **Bibliothèque JS éventuelle** (JS natif, ou petite bibliothèque recopiée) : première story d’interface, dans le cadre d’AD-18.

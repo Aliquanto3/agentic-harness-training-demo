@@ -86,3 +86,21 @@
     (uv run --with), aucun changement sous src/wavestack. Relire et épingler le code distant de
     Decision 2.0 avant toute exécution. Le PC (16 Go) est partagé : une mesure à la fois, au
     premier plan.
+- id: "8"
+  title: "V2 (8/8) : banc d'un modèle de décision servi par Ollama (tev1 0.8B)"
+  description: >-
+    Étendre le banc de la story 6 à tev1 0.8B servi par Ollama 0.35 (/v1/systemone), avec les
+    mêmes critères et prompts, puis consigner son verdict relevé sur le PC cible (CAP-6).
+    Taille S à M, plus un relevé manuel sur le PC cible.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Permise avant le pilote, comme les stories 6 et 7 : c'est un banc, pas une fonction. Étendre
+    tools/bench/v2s6_decision_bench.py sans le dupliquer ; aucune dépendance ajoutée au projet
+    (uv run --with), aucun changement sous src/wavestack. Le modèle tourne dans le processus
+    Ollama : la RAM compte l'enfant de mesure et le processus Ollama qui sert tev1, et le
+    hors-ligne se vérifie aussi côté serveur. Verdict au mieux « à surveiller » (modèle causal,
+    règle d'un seul modèle génératif) ; établir la licence des poids. Anaël met Ollama à jour en
+    0.35 avant le relevé. Le test du document des candidats compte ses lignes : ajouter la ligne
+    de tev1 et le candidat ensemble. Le PC (16 Go) est partagé : une mesure à la fois, au
+    premier plan.
