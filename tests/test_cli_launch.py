@@ -467,13 +467,27 @@ def test_the_session_is_closed_at_exit_even_without_the_lifespan(monkeypatch):
     monkeypatch.setattr(cli, "_open_browser", lambda *args: None)
     monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kwargs: None)  # no lifespan ran
     monkeypatch.setattr(cli.atexit, "register", registered.append)
+    unregistered: list = []
+    monkeypatch.setattr(cli.atexit, "unregister", unregistered.append)
 
     assert cli.main([]) == 0
     # On the main thread as `uvicorn.run` returns, before the worker threads are joined...
     assert _AppSession.closed == 1
-    # ... and at the interpreter's exit, as a last resort (`close` does nothing twice).
+    # ... and at the interpreter's exit, as a last resort, only while that close has not
+    # ended (a third Ctrl+C during it): once closed, the last resort is withdrawn.
     [close] = registered
     assert close.__func__ is _AppSession.close
+    assert unregistered == [close]
+
+    def _interrupted(self) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(_AppSession, "close", _interrupted)
+    registered.clear()
+    unregistered.clear()
+    with pytest.raises(KeyboardInterrupt):
+        cli.main([])
+    assert len(registered) == 1 and unregistered == []
 
 
 def test_closing_the_session_twice_closes_its_engine_once():

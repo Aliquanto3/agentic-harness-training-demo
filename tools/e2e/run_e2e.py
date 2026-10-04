@@ -1390,6 +1390,34 @@ _MD_WATCH_JS = """() => {
   window.__mdWatch = watch;
 }"""
 
+# Finition V1 (#18): `markdown.js` itself, on texts whose first opener has no closer. Each
+# case gives the text and its `em` and `strong`; then the time of a 10 000-character
+# paragraph of unclosed `*` (≈ 550 ms with the cubic scan before #18, ≈ 4 ms after).
+_MD_INLINE_JS = """async (cases) => {
+  const { renderMarkdown } = await import('/static/markdown.js');
+  const render = (text) => {
+    const box = document.createElement('div');
+    box.appendChild(renderMarkdown(text));
+    return box;
+  };
+  const texts = (box, s) => [...box.querySelectorAll(s)].map((e) => e.textContent);
+  const got = cases.map((text) => {
+    const box = render(text);
+    return { text: box.textContent, em: texts(box, 'em'), strong: texts(box, 'strong') };
+  });
+  const big = 'a *b '.repeat(2000);
+  const start = performance.now();
+  render(big);
+  return { got, ms: performance.now() - start };
+}"""
+
+# Finition V1 (#18): an unclosed opener of one kind never hides the emphases after it.
+_MD_UNCLOSED = [
+    ("**a puis *b* et _c_", {"text": "**a puis b et c", "em": ["b", "c"], "strong": []}),
+    ("*a puis **b** et __c__", {"text": "*a puis b et c", "em": [], "strong": ["b", "c"]}),
+    ("__a puis _b_ et **c**", {"text": "__a puis b et c", "em": ["b"], "strong": ["c"]}),
+]
+
 _MD_DOM_JS = """() => {
   const bubble = [...document.querySelectorAll('#chat .bubble-model')].at(-1)
     ?.querySelector('.bubble-text.is-markdown');
@@ -1506,6 +1534,18 @@ def s_markdown(r: Run) -> None:
             page.locator("#chat img").count() == 0 and not dialogs,
             "aucune image ni alerte injectée",
             str(dialogs),
+        )
+        inline = page.evaluate(_MD_INLINE_JS, [text for text, _ in _MD_UNCLOSED])
+        wrong = [
+            f"{text!r} : {got}"
+            for (text, expected), got in zip(_MD_UNCLOSED, inline["got"], strict=True)
+            if got != expected
+        ]
+        r.check(
+            not wrong and inline["ms"] < 100,
+            "Finition V1 (#18) : une ouverture non fermée ne masque pas les emphases suivantes, "
+            "et 10 000 caractères de `*` non fermés se rendent en moins de 100 ms",
+            f"{'; '.join(wrong)[:300]} · {inline['ms']:.1f} ms",
         )
         r.shot("40-markdown-vue-humain")
         ctx = page.locator("#ctx").inner_text()
@@ -9927,11 +9967,19 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
         f"{text!r} · {title} · {spend}",
     )
     cap = r.state().get("max_session_usd")
+    # The reset sentence counts the totals shown (spend, footprint), never the cap's.
+    reset = (
+        "Seul un relancement de WaveStack remet ces totaux à zéro."
+        if spend.get("impact_calls", 0) > 0
+        else "Seul un relancement de WaveStack remet ce total à zéro."
+    )
     r.check(
         cap is not None
         and "Plafond de dépense de la séance : " in title
-        and " $ ; une fois le plafond atteint, aucun appel payant ne part." in title,
-        "Finition V1 (#27) : le plafond de la séance dans l'infobulle de la dépense",
+        and " $ ; une fois le plafond atteint, aucun appel payant ne part." in title
+        and title.endswith(reset),
+        "Finition V1 (#27) : le plafond de la séance dans l'infobulle de la dépense, "
+        "et la phrase de remise à zéro au nombre des totaux affichés",
         f"{cap} · {title}",
     )
     ok, detail = _bar_fits(r)
@@ -9948,6 +9996,21 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
         "FinOps : après un rechargement, le même total dans la barre de l'atelier",
         again.inner_text(),
     )
+    # Finition V1 (#27): the diagnostic says the cap and the spend so far, under the cloud
+    # models (`#cloud-cap`, from `spend_cap`).
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    line = page.locator("#cloud-cap")
+    expect(line).to_be_visible(timeout=20_000)
+    said = line.inner_text()
+    cap_text = f"{cap:g}".replace(".", ",") if cap is not None else "?"
+    r.check(
+        said.startswith("Plafond de dépense de la séance : ")
+        and f" $ dépensés sur {cap_text} $." in said
+        and "max_session_usd" in said,
+        "Finition V1 (#27) : le diagnostic dit le plafond et la dépense de la séance",
+        said,
+    )
+    r.goto_app()
 
 
 def _footprint_line(r: Run) -> tuple[str, str]:

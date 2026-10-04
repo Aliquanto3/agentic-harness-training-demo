@@ -861,7 +861,9 @@ La température (écran « LLM nu », Haiku seulement) ne part que raisonnement 
 refuse avec le raisonnement. Pas de top-p : Haiku 4.5 refuse la température et le top-p
 ensemble. Le cache de prompt d'Anthropic
 n'est jamais activé. Opus 5.5 figure en commentaire dans `wavestack.toml` (son raisonnement ne
-s'éteint pas).
+s'éteint pas). Un compte sans crédit est refusé avec « le crédit du compte est épuisé » :
+ajoutez du crédit dans la console Anthropic (forme de l'erreur lue dans la documentation
+d'Anthropic, non mesurée).
 
 **GPT-6 Luna (OpenAI, API Responses).** `openai_luna` (`gpt-6-luna`, 1 050 000 tokens,
 0,10 $ / 0,50 $ par million de tokens, cache lu 0,01 $) passe par l'API Responses d'OpenAI
@@ -955,8 +957,8 @@ sortie, en dollars par million de tokens, et la date du relevé (`checked`, au f
 AAAA-MM-JJ). Relevés le 2026-09-29 sur les pages officielles : Groq `openai/gpt-oss-120b` et
 Mistral Small 4 à 0,15 $ / 0,60 $, Gemini `gemini-3.5-flash-lite` à 0,30 $ / 2,50 $. Sur le
 plan gratuit de Mistral, le coût réel est nul : le prix affiché est le prix catalogue ; sur un
-plan payant, il est facturé. Gemma n'a
-pas de `pricing` : le modèle est gratuit, aucun coût n'est estimé ni affiché (« — »).
+plan payant, la consommation est facturée à ce prix. Gemma n'a pas de `pricing` : le modèle est
+gratuit, aucun coût n'est estimé ni affiché (« — »).
 
 **Estimation.** Pour chaque appel cloud, WaveStack calcule le coût d'entrée (tokens du prompt ×
 prix d'entrée / 10⁶) et le coût de sortie (tokens produits × prix de sortie / 10⁶, les tokens de

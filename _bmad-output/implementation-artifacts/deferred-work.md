@@ -928,3 +928,13 @@
   summary: Un compte Anthropic à solde nul n'aurait pas le message « crédit épuisé » (`no_credit`), qui ne reconnaît que les codes d'OpenAI (`cloud_base.NO_CREDIT`). Non vérifié ; serait moyen.
   evidence: Revue de la PR #20 (Blind Hunter). Pour trancher : relever la forme réelle de l'erreur (attendu : 400 `invalid_request_error`, message « credit balance is too low ») et le message que WaveStack affiche aujourd'hui.
   closed: 2026-10-04 (nuit de finition V1, 1-A, #36) — `cloud_base.no_credit` reconnaît aussi la forme documentée d'Anthropic (`invalid_request_error`, « credit balance is too low ») et `_refused` la teste sur un 400 comme sur un 429 : « le crédit du compte est épuisé ». Forme lue dans la documentation, non mesurée (aucun compte à solde nul). `tests/test_anthropic_messages.py::test_http_refusals_follow_the_common_rule` (cas ajouté).
+
+## Deferred from: code review of plan-nuit-2026-10-03-finition-v1, groupe 1 (2026-10-04)
+
+- source_spec: `_bmad-output/implementation-artifacts/plan-nuit-2026-10-03-finition-v1.md`
+  summary: La ligne neutre « Téléchargement … arrêté » (#20) n'est vérifiée que sur la carte RAG (modèle d'embedding) ; sur la sous-option « Reranking » (`store.rerankNotice`, `.brick-suboption .brick-note`), aucun contrôle.
+  evidence: Revue de la PR #21 (Verification Gap). `tests/test_rag_download.py` n'émet l'effet que pour `rag.retriever` ; l'E2E ne couvre que l'échec du reranker (`_rerank_download_fails`). Pour fermer : un interrupteur « reranker lent » dans le faux serveur E2E, « Arrêter » pendant son téléchargement, puis une ligne `.brick-suboption .brick-note` et aucune `.force-error`.
+
+- source_spec: `_bmad-output/planning-artifacts/architecture/architecture-agentic-harness-training-demo-2026-09-23/ARCHITECTURE-SPINE.md`
+  summary: AD-15 (l. 438-443) ne liste pas les recherches inverses filtrées depuis #14 (`socket.gethostbyaddr`, `socket.getnameinfo`) ni la limite de `socket.getfqdn()` ; le chemin d'arrêt au double Ctrl+C (`finally` puis `atexit`, #21) et l'effet `model_download_stopped` (#20) n'y figurent pas non plus.
+  evidence: Revue de la PR #21 (Blind Hunter). Le code et ses commentaires sont justes (`net/guard.py`, `cli.py`, `trace/catalog.py`) ; seule la spine est en retard. Correction d'une spec d'architecture, hors du périmètre d'une revue de code.

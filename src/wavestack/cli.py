@@ -62,9 +62,10 @@ LAUNCH_WAIT_S = 30.0  # past this, the diagnostic page opens while the checks go
 # Story 7 of the deferred leftovers (E077): an open page keeps its SSE stream, which uvicorn
 # would wait for forever at Ctrl+C; past this delay the streams are cancelled and the
 # lifespan still closes the engines. A second Ctrl+C skips the lifespan: `main` closes the
-# session after `uvicorn.run` returns, and `atexit` as a last resort (finition V1, #21; `close`
-# does nothing the second time). The local MCP servers are then left to `asyncio.run`, whose
-# loop is closed. Closing the console window may end the process before either (not measured).
+# session after `uvicorn.run` returns, and `atexit` as a last resort, should that close be
+# interrupted in turn (finition V1, #21; a second `close` releases nothing more). The local MCP
+# servers are then left to `asyncio.run`, whose loop is closed. Closing the console window may
+# end the process before either (not measured).
 SHUTDOWN_GRACE_S = 2.0
 # Languages (5/5): the terminal speaks English, whatever the session's language; never
 # read from settings.json.
@@ -264,8 +265,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     finally:
         # #21: on the main thread, before the interpreter joins the worker threads (a turn
-        # waiting for an H5 answer would hold the exit): `stop()` cancels it first.
+        # waiting for an H5 answer would hold the exit): `stop()` cancels it first. Closed,
+        # the session needs no last resort.
         app_session.close()
+        atexit.unregister(app_session.close)
     return 0
 
 
