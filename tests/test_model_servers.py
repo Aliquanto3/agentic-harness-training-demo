@@ -591,12 +591,16 @@ def test_a_way_back_that_fails_leaves_no_model_and_says_so(fake):
     assert session.boot("A.gguf").result() == "ok"
     _, future = session.switch_model(ModelChoice.served(_candidate("ollama")))
     assert future.result() == "ok"
+    assert config.read_settings()["selected_model"]["kind"] == "server"  # the refused one
     fake.generate_error, gone["A"] = OLD_OLLAMA, True
 
     events = _run(session, "Bonjour")
 
     [ended] = events["model_load_ended"]
     assert ended["status"] == "error" and ended["model"]["label"] == "A"
+    # 2026-10-04: no saved choice is left either; the next launch asks for a model.
+    assert config.read_settings().get("selected_model") is None
+    assert config.load_config().selected_model is None
     back = events["harness_error"][-1]
     assert back["effect_text"] == (
         f"Le retour à A a échoué : aucun modèle n'est actif ({OLLAMA_NAME} est déchargé). "
