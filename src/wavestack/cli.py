@@ -20,6 +20,7 @@ import time
 import urllib.error
 import urllib.request
 import webbrowser
+from collections.abc import Callable
 
 from wavestack import config as _config
 from wavestack.net.guard import install as _install_guard
@@ -64,9 +65,15 @@ LAUNCH_WAIT_S = 30.0  # past this, the diagnostic page opens while the checks go
 # lifespan still closes the engines. A second Ctrl+C skips the lifespan: `main` closes the
 # session after `uvicorn.run` returns, and `atexit` as a last resort, should that close be
 # interrupted in turn (finition V1, #21; a second `close` releases nothing more). The local MCP
-# servers are then left to `asyncio.run`, whose loop is closed. Closing the console window may
-# end the process before either (not measured).
+# servers are then left to `asyncio.run`, whose loop is closed. Closing the console window
+# skips all of them: see `_console_closing`.
 SHUTDOWN_GRACE_S = 2.0
+# Finition V1 (#21, decided on 2026-10-04): closing the console window (its ✕) sends
+# CTRL_CLOSE_EVENT and Windows ends the process about 5 s later, without Ctrl+C, the lifespan,
+# the `finally` or `atexit`: an Ollama model stayed loaded until Ollama's own expiry (5 min,
+# measured). The handler closes the session in those seconds (`close`: the turn stopped, the
+# local MCP servers, the worker, then the engines).
+CTRL_CLOSE_EVENT = 2
 # Languages (5/5): the terminal speaks English, whatever the session's language; never
 # read from settings.json.
 TERMINAL_LANGUAGE = "en"
@@ -89,6 +96,38 @@ def _print_journal_event(envelope) -> None:  # noqa: ANN001
         if payload.get(key):
             parts.append(_english(payload[key]))
     print(" — ".join(parts))
+
+
+def _console_closing(close: Callable[[], None]) -> Callable[[int], bool]:
+    """#21: the console control handler. CTRL_CLOSE_EVENT closes the session and says it is
+    handled (Windows still ends the process once it returns); any other event (Ctrl+C,
+    Ctrl+Break) is left to the next handler, Python's."""
+
+    def handler(event: int) -> bool:
+        if event != CTRL_CLOSE_EVENT:
+            return False
+        try:
+            close()
+        except Exception:  # noqa: BLE001 - the process ends anyway: never a traceback here
+            pass
+        return True
+
+    return handler
+
+
+def _install_console_close(close: Callable[[], None]) -> object | None:
+    """#21: `_console_closing(close)` registered with `SetConsoleCtrlHandler` (Windows only).
+    Returns the ctypes routine, to keep alive as long as the process (`None` elsewhere, or
+    when the registration fails)."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    routine = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)(_console_closing(close))
+    if not ctypes.windll.kernel32.SetConsoleCtrlHandler(routine, True):
+        return None
+    return routine
 
 
 def _try_reserve_port(port: int) -> socket.socket | None:
@@ -236,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
     session = DiagnosticSession(_cfg, args.port)
     app_session = AppSession(_cfg)
     atexit.register(app_session.close)  # #21: the lifespan skipped by a second Ctrl+C
+    # #21: the window's ✕; the routine kept alive while uvicorn runs.
+    _console_close = _install_console_close(app_session.close)
     app = create_app(session, port=args.port, version=VERSION, app_session=app_session)
 
     get_journal().subscribe(_print_journal_event)
