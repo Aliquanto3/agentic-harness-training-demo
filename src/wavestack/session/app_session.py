@@ -2169,6 +2169,8 @@ class AppSession:
             cause_text = cause if isinstance(cause, str) else str(cause)
         self._release()  # whatever the failed load left
         if previous is None:
+            if failed_effect is not None:
+                self._forget_choice()  # the refused model is never loaded again at launch
             self._error(message_text, cause, failed_effect or _NO_TURN_FR)
             # #11: the way back failed: no model at all, chosen in the top bar.
             return cause_text, failed_effect or idle_text or _LOAD_FAILED_FR, "error"
@@ -2428,6 +2430,17 @@ class AppSession:
             self._error(Message("session.settings.unwritable"), exc, notice)
             return notice
         return None
+
+    @staticmethod
+    def _forget_choice() -> None:
+        """V1 finishing (2026-10-04, after #11): E119's way back failed, the saved choice still
+        named the model Ollama refused, loaded again at the next launch. `selected_model`
+        emptied: the next launch's diagnostic asks for a model. A failed write leaves the old
+        choice, whose first turn explains the refusal again (AD-16: never an error here)."""
+        try:
+            apply_setting(SettingWrite(key="selected_model", value=None))
+        except Exception:  # noqa: BLE001 - the session goes on without a model either way
+            pass
 
     # ---------- context window (story 26, AD-9) ----------
 
