@@ -60,7 +60,8 @@ vrais services.
   téléchargement, finition V1 #20).
   `/_e2e/reranker.gguf` est celui du faux reranker (story 16), servi sauf après
   `POST /_e2e/reranker_fail` `{"fail": true}` (503 jusqu'à `{"fail": false}`, story 6 des
-  restes différés).
+  restes différés) ; `POST /_e2e/reranker_slow` `{"slow": true}` le sert à un octet par seconde
+  jusqu'à `{"slow": false}` (« Arrêter », finition V1).
   Mode Gemini quand le `model` du corps commence par `gemini`, calqué sur les formes relevées
   sur le vrai `gemini-3.5-flash-lite` le 2026-09-29 : appels d'outil en un seul fragment, sans
   `index`, le premier seul avec `extra_content.google.thought_signature` (`signature-fausse-…`),
@@ -698,6 +699,11 @@ haut) :
 - `rag` (#20) : fichier servi lentement, « Arrêter » une fois le `.part` ouvert : ligne neutre
   sur la carte (« … le fichier en cours est supprimé … »), ni `harness_error`, ni ligne rouge,
   ni copie à la main, aucun `.part` laissé.
+- `rag_rerank` (#20, après l'échec E094) : le fichier du reranker servi lentement
+  (`/_e2e/reranker_slow`), « Arrêter » une fois son `.part` ouvert : ligne neutre sous
+  l'interrupteur « Reranking », à la place de la ligne rouge de l'échec, effet
+  `model_download_stopped` du composant `rag.reranker`, aucun `.part` laissé, « Télécharger »
+  de nouveau proposé.
 - `markdown` (#18) : `markdown.js` importé dans la page rend les emphases qui suivent une
   ouverture non fermée, et 10 000 caractères de `*` non fermés en moins de 100 ms (≈ 550 ms
   avec l'ancien parcours cubique).

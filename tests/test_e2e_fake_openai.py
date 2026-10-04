@@ -204,6 +204,15 @@ def test_reranker_file_fails_while_armed_then_is_served_again():
     assert client.get("/_e2e/reranker.gguf").status_code == 200
 
 
+def test_reranker_slow_is_armed_then_disarmed():
+    """Finition V1 (2026-10-04): the reranker's file a byte a second, for « Arrêter »; once
+    disarmed, served at once again (the slow stream itself is read by the E2E)."""
+    client = TestClient(fake.create_app())
+    assert client.post("/_e2e/reranker_slow", json={"slow": True}).json() == {"slow": True}
+    assert client.post("/_e2e/reranker_slow", json={"slow": False}).json() == {"slow": False}
+    assert client.get("/_e2e/reranker.gguf").content == b"\1" * fake.RERANKER_FILE_SIZE
+
+
 def test_without_usage_trigger_omits_the_usage_chunk():
     reply = fake.plan_reply(_body(_user("Bonjour [sans-usage]")))
     chunks = fake.sse_chunks(reply, {"stream_options": {"include_usage": True}}, "c1")

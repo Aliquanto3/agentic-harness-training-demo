@@ -5993,6 +5993,47 @@ def _rerank_download_fails(r: Run, card, download) -> None:  # noqa: ANN001
         _fake_post(r, "/_e2e/reranker_fail", {"fail": False})
 
 
+def _rerank_download_stopped(r: Run, card, download) -> None:  # noqa: ANN001
+    """Finition V1 (#20, review of PR #21, 2026-10-04): the reranker's file served a byte a
+    second, « Arrêter » once its `.part` is open: a neutral line under the « Reranking »
+    switch, in place of the earlier failure's red one; no `harness_error`, no `.part` left,
+    « Télécharger » offered again."""
+    folder = r.stack.data_dir / "models" / "reranker"
+    _fake_post(r, "/_e2e/reranker_slow", {"slow": True})
+    try:
+        seq = r.ev.mark()
+        download.click()
+        r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
+        opened, _ = r.poll(lambda: bool(list(folder.rglob("*.part"))), 10)
+        r.check(opened, "#20 (Reranking) : le fichier .part existe avant « Arrêter »")
+        r.api("POST", "/api/intentions/stop")
+        stopped = r.ev.wait(
+            "effect_applied", seq, lambda p: p["effect"] == "model_download_stopped", 20
+        )
+        r.ev.wait("session_state", seq, lambda p: p["state"] == "idle", 20)
+        note = card.locator(".brick-suboption .brick-note", has_text="arrêté")
+        expect(note).to_contain_text("le fichier en cours est supprimé", timeout=5000)
+        errors = [e for e in r.ev.since(seq, "harness_error") if e.get("component")]
+        r.check(
+            not errors
+            and stopped.get("component") == "rag.reranker"
+            and card.locator(".brick-suboption .force-error").count() == 0
+            and "modèle de reranking" in note.inner_text(),
+            "#20 (Reranking) : téléchargement arrêté, ligne neutre sous l'interrupteur, à la "
+            "place de la ligne rouge de l'échec, sans erreur",
+            f"{note.inner_text()} · {stopped.get('component')} · erreurs {len(errors)}",
+        )
+        left = list(folder.rglob("*.part")) if folder.exists() else []
+        expect(download).to_be_visible(timeout=10_000)
+        r.check(
+            not left and download.is_enabled(),
+            "#20 (Reranking) : aucun .part laissé, « Télécharger » de nouveau proposé",
+            str(left),
+        )
+    finally:
+        _fake_post(r, "/_e2e/reranker_slow", {"slow": False})
+
+
 def _rerank_step_failed(r: Run) -> None:
     """E094: the fake reranker breaks down while it scores (`RERANK_FAILURE_MARK` in the
     question): the « Reranking » step in error, unfolded and kept so, its error said; the
@@ -6082,6 +6123,7 @@ def s_rag_rerank(r: Run) -> None:
     )
 
     _rerank_download_fails(r, card, download)
+    _rerank_download_stopped(r, card, download)
 
     # « Télécharger le modèle de reranking »: the file, then the reranker loads.
     seq = r.ev.mark()
