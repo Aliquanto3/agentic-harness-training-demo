@@ -44,7 +44,9 @@ faites autoriser par votre service informatique les domaines listés dans
 2. **Récupérez WaveStack**, avec Git (`git clone https://github.com/Aliquanto3/agentic-harness-training-demo.git`) ou en décompressant
    l'archive zip remise par votre formateur, puis ouvrez un terminal dans le dossier obtenu.
 
-3. **Déposez le modèle** (1,28 Go) dans le dossier des modèles de WaveStack :
+3. **Déposez le modèle** (1,28 Go) dans le dossier des modèles de WaveStack. Ce dossier,
+   `%LOCALAPPDATA%\WaveStack\models`, appartient à votre profil Windows et ne fait pas partie
+   du dossier cloné : une mise à jour du code n'y touche pas.
 
    ```powershell
    New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\WaveStack\models" | Out-Null
@@ -68,6 +70,45 @@ poste, cliquez sur « Choisir » en face de Qwen3.5-2B. Ouvrez ensuite l'atelier
 de navigation, choisissez le scénario « LLM nu » dans le sélecteur en bas à gauche et suivez sa
 consigne : le [programme de formation](docs/guide.md#programme-de-formation) enchaîne ensuite
 les modules. Ctrl+C dans le terminal arrête WaveStack ; `uv run wavestack` le relance.
+
+## Utiliser un modèle cloud (clé API)
+
+Le modèle local suffit pour toute la formation. Un modèle cloud est facultatif : plus rapide et
+meilleur avec les outils. Les préréglages fournis sont Groq, Mistral, Gemini, Gemma, Claude et
+GPT-6 Luna.
+
+1. **Créez une clé API** dans la console du fournisseur. Chez Mistral, activez d'abord un plan
+   (« Experiment », gratuit, suffit) ; sans plan, chaque appel répond 429.
+2. **Ouvrez la page de diagnostic.** Elle s'ouvre au lancement, ou passez par « Autre fichier ou
+   clé API… » dans le sélecteur de modèle de la barre du bas.
+3. **Collez la clé** dans la ligne du modèle, puis cliquez sur « Enregistrer la clé ». Elle est
+   conservée sur ce poste seulement, dans `%LOCALAPPDATA%\WaveStack\api_keys.json`. Elle n'est
+   jamais affichée ni écrite dans les traces, et elle n'est envoyée qu'à l'hôte du fournisseur.
+4. **Cliquez sur « Tester »** (deux appels au plus, sans vos données), puis sur « Choisir » et
+   « Utiliser ce modèle ».
+
+Autre méthode : une variable d'environnement, lue si aucune clé n'a été saisie au diagnostic.
+
+| Fournisseur | Variable |
+|---|---|
+| Groq | `GROQ_API_KEY` |
+| Mistral | `MISTRAL_API_KEY` |
+| Gemini et Gemma | `GEMINI_API_KEY` |
+| Claude (Haiku, Sonnet) | `ANTHROPIC_API_KEY` |
+| GPT-6 Luna | `OPENAI_API_KEY` |
+
+```powershell
+setx GROQ_API_KEY votre-clé
+```
+
+`setx` ne vaut que pour les **nouveaux** terminaux : rouvrez-en un avant `uv run wavestack`.
+La clé est alors stockée en clair dans votre environnement utilisateur. Ne mettez jamais de
+clé dans `wavestack.toml` ni dans un fichier suivi par Git.
+
+Sur un réseau d'entreprise, faites autoriser l'hôte du fournisseur (`api.groq.com`,
+`api.mistral.ai`, `generativelanguage.googleapis.com`, `api.anthropic.com`, `api.openai.com`).
+Pour les conditions de chaque fournisseur (données, prix, quotas), voir
+[Modèles cloud](docs/modeles.md#modèles-cloud).
 
 ## Aller plus loin
 
