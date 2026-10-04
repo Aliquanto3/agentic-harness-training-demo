@@ -52,11 +52,12 @@ def test_story_28_procedure_no_longer_reads_releases_latest():
     assert "lot K, point 8" in text.split("## Spec Change Log")[1].split("##")[0]
 
 
-# Story 28 rewrote the README, the palier 2 guide and its cahier from the older procedure: the
-# same correction there, and the three procedures stay word for word the same.
+# Story 28 rewrote the README (since moved to docs/modeles.md), the palier 2 guide and its cahier
+# from the older procedure: the same correction there, and the three procedures stay word for
+# word the same.
 IMPLEMENTATION = ARTIFACTS / "implementation-artifacts"
 PALIER_2 = {
-    "README": config.repo_root() / "README.md",
+    "modeles": config.repo_root() / "docs" / "modeles.md",
     "guide": IMPLEMENTATION / "guide-test-pc-palier-2.md",
     "cahier": IMPLEMENTATION / "cahier-recette-palier-2.html",
 }
@@ -68,8 +69,15 @@ def _install_procedure(path) -> str:
     return text[start : text.index("Expand-Archive", start)]
 
 
+def test_the_shipped_llama_server_procedure_is_where_the_comparison_reads_it():
+    # Only the recette documents may be absent (an archive without `_bmad-output`): a moved
+    # docs/modeles.md must fail here, not silently skip the comparison below.
+    assert "$px = @{}   # erreur 407" in PALIER_2["modeles"].read_text(encoding="utf-8")
+
+
 @pytest.mark.skipif(
-    not all(path.exists() for path in PALIER_2.values()), reason="documents de recette absents"
+    not all(PALIER_2[name].exists() for name in ("guide", "cahier")),
+    reason="documents de recette absents",
 )
 def test_palier_2_procedures_take_the_first_release_with_the_windows_archive():
     procedures = {name: _install_procedure(path) for name, path in PALIER_2.items()}
@@ -78,4 +86,4 @@ def test_palier_2_procedures_take_the_first_release_with_the_windows_archive():
         assert "releases/latest" not in install, name
         assert "/releases?per_page=10" in install, name
         assert f"$_.assets.name -match {ARCHIVE} }} | Select-Object -First 1" in install, name
-    assert procedures["guide"] == procedures["README"] == procedures["cahier"]
+    assert procedures["guide"] == procedures["modeles"] == procedures["cahier"]

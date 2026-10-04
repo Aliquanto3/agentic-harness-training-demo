@@ -150,7 +150,7 @@ WaveStack ne l'installe pas. On prend l'archive CPU officielle de llama.cpp,
 `llama-bNNNNN-bin-win-cpu-x64.zip`, publiée sur `github.com/ggml-org/llama.cpp`, décompressée
 dans le profil (`%LOCALAPPDATA%\llama.cpp\<version>`, un dossier par version), et l'exécutable
 se lance par son chemin complet, `$llama` : rien ne s'installe, rien ne demande d'élévation.
-Même procédure que le README (« Obtenir llama-server sans droits d'administrateur »).
+Même procédure que `docs/modeles.md` (« Obtenir llama-server sans droits d'administrateur »).
 
 Dans un nouveau terminal PowerShell (Windows PowerShell 5.1 ou PowerShell 7), ligne par ligne :
 
