@@ -663,3 +663,47 @@ def test_public_servers_say_what_they_receive_and_local_ones_do_not(server):
         assert text.sends_text and text.sends_text.strip()
     else:
         assert text.sends_text is None
+
+
+# ---------- #5 of the V1 finishing (2026-10-04): a turn sent while a server connects ----------
+
+
+def test_a_turn_sent_while_a_server_connects_waits_for_its_tools(loop, web):
+    """Measured with the 2B: a scenario's first prompt sent before its MCP connections ended
+    froze a catalog without their tools (`_mcp_connected` waits behind the turn on the
+    worker), and the next turn read the whole context again (cause `system`). `send` now
+    waits for the connections under way: the turn's catalog has the server's tools."""
+    server = web(McpWeb(MSLEARN_TOOLS))
+    server.list_delay = 1.0
+    session = mcp_session(loop)
+    session.set_mcp_server("local", False)
+    session.set_brick("mcp", True)
+    session.set_mcp_server("mslearn", True)  # its connection not waited for here
+
+    events = _run(session, "Cherche dans Microsoft Learn.")
+
+    assert [e["status"] for e in events["mcp_connect_ended"]] == ["ok"]
+    catalog = "".join(s["text"] for s in _segments(events["context_rendered"][0], "tool_catalog"))
+    assert "mslearn__microsoft_docs_search" in catalog
+    session.close()
+
+
+def test_a_server_that_never_answers_delays_the_turn_by_its_timeout_only(loop, web):
+    """#5: the wait is bounded by the connection's own timeout; the turn then goes without
+    the server, which is unavailable."""
+    server = web(McpWeb(MSLEARN_TOOLS))
+    server.list_delay = 5
+    session = mcp_session(loop, connect_timeout_s=0.5)
+    session.set_mcp_server("local", False)
+    session.set_brick("mcp", True)
+    session.set_mcp_server("mslearn", True)
+    started = time.monotonic()
+
+    events = _run(session, "Bonjour")
+
+    assert time.monotonic() - started < 4
+    assert [e["status"] for e in events["mcp_connect_ended"]] == ["error"]
+    catalog = "".join(s["text"] for s in _segments(events["context_rendered"][0], "tool_catalog"))
+    assert "mslearn__" not in catalog
+    assert events["turn_ended"][0]["status"] == "completed"
+    session.close()

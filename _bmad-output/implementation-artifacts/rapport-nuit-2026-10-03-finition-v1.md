@@ -34,7 +34,7 @@ Numéros du plan : les 11 entrées déjà tranchées n'en ont pas (lettre D ou s
 | #2 | D5 attribution des sources | Fermée sur preuve | T5, T6 |
 | #3 | D7 date du tiroir de mémoire | Fermée sur preuve | T6 |
 | #4 | Scénarios avec le 2B (RAG hors sujet…) | Ouverte la nuit ; fermée le 04/10, limite connue (décision d'Anaël) | recette du 04/10 |
-| #5 | Sous-agent : quiz qui relisent tout | **Ouverte** (quiz 1 relu, cause `system`) | recette du 04/10 |
+| #5 | Sous-agent : quiz qui relisent tout | Corrigée le 04/10 (`send` attend les connexions MCP) | recette et mesure du 04/10, `test_mcp.py` |
 | #6 | Comportement du 2B (outils non appelés…) | Ouverte la nuit ; fermée le 04/10, limite connue (décision d'Anaël) | recette du 04/10 |
 | #7 | `fits` en mode exact | Fermée (mesurée) | mode exact sur le 2B : passe, `subagent` p4 3 058 / 3 584 |
 | #8 | Distribution simulée non comparée | Limite connue [A] | — |
@@ -185,6 +185,7 @@ Une suite à la fois, aucun modèle local chargé pendant pytest, dossier `pytes
 - n° 2 rejoué : sept scénarios avec le 2B, tous terminés sans erreur, données restaurées à l'octet. #23 bon (réponse de 111 tokens, `stop`). #5 : délégation puis quiz sans redélégation, quiz 2 et 3 en 2,7 s, mais quiz 1 en 53,5 s (relecture de cause `system`, nouvelle). #4 et #6 : `skills`, `compression`, `iam` et la recherche data.gouv de `mcp_lazy` bons ; `local__define_term` jamais appelé, souveraineté sans recherche, SOC sans escalade (limites du 2B) : fermées comme limites connues (votre décision). #5 reste ouverte (quiz 1 relu, cause `system` à trouver).
 - n° 3 en partie, par script : double Ctrl+C avec `gemma3:1b` chargé, sortie en 2,5 s, modèle déchargé ; fenêtre fermée (`WM_CLOSE` à une console `conhost`) : WaveStack s'arrêtait en laissant le modèle chargé jusqu'à l'expiration d'Ollama (5 min) ; corrigé sur votre décision (CTRL_CLOSE_EVENT capté, session fermée), remesuré : modèle déchargé aussitôt.
 - n° 4 fait : Sonnet 5, sous-agent en 228 tokens, `stop`, 0,022 $.
+- Après la fusion : ✕ de Windows Terminal bon (modèle déchargé en moins d'une seconde) ; installation à blanc complète (SM-5) en 9 min 24 s jusqu'à l'atelier prêt avec le 2B (Python et dépendances téléchargés, cache vide, 20 GGUF testés) ; #5 diagnostiquée : un premier prompt envoyé avant la fin des connexions MCP du scénario fige un catalogue d'outils sans MCP, et le tour suivant relit tout. Corrigé sur votre décision : `send` attend la fin des connexions MCP en cours (bornée par leur délai) ; remesuré avec le 2B, plus de relecture.
 
 Ces points, plus la forme réelle du refus d'Anthropic (#36), l'installation à blanc complète (SM-5) et le choix enregistré après un retour E119 raté (#11), sont suivis par l'entrée « Vérifications restantes de la finition V1 » de `deferred-work.md`.
 
