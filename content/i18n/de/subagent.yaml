@@ -8,8 +8,8 @@ delegate:
     das ganze Dokument.
   task: >-
     Die Aufgabe des Sub-Agenten, vollständig und eigenständig: Er sieht die Unterhaltung
-    nicht. Zum Beispiel: Lies die Datei guide_harnais.md und fasse sie in fünf Punkten
-    zusammen.
+    nicht. Zum Beispiel: Lies die Datei guide_harnais.md und fasse sie in fünf einzeiligen
+    Punkten zusammen, in höchstens 80 Wörtern.
 phase_label_text: Aufruf des Sub-Agenten
 force_label_text: An den Sub-Agenten delegieren
 task_label_text: >-
@@ -17,7 +17,9 @@ task_label_text: >-
 presets:
   - label_text: Harness-Leitfaden zusammenfassen
     args:
-      task: Lies die Datei guide_harnais.md und fasse sie in fünf kurzen Punkten zusammen.
+      task: >-
+        Lies die Datei guide_harnais.md und fasse sie in fünf einzeiligen Punkten zusammen,
+        in höchstens 80 Wörtern.
   - label_text: Grenzen der Schleife
     args:
       task: >-

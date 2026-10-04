@@ -7,7 +7,8 @@ delegate:
     long document : seul le résultat du sous-agent revient ici, pas le document entier.
   task: >-
     La tâche du sous-agent, complète et autonome : il ne voit pas la conversation. Par
-    exemple : Lis le fichier guide_harnais.md et résume-le en cinq points.
+    exemple : Lis le fichier guide_harnais.md et résume-le en cinq points d'une ligne, 80 mots
+    au plus.
 # Libellé de la phase en cours (indicateur de travail) pendant la délégation.
 phase_label_text: Appel au sous-agent
 # Bouton de la carte (après « Afficher les actions forcées ») et aide du champ de son
@@ -18,7 +19,7 @@ task_label_text: >-
 presets:
   - label_text: Résumer le guide du harnais
     args:
-      task: Lis le fichier guide_harnais.md et résume-le en cinq points courts.
+      task: Lis le fichier guide_harnais.md et résume-le en cinq points d'une ligne, 80 mots au plus.
   - label_text: Bornes de la boucle
     args:
       task: >-

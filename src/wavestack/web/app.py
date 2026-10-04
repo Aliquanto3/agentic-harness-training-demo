@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator, model_validat
 from wavestack import config
 from wavestack.messages import in_language, msg, render
 from wavestack.models import catalog
+from wavestack.models.cloud_base import session_spend
 from wavestack.models.engine import SAMPLING_BOUNDS, Sampling
 from wavestack.rag.lab import LANES_MAX, QUESTION_MAX, Pipeline
 from wavestack.session.app_session import (
@@ -588,6 +589,8 @@ def create_app(
                 "context_window_state": window.payload if window else None,
                 # FinOps: the session's API spend, from the session (never reset by a reset).
                 "consumption_updated": app_session.consumption(),
+                # Finition V1 (#27): the session's cap, said in the spend's tooltip.
+                "max_session_usd": app_session.cfg.max_session_usd,
                 # Languages (1/5): `language`, `languages` and `language_locked`.
                 **app_session.language_state(),
                 "seq": seq,
@@ -649,6 +652,13 @@ def create_app(
                 **models,
                 # Story 24: the budget the session refuses with (the diagnostic's memory line).
                 "memory_budget_bytes": app_session.memory_budget_bytes,
+                # Finition V1 (#27): the session's cap and its spend so far (CAP-4), said
+                # before the cap bites.
+                "spend_cap": {
+                    "total_usd": (spend := session_spend(1.0) or {}).get("total_usd", 0),
+                    "approx": spend.get("approx", False),
+                    "cap_usd": app_session.cfg.max_session_usd,
+                },
                 # Story 3 (corrections): the model search runs until the `model` check's
                 # first result; meanwhile, its last progress (probes done on probes needed).
                 "searching": result is None,

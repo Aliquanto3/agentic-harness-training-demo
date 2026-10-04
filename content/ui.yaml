@@ -653,6 +653,7 @@ main:
     footprint_sentence: "Empreinte estimée de la séance : {energy} · {grams} ({calls}). Deux périmètres s'y additionnent : en cloud, le cycle de vie d'EcoLogits (électricité des serveurs et part de leur fabrication) ; en local, l'électricité consommée seulement (CodeCarbon, kWh × intensité), sans la fabrication du poste."
     reset_total: "Seul un relancement de WaveStack remet ce total à zéro."
     reset_totals: "Seul un relancement de WaveStack remet ces totaux à zéro."
+    cap_sentence: "Plafond de dépense de la séance : {total} sur {cap} ; une fois le plafond atteint, aucun appel payant ne part."
   log:
     kinds:
       diagnostic_check: "Vérification du diagnostic"
@@ -1020,6 +1021,7 @@ diagnostic:
   candidates_title: "Modèles détectés"
   cloud_title: "Modèles cloud"
   cloud_help: "Hors du poste : chaque appel envoie tout le contexte au fournisseur."
+  cloud_cap: "Plafond de dépense de la séance : {total} dépensés sur {cap}. Une fois le plafond atteint, WaveStack n'envoie plus d'appel payant ; le plafond se règle par [finops] max_session_usd dans settings.json, WaveStack arrêté, puis relancé."
   path_label: "Ou indiquez le chemin d'un fichier GGUF :"
   path_placeholder: 'C:\chemin\vers\modele.gguf'
   path_button: "Choisir ce fichier"

@@ -39,3 +39,6 @@ Thumbs.db
 
 # Story 15: a RAG index being written (removed on failure)
 data/*.tmp
+
+# Finition V1: the results of tools/recette_scenarios_2b.py, run from the repo root
+recette-scenarios-2b.json

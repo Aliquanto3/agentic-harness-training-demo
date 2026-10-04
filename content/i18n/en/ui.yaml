@@ -644,6 +644,7 @@ main:
     footprint_sentence: "Estimated footprint of the session: {energy} · {grams} ({calls}). Two scopes add up here: in the cloud, EcoLogits' life cycle (the servers' electricity and a share of their manufacturing); locally, only the electricity consumed (CodeCarbon, kWh × intensity), without the workstation's manufacturing."
     reset_total: "Only restarting WaveStack resets this total to zero."
     reset_totals: "Only restarting WaveStack resets these totals to zero."
+    cap_sentence: "Session spending cap: {total} of {cap}; once the cap is reached, no paid call is sent."
   log:
     kinds:
       diagnostic_check: "Diagnostics check"
@@ -1009,6 +1010,7 @@ diagnostic:
   candidates_title: "Models detected"
   cloud_title: "Cloud models"
   cloud_help: "Outside the workstation: each call sends the whole context to the provider."
+  cloud_cap: "Session spending cap: {total} spent of {cap}. Once the cap is reached, WaveStack sends no more paid calls; the cap is set by [finops] max_session_usd in settings.json, with WaveStack stopped, then restarted."
   path_label: "Or give the path of a GGUF file:"
   path_placeholder: 'C:\path\to\model.gguf'
   path_button: "Choose this file"

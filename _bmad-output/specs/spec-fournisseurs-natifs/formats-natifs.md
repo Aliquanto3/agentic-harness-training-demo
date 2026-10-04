@@ -92,11 +92,11 @@ Usage en cache : `input_tokens_details.cached_tokens`.
 
 | id | Modèle | API | Contexte | Prix (entrée / sortie / lecture du cache, $ par million) | Raisonnement on | Raisonnement off | `sampling` |
 |---|---|---|---|---|---|---|---|
-| `claude_haiku` | `claude-haiku-4-5` | `anthropic_messages` | 200 000 | 1 / 5 / 0,10 | `{type: "enabled", budget_tokens: 1024}` | `{type: "disabled"}` | `temperature`, `top_p` |
+| `claude_haiku` | `claude-haiku-4-5` | `anthropic_messages` | 200 000 | 1 / 5 / 0,10 | `{type: "enabled", budget_tokens: 1024}` | `{type: "disabled"}` | `temperature` (Haiku 4.5 refuse `temperature` et `top_p` ensemble, revue G2 du 2026-10-03) |
 | `claude_sonnet` | `claude-sonnet-5` | `anthropic_messages` | 1 000 000 | 2 / 10 / 0,20 | `{type: "adaptive", display: "summarized"}` | `{type: "disabled"}` | aucun |
-| `openai_luna` | `gpt-6-luna` | `openai_responses` | 1 050 000 | 0,10 / 0,50 / 0,01 | `effort: "low"`, `summary: "auto"` | `effort: "none"` | aucun, tant que non mesuré |
-| commentaire | `claude-opus-5-5` | `anthropic_messages` | 1 000 000 | 4 / 20 / 0,20 | `always = true`, `{type: "adaptive", display: "summarized"}`, effort `medium` | effort `low` | aucun |
-| commentaire | `gpt-6.1-sol` | `openai_responses` | 1 050 000 | 2 / 10 / 0,10 | `always = true`, effort `medium` | effort `low` | aucun |
+| `openai_luna` | `gpt-6-luna` | `openai_responses` | 1 050 000 | 0,10 / 0,50 / 0,01 | `effort: "low"`, `summary: "auto"` | `effort: "none"` | `temperature`, `top_p`, raisonnement éteint seulement (mesuré le 2026-10-03 : refusés avec l'effort `low`) |
+| commentaire | `claude-opus-5-5` | `anthropic_messages` | 1 000 000 | 4 / 20 / 0,20 | `always = true`, `{type: "adaptive", display: "summarized"}`, effort `medium` | aucun : `always = true` n'envoie que `on` (« off = low » retiré le 2026-10-03) | aucun |
+| commentaire | `gpt-6.1-sol` | `openai_responses` | 1 050 000 | 2 / 10 / 0,10 | `always = true`, effort `medium` | aucun : `always = true` n'envoie que `on` (« off = low » retiré le 2026-10-03) | aucun |
 
 Les prix de lecture du cache d'Anthropic sont à relever (le tableau donne la règle habituelle, 0,1 fois l'entrée) ; l'écriture en cache vaut 1,25 fois l'entrée. `resend = true` pour les deux formats natifs : sans les blocs ou les items renvoyés, une boucle d'outils avec raisonnement est refusée ou se dégrade.
 

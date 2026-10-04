@@ -296,8 +296,8 @@ scenarios:
     prompts:
       - >-
         Übertrage deinem Sub-Agenten das Lesen der Datei guide_harnais.md, ohne sie selbst
-        zu lesen: Er soll sie lesen und dir eine Zusammenfassung in fünf Punkten liefern.
-        Stell mir dann diese Zusammenfassung vor.
+        zu lesen: Er soll sie lesen und dir eine Zusammenfassung in fünf einzeiligen Punkten
+        liefern, in höchstens 80 Wörtern. Stell mir dann diese Zusammenfassung vor.
       - "Quiz: Welche Grenzen setzt der Harness der Schleife eines Agenten?"
       - "Quiz: Warum spart die Delegation an einen Sub-Agenten Platz im Hauptkontext?"
       - "Quiz: Was passiert, wenn der Kontext des Sub-Agenten überläuft?"

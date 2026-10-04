@@ -254,6 +254,7 @@ def test_budget_refusal_nothing_is_loaded(index):
     events = run(session)
     embedding = ended(events, "embedding")
     assert embedding["status"] == "error" and "Mémoire insuffisante" in embedding["error_text"]
+    assert "pour charger le modèle d'embedding " in embedding["error_text"]  # #9
     assert "Mo" in embedding["error_text"] and embedders.made == []
     assert session._load_registry.holder(EMBEDDING) is None
 
@@ -1063,3 +1064,24 @@ def test_web_validate_is_read_only_and_names_the_stage(index):
         headers=HEADERS,
     )
     assert refused.status_code == 409 and refused.json()["detail"].startswith("Chaîne B : ")
+
+
+@pytest.mark.parametrize(
+    ("lang", "kind", "said"),
+    [
+        ("fr", "embedding", "le modèle d'embedding granite"),
+        ("en", "embedding", "the embedding model granite"),
+        ("de", "embedding", "das Embedding-Modell granite"),
+        ("fr", "reranking", "le modèle de reranking granite"),
+        ("en", "reranking", "the reranking model granite"),
+        ("de", "reranking", "das Reranking-Modell granite"),
+    ],
+)
+def test_the_budget_refusal_names_the_model_with_its_article(lang, kind, said):
+    """Finition V1 (#9, review BH8 of the 2026-10-01 leftovers): « pour charger le modèle
+    d'embedding X », never « pour charger modèle d'embedding X », in each language; the
+    reranker's too (the article is the key's, the noun a variable)."""
+    from wavestack.messages import Message, render
+
+    noun = Message(f"session.rag_lab.noun.{kind}")
+    assert render(Message("session.rag_lab.to_load", noun=noun, model="granite"), lang) == said

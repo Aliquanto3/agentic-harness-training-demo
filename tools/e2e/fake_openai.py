@@ -1,9 +1,11 @@
 """Scripted OpenAI-compatible server for WaveStack's end-to-end tests (no real model).
 
 `POST /v1/chat/completions` (SSE stream, `usage` at the end when asked) and
-`GET /v1/models`, on the loopback only. Every answer is deterministic: it depends on the
-last user message of the turn, on the tools offered and on the tool results already
-received. `plan_reply` holds the whole script; `README.md` lists the triggers.
+`GET /v1/models`, on the loopback only; `POST /v1/messages`, the same script in the shape of
+Anthropic's Messages API (finition V1: « [jeté] » adds `input_transformations`). Every
+answer is deterministic: it depends on the last user message of the turn, on the tools
+offered and on the tool results already received. `plan_reply` holds the whole script;
+`README.md` lists the triggers.
 
 Gemini mode, when the body's `model` starts with `gemini`, in the shapes the real
 `gemini-3.5-flash-lite` streamed through its OpenAI-compatible API (probe of 2026-09-29):
@@ -22,7 +24,8 @@ Gemini mode, when the body's `model` starts with `gemini`, in the shapes the rea
 
 Debug routes: `GET /_e2e/requests` (the bodies received, newest last) and
 `POST /_e2e/reset` (forget them). Story 15: `GET /_e2e/model.gguf` is the fake embedding
-model's file, a 503 until `POST /_e2e/model_ready` (a failed, then a successful download);
+model's file, a 503 until `POST /_e2e/model_ready` (a failed, then a successful download;
+`{"slow": true}` serves it a byte a second, for « Arrêter », finition V1 #20);
 story 16: `GET /_e2e/reranker.gguf` is the fake reranker's, served unless
 `POST /_e2e/reranker_fail` (`{"fail": true}`) armed a failure (restes différés, story 6:
 a 503 until `{"fail": false}`).
@@ -268,10 +271,15 @@ def _plan(
     if "test de connexion wavestack" in low:
         return [("get_datetime", {})]
     if "sous-agent" in low and "délègue" in low:  # story 19: the main agent delegates
-        task = "Lis le fichier guide_harnais.md et résume-le en cinq points courts."
+        task = (
+            "Lis le fichier guide_harnais.md et résume-le en cinq points d'une ligne, "
+            "80 mots au plus."
+        )
         if "page web" in low:  # the sub-agent fetches a page (H5 asks inside it)
             task = "Lis la page web https://fr.wikipedia.org/wiki/Paris et résume-la."
-        return [("delegate", {"task": task + (" [lent]" if "[lent]" in low else "")})]
+        for trigger in ("[lent]", DROP_TRIGGER):  # the sub-agent's call slow, or dropping
+            task += f" {trigger}" if trigger in low else ""
+        return [("delegate", {"task": task})]
     if "journal_serveur" in low:  # story 20: a big log, for the compression
         return [("read_file", {"path": "journal_serveur.log"})]
     if "guide_harnais" in low:  # the sub-agent's task (or a main agent reading it itself)
@@ -624,6 +632,124 @@ def gemini_chunks(reply: Reply, body: dict[str, Any], completion_id: str) -> lis
     return out
 
 
+# ---------- Anthropic's Messages API (finition V1, #28 and #35) ----------
+
+# The same script, read from and written in the shape of `POST /v1/messages`. With
+# « [jeté] » in the turn's user message, `message_start` says the provider threw away the
+# reasoning of an earlier turn (`input_transformations`), as the real API may (CAP-5).
+DROP_TRIGGER = "[jeté]"
+ANTHROPIC_DROPPED = [
+    {
+        "type": "thinking_dropped",
+        "reason": "prefix_binding_mismatch",
+        "path": "messages.1.content.0",
+    }
+]
+
+
+def chat_body_of(body: dict[str, Any]) -> dict[str, Any]:
+    """A Messages request in the chat completions shape `_script` reads: the system prompt,
+    each `text`, `tool_use` and `tool_result` block as its chat message, the tools."""
+    messages: list[dict[str, Any]] = []
+    if body.get("system"):
+        messages.append({"role": "system", "content": text_of(body["system"])})
+    for m in body.get("messages") or []:
+        content = m.get("content")
+        blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+        texts = "".join(str(b.get("text", "")) for b in blocks if b.get("type") == "text")
+        for b in blocks:
+            if b.get("type") == "tool_result":
+                said = {"role": "tool", "tool_call_id": b.get("tool_use_id")}
+                messages.append(said | {"content": text_of(b.get("content"))})
+        if m.get("role") == "assistant":
+            calls = [
+                {
+                    "id": b.get("id"),
+                    "type": "function",
+                    "function": {
+                        "name": b.get("name"),
+                        "arguments": json.dumps(b.get("input") or {}),
+                    },
+                }
+                for b in blocks
+                if b.get("type") == "tool_use"
+            ]
+            said = {"role": "assistant", "content": texts}
+            messages.append(said | {"tool_calls": calls} if calls else said)
+        elif texts:
+            messages.append({"role": "user", "content": texts})
+    tools = [
+        {
+            "type": "function",
+            "function": {"name": t.get("name"), "parameters": t.get("input_schema")},
+        }
+        for t in body.get("tools") or []
+    ]
+    return {"model": body.get("model"), "messages": messages, "tools": tools, "stream": True}
+
+
+def messages_events(reply: Reply, body: dict[str, Any], message_id: str) -> list[dict[str, Any]]:
+    """The SSE events of a 200 answer in the Messages shape, `input_transformations` included
+    when the turn's user message holds `DROP_TRIGGER`."""
+    user, _ = turn_slice(body["messages"])
+    prompt = estimate_tokens(json.dumps(body["messages"], ensure_ascii=False))
+    message: dict[str, Any] = {
+        "id": message_id,
+        "type": "message",
+        "role": "assistant",
+        "content": [],
+        "usage": {"input_tokens": prompt, "output_tokens": 1},
+    }
+    if DROP_TRIGGER in user.lower():
+        message["input_transformations"] = ANTHROPIC_DROPPED
+    out: list[dict[str, Any]] = [{"type": "message_start", "message": message}]
+    index = 0
+    if reply.text:
+        out.append(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            }
+        )
+        out += [
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": p}}
+            for p in _pieces(reply.text)
+        ]
+        out.append({"type": "content_block_stop", "index": 0})
+        index = 1
+    for n, call in enumerate(reply.tool_calls, start=index):
+        use = {
+            "type": "tool_use",
+            "id": f"toolu_{message_id[-6:]}_{n}",
+            "name": call["name"],
+            "input": {},
+        }
+        out.append({"type": "content_block_start", "index": n, "content_block": use})
+        out += [
+            {
+                "type": "content_block_delta",
+                "index": n,
+                "delta": {"type": "input_json_delta", "partial_json": p},
+            }
+            for p in _pieces(call["arguments"], 8)
+        ]
+        out.append({"type": "content_block_stop", "index": n})
+    stop = (
+        "tool_use" if reply.tool_calls else {"length": "max_tokens"}.get(reply.finish, "end_turn")
+    )
+    written = estimate_tokens(reply.text + "".join(c["arguments"] for c in reply.tool_calls))
+    out.append(
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": stop},
+            "usage": {"output_tokens": written},
+        }
+    )
+    out.append({"type": "message_stop"})
+    return out
+
+
 # ---------- the app ----------
 
 
@@ -664,6 +790,28 @@ def create_app() -> Starlette:
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
+    async def messages(request: Request) -> Response:
+        """Finition V1 (#28, #35): Anthropic's Messages API, the same script."""
+        if request.headers.get("x-api-key") != EXPECTED_KEY:
+            error = {"type": "authentication_error", "message": "invalid x-api-key"}
+            return JSONResponse({"type": "error", "error": error}, status_code=401)
+        body = json.loads(await request.body())
+        received.append(body)
+        counter["n"] += 1
+        chat = chat_body_of(body)
+        reply = plan_reply(chat)
+        if reply.status != 200:
+            error = {"type": "api_error", "message": str((reply.error or {}).get("message"))}
+            return JSONResponse({"type": "error", "error": error}, status_code=reply.status)
+        events = messages_events(reply, chat, f"msg_e2e{counter['n']:06d}")
+
+        async def stream():
+            for event in events:
+                yield f"event: {event['type']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(reply.delay_s)
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
     async def requests_log(_: Request) -> JSONResponse:
         return JSONResponse(received)
 
@@ -671,11 +819,20 @@ def create_app() -> Starlette:
         received.clear()
         return JSONResponse({"ok": True})
 
-    model = {"ready": False, "reranker_fails": False}
+    model = {"ready": False, "slow": False, "reranker_fails": False}
 
     async def model_file(_: Request) -> Response:
         if not model["ready"]:
             return JSONResponse({"error": "fichier indisponible (e2e)"}, status_code=503)
+        if model["slow"]:
+
+            async def trickle():
+                for _ in range(MODEL_FILE_SIZE):
+                    yield b"\0"
+                    await asyncio.sleep(1)
+
+            size = {"content-length": str(MODEL_FILE_SIZE)}
+            return StreamingResponse(trickle(), media_type="application/octet-stream", headers=size)
         return Response(b"\0" * MODEL_FILE_SIZE, media_type="application/octet-stream")
 
     async def reranker_file(_: Request) -> Response:
@@ -687,14 +844,16 @@ def create_app() -> Starlette:
         model["reranker_fails"] = bool(json.loads(await request.body()).get("fail"))
         return JSONResponse({"fail": model["reranker_fails"]})
 
-    async def model_ready(_: Request) -> JSONResponse:
-        model["ready"] = True
+    async def model_ready(request: Request) -> JSONResponse:
+        body = await request.body()
+        model["ready"], model["slow"] = True, bool(body and json.loads(body).get("slow"))
         return JSONResponse({"ok": True})
 
     return Starlette(
         routes=[
             Route("/v1/models", models),
             Route("/v1/chat/completions", completions, methods=["POST"]),
+            Route("/v1/messages", messages, methods=["POST"]),
             Route("/_e2e/requests", requests_log),
             Route("/_e2e/reset", reset, methods=["POST"]),
             Route("/_e2e/model.gguf", model_file),

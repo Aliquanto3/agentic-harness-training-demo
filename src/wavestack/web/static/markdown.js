@@ -158,6 +158,9 @@ function stripIndent(line, count) {
 // ---------- inline: escapes, code, links, bold and italic, line breaks ----------
 
 function inline(parent, text) {
+  // Finition V1 (#18): per opener (`*`, `**`, `_`, `__`), the position from which no closer
+  // is left in `text`: a later opener of the same kind looks no further.
+  const misses = {};
   let buffer = "";
   const flush = () => {
     if (buffer) parent.appendChild(document.createTextNode(buffer));
@@ -220,7 +223,7 @@ function inline(parent, text) {
       }
     }
     if (c === "*" || c === "_") {
-      const emphasis = emphasisAt(text, i);
+      const emphasis = emphasisAt(text, i, misses);
       if (emphasis) {
         flush();
         const node = document.createElement(emphasis.strong ? "strong" : "em");
@@ -313,17 +316,24 @@ export function safeUrl(url) {
 
 // `**x**`, `__x__` (strong), `*x*`, `_x_` (em): the opener followed by a non-space, the
 // closer preceded by one; an underscore opens after and closes before a non-word character.
-function emphasisAt(text, i) {
+function emphasisAt(text, i, misses = {}) {
   const c = text[i];
   const run = runLength(text, i, c);
   const size = run >= 2 ? 2 : 1;
   const after = text[i + size];
   if (after === undefined || SPACE.test(after)) return null;
   if (c === "_" && i > 0 && WORD.test(text[i - 1])) return null;
+  // #18: an earlier opener of this kind found no closer up to the end: nor will this one (its
+  // closers are among those, under a stricter condition).
+  const kind = c + size;
+  if (misses[kind] !== undefined && i >= misses[kind]) return null;
+  // #18: the blank line found once, not by slicing the paragraph at each candidate closer
+  // (cubic on a paragraph of unclosed `*`: 550 ms for 5 000 characters).
+  const blank = text.indexOf("\n\n", i + size);
   let j = i + size;
   while (j < text.length) {
     const close = text.indexOf(c, j);
-    if (close < 0) return null;
+    if (close < 0) break;
     const m = runLength(text, close, c);
     const before = text[close - 1];
     const escaped = before === "\\";
@@ -332,11 +342,12 @@ function emphasisAt(text, i) {
     const at = size === 2 ? close + m - 2 : close;
     const next = text[at + size];
     const edge = c !== "_" || next === undefined || !WORD.test(next);
-    if (text.slice(i + size, close).includes("\n\n")) return null; // never past a blank line
+    if (blank >= 0 && blank + 2 <= close) return null; // never past a blank line
     if (fits && !escaped && !SPACE.test(text[at - 1]) && edge && at > i + size) {
       return { strong: size === 2, content: text.slice(i + size, at), end: at + size };
     }
     j = close + m;
   }
+  misses[kind] = i; // every closer up to the end tried
   return null;
 }

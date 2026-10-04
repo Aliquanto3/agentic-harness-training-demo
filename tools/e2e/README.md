@@ -51,9 +51,13 @@ vrais services.
 ## Fichiers
 
 - `fake_openai.py` : le faux serveur (`/v1/chat/completions` en SSE avec `usage`,
-  `/v1/models`, `/_e2e/requests` pour relire les corps reçus). Clé attendue : `e2e-fake-key`.
+  `/v1/models`, `/_e2e/requests` pour relire les corps reçus ; `POST /v1/messages`, le même
+  script au format de l'API Messages d'Anthropic, clé dans `x-api-key`, finition V1). Clé
+  attendue : `e2e-fake-key`.
   `/_e2e/model.gguf` est le fichier du faux modèle d'embedding : 503 tant que
-  `POST /_e2e/model_ready` n'a pas été appelé (un téléchargement qui échoue, puis réussit).
+  `POST /_e2e/model_ready` n'a pas été appelé (un téléchargement qui échoue, puis réussit) ;
+  avec `{"slow": true}`, il est servi à un octet par seconde (« Arrêter » pendant le
+  téléchargement, finition V1 #20).
   `/_e2e/reranker.gguf` est celui du faux reranker (story 16), servi sauf après
   `POST /_e2e/reranker_fail` `{"fail": true}` (503 jusqu'à `{"fail": false}`, story 6 des
   restes différés).
@@ -71,14 +75,15 @@ vrais services.
   le corps est un tableau JSON
   (`[{"error": …}]`, « missing a thought_signature … `default_api:nom` , position n »).
 - `stack.py` : réseau sortant de WaveStack coupé (proxy fermé, voir plus haut), dossier de
-  données temporaire, `settings.json` qui déclare cinq modèles sur le faux serveur (tous avec `sampling = ["temperature", "top_p"]` depuis la story 29), `fake`
+  données temporaire, `settings.json` qui déclare six modèles sur le faux serveur (avec `sampling = ["temperature", "top_p"]` depuis la story 29, sauf `fake_a` : `["temperature"]`, comme Haiku), `fake`
   (`wavestack-fake`), `fake_b` (`faux-modele-b`, pour le changement de modèle de la
   story 17), `fake_r` (`faux-modele-raisonne`, `reasoning: {format: "field", always: true}`,
   pour la carte Raisonnement verrouillée de la story 33) et `fake_g` (`gemini-e2e-flash-lite`,
   « Faux Gemini (e2e) », avec le `reasoning` et le `tool_call_extra` du préréglage `gemini` lus
   dans `wavestack.toml`) et, depuis la story 6 des restes différés, `fake_m`
   (`faux-modele-tarife`, « Faux fournisseur M (e2e) », prix du préréglage `mistral`,
-  `stream_usage = false` : coûts estimés, « ≈ »), clé par
+  `stream_usage = false` : coûts estimés, « ≈ ») et `fake_a` (`faux-claude`, au format
+  Anthropic, finition V1), clé par
   `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux serveurs sur
   `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
   `settings.json` pointe `[rag]` vers un index dans ce dossier, absent au départ comme sur
@@ -248,6 +253,16 @@ Vérifications ajoutées aux scénarios existants :
   la barre haute ; carte Raisonnement cochée et désactivée, 🔒, « Imposé par ce modèle » ; puis
   retour à l'entrée A, qui ne raisonne pas : plus de verrou. Capture
   `34-raisonnement-impose.jpg`.
+- `reasoning_dropped` (finition V1, #28 et #35), joué après `reasoning_locked` : sixième entrée
+  `fake_a` (`faux-claude`, « Faux Anthropic (e2e) », `api = "anthropic_messages"`), servie par
+  `POST /v1/messages` du faux serveur (le même script, au format de l'API Messages, clé dans
+  `x-api-key`). Scénario « Sous-agent », premier prompt suivi de « [jeté] », recopié dans la
+  tâche du sous-agent : chaque `message_start` porte `input_transformations`
+  (`thinking_dropped`, `prefix_binding_mismatch`). `reasoning_dropped` au tour et au
+  sous-agent ; ligne « Raisonnement jeté par le fournisseur » et figure « historique réécrit »
+  dans Orchestration, aux deux niveaux ; phrase du harnais dans l'étape dépliée ; journal
+  « historique réécrit · <chemin> ». Retour à l'entrée A même après un échec. Capture
+  `35-raisonnement-jete.jpg`.
 
 ## Gemini (Google AI Studio)
 
@@ -670,6 +685,26 @@ un module, `robotPose`, `moveBoundary` ou `loadPaneLayout` se lisent par ce qu'i
   s'il n'y en a pas), molette, Fin : `document.scrollingElement.scrollTop` reste à 0 et la barre
   basse reste sous les volets (`body.focus-mode .right:has(…) { min-height: 0; }`).
 
+## Finition V1 (nuit du 03/10 et revue de la PR #21)
+
+Contrôles ajoutés aux scénarios existants (le nouveau, `reasoning_dropped`, est décrit plus
+haut) :
+
+- `h5` (#16) : pendant l'attente, la carte nomme l'outil par son libellé (« Jours fériés »),
+  elle est gardée d'un rendu à l'autre, Orchestration montre la validation sans bouton (libellé
+  et nom de l'outil), la puce « + Vue humain » est liée (●) quand ce volet est masqué ; après
+  « Autoriser », le focus revient à la carte.
+- `hooks` (#16) : H1 dit « ✖ a bloqué » avant « Vider la conversation », plus après.
+- `rag` (#20) : fichier servi lentement, « Arrêter » une fois le `.part` ouvert : ligne neutre
+  sur la carte (« … le fichier en cours est supprimé … »), ni `harness_error`, ni ligne rouge,
+  ni copie à la main, aucun `.part` laissé.
+- `markdown` (#18) : `markdown.js` importé dans la page rend les emphases qui suivent une
+  ouverture non fermée, et 10 000 caractères de `*` non fermés en moins de 100 ms (≈ 550 ms
+  avec l'ancien parcours cubique).
+- `gemini_shape` (#27) : l'infobulle de la dépense dit « x $ sur <plafond> $ » et « ce total » /
+  « ces totaux » selon les totaux affichés ; le diagnostic dit le plafond et la dépense sous
+  les modèles cloud (`#cloud-cap`).
+
 ## Déclencheurs du faux modèle
 
 La réponse dépend du dernier message de l'utilisateur (sans le texte ajouté par H3 ni les
@@ -697,5 +732,6 @@ d'autres (story 21) :
 | `[quota0]` (recette du 02/10) | 429 `Rate limit exceeded` avec `x-ratelimit-limit-req-minute: 0`, `x-ratelimit-remaining-req-minute: 0` et `x-request-id` (Mistral sans plan) ; tracé malgré la boucle locale par `wavestack_e2e.py` |
 | `[markdown]` (recette du 02/10) | `MARKDOWN_SAMPLE` : le sous-ensemble Markdown rendu par la Vue humain et les injections qui doivent rester du texte ; son dernier bloc de code reste ouvert |
 | `[coupé]`, `[long]`, `[lent]`, `[raisonne]` | `finish_reason: length`, texte long, flux lent (pour « Arrêter »), champ `reasoning` |
+| `[jeté]` (finition V1, `POST /v1/messages` seulement) | `message_start` porte `input_transformations` (`thinking_dropped`, `prefix_binding_mismatch`, chemin `messages.1.content.0`) : le fournisseur dit avoir jeté un raisonnement ; recopié dans la tâche du sous-agent comme ` [lent]` |
 | `[sans-usage]` | réponse sans `usage` en fin de flux (tokens estimés par WaveStack) |
 | `[reranker-en-panne]` | (lu par le faux reranker de `wavestack_e2e.py`, pas par le faux modèle) le reranking lève, l'étape « Reranking » est en erreur |

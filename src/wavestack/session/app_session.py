@@ -1882,6 +1882,7 @@ class AppSession:
         save: bool,
         window: int | None = None,
         ok_reason: str | None = None,
+        failed_effect: str | None = None,
     ) -> str:
         """The single load path, on the worker, in `model_load` (AD-3, AD-8): release the
         active model, probe a GGUF never measured (AD-7) and check the budget again with the
@@ -1894,8 +1895,11 @@ class AppSession:
         with this window (`previous` is the same model): on success the window is the one
         configured and saved, on failure or « Arrêter » the model comes back with the window
         it had. E119, `ok_reason`: the `model_load_ended` reason of a success (the way
-        back from a model whose architecture the server cannot run). Returns `ok`,
-        `restored`, `cancelled` or `error`."""
+        back from a model whose architecture the server cannot run). Finition V1 (#11),
+        `failed_effect`: the way back itself; `previous` (the refused model) is only
+        released, never installed again, and a failure ends with no model active, its
+        effect saying so. Returns `ok`, `restored`, `cancelled` or `error`."""
+        fallback = None if failed_effect is not None else previous
         started = time.monotonic()
         model = self._model_payload(choice)
         journal = self._journal()
@@ -1977,10 +1981,12 @@ class AppSession:
                         self._before_active = previous
             except _LoadCancelled:
                 self._last_checkpoint(None)
-                reason_text, idle_text, status = self._load_cancelled(previous, window is not None)
+                reason_text, idle_text, status = self._load_cancelled(fallback, window is not None)
             except Exception as exc:  # noqa: BLE001 - AD-16
                 self._last_checkpoint(None)  # « Arrêter » cannot stop the way back
-                reason_text, idle_text, status = self._load_failed(choice, previous, exc, window)
+                reason_text, idle_text, status = self._load_failed(
+                    choice, fallback, exc, window, failed_effect
+                )
             if status == "ok" and save:
                 reason_text = self._save_choice(choice)
             if status == "ok" and reason_text is None:
@@ -2125,10 +2131,12 @@ class AppSession:
         previous: ModelChoice | None,
         exc: Exception,
         window: int | None = None,
+        failed_effect: str | None = None,
     ) -> tuple[str, str | None, str]:
         """AD-3: back to `previous` when there was one. Returns the `model_load_ended`
         reason, the reason left in `idle` and the status. Story 26, `window`: the window
-        that could not be applied, `previous` coming back with the one it had."""
+        that could not be applied, `previous` coming back with the one it had. Finition V1
+        (#11): `failed_effect`, the effect said without `previous` (E119's way back)."""
         cause: BaseException | str = exc
         reason: str | None = None  # lot E (E6): the French reason, when the cause is not
         if isinstance(exc, _LoadFailed):
@@ -2156,8 +2164,9 @@ class AppSession:
             cause_text = cause if isinstance(cause, str) else str(cause)
         self._release()  # whatever the failed load left
         if previous is None:
-            self._error(message_text, cause, _NO_TURN_FR)
-            return cause_text, idle_text or _LOAD_FAILED_FR, "error"
+            self._error(message_text, cause, failed_effect or _NO_TURN_FR)
+            # #11: the way back failed: no model at all, chosen in the top bar.
+            return cause_text, failed_effect or idle_text or _LOAD_FAILED_FR, "error"
         self._error(message_text, cause, Message("session.load.back", label=previous.label))
         try:
             self._install(previous)
@@ -2232,7 +2241,12 @@ class AppSession:
             architecture=refused.architecture,
             previous=back.label,
         )
-        self._load(back, active, None, True, ok_reason=reason)
+        # Finition V1 (#11): the refused model is never installed again; a failure of the
+        # way back leaves no model active, said in the error's effect.
+        failed = Message(
+            "session.load.way_back_failed", label=back.label, refused=active.label if active else ""
+        )
+        self._load(back, active, None, True, ok_reason=reason, failed_effect=failed)
         with self._lock:
             self._before_active = None
 
@@ -6149,14 +6163,21 @@ class AppSession:
         with self._lock:
             self._download_cancel = None
         with scoped(brick="rag", component=component):  # the card shows it (AD-1)
-            if failed is not None:
+            if stopped:
+                # Finition V1 (#20): « Arrêter » is no failure; the `.part` is gone, said in a
+                # neutral line on the card, without the copy by hand of a failure.
+                self._journal().emit(
+                    "effect_applied",
+                    {
+                        "effect": "model_download_stopped",
+                        "lines": [self._text(Message("session.download.stopped", noun=noun))],
+                    },
+                )
+            elif failed is not None:
                 names = ", ".join(PurePosixPath(f.path).name for f in files)
                 folder = dest / PurePosixPath(files[0].path).parent
                 self._error(
-                    Message(
-                        "session.download.stopped" if stopped else "session.download.failed",
-                        noun=noun,
-                    ),
+                    Message("session.download.failed", noun=noun),
                     failed,
                     Message("session.download.by_hand", folder=folder, names=names),
                 )

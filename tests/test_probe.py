@@ -279,6 +279,29 @@ def test_gguf_kv_is_read_without_the_weights(monkeypatch, tmp_path):
     assert probe.gguf_kv_bytes_per_token(str(hybrid)) == 2 * (2 + 2) * (256 + 256)
 
 
+@pytest.mark.parametrize(
+    "catalog_first", [True, False], ids=["catalogue-puis-kv", "kv-puis-catalogue"]
+)
+def test_the_kv_and_the_catalog_read_a_header_once(monkeypatch, tmp_path, catalog_first):
+    """Finition V1 (#19): `_header_kv` goes through `catalog.header_metadata`, which the
+    diagnostic warms anyway: one read of a GGUF header per file version (it was 82 % of
+    `discovery.discover()` on the target PC, 19 Ollama blobs read twice). The diagnostic's
+    order first: the catalog warmed, then `discover()` asks for the KV."""
+    from wavestack.models import catalog
+
+    reads: list[str] = []
+    real = gguf_meta.try_read_metadata
+    monkeypatch.setattr(gguf_meta, "try_read_metadata", lambda p: reads.append(p) or real(p))
+    gguf = write_gguf(tmp_path / "une-fois.gguf", HYBRID)
+    probe._header_kv.cache_clear()
+
+    if catalog_first:
+        assert catalog.header_metadata(str(gguf)) is not None
+    assert probe.gguf_kv_bytes_per_token(str(gguf)) == 2 * (2 + 2) * (256 + 256)
+    assert catalog.header_metadata(str(gguf)) is not None
+    assert len(reads) == 1
+
+
 # A hybrid layout (Qwen3.5): KV heads per layer, 0 on the linear-attention layers.
 HYBRID = {
     "general.architecture": "qwen35",

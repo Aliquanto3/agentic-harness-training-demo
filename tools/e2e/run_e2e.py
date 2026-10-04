@@ -31,6 +31,8 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stack import (  # noqa: E402
+    ANTHROPIC_MODEL,
+    ANTHROPIC_PROVIDER,
     GEMINI_ENTRY_ID,
     GEMINI_MODEL,
     GEMINI_PROVIDER,
@@ -1388,6 +1390,34 @@ _MD_WATCH_JS = """() => {
   window.__mdWatch = watch;
 }"""
 
+# Finition V1 (#18): `markdown.js` itself, on texts whose first opener has no closer. Each
+# case gives the text and its `em` and `strong`; then the time of a 10 000-character
+# paragraph of unclosed `*` (≈ 550 ms with the cubic scan before #18, ≈ 4 ms after).
+_MD_INLINE_JS = """async (cases) => {
+  const { renderMarkdown } = await import('/static/markdown.js');
+  const render = (text) => {
+    const box = document.createElement('div');
+    box.appendChild(renderMarkdown(text));
+    return box;
+  };
+  const texts = (box, s) => [...box.querySelectorAll(s)].map((e) => e.textContent);
+  const got = cases.map((text) => {
+    const box = render(text);
+    return { text: box.textContent, em: texts(box, 'em'), strong: texts(box, 'strong') };
+  });
+  const big = 'a *b '.repeat(2000);
+  const start = performance.now();
+  render(big);
+  return { got, ms: performance.now() - start };
+}"""
+
+# Finition V1 (#18): an unclosed opener of one kind never hides the emphases after it.
+_MD_UNCLOSED = [
+    ("**a puis *b* et _c_", {"text": "**a puis b et c", "em": ["b", "c"], "strong": []}),
+    ("*a puis **b** et __c__", {"text": "*a puis b et c", "em": [], "strong": ["b", "c"]}),
+    ("__a puis _b_ et **c**", {"text": "__a puis b et c", "em": ["b"], "strong": ["c"]}),
+]
+
 _MD_DOM_JS = """() => {
   const bubble = [...document.querySelectorAll('#chat .bubble-model')].at(-1)
     ?.querySelector('.bubble-text.is-markdown');
@@ -1504,6 +1534,18 @@ def s_markdown(r: Run) -> None:
             page.locator("#chat img").count() == 0 and not dialogs,
             "aucune image ni alerte injectée",
             str(dialogs),
+        )
+        inline = page.evaluate(_MD_INLINE_JS, [text for text, _ in _MD_UNCLOSED])
+        wrong = [
+            f"{text!r} : {got}"
+            for (text, expected), got in zip(_MD_UNCLOSED, inline["got"], strict=True)
+            if got != expected
+        ]
+        r.check(
+            not wrong and inline["ms"] < 100,
+            "Finition V1 (#18) : une ouverture non fermée ne masque pas les emphases suivantes, "
+            "et 10 000 caractères de `*` non fermés se rendent en moins de 100 ms",
+            f"{'; '.join(wrong)[:300]} · {inline['ms']:.1f} ms",
         )
         r.shot("40-markdown-vue-humain")
         ctx = page.locator("#ctx").inner_text()
@@ -3664,6 +3706,108 @@ def _hook_strip_state(r: Run, hook_id: str, cls: str, said: str) -> None:
     )
 
 
+def _h5_rendering(r: Run, card: Any) -> None:
+    """Finition V1 (#16): the part of story 8c's rendering left unchecked by `h5`. While the
+    validation waits: the tool by its label (« Jours fériés », never `public_holidays`); the
+    card kept from one rendering to the next (the bubble's seconds tick meanwhile); its trace
+    in Orchestration, read only (no button), the tool by its label and its name; the chip
+    « + Vue humain » linked (●) when that pane is hidden."""
+    page = r.page
+    text = card.inner_text()
+    r.check(
+        "Outil : Jours fériés · Destination : " in text and "public_holidays" not in text,
+        "#16 : la carte nomme l'outil par son libellé (« Jours fériés »)",
+        text[:160],
+    )
+    card.evaluate("n => { n.dataset.e2eKept = '1'; }")
+    ticking = page.locator("#chat .working-indicator").last
+    before = ticking.inner_text() if ticking.count() else ""
+    ticked, _ = r.poll(lambda: ticking.count() == 1 and ticking.inner_text() != before, 5)
+    kept = page.locator('#chat .approval-card[data-e2e-kept="1"]').count() == 1
+    r.check(
+        ticked and kept,
+        "#16 : la carte de validation est gardée d'un rendu à l'autre",
+        f"rendu {ticked} ({before!r} → {ticking.inner_text() if ticking.count() else None!r})"
+        f" · gardée {kept}",
+    )
+    line = page.locator("#orch-scroll .turn-step-line", has_text="Validation humaine").last
+    line.click()
+    body = line.locator("xpath=following-sibling::div[contains(@class,'turn-step-body')]")
+    try:
+        expect(body).to_contain_text("En attente de votre réponse dans la Vue humain", timeout=5000)
+        trace = body.inner_text()
+        r.check(
+            body.get_by_role("button").count() == 0 and "Jours fériés (public_holidays)" in trace,
+            "#16 : Orchestration montre la validation sans bouton, l'outil par son libellé et "
+            "son nom",
+            trace[:200],
+        )
+    finally:
+        line.click()
+        follow = page.locator("#follow-live")
+        if follow.is_visible():
+            follow.click()  # back to the live view
+    page.locator('[data-pane="human"] .pane-hide').click()
+    try:
+        chip = page.locator("#pane-chips .pane-chip", has_text="Vue humain")
+        expect(chip).to_be_visible(timeout=5000)
+        r.check(
+            "is-linked" in (chip.get_attribute("class") or "").split()
+            and chip.locator(".pane-chip-dot").count() == 1
+            and (chip.get_attribute("title") or "").startswith(
+                "Une validation humaine attend votre réponse"
+            ),
+            "#16 : volet masqué pendant l'attente, la puce « + Vue humain » est liée (●)",
+            f"{chip.get_attribute('class')} · {chip.get_attribute('title')}",
+        )
+        chip.click()
+    finally:
+        if page.locator('[data-pane="human"]').evaluate("p => p.offsetParent === null"):
+            page.locator("#pane-chips .pane-chip", has_text="Vue humain").click()
+    expect(card).to_be_visible(timeout=5000)
+
+
+def _focus_back_on_the_card(r: Run) -> None:
+    """Finition V1 (#16): once its buttons are gone, the focus goes back to the card."""
+    focused, _ = r.poll(
+        lambda: (
+            re.fullmatch(
+                r"approval:[^:]+",
+                r.page.evaluate("() => document.activeElement?.dataset?.focusKey || ''"),
+            )
+            is not None
+        ),
+        5,
+    )
+    r.check(
+        focused,
+        "#16 : le focus revient à la carte une fois ses boutons retirés",
+        r.page.evaluate("() => document.activeElement?.outerHTML?.slice(0, 120) || ''"),
+    )
+
+
+def _h1_block_cleared(r: Run) -> None:
+    """Finition V1 (#16): after « Vider la conversation », the strip no longer says H1
+    blocked (the red line of a hidden turn), which it said just before."""
+    node = r.page.locator('#schema .arch-hook[data-component="hooks.h1"]')
+    r.check(
+        node.count() == 1 and "is-blocked" in (node.get_attribute("class") or ""),
+        "#16 : H1 dit « ✖ a bloqué » avant « Vider la conversation »",
+        (node.get_attribute("class") or "") if node.count() else "absent",
+    )
+    seq = r.ev.mark()
+    r.page.click("#clear-conversation")
+    r.ev.wait("conversation_cleared", seq, timeout=10)
+    gone, _ = r.poll(
+        lambda: node.count() == 1 and "is-blocked" not in (node.get_attribute("class") or ""), 5
+    )
+    r.check(
+        gone and "✖" not in node.inner_text(),
+        "#16 : après « Vider la conversation », H1 ne dit plus « ✖ a bloqué »",
+        f"{node.get_attribute('class')} · {node.inner_text()!r}",
+    )
+
+
 def s_h5(r: Run) -> None:
     r.launch("network_tools")
     r.set_brick("Hooks", True)
@@ -3695,6 +3839,7 @@ def s_h5(r: Run) -> None:
     )
     preview.locator("summary").click()  # folded again, as the card opens
     _awaiting_indicator(r)
+    _h5_rendering(r, card)
     r.shot("09-h5-validation-humaine")
     seq = r.ev.mark()
     posts = _approval_posts(r)
@@ -3729,6 +3874,7 @@ def s_h5(r: Run) -> None:
     ).click()
     r.ev.wait("approval_resolved", seq, timeout=10)
     r.ev.wait("turn_ended", seq)
+    _focus_back_on_the_card(r)
     r.check(bool(r.ev.since(seq, "outbound_request")), "« Autoriser » : la requête part")
     results = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
     r.check(
@@ -4376,6 +4522,7 @@ def s_hooks(r: Run) -> None:
         text.strip().splitlines()[-1][:200] if text.strip() else str(audit.status_code),
     )
     r.show_forced(False)
+    _h1_block_cleared(r)
 
 
 def s_subagent(r: Run) -> None:
@@ -5570,8 +5717,36 @@ def s_rag(r: Run) -> None:
     part = list((r.stack.data_dir / "models").rglob("*.part"))
     r.check(not part, "aucun fichier .part laissé", str(part))
 
+    # Finition V1 (#20): the file served a byte a second, « Arrêter » during the download: a
+    # neutral line on the card, no failure, no copy by hand.
+    ready = f"{r.stack.fake_url}/_e2e/model_ready"
+    httpx.post(ready, json={"slow": True}, timeout=5, trust_env=False)
+    seq = r.ev.mark()
+    card.get_by_role("button", name=re.compile("Télécharger le modèle d'embedding")).click()
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
+    # The `.part` open first (the answer's headers received): its removal is what is checked.
+    started, _ = r.poll(lambda: bool(list((r.stack.data_dir / "models").rglob("*.part"))), 10)
+    r.check(started, "#20 : le fichier .part existe avant « Arrêter »")
+    r.api("POST", "/api/intentions/stop")
+    stopped = r.ev.wait(
+        "effect_applied", seq, lambda p: p["effect"] == "model_download_stopped", 20
+    )
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "idle", 20)
+    note = card.locator(".brick-note", has_text="arrêté")
+    expect(note).to_contain_text("le fichier en cours est supprimé", timeout=5000)
+    r.check(
+        not r.ev.since(seq, "harness_error")
+        and stopped.get("brick") == "rag"
+        and card.locator(".force-error").count() == 0
+        and "copiez le fichier à la main" not in card.inner_text(),
+        "#20 : téléchargement arrêté, ligne neutre sur la carte, ni erreur ni copie à la main",
+        note.inner_text(),
+    )
+    part = list((r.stack.data_dir / "models").rglob("*.part"))
+    r.check(not part, "#20 : aucun fichier .part laissé après « Arrêter »", str(part))
+
     # The file is served now: the download succeeds; the card offers the index's build.
-    httpx.post(f"{r.stack.fake_url}/_e2e/model_ready", timeout=5, trust_env=False)
+    httpx.post(ready, timeout=5, trust_env=False)
     seq = r.ev.mark()
     card.get_by_role("button", name=re.compile("Télécharger le modèle d'embedding")).click()
     r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
@@ -9649,6 +9824,76 @@ def s_reasoning_locked(r: Run) -> None:
     )
 
 
+def s_reasoning_dropped(r: Run) -> None:
+    """Finition V1 (#28, #35): the fake provider in Anthropic's shape throws away the
+    reasoning of an earlier turn (`input_transformations`, « [jeté] »), in the turn and in
+    the sub-agent's calls. Orchestration's row « Raisonnement jeté par le fournisseur » and
+    its figure « historique réécrit », at both levels; the log's summary « {reason} · {path} »."""
+    page = r.page
+    r.launch("subagent")
+    a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+    try:
+        _pick_model(r, f"RÉSEAU · {ANTHROPIC_PROVIDER} · {ANTHROPIC_MODEL}")
+        seq = r.ev.mark()
+        ended = r.send(_prompts("subagent")[0] + " [jeté]")
+        r.check(
+            ended["payload"]["status"] == "completed",
+            "#28 : tour terminé sur le faux fournisseur au format Anthropic",
+            ended["payload"]["status"],
+        )
+        dropped = r.ev.since(seq, "reasoning_dropped")
+        main = [e for e in dropped if e["context_id"] == "main"]
+        sub = [e for e in dropped if (e["context_id"] or "").startswith("sub")]
+        r.check(
+            main
+            and sub
+            and all(e["payload"]["reason"] == "prefix_binding_mismatch" for e in dropped),
+            "#28 : reasoning_dropped émis au tour et au sous-agent",
+            str([(e["context_id"], e["payload"]["reason"]) for e in dropped]),
+        )
+        rail = page.locator("#orch-scroll")
+        title = "Raisonnement jeté par le fournisseur"
+        top = rail.locator(".turn-step:not(.is-sub) .turn-step-line", has_text=title)
+        child = rail.locator(".turn-step.is-sub", has_text=title)
+        shown, _ = r.poll(lambda: top.count() >= 1 and child.count() >= 1, 10)
+        figures = [x.first.inner_text() if x.count() else "" for x in (top, child)]
+        r.check(
+            shown and all("historique réécrit" in f for f in figures),
+            "#35 : ligne « Raisonnement jeté par le fournisseur » et figure « historique "
+            "réécrit », au tour et chez le sous-agent",
+            " · ".join(f[:100] for f in figures),
+        )
+        top.first.click()
+        body = top.first.locator("xpath=following-sibling::div[contains(@class,'turn-step-body')]")
+        said = main[0]["payload"]["message_text"] if main else ""
+        unfolded, _ = r.poll(lambda: bool(said) and said in (body.text_content() or ""), 5)
+        r.check(
+            unfolded,
+            "#35 : l'étape dépliée donne la phrase du harnais",
+            (body.text_content() or "")[:200] if body.count() else "aucun corps",
+        )
+        page.click("#event-log-head")
+        try:
+            expect(page.locator("#event-log-list")).to_be_visible(timeout=5000)
+            rows = [x for x in page.evaluate(_LOG_ROWS_JS) if x["kind"] == "reasoning_dropped"]
+            path = main[0]["payload"]["path"] if main else "?"
+            r.check(
+                rows
+                and all(x["summary"] == f"historique réécrit · {path}" for x in rows)
+                and rows[0]["name"] == "Raisonnement jeté",
+                "#35 : le journal résume « historique réécrit · <chemin> »",
+                str(rows[:2]),
+            )
+        finally:
+            page.click("#event-log-head")
+        r.shot_element("35-raisonnement-jete", '.pane[data-pane="orch"]')
+    finally:
+        # Entry A back whatever happened: the scenarios after this one play on it.
+        if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+            r.goto_app()
+            _pick_model(r, a_label)
+
+
 # ---------- Gemini (Google AI Studio): the shape of its bodies ----------
 
 GEMINI_LABEL = f"RÉSEAU · {GEMINI_PROVIDER} · {GEMINI_MODEL}"
@@ -9735,6 +9980,24 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
         "(euros compris) en infobulle et en nom accessible",
         f"{text!r} · {title} · {spend}",
     )
+    cap = r.state().get("max_session_usd")
+    cap_text = f"{cap:g}".replace(".", ",") if cap is not None else "?"
+    # The reset sentence counts the totals shown (spend, footprint), never the cap's.
+    reset = (
+        "Seul un relancement de WaveStack remet ces totaux à zéro."
+        if spend.get("impact_calls", 0) > 0
+        else "Seul un relancement de WaveStack remet ce total à zéro."
+    )
+    r.check(
+        cap is not None
+        and "Plafond de dépense de la séance : " in title
+        and f" $ sur {cap_text} $ ; une fois le plafond atteint, aucun appel payant ne part."
+        in title
+        and title.endswith(reset),
+        "Finition V1 (#27) : le plafond de la séance dans l'infobulle de la dépense, "
+        "et la phrase de remise à zéro au nombre des totaux affichés",
+        f"{cap} · {title}",
+    )
     ok, detail = _bar_fits(r)
     r.check(
         ok,
@@ -9749,6 +10012,20 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
         "FinOps : après un rechargement, le même total dans la barre de l'atelier",
         again.inner_text(),
     )
+    # Finition V1 (#27): the diagnostic says the cap and the spend so far, under the cloud
+    # models (`#cloud-cap`, from `spend_cap`).
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    line = page.locator("#cloud-cap")
+    expect(line).to_be_visible(timeout=20_000)
+    said = line.inner_text()
+    r.check(
+        said.startswith("Plafond de dépense de la séance : ")
+        and f" $ dépensés sur {cap_text} $." in said
+        and "max_session_usd" in said,
+        "Finition V1 (#27) : le diagnostic dit le plafond et la dépense de la séance",
+        said,
+    )
+    r.goto_app()
 
 
 def _footprint_line(r: Run) -> tuple[str, str]:
@@ -11506,6 +11783,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("stream_lost", s_stream_lost),  # restes différés, story 2 (E003)
     ("model_switch", s_model_switch),
     ("reasoning_locked", s_reasoning_locked),
+    ("reasoning_dropped", s_reasoning_dropped),  # finition V1 (#28, #35)
     # GreenOps: the served model before the first priced call (the footprint alone).
     ("local_server", s_local_server),
     ("gemini_shape", s_gemini_shape),

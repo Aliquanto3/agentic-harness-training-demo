@@ -334,6 +334,30 @@ def refused_with(key, fn, *args):
         ),
         pytest.param(
             """
+            # Finition V1 (#14): the reverse lookups follow `getaddrinfo`'s rule.
+            stop_at("socket.gethostbyaddr", "socket.getnameinfo")
+            assert refused_with("net.host_refused", socket.gethostbyaddr, "198.51.100.7")
+            assert refused_with("net.host_refused", socket.gethostbyaddr, "example.org")
+            assert refused_with("net.host_refused", socket.getnameinfo, ("198.51.100.7", 443), 0)
+            assert refused_with("net.host_refused", sys.audit, "socket.getnameinfo",
+                                ("example.org", 443))
+            # A socket address that is no tuple (or an empty one) is refused, never read.
+            assert refused_with("net.host_refused", sys.audit, "socket.getnameinfo", "x")
+            assert refused_with("net.host_refused", sys.audit, "socket.getnameinfo", ())
+            """,
+            id="reverse-lookup-off-list",
+        ),
+        pytest.param(
+            """
+            assert not refused(sys.audit, "socket.gethostbyaddr", "fr.wikipedia.org")
+            assert not refused(sys.audit, "socket.getnameinfo", ("fr.wikipedia.org", 443))
+            assert not refused(sys.audit, "socket.gethostbyaddr", "127.0.0.1")
+            assert socket.getnameinfo(("127.0.0.1", 80), socket.NI_NUMERICHOST)
+            """,
+            id="reverse-lookup-allowed-and-loopback",
+        ),
+        pytest.param(
+            """
             # IPs only: a name given to `sendto` is resolved in C before the event.
             stop_at("socket.sendto", "socket.sendmsg")
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:

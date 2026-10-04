@@ -172,6 +172,7 @@ session:
       effect: "The loading finishes; each brick's card stays correct."
     back: "Back to the previous model: {label}."
     previous_failed: "The previous model ({label}) could not be reloaded."
+    way_back_failed: "Going back to {label} failed: no model is active ({refused} is unloaded). Choose a model in the top bar."
     failed:
       cloud: "The cloud model {label} could not be prepared."
       server: "The model {label}, served by {provider}, could not be prepared."
@@ -330,7 +331,7 @@ session:
     no_model: "The RAG brick has no declared {noun} model."
     nothing: "Nothing to download: the {noun} model's files are already in {dest}."
     progress: "Downloading the {noun} model: {percent}% ({done} / {total} MB)"
-    stopped: "Download of the {noun} model stopped."
+    stopped: "Download of the {noun} model stopped: the file being downloaded is deleted, “Download” fetches the missing files again."
     failed: "The download of the {noun} model failed."
     by_hand: "Nothing is installed. To continue, copy the file by hand into {folder} ({names}), then click “Download” again."
   build:
@@ -503,6 +504,7 @@ session:
     noun:
       embedding: embedding model
       reranking: reranking model
+    to_load: "the {noun} {model}"
     fastembed_unavailable: fastembed unavailable.
     no_reranker: No reranking model is declared.
     reranker_absent: "Reranking model missing ({names} in {folder}): download it from the workshop's RAG card (“Reranking” sub-option). Context building keeps the search order."

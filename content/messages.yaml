@@ -175,6 +175,8 @@ session:
       effect: "Le chargement se termine ; la carte de chaque brique reste juste."
     back: "Retour au modèle précédent : {label}."
     previous_failed: "Le modèle précédent ({label}) n'a pas pu être rechargé."
+    # Finition V1 (#11): E119's way back failed in its turn; `refused`, the model unloaded.
+    way_back_failed: "Le retour à {label} a échoué : aucun modèle n'est actif ({refused} est déchargé). Choisissez un modèle dans la barre haute."
     failed:
       cloud: "Le modèle cloud {label} n'a pas pu être préparé."
       server: "Le modèle {label}, servi par {provider}, n'a pas pu être préparé."
@@ -333,7 +335,7 @@ session:
     no_model: "La brique RAG n'a pas de modèle {noun} déclaré."
     nothing: "Rien à télécharger : les fichiers du modèle {noun} sont déjà dans {dest}."
     progress: "Téléchargement du modèle {noun} : {percent} % ({done} / {total} Mo)"
-    stopped: "Téléchargement du modèle {noun} arrêté."
+    stopped: "Téléchargement du modèle {noun} arrêté : le fichier en cours est supprimé, « Télécharger » reprend les fichiers manquants."
     failed: "Le téléchargement du modèle {noun} a échoué."
     by_hand: "Rien n'est installé. Pour continuer, copiez le fichier à la main dans {folder} ({names}), puis cliquez de nouveau sur « Télécharger »."
   build:
@@ -506,6 +508,8 @@ session:
     noun:
       embedding: modèle d'embedding
       reranking: modèle de reranking
+    # Finition V1 (#9): the object of « charger » in the budget's refusal, with its article.
+    to_load: "le {noun} {model}"
     fastembed_unavailable: fastembed indisponible.
     no_reranker: Aucun modèle de reranking n'est déclaré.
     reranker_absent: "Modèle de reranking absent ({names} dans {folder}) : téléchargez-le depuis la carte RAG de l'atelier (sous-option « Reranking »). La construction du contexte garde l'ordre de la recherche."
