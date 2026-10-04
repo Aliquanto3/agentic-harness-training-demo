@@ -1,6 +1,6 @@
 # Rapport de la nuit du 2026-10-03 : finition de la V1
 
-- Branche : `feat/finition-v1`, tirée de `main` à `a5488a4` ; PR vers `main` ouverte, **non fusionnée**.
+- Branche : `feat/finition-v1`, tirée de `main` à `a5488a4` ; PR #21 vers `main` ouverte, **non fusionnée**.
 - Plan suivi : `plan-nuit-2026-10-03-finition-v1.md` ; journal pas à pas : `etat-nuit-2026-10-03.md`.
 - Poste : PC cible (i5-1145G7, 15,7 Go, Windows 11, sans droits admin), sans Anaël devant.
 - Anti-veille : `tools/keep_awake.ps1` relancé en début de nuit (le PID 900 noté était mort), vérifié au début de chaque phase.
@@ -169,7 +169,7 @@ Une suite à la fois, aucun modèle local chargé pendant pytest, dossier `pytes
 
 ## Ce qui vous revient
 
-1. **Relire la PR** (lien dans le bloc ci-dessous), puis la fusionner si elle vous convient.
+1. **Relire la PR [#21](https://github.com/Aliquanto3/agentic-harness-training-demo/pull/21)**, puis la fusionner si elle vous convient.
 2. **Rejouer #4 à #6 avec le 2B**, la mémoire libre (Edge, Teams et Outlook fermés, ≈ 4 Go libres) :
    - sauvegarder `%LOCALAPPDATA%\WaveStack\settings.json` et `memory.json` ;
    - lancer `uv run python tools/recette_scenarios_2b.py` (sept scénarios, ≈ 30 min, résultats dans `recette-scenarios-2b.json`) ;
