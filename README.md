@@ -41,7 +41,7 @@ faites autoriser par votre service informatique les domaines listés dans
    Fermez puis rouvrez le terminal pour que la commande `uv` soit reconnue. Si la commande est
    refusée par le poste, voir [Windows](docs/installation.md#windows).
 
-2. **Récupérez WaveStack**, avec Git (`git clone <adresse-du-dépôt>`) ou en décompressant
+2. **Récupérez WaveStack**, avec Git (`git clone https://github.com/Aliquanto3/agentic-harness-training-demo.git`) ou en décompressant
    l'archive zip remise par votre formateur, puis ouvrez un terminal dans le dossier obtenu.
 
 3. **Déposez le modèle** (1,28 Go) dans le dossier des modèles de WaveStack :
