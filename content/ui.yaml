@@ -89,6 +89,13 @@ common:
     system: "◐ Système"
     light: "☀ Clair"
     dark: "☾ Sombre"
+  # Lot 2 (2026-10-04): the shared diagram's stepper (static/diagram.js).
+  diagram:
+    label: "Étapes du schéma"
+    prev: "Étape précédente"
+    next: "Étape suivante"
+    live: "● Suivre le direct"
+    position: "Étape {n} / {total}"
 
 main:
   # Lot 1 of 2026-10-04 (D2): the full title, in <title> and the visually hidden h1.

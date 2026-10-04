@@ -974,6 +974,251 @@ def s_native_tools(r: Run) -> None:
     r.check("Demande un outil" in orch, "Orchestration montre la demande d'outil")
     r.shot("05-outils-natifs-orchestration")
     _slow_tool_turn(r)
+    _diagram_module(r)
+
+
+# ---------- lot 2 (2026-10-04): the shared diagram's module, on a test host ----------
+
+# A host fixed over the page: two blocks (one explained, one not), a wire layer, a stepper; a
+# second layer on a host of no width (a hidden pane). `window.__e2eDiagram` keeps them.
+_DIAGRAM_SETUP_JS = """async () => {
+  const d = await import('/static/diagram.js');
+  document.getElementById('e2e-diagram')?.remove();
+  const host = document.createElement('div');
+  host.id = 'e2e-diagram';
+  host.style.cssText = 'position: fixed; left: 40px; top: 120px; width: 420px; height: 160px;'
+    + ' z-index: 50; background: var(--color-surface-raised);';
+  const said = d.block('e2e-said', 'A');
+  const mute = d.block('e2e-mute', 'B');
+  host.append(said, mute);
+  document.body.appendChild(host);
+  const draws = { shown: 0, hidden: 0 };
+  const layer = d.wireLayer(host, ({ box }) => {
+    draws.shown += 1;
+    const a = box(said), b = box(mute);
+    return [
+      d.wire(`M${a.r},${a.cy} H${b.l}`, 'diagram-wire'),
+      d.marker(b.cx, b.b + 14, '✋', 'is-stop'),
+    ];
+  });
+  const hidden = document.createElement('div');
+  hidden.style.cssText = 'position: relative; width: 0; height: 40px; overflow: hidden;';
+  host.appendChild(hidden);
+  const hiddenLayer = d.wireLayer(hidden, () => {
+    draws.hidden += 1;
+    return [d.wire('M0,0 H10', 'diagram-wire')];
+  });
+  const shown = [];
+  const steps = document.createElement('div');
+  steps.style.cssText = 'position: absolute; left: 8px; bottom: 8px;';
+  host.appendChild(steps);
+  const stepper = d.createStepper(steps, { onShow: (frame) => shown.push(frame) });
+  const popover = d.explain(said, 'Le bloc A expliqué.');
+  const none = d.explain(mute, '');
+  d.light(host, said);
+  layer.schedule();
+  hiddenLayer.schedule();
+  window.__e2eDiagram = { d, host, said, mute, layer, hidden, draws, stepper, shown,
+    popover, none };
+}"""
+
+# The stepper's state: index, live mode, the position's text, its bounds, the frames shown.
+_DIAGRAM_STEPPER_JS = """() => {
+  const { stepper, shown } = window.__e2eDiagram;
+  const bar = stepper.element;
+  const pos = bar.querySelector('.diagram-step-position');
+  return {
+    index: stepper.index, live: stepper.live, shown: [...shown],
+    position: pos.hidden ? null : pos.textContent,
+    prev: bar.querySelector('.diagram-step-prev').disabled,
+    next: bar.querySelector('.diagram-step-next').disabled,
+    pressed: bar.querySelector('.diagram-step-live').getAttribute('aria-pressed'),
+  };
+}"""
+
+
+def _diagram_module(r: Run) -> None:
+    """Lot 2 (2026-10-04): `static/diagram.js` in the page, on a test host: the halo, the wires
+    (none on a host of no width, drawn once it is resized), the stepper's matrix (empty, live,
+    back, forward, bounds, resume, clear) and a block's explanation (anchored under it, closed
+    by Escape or a click elsewhere; none without a text). The test host is removed after,
+    whatever happened: it lies fixed over the shared page."""
+    r.page.evaluate(_DIAGRAM_SETUP_JS)
+    try:
+        _diagram_module_checks(r)
+    finally:
+        r.page.evaluate(
+            "() => { document.getElementById('e2e-diagram')?.remove();"
+            " delete window.__e2eDiagram; }"
+        )
+
+
+def _diagram_module_checks(r: Run) -> None:
+    page = r.page
+    ui = _ui_catalogue("fr")
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["prev"] and state["next"] and state["position"] is None and state["live"],
+        "lot 2 : pas à pas vide : ◀ ▶ désactivés, position masquée, en direct",
+        str(state),
+    )
+    page.wait_for_function("() => window.__e2eDiagram.draws.shown > 0", timeout=5000)
+    drawn = page.evaluate(
+        """() => { const { host, hidden, draws, said, mute } = window.__e2eDiagram;
+        return { paths: host.querySelectorAll(':scope > .diagram-wires .diagram-wire').length,
+          stop: host.querySelector(':scope > .diagram-wires .diagram-marker.is-stop')?.textContent,
+          hidden: hidden.querySelector('.diagram-wires').childElementCount,
+          hiddenDraws: draws.hidden,
+          lit: said.classList.contains('is-active') && !mute.classList.contains('is-active'),
+          halo: getComputedStyle(said).boxShadow, mute: getComputedStyle(mute).boxShadow }; }"""
+    )
+    r.check(
+        drawn["paths"] == 1
+        and drawn["stop"] == "✋"
+        and drawn["hidden"] == 0
+        and drawn["hiddenDraws"] == 0
+        and drawn["lit"]
+        and drawn["halo"] != "none"
+        and drawn["mute"] == "none",
+        "lot 2 : fils et marqueur tracés, halo sur le bloc allumé seul ; conteneur de largeur "
+        "nulle : aucun fil, sans erreur",
+        str(drawn),
+    )
+    # The hidden host shown (no `schedule()`): its ResizeObserver redraws it.
+    page.evaluate("() => { window.__e2eDiagram.hidden.style.width = '40px'; }")
+    try:
+        page.wait_for_function(
+            "() => { const { hidden, draws } = window.__e2eDiagram; return draws.hidden > 0"
+            " && hidden.querySelector('.diagram-wires').childElementCount > 0; }",
+            timeout=5000,
+        )
+        redrawn = True
+    except PlaywrightTimeout:
+        redrawn = False
+    r.check(
+        redrawn,
+        "lot 2 : le conteneur redimensionné est redessiné sans appel à schedule()",
+        str(page.evaluate("() => window.__e2eDiagram.draws")),
+    )
+
+    # Live: each push shows the last step.
+    page.evaluate(
+        "() => ['un', 'deux', 'trois'].forEach((f) => window.__e2eDiagram.stepper.push(f))"
+    )
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+
+    def position(n: int, total: int) -> str:
+        return ui["common.diagram.position"].replace("{n}", str(n)).replace("{total}", str(total))
+
+    r.check(
+        state["index"] == 2
+        and state["live"]
+        and state["position"] == position(3, 3)
+        and state["shown"][-1] == "trois"
+        and not state["prev"]
+        and state["next"]
+        and state["pressed"] == "true",
+        "lot 2 : en direct, chaque push affiche la dernière étape (« 3 / 3 »), ▶ désactivé",
+        str(state),
+    )
+    bar = page.locator("#e2e-diagram .diagram-stepper")
+    bar.locator(".diagram-step-prev").click()
+    page.evaluate("() => window.__e2eDiagram.stepper.push('quatre')")
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["index"] == 1
+        and not state["live"]
+        and state["shown"][-1] == "deux"
+        and state["position"] == position(2, 4)
+        and state["pressed"] == "false"
+        and not state["next"],
+        "lot 2 : ◀ quitte le direct (étape n-1), un push suivant ne déplace pas la vue",
+        str(state),
+    )
+    bar.locator(".diagram-step-prev").click()
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["index"] == 0 and state["prev"] and state["shown"][-1] == "un",
+        "lot 2 : à l'étape 1, ◀ désactivé",
+        str(state),
+    )
+    bar.locator(".diagram-step-next").click()
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["index"] == 1
+        and not state["live"]
+        and state["shown"][-1] == "deux"
+        and state["position"] == position(2, 4),
+        "lot 2 : ▶ hors du direct avance d'une étape et reste hors du direct",
+        str(state),
+    )
+    bar.locator(".diagram-step-live").click()
+    page.evaluate("() => window.__e2eDiagram.stepper.push('cinq')")
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["index"] == 4
+        and state["live"]
+        and state["shown"][-2:] == ["quatre", "cinq"]
+        and state["next"]
+        and state["pressed"] == "true",
+        "lot 2 : « Suivre le direct » revient à la dernière étape et la suit",
+        str(state),
+    )
+    page.evaluate("() => window.__e2eDiagram.stepper.clear()")
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["index"] == -1
+        and state["live"]
+        and state["position"] is None
+        and state["prev"]
+        and state["next"]
+        and state["shown"][-1] is None,
+        "lot 2 : clear() : aucune étape, en direct, onShow reçoit null",
+        str(state),
+    )
+
+    # A block's explanation: anchored under it, closed by Escape, then by a click elsewhere.
+    def opened() -> bool:
+        return page.evaluate("() => window.__e2eDiagram.popover.matches(':popover-open')")
+
+    said = page.locator("#e2e-diagram .e2e-said")
+    said.click()
+    ok, _ = r.poll(opened, 3)
+    where = page.evaluate(
+        """() => { const { said, popover } = window.__e2eDiagram;
+        const b = said.getBoundingClientRect(), p = popover.getBoundingClientRect();
+        return { below: p.top >= b.bottom - 1, near: p.top - b.bottom < 40,
+          text: popover.textContent }; }"""
+    )
+    r.check(
+        ok and where["below"] and where["near"] and where["text"] == "Le bloc A expliqué.",
+        "lot 2 : clic sur un bloc : son explication dans un popover ancré sous lui",
+        str(where),
+    )
+    page.keyboard.press("Escape")
+    closed_by_escape, _ = r.poll(lambda: not opened(), 3)
+    said.click()
+    reopened, _ = r.poll(opened, 3)
+    box = page.locator("#e2e-diagram").bounding_box() or {}
+    page.mouse.click(box.get("x", 0) + box.get("width", 0) - 10, box.get("y", 0) + 10)
+    closed_by_click, _ = r.poll(lambda: not opened(), 3)
+    page.locator("#e2e-diagram .e2e-mute").click()
+    time.sleep(0.2)
+    mute = page.evaluate(
+        "() => ({ none: window.__e2eDiagram.none,"
+        " open: document.querySelectorAll(':popover-open').length,"
+        " popovers: document.querySelectorAll('#e2e-diagram .diagram-explain').length })"
+    )
+    r.check(
+        closed_by_escape
+        and reopened
+        and closed_by_click
+        and mute["none"] is None
+        and mute["open"] == 0
+        and mute["popovers"] == 1,
+        "lot 2 : Échap ou un clic ailleurs ferme l'explication ; un bloc sans texte n'en a pas",
+        f"Échap {closed_by_escape} · rouvert {reopened} · clic ailleurs {closed_by_click} · {mute}",
+    )
 
 
 # ---------- restes différés, story 6: the schema at work, the rail and the event log ----------
@@ -993,7 +1238,7 @@ _SCHEMA_RECORDER_JS = """() => {
       const id = node.dataset.component;
       if (id && !rec.active.includes(id)) rec.active.push(id);
       if (id === 'tools.read_file') {
-        const paths = document.querySelectorAll('#schema .arch-wires .arch-path').length;
+        const paths = document.querySelectorAll('#schema .diagram-wires .diagram-path').length;
         rec.paths = Math.max(rec.paths, paths);
       }
     }
@@ -3752,20 +3997,51 @@ def _schema_bins(r: Run, what: str, wanted: set[tuple[str, str]]) -> None:
     )
 
 
+# Lot 2 (2026-10-04): whether the schema drew the moving path past the boundary
+# (`.diagram-path-core.is-flow`) at any moment, recorded by a mutation observer.
+_FLOW_RECORDER_JS = """() => {
+  const state = { flow: false };
+  const note = () => {
+    if (document.querySelector('#schema .diagram-wires .diagram-path-core.is-flow')) {
+      state.flow = true;
+    }
+  };
+  state.observer = new MutationObserver(note);
+  state.observer.observe(document.getElementById('schema'), { subtree: true, childList: true });
+  window.__e2eFlow = state;
+}"""
+
+
 def _schema_h5_pending(r: Run) -> None:
     """E032: H5 waits for the user: H5 lit, the path stopped before the boundary on ✋."""
     page = r.page
     hook = page.locator('#schema .arch-hook[data-component="hooks.h5"]')
-    stop = page.locator("#schema .arch-wires .arch-marker.is-stop")
+    stop = page.locator("#schema .diagram-wires .diagram-marker.is-stop")
     ok, _ = r.poll(
         lambda: stop.count() == 1 and "is-active" in (hook.get_attribute("class") or ""), 5
     )
-    paths = page.locator("#schema .arch-wires .arch-path").count()
+    paths = page.locator("#schema .diagram-wires .diagram-path").count()
     marker = stop.text_content() if stop.count() == 1 else ""
     r.check(
         ok and marker == "✋" and paths >= 1,
         "E032 : H5 attend : halo sur H5, chemin arrêté avant la frontière sur ✋",
         f"marqueur {marker!r} · chemins {paths} · H5 {hook.get_attribute('class')}",
+    )
+    # Lot 2 (2026-10-04): the shared halo and wires as the page computes them.
+    looks = page.evaluate(
+        """() => { const shadow = (n) => n ? getComputedStyle(n).boxShadow : null;
+        const dashed = document.querySelector('#schema .diagram-wires .diagram-wire.is-dashed');
+        const h5 = document.querySelector('#schema .arch-hook[data-component="hooks.h5"]');
+        return { lit: shadow(h5),
+          unlit: shadow(document.querySelector('#schema .arch-hook:not(.is-active)')),
+          dash: dashed ? getComputedStyle(dashed).strokeDasharray : null }; }"""
+    )
+    r.check(
+        looks["lit"] not in (None, "none")
+        and looks["unlit"] == "none"
+        and looks["dash"] not in (None, "none"),
+        "lot 2 : halo calculé sur H5 allumé, aucun sur un hook éteint ; fil réseau en tirets",
+        str(looks),
     )
 
 
@@ -3774,7 +4050,7 @@ def _schema_blocked_while_running(r: Run) -> None:
     strip on ✖."""
     page = r.page
     hook = page.locator('#schema .arch-hook[data-component="hooks.h1"]')
-    block = page.locator("#schema .arch-wires .arch-marker.is-block")
+    block = page.locator("#schema .diagram-wires .diagram-marker.is-block")
     ok, _ = r.poll(
         lambda: block.count() == 1 and "is-active" in (hook.get_attribute("class") or ""), 20
     )
@@ -3963,13 +4239,21 @@ def s_h5(r: Run) -> None:
     )
     asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
     seq = r.ev.mark()
+    r.page.evaluate(_FLOW_RECORDER_JS)
     r.page.locator("#chat .approval-card").last.get_by_role(
         "button", name="Autoriser", exact=True
     ).click()
     r.ev.wait("approval_resolved", seq, timeout=10)
     r.ev.wait("turn_ended", seq)
+    flow = r.page.evaluate(
+        "() => { window.__e2eFlow.observer.disconnect(); return window.__e2eFlow.flow; }"
+    )
     _focus_back_on_the_card(r)
     r.check(bool(r.ev.since(seq, "outbound_request")), "« Autoriser » : la requête part")
+    r.check(
+        flow,
+        "lot 2 : l'outil réseau autorisé : chemin animé (is-flow) au-delà de la frontière",
+    )
     results = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
     r.check(
         bool(results) and results[-1]["status"] == "error",

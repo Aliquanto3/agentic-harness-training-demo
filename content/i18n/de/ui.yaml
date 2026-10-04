@@ -80,6 +80,12 @@ common:
     system: "◐ System"
     light: "☀ Hell"
     dark: "☾ Dunkel"
+  diagram:
+    label: "Schritte des Schemas"
+    prev: "Vorheriger Schritt"
+    next: "Nächster Schritt"
+    live: "● Live folgen"
+    position: "Schritt {n} / {total}"
 
 main:
   page_title: "WaveStack — Harness-Werkstatt"

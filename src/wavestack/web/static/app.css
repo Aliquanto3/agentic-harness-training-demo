@@ -3141,10 +3141,12 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 
 /* ---------- architecture schema (DESIGN.md > arch-zone-*, arch-boundary, arch-group, arch-node-*,
-   arch-hook-strip, arch-trunk, arch-harness, arch-model; story 8e) ----------
+   arch-hook-strip, arch-harness, arch-model; story 8e) ----------
    HTML pieces laid out by flexbox, then an SVG layer drawn over them for the trunk, the rails,
    the path and the markers. Category: bin, shape and icon; hosting: zone, boundary, globe and
-   « RÉSEAU »; colour: the discipline of the node's brick (story 33) and the state. */
+   « RÉSEAU »; colour: the discipline of the node's brick (story 33) and the state. Lot 2
+   (2026-10-04): the layer, its wires and markers, and the halo of a piece in action are the
+   shared diagram's (`diagram-*`, pages.css). */
 
 .pane-body-schema {
   padding: var(--spacing-1) var(--spacing-2);
@@ -3185,15 +3187,6 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 .arch .arch-robots .robot.is-selected {
   outline: var(--spacing-stroke-min) solid var(--color-on-ink);
   outline-offset: -2px;
-}
-
-.arch-wires {
-  position: absolute;
-  left: 0;
-  top: 0;
-  overflow: visible;
-  pointer-events: none; /* no click on the flow (story 8e) */
-  z-index: 2;
 }
 
 /* ---- zones and boundary ---- */
@@ -3474,9 +3467,9 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   color: var(--color-ink-soft);
 }
 
+/* In action: the shared halo (pages.css, `.diagram-block.is-active`) on an ink border. */
 .arch .arch-hook.is-active {
   border-color: var(--color-ink);
-  box-shadow: 0 0 0 4px var(--color-state-active);
 }
 
 /* The hook that blocked: a thick red rule and « ✖ a bloqué », until the next turn. */
@@ -3665,10 +3658,6 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   outline-width: 3px;
 }
 
-.arch .arch-node.is-active {
-  box-shadow: 0 0 0 4px var(--color-state-active);
-}
-
 .arch-node-tools {
   margin: 0 0 2px 14px;
   padding: 0;
@@ -3682,80 +3671,9 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   content: "· ";
 }
 
-/* ---- trunk, rails, path, markers (DESIGN.md > arch-trunk) ---- */
-
-.arch-trunk {
-  fill: none;
-  stroke: var(--color-ink-soft);
-  stroke-width: var(--spacing-stroke-min);
-}
-
-.arch-trunk.is-network {
-  stroke-dasharray: 6 5;
-}
-
-.arch-path {
-  fill: none;
-  stroke: var(--color-state-active);
-  stroke-width: 7px;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.arch-path-core {
-  fill: none;
-  stroke: var(--color-ink);
-  stroke-width: var(--spacing-stroke-min);
-  stroke-linejoin: round;
-}
-
-.arch-path-core.is-flow {
-  stroke-dasharray: 7 6;
-  animation: arch-flow 0.6s linear infinite;
-}
-
-.arch-path-block {
-  fill: none;
-  stroke: var(--color-state-blocked);
-  stroke-width: 6px;
-  stroke-linecap: round;
-}
-
-.arch-marker circle {
-  fill: var(--color-surface-raised);
-  stroke-width: 2.5px;
-}
-
-.arch-marker.is-stop circle {
-  stroke: var(--color-primary);
-}
-
-.arch-marker.is-block circle {
-  fill: var(--color-state-blocked);
-  stroke: var(--color-state-blocked);
-}
-
-.arch-marker text {
-  fill: var(--color-ink); /* story 31: SVG text is black by default, lost on a dark disc */
-  font-family: var(--typography-label-font-family);
-  font-size: var(--typography-label-font-size);
-  font-weight: 600;
-}
-
-.arch-marker.is-block text {
-  fill: var(--color-on-vivid);
-}
-
-@keyframes arch-flow {
-  to {
-    stroke-dashoffset: -13;
-  }
-}
-
-/* Reduced motion: the moving flow and the blinking antenna become a steady highlight. */
+/* Reduced motion: the blinking antenna becomes a steady light (the wires' flow: pages.css). */
 @media (prefers-reduced-motion: reduce) {
-  .robot.is-active .robot-antenna,
-  .arch-path-core.is-flow {
+  .robot.is-active .robot-antenna {
     animation: none;
   }
 }
@@ -4468,10 +4386,6 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .brick-download-progress {
   font-variant-numeric: tabular-nums;
-}
-
-.arch .arch-chip.is-active {
-  box-shadow: 0 0 0 4px var(--color-state-active);
 }
 
 .rag-excerpts {

@@ -409,3 +409,168 @@ body.annex-page {
 .annex-page .field-input::placeholder {
   color: var(--color-ink-soft);
 }
+
+/* ---------- lot 2 (2026-10-04): the shared diagram (static/diagram.js) ----------
+   HTML blocks laid out by the page (its host positioned), an SVG layer of wires over them; a
+   block in action lit by `is-active`; the stepper ◀ ▶ « Suivre le direct »; a block's
+   explanation in a popover. Used by the Atelier Harnais (its schema, app.css) and the
+   workshops. */
+
+.diagram-wires {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none; /* no click on the flow (story 8e) */
+  z-index: 2;
+}
+
+/* A block in action: the green halo (DESIGN.md > arch-node-active). */
+.diagram-block.is-active {
+  box-shadow: 0 0 0 4px var(--color-state-active);
+}
+
+/* A wire at rest (DESIGN.md > arch-trunk): soft ink, dashed past the boundary. */
+.diagram-wire {
+  fill: none;
+  stroke: var(--color-ink-soft);
+  stroke-width: var(--spacing-stroke-min);
+}
+
+.diagram-wire.is-dashed {
+  stroke-dasharray: 6 5;
+}
+
+/* The path taken: a 7 px green halo with an ink line at its centre, dashed and moving
+   (`is-flow`) where it crosses the boundary. */
+.diagram-path {
+  fill: none;
+  stroke: var(--color-state-active);
+  stroke-width: 7px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.diagram-path-core {
+  fill: none;
+  stroke: var(--color-ink);
+  stroke-width: var(--spacing-stroke-min);
+  stroke-linejoin: round;
+}
+
+.diagram-path-core.is-flow {
+  stroke-dasharray: 7 6;
+  animation: diagram-flow 0.6s linear infinite;
+}
+
+/* Stopped: a thick red line. */
+.diagram-path-block {
+  fill: none;
+  stroke: var(--color-state-blocked);
+  stroke-width: 6px;
+  stroke-linecap: round;
+}
+
+/* The markers: ✋ waits (violet ring), ✖ blocked (red disc). */
+.diagram-marker circle {
+  fill: var(--color-surface-raised);
+  stroke-width: 2.5px;
+}
+
+.diagram-marker.is-stop circle {
+  stroke: var(--color-primary);
+}
+
+.diagram-marker.is-block circle {
+  fill: var(--color-state-blocked);
+  stroke: var(--color-state-blocked);
+}
+
+.diagram-marker text {
+  fill: var(--color-ink); /* story 31: SVG text is black by default, lost on a dark disc */
+  font-family: var(--typography-label-font-family);
+  font-size: var(--typography-label-font-size);
+  font-weight: 600;
+}
+
+.diagram-marker.is-block text {
+  fill: var(--color-on-vivid);
+}
+
+@keyframes diagram-flow {
+  to {
+    stroke-dashoffset: -13;
+  }
+}
+
+/* The stepper: ◀, « n / total », ▶, « Suivre le direct » (pressed while it follows). */
+.diagram-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  color: var(--color-ink);
+}
+
+.diagram-stepper button {
+  min-width: var(--spacing-hit-target-min);
+  min-height: var(--spacing-hit-target-min);
+  margin: 0;
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--rounded-full);
+  font: inherit;
+  cursor: pointer;
+}
+
+.diagram-stepper button:disabled {
+  cursor: not-allowed;
+  background: var(--color-surface);
+  color: var(--color-ink-soft);
+  border-color: var(--color-line);
+}
+
+.diagram-stepper .diagram-step-live[aria-pressed="true"] {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-deep);
+}
+
+.diagram-stepper button:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.diagram-step-position {
+  min-width: 4em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A block's explanation, anchored under it (CSS anchor positioning, Chromium; see the bricks'
+   « ? » in app.css). */
+.diagram-explain {
+  position: fixed;
+  position-area: block-end span-inline-end;
+  position-try-fallbacks: flip-block, flip-inline;
+  margin: var(--spacing-1) 0 0 0;
+  max-width: min(320px, calc(100vw - 2 * var(--spacing-2)));
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  background: var(--color-surface-raised);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
+  color: var(--color-ink);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+  white-space: pre-line;
+}
+
+/* Reduced motion: the moving flow becomes a steady dashed line. */
+@media (prefers-reduced-motion: reduce) {
+  .diagram-path-core.is-flow {
+    animation: none;
+  }
+}

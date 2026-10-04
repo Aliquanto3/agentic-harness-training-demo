@@ -9,6 +9,8 @@ import { dateTimeFormat, joinList, numberFormat as intlNumber, ready as textsRea
 import { languageChanging, renderLanguagePicker as drawLanguagePicker, setDisplayMenu, useSessionState } from "./site-nav.js";
 // Recette du 02/10: the final answer's Markdown, rendered in the Vue humain only.
 import { renderMarkdown } from "./markdown.js";
+// Lot 2 (2026-10-04): the shared diagram's primitives (blocks, halo, wires, layer).
+import { block as diagramBlock, light, marker, svgEl, wire, wireLayer } from "./diagram.js";
 
 const PANES = ["bricks", "human", "ctx", "orch", "schema"];
 const PANE_LABELS = section("main.pane_titles");
@@ -6771,14 +6773,6 @@ function toggleJournal() {
   renderJournal();
 }
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-
-function svgEl(tag, attrs) {
-  const node = document.createElementNS(SVG_NS, tag);
-  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
-  return node;
-}
-
 // Brick id -> chip icon in the harness frame (formatting only).
 const BRICK_ICONS = {
   short_memory: "🧠",
@@ -6842,7 +6836,8 @@ function robot(pose, modelNode, sub = false) {
   const who = sub ? t("main.schema.sub_robot") : name ? t("main.schema.model_named", { model: name }) : t("main.schema.model");
   const label = labelValue(who, POSE_LABELS[pose]);
   const classes = `robot${sub ? " robot-sub" : ""}${pose === "idle" ? "" : " is-active"}`;
-  const button = schemaButton(classes, sub ? "core.model_sub" : "core.model");
+  // Its `is-active` is its pose (the antenna), not a halo: not a block of the diagram.
+  const button = schemaButton(classes, sub ? "core.model_sub" : "core.model", undefined, false);
   button.setAttribute("aria-label", label);
   button.title = label;
   const cx = 40;
@@ -6886,9 +6881,10 @@ function robot(pose, modelNode, sub = false) {
   return button;
 }
 
-// Every piece of the schema is a button: Tab reaches it, Enter selects it (FR-4).
-function schemaButton(className, componentId, text) {
-  const button = el("button", className, text);
+// Every piece of the schema is a button: Tab reaches it, Enter selects it (FR-4); a block of
+// the shared diagram (`halo`), lit by `is-active`, but the robots.
+function schemaButton(className, componentId, text, halo = true) {
+  const button = halo ? diagramBlock(className, text) : el("button", className, text);
   button.type = "button";
   button.dataset.component = componentId;
   button.dataset.focusKey = componentId;
@@ -7024,7 +7020,7 @@ function renderSchema() {
     renderedActivityKey = null;
     renderedRobotKey = robotKey;
     buildSchema(root, nodes, wanted.length > 0, hooks, blocked, robots());
-    scheduleWires();
+    schemaWires.schedule();
   }
   if (robotKey !== renderedRobotKey) {
     // A pose change swaps the robots only: the rest keeps its focus and its layout.
@@ -7041,14 +7037,9 @@ function renderSchema() {
   if (activityKey !== renderedActivityKey) {
     renderedActivityKey = activityKey;
     schemaActive = activity;
-    for (const node of root.querySelectorAll(".is-active:not(.robot)")) node.classList.remove("is-active");
-    if (activity) {
-      const id = cssEscape(activity.component);
-      root
-        .querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"], .arch-chip[data-component="${id}"]`)
-        ?.classList.add("is-active");
-    }
-    scheduleWires();
+    const id = activity ? cssEscape(activity.component) : null;
+    light(root, id && root.querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"], .arch-chip[data-component="${id}"]`));
+    schemaWires.schedule();
   }
   patchModelLinks(root);
 }
@@ -7183,9 +7174,8 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   network.append(el("span", "arch-zone-label", `🌐 ${t("main.hosting.network")} · ${t("main.schema.off_workstation")}`), networkRow);
 
   // The trunk, the rails and the path, drawn over the pieces once they are laid out.
-  const wires = svgEl("svg", { class: "arch-wires" });
-  wires.setAttribute("aria-hidden", "true");
-  root.append(local, boundary, network, wires);
+  schemaWires.clear();
+  root.append(local, boundary, network, schemaWires.svg);
   if (focusKey) quietFocus(root.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`));
 }
 
@@ -7328,79 +7318,51 @@ function schemaNode(node, shape) {
 
 // ---------- schema wires: trunk, rails, path and markers (DESIGN.md > arch-trunk) ----------
 
-let wiresPending = false;
-function scheduleWires() {
-  if (wiresPending) return;
-  wiresPending = true;
-  requestAnimationFrame(() => {
-    wiresPending = false;
-    drawSchemaWires();
-  });
-}
-
-function wirePath(d, className) {
-  return svgEl("path", { d, class: className });
-}
-
-function wireMarker(x, y, text, className) {
-  const g = svgEl("g", { class: `arch-marker ${className}` });
-  const label = svgEl("text", { x, y: y + 4, "text-anchor": "middle" });
-  label.textContent = text;
-  g.append(svgEl("circle", { cx: x, cy: y, r: 12 }), label);
-  return g;
-}
+// Lot 2 (2026-10-04): the shared diagram's layer (diagram.js) draws them, on the schema's
+// rebuilds, its resizes (pane resized, focused, hidden then shown), the fonts and projection.
+const schemaWires = wireLayer(document.getElementById("schema"), drawSchemaWires);
 
 // Drawn from the laid-out pieces, after each rebuild and each resize (ResizeObserver): the trunk
 // leaves the strip (or the frame), runs under the bins, and crosses the boundary dashed; a rail
 // runs 8 px left of each column, with a stub to each bin.
-function drawSchemaWires() {
+function drawSchemaWires({ height, box }) {
   const arch = document.getElementById("schema");
-  const svg = arch.querySelector(".arch-wires");
   const frame = arch.querySelector(".arch-harness");
-  if (!svg || !frame) return;
-  const A = arch.getBoundingClientRect();
-  if (!A.width || !A.height) return; // hidden pane
-  svg.setAttribute("width", A.width);
-  svg.setAttribute("height", A.height);
-  svg.setAttribute("viewBox", `0 0 ${A.width} ${A.height}`);
-  const box = (node) => {
-    const r = node.getBoundingClientRect();
-    return { l: r.left - A.left, t: r.top - A.top, r: r.right - A.left, b: r.bottom - A.top, cx: (r.left + r.right) / 2 - A.left, cy: (r.top + r.bottom) / 2 - A.top };
-  };
+  if (!frame) return null;
   const F = box(frame);
   const strip = arch.querySelector(".arch-hook-strip");
   const sx = strip ? box(strip).cx : F.r - 40;
   const sy = strip ? box(strip).b : F.b;
-  const by = A.height - 12;
+  const by = height - 12;
   const fx = box(arch.querySelector(".arch-boundary")).cx;
   const parts = [];
   const rails = new Map();
   let maxRail = sx;
   for (const col of arch.querySelectorAll(".arch-col")) {
     const railX = box(col).l - 8;
-    const cls = `arch-trunk${col.closest(".arch-zone-network") ? " is-network" : ""}`;
+    const cls = `diagram-wire${col.closest(".arch-zone-network") ? " is-dashed" : ""}`;
     const stubs = [...col.querySelectorAll(".arch-group")].map((g) => ({ x: box(g).l, y: box(g).t + 12 }));
     if (!stubs.length) continue;
-    parts.push(wirePath(`M${railX},${by} V${Math.min(...stubs.map((s) => s.y))}`, cls));
-    for (const s of stubs) parts.push(wirePath(`M${railX},${s.y} H${s.x}`, cls));
+    parts.push(wire(`M${railX},${by} V${Math.min(...stubs.map((s) => s.y))}`, cls));
+    for (const s of stubs) parts.push(wire(`M${railX},${s.y} H${s.x}`, cls));
     rails.set(col, railX);
     maxRail = Math.max(maxRail, railX);
   }
   if (maxRail > sx) {
-    parts.push(wirePath(`M${sx},${sy} V${by} H${Math.min(maxRail, fx)}`, "arch-trunk"));
-    if (maxRail > fx) parts.push(wirePath(`M${fx},${by} H${maxRail}`, "arch-trunk is-network"));
+    parts.push(wire(`M${sx},${sy} V${by} H${Math.min(maxRail, fx)}`, "diagram-wire"));
+    if (maxRail > fx) parts.push(wire(`M${fx},${by} H${maxRail}`, "diagram-wire is-dashed"));
   }
 
   const a = schemaActive;
   if (a?.mode === "blocked") {
     // Stopped at the strip: the tool is never reached.
     const y = F.b + 14;
-    parts.push(wirePath(`M${sx},${sy} V${y - 12}`, "arch-path-block"), wireMarker(sx, y, "✖", "is-block"));
+    parts.push(wire(`M${sx},${sy} V${y - 12}`, "diagram-path-block"), marker(sx, y, "✖", "is-block"));
   } else if (a?.mode === "pending") {
     // H5 waits for the user: stopped before the boundary, nothing has left the workstation.
     const stopX = fx - 18;
     const d = `M${sx},${sy} V${by} H${stopX}`;
-    parts.push(wirePath(d, "arch-path"), wirePath(d, "arch-path-core"), wireMarker(stopX, by, "✋", "is-stop"));
+    parts.push(wire(d, "diagram-path"), wire(d, "diagram-path-core"), marker(stopX, by, "✋", "is-stop"));
   } else if (a?.target) {
     const node = arch.querySelector(`.arch-node[data-component="${cssEscape(a.target)}"]`);
     const col = node?.closest(".arch-col");
@@ -7411,19 +7373,19 @@ function drawSchemaWires() {
       // Along the bin's left edge, then into the node when it stands on that edge.
       const end = n.l - g.l < 20 ? `V${n.cy} H${n.l}` : `V${n.cy}`;
       const tail = `H${railX} V${g.t + 12} H${g.l + 3} ${end}`;
-      parts.push(wirePath(`M${sx},${sy} V${by} ${tail}`, "arch-path"));
+      parts.push(wire(`M${sx},${sy} V${by} ${tail}`, "diagram-path"));
       if (node.classList.contains("is-network")) {
         // Solid on the workstation, dashed and moving once it crosses the boundary.
         parts.push(
-          wirePath(`M${sx},${sy} V${by} H${fx}`, "arch-path-core"),
-          wirePath(`M${fx},${by} ${tail}`, "arch-path-core is-flow")
+          wire(`M${sx},${sy} V${by} H${fx}`, "diagram-path-core"),
+          wire(`M${fx},${by} ${tail}`, "diagram-path-core is-flow")
         );
       } else {
-        parts.push(wirePath(`M${sx},${sy} V${by} ${tail}`, "arch-path-core"));
+        parts.push(wire(`M${sx},${sy} V${by} ${tail}`, "diagram-path-core"));
       }
     }
   }
-  svg.replaceChildren(...parts);
+  return parts;
 }
 
 // ---------- audit log: the whole file, read only (story 8) ----------
@@ -7457,7 +7419,7 @@ const PROJECTION_STORAGE_KEY = "wavestack.projection";
 function setProjection(on) {
   document.documentElement.classList.toggle("projection", on);
   document.getElementById("projection-toggle").setAttribute("aria-pressed", String(on));
-  scheduleWires(); // the schema's pieces moved
+  schemaWires.schedule(); // the schema's pieces moved
 }
 
 function loadProjection() {
@@ -7579,9 +7541,6 @@ async function boot() {
   document.getElementById("audit-close").addEventListener("click", () =>
     document.getElementById("audit-dialog").close()
   );
-  // The schema's wires follow its pieces: pane resized, focused, hidden then shown, fonts loaded.
-  new ResizeObserver(scheduleWires).observe(document.getElementById("schema"));
-  document.fonts?.ready.then(scheduleWires);
   // Local stopwatch anchored on the `*_started` ts, replaced by `duration_ms` (AD-1).
   setInterval(() => {
     if (activeTurn()) {

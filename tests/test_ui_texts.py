@@ -27,7 +27,7 @@ SECTIONS = {"common", "main", "llm", "rag", "mcp", "diagnostic", "models"}  # st
 # Each page and its scripts (its inline `<script type="module">` included).
 # Story 2 (2026-09-30): each loads site-nav.js, the shared bar's menu.
 PAGES = {
-    "index.html": ("main", ("app.js", "site-nav.js")),
+    "index.html": ("main", ("app.js", "diagram.js", "site-nav.js")),  # lot 2 (2026-10-04)
     "llm.html": ("llm", ("llm.js", "site-nav.js")),
     "rag.html": ("rag", ("rag.js", "site-nav.js")),
     "mcp.html": ("mcp", ("mcp.js", "site-nav.js")),  # story 6 (2026-09-30)
