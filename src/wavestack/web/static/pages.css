@@ -201,8 +201,8 @@
   }
 }
 
-/* ---------- Story 3 of 2026-09-30: what /diagnostic and /models share ----------
-   The page itself (`body.annex-page`), the table, the hosting badges, the buttons of
+/* ---------- Story 3 of 2026-09-30: what the annex pages share ----------
+   The page itself (`body.annex-page`), the hosting badges, the buttons of
    DESIGN.md (`button-primary`, `button-secondary`) and the fields: tokens only. Scoped by
    `.annex-page` (their `<body>`): the main screen, /llm and /rag load this file too. */
 
@@ -225,86 +225,6 @@ body.annex-page {
   margin: var(--spacing-5) 0 var(--spacing-2);
   font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
     var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
-}
-
-/* DESIGN.md > model-table: a raised table, its columns' names in `label`, a group's head on
-   the surface. */
-.annex-page .model-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-line);
-  border-radius: var(--rounded-sm);
-  overflow: hidden;
-}
-
-.annex-page .model-table caption {
-  text-align: left;
-  padding: var(--spacing-2) 0;
-  color: var(--color-ink-soft);
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-  text-transform: uppercase;
-}
-
-.annex-page .model-table th,
-.annex-page .model-table td {
-  padding: var(--spacing-2) var(--spacing-3);
-  text-align: left;
-  vertical-align: top;
-  border-bottom: 1px solid var(--color-line);
-}
-
-.annex-page .model-table thead th {
-  color: var(--color-ink-soft);
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-  background: var(--color-surface-raised);
-}
-
-.annex-page .model-table th[scope="rowgroup"] {
-  background: var(--color-surface);
-  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
-    var(--typography-heading-line-height) var(--typography-heading-font-family);
-}
-
-/* A sortable column's name is a button, the whole header's width; its mark says the order
-   (`aria-sort` on the header), a soft ↕ on the others. */
-.annex-page .sort-button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-1);
-  width: 100%;
-  min-height: var(--spacing-hit-target-min);
-  margin: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  border: 0;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.annex-page .sort-button:hover,
-.annex-page th[aria-sort] .sort-button {
-  color: var(--color-ink);
-}
-
-.annex-page .sort-mark::after {
-  content: "↕";
-  color: var(--color-ink-soft);
-}
-
-.annex-page th[aria-sort="ascending"] .sort-mark::after {
-  content: "▲";
-  color: var(--color-primary);
-}
-
-.annex-page th[aria-sort="descending"] .sort-mark::after {
-  content: "▼";
-  color: var(--color-primary);
 }
 
 /* The hosting badges: local neutral, network on the yellow (story 31). */
@@ -378,7 +298,6 @@ body.annex-page {
 
 .annex-page .button-primary:focus-visible,
 .annex-page .button-secondary:focus-visible,
-.annex-page .sort-button:focus-visible,
 .annex-page .field-input:focus-visible {
   outline: var(--spacing-stroke-min) solid var(--color-primary);
   outline-offset: 2px;
@@ -408,6 +327,649 @@ body.annex-page {
 
 .annex-page .field-input::placeholder {
   color: var(--color-ink-soft);
+}
+
+/* ---------- lot 3 (2026-10-04): « Diagnostic et modèles » (/diagnostic) ----------
+   DESIGN.md > Diagnostic et modèles: the page up to 1440 px, the checks panel, the filters'
+   band, then two zones of publisher groups, each a grid of model cards. Tokens only. */
+
+.annex-page .diagnostic-models {
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.annex-page .models-error {
+  margin: var(--spacing-3) 0;
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-surface-raised);
+  border: var(--spacing-stroke-min) solid var(--color-danger);
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink);
+}
+
+.annex-page .models-error[hidden] {
+  display: none;
+}
+
+.annex-page .models-note {
+  margin: var(--spacing-5) 0 0;
+  color: var(--color-ink-soft);
+}
+
+.annex-page .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* checks-panel: a white `details`, its summary 44 px high at least. */
+.annex-page .checks-panel {
+  margin-top: var(--spacing-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+}
+
+.annex-page .checks-panel > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-height: var(--spacing-hit-target-min);
+  padding: var(--spacing-2) var(--spacing-4);
+  list-style: none;
+  cursor: pointer;
+  border-radius: var(--rounded-md);
+}
+
+.annex-page .checks-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.annex-page .checks-panel > summary::before {
+  content: "▸";
+  color: var(--color-ink-soft);
+}
+
+.annex-page .checks-panel[open] > summary::before {
+  content: "▾";
+}
+
+.annex-page .checks-panel > summary:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.annex-page .checks-panel-title {
+  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.annex-page .checks-panel-summary {
+  color: var(--color-ink-soft);
+}
+
+.annex-page .checks-panel > .diagnostic-list {
+  padding: 0 var(--spacing-4) var(--spacing-4);
+}
+
+/* models-filters: story 3's band, the hosting in a segmented button, the count last. */
+.annex-page .models-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--spacing-3);
+  margin: var(--spacing-4) 0 0;
+  padding: var(--spacing-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+}
+
+.annex-page .models-filters[hidden] {
+  display: none;
+}
+
+.annex-page .models-filters .field-text {
+  flex: 1 1 192px;
+}
+
+.annex-page .models-filters .field-text .field-input {
+  width: 100%;
+}
+
+.annex-page .segmented {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-full);
+}
+
+.annex-page .segmented > button {
+  min-height: var(--spacing-hit-target-min);
+  margin: 0;
+  padding: 0 var(--spacing-3);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 0;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.annex-page .segmented > button + button {
+  border-left: 1px solid var(--color-line);
+}
+
+.annex-page .segmented > button[aria-pressed="true"] {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.annex-page .segmented > button:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: -4px;
+}
+
+.annex-page .models-count {
+  margin: 0 0 0 auto;
+  align-self: center;
+  color: var(--color-ink-soft);
+}
+
+/* The two zones: local, then cloud under an ink rule of 2 px. */
+.annex-page .models-zone {
+  margin-top: var(--spacing-5);
+}
+
+.annex-page .models-zone-cloud {
+  margin-top: var(--spacing-6);
+  padding-top: var(--spacing-2);
+  border-top: 2px solid var(--color-ink);
+}
+
+.annex-page .models-zone-note {
+  margin: var(--spacing-3) 0 0;
+  padding: var(--spacing-3);
+  background: var(--color-surface-raised);
+  border: 1px dashed var(--color-ink-soft);
+  border-radius: var(--rounded-md);
+  color: var(--color-ink-soft);
+}
+
+/* publisher-group-header: its logo (28 px), its name in pane-title, « · n modèles ». */
+.annex-page .publisher-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  margin: var(--spacing-5) 0 var(--spacing-3);
+  color: var(--color-ink);
+  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
+    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
+}
+
+.annex-page .publisher-group-count {
+  color: var(--color-ink-soft);
+  font: var(--typography-body-font-weight) var(--typography-body-font-size) /
+    var(--typography-body-line-height) var(--typography-body-font-family);
+}
+
+/* The grid: cards of 310 px at least, so that a 1280 px window shows 3 columns (250 px would
+   give 4), 1440 px 4, a window zoomed for the room 2, under 640 px 1; still at least the
+   250 px of DESIGN.md. An incomplete line stays incomplete. */
+.annex-page .model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(310px, 100%), 1fr));
+  gap: var(--spacing-4);
+}
+
+/* model-logo: a white tile in both themes, the logo contained, never recoloured. */
+.annex-page .model-logo {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 48px;
+  height: 48px;
+  padding: var(--spacing-1);
+  background: var(--color-logo-tile);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+}
+
+.annex-page .model-logo img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.annex-page .model-logo.is-initial {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  border-color: var(--color-relief);
+  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
+    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
+}
+
+.annex-page .model-logo.is-small {
+  width: 28px;
+  height: 28px;
+  padding: 2px;
+  font-size: var(--typography-body-font-size);
+}
+
+/* model-card: the toy relief, the size in a big figure; the whole folded card a button. */
+.annex-page .model-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+  box-shadow: 0 var(--spacing-1) 0 var(--color-relief);
+}
+
+.annex-page .model-card:hover {
+  border-color: var(--color-ink-soft);
+}
+
+.annex-page .model-card-head {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-content: start;
+  gap: var(--spacing-2) var(--spacing-3);
+  width: 100%;
+  min-height: 150px;
+  margin: 0;
+  padding: var(--spacing-4);
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.annex-page .model-card-head:focus-visible,
+.annex-page .model-card-fold:focus-visible {
+  outline: var(--spacing-stroke-min) solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.annex-page .model-card-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.annex-page .model-card-name {
+  overflow-wrap: anywhere;
+  font: 700 var(--typography-body-font-size) / var(--typography-body-line-height)
+    var(--typography-body-font-family);
+}
+
+.annex-page .model-card-origin {
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.annex-page .model-card-size,
+.annex-page .model-card-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-2);
+}
+
+.annex-page .model-card-foot {
+  align-items: center;
+}
+
+.annex-page .model-card-bytes {
+  font: var(--typography-number-lg-font-weight) var(--typography-number-lg-font-size) /
+    var(--typography-number-lg-line-height) var(--typography-number-lg-font-family);
+}
+
+.annex-page .model-card-params {
+  color: var(--color-ink-soft);
+}
+
+.annex-page .model-mark,
+.annex-page .sources-chip {
+  padding: 0 var(--spacing-2);
+  border-radius: var(--rounded-full);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+}
+
+.annex-page .model-mark {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.annex-page .sources-chip {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-soft);
+}
+
+/* The active card, seen from the back of the room; an unusable one on the pale red. */
+.annex-page .model-card.is-active {
+  border: 3px solid var(--color-ink);
+  box-shadow: 0 var(--spacing-1) 0 var(--color-state-active);
+}
+
+.annex-page .model-card.is-unusable {
+  background: var(--color-danger-soft);
+}
+
+.annex-page .model-card.is-unusable .model-card-bytes {
+  color: var(--color-ink-soft);
+}
+
+/* A cloud card: the network coding of the workshop, dashed, without relief. */
+.annex-page .model-card.is-cloud {
+  background: var(--color-discipline-network-soft);
+  border: 2px dashed var(--color-hosting-boundary);
+  box-shadow: none;
+}
+
+.annex-page .model-card.is-cloud.is-active {
+  border: 3px solid var(--color-ink);
+  box-shadow: 0 var(--spacing-1) 0 var(--color-state-active);
+}
+
+/* model-card-expanded: the whole width of its line, its detail pushing the next cards down. */
+.annex-page .model-card.is-expanded {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  border: 2px solid var(--color-primary);
+}
+
+.annex-page .model-card.is-cloud.is-expanded {
+  border: 2px dashed var(--color-hosting-boundary);
+}
+
+/* Unfolded and active (Flow 5, step 5): the active card's thick ink border wins. */
+.annex-page .model-card.is-active.is-expanded,
+.annex-page .model-card.is-cloud.is-active.is-expanded {
+  border: 3px solid var(--color-ink);
+}
+
+.annex-page .model-card.is-expanded .model-card-head {
+  grid-template-columns: 64px minmax(0, 1fr);
+  min-height: 0;
+  padding: var(--spacing-5) var(--spacing-5) var(--spacing-3);
+}
+
+.annex-page .model-card.is-expanded .model-card-head > .model-logo {
+  width: 64px;
+  height: 64px;
+}
+
+.annex-page .model-card.is-expanded .model-card-name {
+  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+}
+
+.annex-page .model-card-fold {
+  align-self: start;
+  margin: var(--spacing-5) var(--spacing-5) 0 0;
+}
+
+.annex-page .model-card-detail {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-4) var(--spacing-6);
+  margin: 0 var(--spacing-5);
+  padding: var(--spacing-4) 0 var(--spacing-5);
+  border-top: 1px solid var(--color-line);
+}
+
+.annex-page .card-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  min-width: 0;
+}
+
+.annex-page .card-section {
+  min-width: 0;
+}
+
+.annex-page .card-section-wide,
+.annex-page .card-actions {
+  grid-column: 1 / -1;
+}
+
+.annex-page .card-section h4 {
+  margin: 0 0 var(--spacing-2);
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.annex-page .card-message {
+  margin: 0 0 var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-surface);
+  border-left: var(--spacing-1) solid var(--color-state-ok);
+  border-radius: 0 var(--rounded-sm) var(--rounded-sm) 0;
+  overflow-wrap: anywhere;
+}
+
+.annex-page .card-message.is-warn {
+  border-left-color: var(--color-ink-soft);
+}
+
+.annex-page .card-message.is-error {
+  border-left-color: var(--color-state-error);
+}
+
+.annex-page .card-path {
+  margin: 0;
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  overflow-wrap: anywhere;
+  font: var(--typography-code-font-weight) var(--typography-code-font-size) /
+    var(--typography-code-line-height) var(--typography-code-font-family);
+}
+
+.annex-page .card-path.is-inline {
+  display: inline-block;
+  padding: 0 var(--spacing-2);
+}
+
+.annex-page .card-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--spacing-1) var(--spacing-3);
+  margin: 0;
+}
+
+.annex-page .card-facts dt {
+  font-weight: 700;
+}
+
+.annex-page .card-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.annex-page .card-fact {
+  display: block;
+}
+
+.annex-page .card-why,
+.annex-page .card-hint {
+  display: block;
+  margin: 0;
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.annex-page .card-status {
+  margin: 0;
+  color: var(--color-ink);
+}
+
+.annex-page .card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding-top: var(--spacing-4);
+  border-top: 1px solid var(--color-line);
+}
+
+.annex-page .card-actions .card-hint {
+  display: inline;
+}
+
+.annex-page .card-source {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+  padding: var(--spacing-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+}
+
+.annex-page .card-source.is-active {
+  border-color: var(--color-ink);
+}
+
+.annex-page .card-source-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.annex-page .card-source .card-path {
+  background: var(--color-surface-raised);
+}
+
+.annex-page .card-source-size {
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) /
+    var(--typography-number-line-height) var(--typography-number-font-family);
+  white-space: nowrap;
+}
+
+.annex-page .card-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-1);
+}
+
+.annex-page .card-key .field-input {
+  flex: 1 1 256px;
+}
+
+.annex-page .model-card.is-cloud .card-message,
+.annex-page .model-card.is-cloud .card-path,
+.annex-page .model-card.is-cloud .card-source {
+  background: var(--color-surface-raised);
+}
+
+/* state-pill: a dot and a word; the colour never carries the state alone, never yellow. */
+.annex-page .state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: 0 var(--spacing-2);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-full);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  white-space: nowrap;
+}
+
+.annex-page .state-pill::before {
+  content: "";
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-ink-soft);
+  border-radius: 50%;
+}
+
+.annex-page .state-pill.is-active,
+.annex-page .state-pill.is-ok {
+  background: var(--color-accent-soft);
+}
+
+.annex-page .state-pill.is-active::before {
+  background: var(--color-state-active);
+  border-color: var(--color-ink);
+}
+
+.annex-page .state-pill.is-ok::before {
+  background: var(--color-state-ok);
+  border-color: var(--color-ink);
+}
+
+.annex-page .state-pill.is-error {
+  background: var(--color-danger-soft);
+}
+
+.annex-page .state-pill.is-error::before {
+  background: var(--color-state-error);
+  border-color: var(--color-state-error);
+}
+
+.annex-page .state-pill.is-unavailable {
+  color: var(--color-ink-soft);
+}
+
+.annex-page .state-pill.is-unavailable::before {
+  border-style: dashed;
+  border-color: var(--color-state-unavailable);
+}
+
+.annex-page .state-pill.is-warning::before {
+  content: "⚠";
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+}
+
+@media (width < 640px) {
+  .annex-page .model-card-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .annex-page .card-source {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .annex-page .models-count {
+    flex-basis: 100%;
+    margin: 0;
+  }
 }
 
 /* ---------- lot 2 (2026-10-04): the shared diagram (static/diagram.js) ----------

@@ -63,6 +63,7 @@
   --color-on-vivid: #0A0A14;
   --color-warning-soft: #FFF4D6;
   --color-danger-soft: #FDE8EB;
+  --color-logo-tile: #FFFFFF;
 
   /* typography */
   --typography-pane-title-font-family: Fredoka, system-ui, sans-serif;
@@ -190,6 +191,7 @@
   --color-on-vivid: #0A0A14;
   --color-warning-soft: #3A3010;
   --color-danger-soft: #3A1820;
+  --color-logo-tile: #FFFFFF;
 }
 
 /* Story 31: « Système » on a dark workstation: the same declarations, without the attribute. */
@@ -251,5 +253,6 @@
     --color-on-vivid: #0A0A14;
     --color-warning-soft: #3A3010;
     --color-danger-soft: #3A1820;
+    --color-logo-tile: #FFFFFF;
   }
 }

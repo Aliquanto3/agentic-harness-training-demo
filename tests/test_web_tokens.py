@@ -531,7 +531,7 @@ def test_static_files_write_no_color_outside_the_tokens():
     not followed by a name character."""
     sources = _static_sources()
     names = {path.name for path in sources}
-    assert {"app.css", "app.js", "theme.js", "diagnostic.html", "models.html"} <= names
+    assert {"app.css", "app.js", "theme.js", "diagnostic.html", "pages.css"} <= names
     assert {"llm.html", "llm.css", "llm.js"} <= names  # story 29: the « LLM nu » screen
     assert {"rag.html", "rag.css", "rag.js"} <= names  # story 30: the RAG workshop
     assert {"mcp.html", "mcp.css", "mcp.js"} <= names  # story 6 (2026-09-30): MCP workshop
@@ -584,7 +584,6 @@ def test_every_page_loads_the_tokens_and_the_theme_script_first():
     assert {p.name for p in pages} >= {
         "index.html",
         "diagnostic.html",
-        "models.html",
         "llm.html",
         "rag.html",
         "mcp.html",
@@ -646,7 +645,7 @@ def test_projection_sizes_match_the_design_table():
     assert font_sizes <= seen, f"missing from the DESIGN.md table: {sorted(font_sizes - seen)}"
 
 
-# ---------- story 3 of 2026-09-30: /diagnostic and /models sized by the tokens ----------
+# ---------- story 3 of 2026-09-30: /diagnostic sized by the tokens (lot 3: /models merged) --
 
 _FONT_DECLARATION = re.compile(r"\b(font(?:-size)?)\s*:\s*([^;}]+)")
 
@@ -656,7 +655,7 @@ def test_diagnostic_and_models_pages_size_their_text_by_the_tokens():
     size from the type ramp; their shared styles (table, badges, buttons, fields) in
     pages.css, scoped to the annex pages."""
     offenders = []
-    for name in ("diagnostic.html", "models.html"):
+    for name in ("diagnostic.html",):
         page = (STATIC_DIR / name).read_text(encoding="utf-8")
         assert '<body class="annex-page">' in page, name
         css = _COMMENTS[".css"].sub("", "\n".join(re.findall(r"<style>(.*?)</style>", page, re.S)))
@@ -667,11 +666,16 @@ def test_diagnostic_and_models_pages_size_their_text_by_the_tokens():
     assert not offenders, offenders
     shared = (STATIC_DIR / "pages.css").read_text(encoding="utf-8")
     for rule in (
-        ".annex-page .model-table {",
         ".annex-page .hosting-tag-network {",
         ".annex-page .button-primary {",
         ".annex-page .button-secondary {",
         ".annex-page .field-input {",
-        ".annex-page .sort-button {",
+        # Lot 3 of 2026-10-04: the cards of « Diagnostic et modèles ».
+        ".annex-page .model-grid {",
+        ".annex-page .model-card {",
+        ".annex-page .model-logo {",
+        ".annex-page .state-pill {",
+        ".annex-page .checks-panel {",
+        ".annex-page .models-filters {",
     ):
         assert rule in shared, rule

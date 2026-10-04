@@ -2505,7 +2505,8 @@ function renderModelIndicator() {
 // ---------- story 17: model picker (EXPERIENCE.md model-picker), hot switch ----------
 
 const PICK_OTHER = "other";
-// Story 25: the table of the models and their capabilities (`/models`), just before PICK_OTHER.
+// Story 25: the table of the models and their capabilities, just before PICK_OTHER; lot 3 of
+// 2026-10-04: merged into « Diagnostic et modèles » (`/diagnostic`).
 const PICK_MODELS = "models";
 const PICK_LEGEND = "legend"; // a disabled option, never chosen
 const modelKey = (model) => (model ? `${model.kind ?? ""}:${model.ref ?? model.id}` : "");
@@ -2861,7 +2862,8 @@ async function applyPick() {
     return;
   }
   if (value === PICK_MODELS) {
-    window.location.href = "/models"; // same tab, as the diagnostic; a reload restores (AD-1)
+    // Lot 3 of 2026-10-04: the table is the « Diagnostic et modèles » page now; same tab.
+    window.location.href = "/diagnostic";
     return;
   }
   const at = value.indexOf(":");

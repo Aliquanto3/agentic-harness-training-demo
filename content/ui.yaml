@@ -1034,8 +1034,6 @@ diagnostic:
   title: "Diagnostic et modèles"
   candidates_title: "💻 Modèles locaux détectés"
   cloud_title: "☁️ Modèles cloud"
-  # Lot 1 of 2026-10-04: the models table leaves the bar; reached from here until lot 3.
-  models_link: "Tableau des modèles : capacités, prix, tri et filtres"
   cloud_help: "Hors du poste : chaque appel envoie tout le contexte au fournisseur."
   cloud_cap: "Plafond de dépense de la séance : {total} dépensés sur {cap}. Une fois le plafond atteint, WaveStack n'envoie plus d'appel payant ; le plafond se règle par [finops] max_session_usd dans settings.json, WaveStack arrêté, puis relancé."
   path_label: "Ou indiquez le chemin d'un fichier GGUF :"
@@ -1049,16 +1047,78 @@ diagnostic:
   progress:
     one: "{count} modèle testé sur {total}"
     other: "{count} modèles testés sur {total}"
+  # Lot 3 of 2026-10-04: the summary of the folded checks panel, worst first.
+  checks_summary:
+    ok:
+      one: "{count} contrôle OK : {names}"
+      other: "{count} contrôles OK : {names}"
+    warn:
+      one: "{count} avertissement : {names}"
+      other: "{count} avertissements : {names}"
+    fail:
+      one: "{count} échec : {names}"
+      other: "{count} échecs : {names}"
+    blocking:
+      one: "{count} échec bloquant : {names}"
+      other: "{count} échecs bloquants : {names}"
+  check_names:
+    memory: "mémoire"
+    model: "modèle"
+    network: "réseau"
+    port: "port"
+    cloud: "cloud"
   architecture: "architecture {name}"
-  loaded: "chargé"
   saved_choice: "choix enregistré"
-  active: "actif"
-  choose: "Choisir"
   test: "Tester"
-  local: "Local"
-  network: "RÉSEAU"
+  # Lot 3 of 2026-10-04: a card's state pill, in one or two words.
+  states:
+    active: "Actif"
+    available: "Disponible"
+    warning: "Avertissement"
+    incompatible: "Incompatible"
+    error: "Erreur"
+    loading: "Chargement…"
+    key_missing: "Clé manquante"
+    ready: "Prêt"
+    test_ok: "Test réussi"
+    test_warn: "Test en avertissement"
+    test_fail: "Échec du test"
+    testing: "Test en cours…"
+  # The sections of an unfolded card.
+  sections:
+    sources: "Sources"
+    diagnostic: "Diagnostic"
+    file: "Fichier"
+    address: "Adresse"
+    capabilities: "Capacités"
+    data: "Où partent les données"
+    key: "Clé API"
+    last_test: "Dernier test"
+  card:
+    sources:
+      one: "{count} source"
+      other: "{count} sources"
+    publisher_count:
+      one: "· {count} modèle"
+      other: "· {count} modèles"
+    name: "{name}, {publisher}, {size}, {state}"
+    name_sources: "{name}, {publisher}, {size}, {state}, {sources}"
+    fold: "✕ Replier"
+    fold_name: "Replier la carte"
+    choose: "Choisir ce modèle"
+    choose_cloud: "Choisir ce modèle…"
+    choose_source: "Choisir cette source"
+    replace_hint: "Remplace {model} entre deux tours ; la conversation est gardée."
+    cloud_hint: "« Choisir ce modèle… » ouvre d'abord l'avertissement « Ce modèle tourne hors de votre poste »."
+    load_error: "Dernier chargement en échec : {reason}"
+    no_message: "Modèle utilisable : aucun avertissement."
+    unknown_size: "taille inconnue"
+    hosting: "Hébergement"
+    training: "Entraînement"
+    trial: "offre d'essai"
+    no_match_local: "Aucun modèle local ne correspond à ces filtres."
+    no_match_cloud: "Aucun modèle cloud ne correspond à ces filtres."
   served:
-    title: " — serveur local déjà lancé"
     size: "≈ {size} Go"
     unknown: "inconnue"
     resident: "déjà en mémoire"
@@ -1067,11 +1127,6 @@ diagnostic:
     memory: "Mémoire du modèle servi : {size}{cache}, {where} (processus distinct de WaveStack)"
     unusable: "Modèle inutilisable."
   no_cloud: "Aucun modèle cloud déclaré (voir wavestack.toml)."
-  hosting: "Hébergement : {hosting}"
-  training: "Entraînement : {training}"
-  trial: "Offre d'essai"
-  cloud_line: "Hébergement : {hosting} · Entraînement : {training}"
-  cloud_line_trial: "Hébergement : {hosting} · Entraînement : {training} · offre d'essai"
   key:
     from_env: "Clé lue dans {env} (en saisir une pour la remplacer)"
     saved: "Clé enregistrée (la saisir de nouveau pour la remplacer)"
@@ -1094,32 +1149,23 @@ diagnostic:
   ready: "Modèle prêt."
   see_above: "Voir ci-dessus."
 
+# Lot 3 of 2026-10-04: the filters, the sort and the capabilities of the « Diagnostic et
+# modèles » page (story 25's table, merged into it).
 models:
-  page_title: "WaveStack — Modèles disponibles"
-  title: "Modèles disponibles"
-  loading: "Chargement de la liste des modèles…"
-  caption: "Modèles trouvés au dernier diagnostic, par lieu d'hébergement puis par éditeur, du plus petit au plus grand ; tailles en paramètres (B : milliards) et en octets (1 Go = 1024³ octets, 1 Mo = 1024² octets)"
   columns:
-    model: "Modèle"
-    publisher: "Éditeur"
-    size: "Taille"
-    hosting: "Hébergement"
     window: "Fenêtre"
     tools: "Appel d'outils"
     reasoning: "Raisonnement"
     price: "Prix"
-    state: "État"
   note: "Capacités lues comme au chargement : mêmes règles que les cartes des briques."
-  state:
-    active: "actif"
-    available: "disponible"
-    unavailable: "indisponible"
-    incompatible: "incompatible"
   list_unavailable: "Liste des modèles indisponible ({cause}) : rechargez la page."
   table_unavailable: "Tableau des modèles indisponible : voir le terminal de WaveStack."
   count:
     one: "{count} modèle au dernier diagnostic."
     other: "{count} modèles au dernier diagnostic."
+  count_sources:
+    one: "{count} modèle ({sources} sources) au dernier diagnostic"
+    other: "{count} modèles ({sources} sources) au dernier diagnostic"
   none: "Aucun modèle trouvé au dernier diagnostic."
   count_filtered:
     one: "{count} modèle sur {total}"
@@ -1141,5 +1187,10 @@ models:
     answer_unknown: "Inconnu"
     reset: "Réinitialiser les filtres"
     none: "Aucun modèle ne correspond à ces filtres."
-  sort:
-    title: "Trier par « {column} » (un second clic inverse l'ordre)"
+  sort_by:
+    label: "Trier par"
+    catalog: "Ordre du catalogue"
+    size: "Taille"
+    name: "Nom"
+    window: "Fenêtre"
+    state: "État"

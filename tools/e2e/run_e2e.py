@@ -347,23 +347,114 @@ class Run:
         return self.stack.fake_requests()
 
 
+# ---------- lot 3 of 2026-10-04: the cards of « Diagnostic et modèles » ----------
+
+
+def _goto_diagnostic(r: Run) -> None:
+    """`/diagnostic`, once its cloud cards are drawn (the local ones may still be searched)."""
+    r.page.goto(f"{r.stack.app_url}/diagnostic")
+    expect(r.page.locator("#cloud-models .model-card").first).to_be_visible(timeout=20_000)
+
+
+def _card(r: Run, value: str):
+    """The card holding the source `value` (`cloud:{id}`, `server:{ref}`)."""
+    return r.page.locator(f'.model-card[data-values~="{value}"]')
+
+
+def _cloud_card(r: Run, model: str):
+    """A cloud card by its model's name."""
+    return r.page.locator("#cloud-models .model-card").filter(
+        has=r.page.locator(".model-card-name", has_text=re.compile(rf"^{re.escape(model)}$"))
+    )
+
+
+def _unfold(card):
+    """Unfolds `card` (a click on its head) unless it is; returns it."""
+    head = card.locator(".model-card-head")
+    expect(head).to_be_visible(timeout=20_000)
+    if head.get_attribute("aria-expanded") != "true":
+        head.click()
+    expect(card.locator(".model-card-detail")).to_be_visible(timeout=5000)
+    return card
+
+
+def _open_checks(r: Run) -> None:
+    """The checks panel open by the user's choice (a closed then open summary): it stays so."""
+    panel = r.page.locator("#checks-panel")
+    summary = panel.locator("summary")
+    if panel.get_attribute("open") is not None:
+        summary.click()
+    summary.click()
+    expect(panel).to_have_attribute("open", "", timeout=5000)
+
+
+_CARD_JS = """(card) => {
+  const head = card.querySelector('.model-card-head');
+  const pill = head.querySelector('.state-pill');
+  const facts = {};
+  for (const dt of card.querySelectorAll('.card-facts dt')) {
+    const dd = dt.nextElementSibling;
+    const fact = [...dd.querySelectorAll('.card-fact')].map((x) => x.textContent).join(' | ');
+    const why = [...dd.querySelectorAll('.card-why')].map((x) => x.textContent).join(' | ');
+    facts[dt.textContent] = [fact || dd.textContent, why];
+  }
+  const group = card.closest('.publisher-group');
+  return {
+    name: card.querySelector('.model-card-name').textContent,
+    origin: card.querySelector('.model-card-origin').textContent,
+    size: head.querySelector('.model-card-size').textContent,
+    state: pill.dataset.state,
+    state_text: pill.textContent,
+    publisher: group?.querySelector('.publisher-group-name')?.textContent ?? '',
+    expanded: head.getAttribute('aria-expanded'),
+    label: head.getAttribute('aria-label'),
+    facts,
+    text: card.innerText,
+  };
+}"""
+
+
+def _card_info(r: Run, value: str) -> dict[str, Any]:
+    """A card unfolded, by one of its sources: its head, its publisher, its state, and each
+    fact of its detail (« Fenêtre », « Prix »…) as [value, reason], spaces made plain."""
+    card = _unfold(_card(r, value))
+    info = card.evaluate(_CARD_JS)
+    plain = lambda t: t.replace("\u202f", " ").replace("\xa0", " ")  # noqa: E731
+    info["facts"] = {k: [plain(v[0]), plain(v[1])] for k, v in info["facts"].items()}
+    for key in ("name", "origin", "size", "text", "state_text"):
+        info[key] = plain(info[key])
+    return info
+
+
+def _api_cards(r: Run) -> list[dict[str, Any]]:
+    """Each card of `/api/diagnostic`, with its group and its sources (`members`)."""
+    cards = []
+    for group in r.api("GET", "/api/diagnostic").json()["models"]["groups"]:
+        by_value = {m["value"]: m for m in group["models"]}
+        for card in group["cards"]:
+            members = [by_value[v] for v in card["source_values"]]
+            cards.append({**card, "group": group, "members": members})
+    return cards
+
+
 # ---------- scenarios ----------
 
 
 def s_diagnostic(r: Run) -> None:
     page = r.page
-    page.goto(f"{r.stack.app_url}/diagnostic")
-    row = page.locator("#cloud-models li", has_text="wavestack-fake")
-    expect(row).to_be_visible(timeout=20_000)
+    _goto_diagnostic(r)
+    # Lot 3 of 2026-10-04: a card, unfolded by a click on its head.
+    row = _unfold(_cloud_card(r, "wavestack-fake"))
     r.check(
         "Clé fournie par la variable WAVESTACK_FAKE_API_KEY" in row.inner_text(),
-        "la ligne du faux modèle indique la clé lue dans key_env",
+        "la carte du faux modèle, dépliée, indique la clé lue dans key_env",
     )
     r.check("e2e-fake-key" not in page.content(), "la valeur de la clé n'apparaît pas dans la page")
     row.get_by_role("button", name="Tester").click()
-    expect(row.locator(".cloud-result.ok")).to_contain_text("Test réussi", timeout=20_000)
-    r.check(True, "« Tester » réussit (appel d'outil get_datetime reçu)", row.inner_text()[-160:])
-    row.get_by_role("button", name="Choisir").click()
+    expect(row.locator(".card-message.is-ok")).to_contain_text("Test réussi", timeout=20_000)
+    expect(row.locator(".model-card-head .state-pill")).to_have_text("Test réussi")
+    r.check(True, "« Tester » réussit (appel d'outil get_datetime reçu), pastille « Test réussi »")
+    row.get_by_role("button", name="Choisir ce modèle…").click()
     dialog = page.locator("#cloud-warning")
     expect(dialog).to_be_visible()
     r.check(
@@ -372,8 +463,13 @@ def s_diagnostic(r: Run) -> None:
     )
     r.shot("01-diagnostic-avertissement-cloud")
     page.locator("#cloud-warning-confirm").click()
-    expect(row).to_contain_text("actif", timeout=20_000)
-    r.check(True, "« Utiliser ce modèle » : la ligne passe à « actif »")
+    expect(row.locator(".model-card-head .state-pill")).to_have_text("Actif", timeout=20_000)
+    r.check(
+        "is-active" in (row.get_attribute("class") or "")
+        and row.locator(".model-card-head").get_attribute("aria-expanded") == "true",
+        "« Utiliser ce modèle » : la carte passe à « Actif », bordure épaisse, toujours dépliée",
+    )
+    _diagnostic_cards(r)
     # Story 2 (2026-09-30): « Ouvrir WaveStack » gave way to « Atelier » of the shared bar.
     ok, took = r.poll(lambda: bool(r.api("GET", "/api/diagnostic").json().get("ready")), 20)
     r.check(ok, "diagnostic prêt", f"{took:.1f} s")
@@ -394,6 +490,72 @@ def s_diagnostic(r: Run) -> None:
         page.title(),
     )
     r.wait_idle()
+
+
+def _diagnostic_cards(r: Run) -> None:
+    """Lot 3 of 2026-10-04: the checks folded once green, opened at a warning; the columns at
+    1280 and 1440 px (and 2 when zoomed, 1 under 640 px); one card unfolded at a time, Échap
+    folding it back with the focus on its head; logos served by the page."""
+    page = r.page
+    _goto_diagnostic(r)
+    r.poll(lambda: "en cours" not in page.inner_text("#checks-summary"), 15)
+    summary = page.inner_text("#checks-summary")
+    states = page.eval_on_selector_all("#checks > li", "ls => ls.map(l => l.className)")
+    ok, _ = r.poll(lambda: page.locator("#checks-panel").get_attribute("open") is not None, 5)
+    r.check(
+        summary.startswith("· ")
+        and ("avertissement" in summary or "échec" in summary or "contrôles OK" in summary)
+        and (ok == any(s != "ok" for s in states)),
+        "contrôles : résumé dans le panneau, ouvert d'office à un avertissement",
+        f"{summary} · {states}",
+    )
+    columns = []
+    for width, zoom in ((1280, 1), (1440, 1), (1280, 1.6), (600, 1)):
+        page.set_viewport_size({"width": round(width / zoom), "height": 900})
+        time.sleep(0.3)
+        columns.append(
+            page.eval_on_selector(
+                "#cloud-models .model-grid",
+                "g => getComputedStyle(g).gridTemplateColumns.split(' ').length",
+            )
+        )
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    r.check(
+        columns[0] == 3 and columns[1] in (4, 5) and columns[2] == 2 and columns[3] == 1,
+        "grille : 3 colonnes à 1280 px, 4 ou 5 à 1440 px, 2 en projection agrandie, 1 sous 640 px",
+        str(columns),
+    )
+    heads = page.locator("#cloud-models .model-card-head")
+    first, second = heads.nth(0), heads.nth(1)
+    first.click()
+    second.click()
+    expanded = page.locator('.model-card-head[aria-expanded="true"]')
+    r.check(
+        expanded.count() == 1 and second.get_attribute("aria-expanded") == "true",
+        "une seule carte dépliée à la fois",
+    )
+    region = page.locator(".model-card-detail")
+    r.check(
+        region.get_attribute("role") == "region"
+        and second.get_attribute("aria-controls") == region.get_attribute("id"),
+        "carte dépliée : une région nommée, désignée par l'en-tête (aria-controls)",
+    )
+    page.keyboard.press("Escape")
+    focused = page.evaluate("() => document.activeElement?.className")
+    r.check(
+        expanded.count() == 0 and focused == "model-card-head",
+        "Échap replie la carte, le focus revient sur son en-tête",
+        str(focused),
+    )
+    logos = page.eval_on_selector_all(
+        ".model-logo img", "is => is.map(i => [i.getAttribute('src'), i.naturalWidth])"
+    )
+    r.check(
+        bool(logos) and all(src.startswith("/static/logos/") and w > 0 for src, w in logos),
+        "logos servis par la page (static/logos), chargés",
+        str(logos[:4]),
+    )
+    r.shot("01b-diagnostic-cartes", full_page=True)
 
 
 def s_bare_llm(r: Run) -> None:
@@ -3123,16 +3285,19 @@ def _themes(r: Run, errors: list[str]) -> None:
     )
 
     # The same theme on the other pages (same origin), each with its picker.
-    for path, shot in (
-        ("/diagnostic", "49-theme-sombre-diagnostic"),
-        ("/models", "50-theme-sombre-modeles"),
-    ):
-        page.goto(f"{r.stack.app_url}{path}")
-        if path == "/models":
-            expect(page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
-        else:
-            expect(page.locator("#cloud-models li").first).to_be_visible(timeout=20_000)
+    # Lot 3 of 2026-10-04: /models redirects to « Diagnostic et modèles »; a card unfolded.
+    for path, shot in (("/diagnostic", "49-theme-sombre-diagnostic"),):
+        _goto_diagnostic(r)
+        _unfold(page.locator("#cloud-models .model-card").first)
         time.sleep(0.5)
+        tiles = page.eval_on_selector_all(
+            ".model-logo:not(.is-initial)", "ts => ts.map(t => getComputedStyle(t).backgroundColor)"
+        )
+        r.check(
+            bool(tiles) and set(tiles) == {"rgb(255, 255, 255)"},
+            "sombre : les logos restent sur leur tuile blanche (logo-tile)",
+            str(sorted(set(tiles))),
+        )
         sweep = _contrast_sweep(r, ["body"])
         r.check(
             _theme_attr(r) == "dark"
@@ -8382,7 +8547,8 @@ def _forced_read(r: Run, tools_card: str, preset: str, lang: str) -> list[dict[s
 
 # ---------- languages (4/5): the workshops, the annex pages and the RAG in the language ----------
 
-ANNEX_PAGES = ("llm", "rag", "diagnostic", "models")
+# Lot 3 of 2026-10-04: « Diagnostic et modèles » holds the models' table (`models` texts).
+ANNEX_PAGES = ("llm", "rag", "diagnostic")
 ANNEX_QUESTIONS = {
     "en": "How many characters must a password have at least at Exemplia?",
     "de": "Wie viele Zeichen muss ein Passwort bei Exemplia mindestens haben?",
@@ -8407,7 +8573,7 @@ def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
     only fixed words of six letters at least say something."""
     french, translated = {}, {}
     for key, value in _ui_catalogue("fr").items():
-        if key.split(".")[0] in ("common", *ANNEX_PAGES):
+        if key.split(".")[0] in ("common", *ANNEX_PAGES, "models"):
             french[f"ui.{key}"] = " ".join(value.split())
     for key, value in _ui_catalogue(lang).items():
         translated[f"ui.{key}"] = " ".join(value.split())
@@ -8444,12 +8610,10 @@ def _goto_annex(r: Run, name: str) -> None:
         _goto_lab(r)
     elif name == "rag":
         _goto_rag_lab(r)
-    elif name == "diagnostic":
-        page.goto(f"{r.stack.app_url}/diagnostic")
-        expect(page.locator("#cloud-models li").first).to_be_visible(timeout=20_000)
     else:
-        page.goto(f"{r.stack.app_url}/models")
-        expect(page.locator("#models-table tbody").first).to_be_attached(timeout=20_000)
+        _goto_diagnostic(r)
+        # A card unfolded: its sections and states in the language too.
+        _unfold(page.locator("#cloud-models .model-card").first)
     time.sleep(0.5)
 
 
@@ -8586,7 +8750,7 @@ def _backend_tool_error(r: Run, lang: str) -> None:
 def s_backend_language(r: Run) -> None:
     """Languages (5/5), story 7 of 2026-09-30: in `en` then `de`, the backend's messages.
     The refusal of an unknown tool as the model reads it; the main screen (cards, their
-    reasons, the log) and the diagnostic and models pages without a French value of
+    reasons, the log) and « Diagnostic et modèles » without a French value of
     `messages.yaml` or `ui.yaml`; captures in German at 1280 and 1600 px, normal and
     projection mode, on the main screen. Always ends in French, at rest."""
     page = r.page
@@ -8604,7 +8768,7 @@ def s_backend_language(r: Run) -> None:
                 f"{lang} : écran principal sans message français du backend",
                 "; ".join(left[:10]),
             )
-            for name in ("diagnostic", "models"):
+            for name in ("diagnostic",):  # lot 3 of 2026-10-04: /models merged into it
                 _annex_page(r, lang, name)
             if lang == "de":
                 r.goto_app()
@@ -8660,7 +8824,7 @@ def s_annex_language(r: Run) -> None:
                             "; ".join(nav),
                         )
                         r.shot(f"annex-language-de-{name}-{width}")
-                        if name == "models" and width == 1280:
+                        if name == "diagnostic" and width == 1280:
                             _models_window_then_network(r)  # story 3 of 2026-09-30
                     page.set_viewport_size({"width": 1600, "height": 1000})
     finally:
@@ -8905,16 +9069,18 @@ def s_model_switch(r: Run) -> None:
     page.locator("#ctx .turn-compare-head button").click()
 
     # Back to the first model from the diagnostic: « Choisir », no relaunch.
-    page.goto(f"{r.stack.app_url}/diagnostic")
-    row_b = page.locator("#cloud-models li", has_text=SECOND_MODEL)
-    expect(row_b).to_contain_text("actif", timeout=10_000)
+    _goto_diagnostic(r)
+    row_b = _cloud_card(r, SECOND_MODEL)
+    expect(row_b.locator(".model-card-head .state-pill")).to_have_text("Actif", timeout=10_000)
     r.check(True, "diagnostic : le modèle actif est lu dans la session applicative")
-    row_a = page.locator("#cloud-models li", has_text="wavestack-fake")
-    row_a.get_by_role("button", name="Choisir").click()
+    row_a = _unfold(_cloud_card(r, "wavestack-fake"))
+    row_a.get_by_role("button", name="Choisir ce modèle…").click()
     page.click("#cloud-warning-confirm")
-    expect(row_a.locator(".cloud-result").last).to_have_text(
+    expect(row_a.locator(".card-status").last).to_have_text(
         "wavestack-fake est actif.", timeout=20_000
     )
+    expect(row_a.locator(".model-card-head .state-pill")).to_have_text("Actif", timeout=10_000)
+    expect(row_b.locator(".model-card-head .state-pill")).not_to_have_text("Actif")
     r.check(True, "diagnostic : « Choisir » change de modèle sans relance, issue affichée")
     body = page.inner_text("body")
     r.check("relancez WaveStack pour l'utiliser" not in body, "diagnostic : jamais « relancez »")
@@ -8992,7 +9158,8 @@ def _slow_probe_stopped(r: Run) -> None:
     import psutil
 
     page = r.page
-    page.goto(f"{r.stack.app_url}/diagnostic")
+    _goto_diagnostic(r)
+    _open_checks(r)  # lot 3 of 2026-10-04: the checks fold once green
     memory = page.locator("#checks li", has_text="Budget mémoire")
     expect(memory).to_be_visible(timeout=10_000)
     text = memory.inner_text()
@@ -9082,18 +9249,22 @@ def s_local_server(r: Run) -> None:
     picker, and back."""
     page = r.page
     address = r.stack.llama_url.removeprefix("http://")
-    page.goto(f"{r.stack.app_url}/diagnostic")
-    llama_row = page.locator("#candidates li", has_text=f"llama-server · {LLAMA_FILE}")
+    _goto_diagnostic(r)
+    llama_row = _card(r, f"server:llama_server/{LLAMA_FILE}")
     expect(llama_row).to_be_visible(timeout=20_000)
+    _unfold(llama_row)
     text = llama_row.inner_text()
     r.check(
-        "Local" in text and r.stack.llama_url in text and "Mémoire du modèle servi" in text,
-        "diagnostic : le modèle servi par llama-server est listé (Local, adresse, mémoire)",
+        f"llama-server · {address}" in text
+        and r.stack.llama_url in text
+        and "Mémoire du modèle servi" in text,
+        "diagnostic : la carte du modèle servi par llama-server (origine, adresse, mémoire)",
         text.replace("\n", " · "),
     )
     r.check(
-        llama_row.get_by_role("button", name="Choisir").count() == 1,
-        "diagnostic : « Choisir » en face du modèle servi",
+        llama_row.get_by_role("button", name="Choisir ce modèle").count() == 1
+        and llama_row.locator(".model-card-head .state-pill").inner_text() == "Avertissement",
+        "diagnostic : « Choisir ce modèle » sur la carte du modèle servi, « Avertissement »",
     )
     # Lot E (E1): the fake llama-server has a context of 8 192 tokens, twice the window.
     r.check(
@@ -9101,30 +9272,37 @@ def s_local_server(r: Run) -> None:
         "diagnostic : llama-server à grand contexte, conseil « -c 4096 »",
         text.replace("\n", " · "),
     )
-    ollama_row = page.locator("#candidates li", has_text="Ollama · faux-ollama:latest")
+    ollama_row = _card(r, "server:ollama/faux-ollama:latest")
+    if ollama_row.count():
+        _unfold(ollama_row)
     r.check(
         ollama_row.count() == 1
         and "introuvable" in ollama_row.inner_text()
+        and "is-unusable" in (ollama_row.get_attribute("class") or "")
+        and ollama_row.locator(".model-card-head .state-pill").inner_text() == "Incompatible"
         and ollama_row.get_by_role("button", name="Choisir").count() == 0,
-        "diagnostic : un modèle Ollama sans GGUF lisible est incompatible, sans « Choisir »",
+        "diagnostic : un modèle Ollama sans GGUF lisible est « Incompatible », sa raison dans la "
+        "carte dépliée, sans « Choisir »",
         ollama_row.inner_text().replace("\n", " · ") if ollama_row.count() else "absent",
     )
+    _unfold(llama_row)
     r.check("palier 2" not in page.inner_text("body"), "diagnostic : plus de « palier 2 »")
 
     # « Choisir » at the diagnostic: a hot switch from the cloud fake model, at the first
     # click (the page no longer rebuilds its rows while it replays the journal).
     seq = r.ev.mark()
-    llama_row.get_by_role("button", name="Choisir").click()
+    llama_row.get_by_role("button", name="Choisir ce modèle").click()
     r.ev.wait("model_load_started", seq, timeout=5)
     ended = r.ev.wait("model_load_ended", seq, timeout=30)
     r.check(ended["payload"]["status"] == "ok", "diagnostic : « Choisir » prépare le modèle servi")
     expect(page.locator("#select-model-status")).to_have_text(
         "faux-llama-server est actif.", timeout=10_000
     )
-    expect(llama_row).to_contain_text("chargé", timeout=10_000)
+    expect(llama_row.locator(".model-card-head .state-pill")).to_have_text("Actif", timeout=10_000)
     r.check(
-        llama_row.get_by_role("button", name="Choisir").count() == 0,
-        "diagnostic : issue affichée, ligne marquée « chargé », sans « Choisir »",
+        llama_row.get_by_role("button", name="Choisir").count() == 0
+        and "is-active" in (llama_row.get_attribute("class") or ""),
+        "diagnostic : issue affichée, carte « Actif » à bordure épaisse, sans « Choisir »",
     )
 
     r.goto_app()
@@ -9321,78 +9499,71 @@ def _picker_groups(r: Run) -> list[dict[str, Any]]:
 
 
 def _models_row(r: Run, value: str) -> dict[str, str]:
-    """A row of the `/models` table by its value (`cloud:fake`…): each column's text."""
-    row = r.page.locator(f'#models-table tr[data-value="{value}"]')
-    expect(row).to_have_count(1, timeout=10_000)
-    cells = row.locator("td").all_inner_texts()
-    keys = (
-        "model",
-        "publisher",
-        "size",
-        "hosting",
-        "window",
-        "tools",
-        "reasoning",
-        "price",
-        "state",
-    )
-    row_texts: dict[str, str] = {}
-    for key, cell in zip(keys, cells, strict=False):
-        word, _, why = cell.replace("\u202f", " ").replace("\xa0", " ").partition("\n")
-        row_texts[key], row_texts[f"{key}_why"] = word, why  # the word, its reason under it
-    return row_texts
-
-
-# ---------- story 3 of 2026-09-30: sort and filters of /models, the diagnostic's search ------
-
-# Each visible group of the table, its visible rows in order: the pairs out of order for the
-# column `key` (`size`: bytes, then parameters), unknown values always last; `ranks`: the
-# rank of each text value (`reasoning`), the others unknown.
-_MODELS_ORDER_JS = """({key, descending, ranks}) => {
-  const problems = [];
-  const value = (v) =>
-    ranks ? (ranks[v] ?? null) : v === "" || v === undefined ? null : Number(v);
-  const read = (tr) => (key === "size" ? [tr.dataset.size, tr.dataset.params] : [tr.dataset[key]])
-    .map(value);
-  for (const body of document.querySelectorAll("#models-table tbody")) {
-    if (body.hidden) continue;
-    const rows = [...body.querySelectorAll("tr[data-value]")].filter((tr) => !tr.hidden);
-    for (let i = 1; i < rows.length; i++) {
-      const a = read(rows[i - 1]);
-      const b = read(rows[i]);
-      for (let j = 0; j < a.length; j++) {
-        if (a[j] === b[j]) continue;
-        const wrong = a[j] === null || (b[j] !== null && (descending ? a[j] < b[j] : a[j] > b[j]));
-        const [x, y] = [rows[i - 1].dataset.value, rows[i].dataset.value];
-        if (wrong) problems.push(`${x} (${a}) > ${y} (${b})`);
-        break;
-      }
+    """Lot 3 of 2026-10-04: story 25's row, read on the card of `value`, unfolded: its
+    publisher, size, state and each capability with its reason."""
+    info = _card_info(r, value)
+    facts = info["facts"]
+    row = {
+        "name": info["name"],
+        "publisher": info["publisher"],
+        "size": info["size"],
+        "state": info["state"],
+        "text": info["text"],
     }
-  }
-  return problems;
-}"""
+    for key, label in (
+        ("window", "Fenêtre"),
+        ("tools", "Appel d'outils"),
+        ("reasoning", "Raisonnement"),
+        ("price", "Prix"),
+    ):
+        row[key], row[f"{key}_why"] = facts.get(label, ["", ""])
+    return row
 
 
-def _models_order_problems(
-    r: Run, key: str, descending: bool, ranks: dict[str, int] | None = None
-) -> list[str]:
-    return r.page.evaluate(_MODELS_ORDER_JS, {"key": key, "descending": descending, "ranks": ranks})
+# ---------- story 3 of 2026-09-30, lot 3 of 2026-10-04: sort and filters of the cards ------
+
+_CARDS_SHOWN_JS = """() => [...document.querySelectorAll('.publisher-group')].map((g) => ({
+  group: g.dataset.key,
+  cards: [...g.querySelectorAll('article.model-card')].map((c) => c.dataset.card),
+}))"""
 
 
-def _models_sort_marks(r: Run) -> dict[str, str | None]:
-    """`aria-sort` of each header of the table, by its `data-sort` (the price: « price »)."""
-    return r.page.eval_on_selector_all(
-        "#models-table thead th",
-        "ths => Object.fromEntries(ths.map(th => [th.dataset.sort ?? 'price',"
-        " th.getAttribute('aria-sort')]))",
-    )
+def _cards_shown(r: Run) -> list[dict[str, Any]]:
+    """Each visible publisher group, its cards in order."""
+    return r.page.evaluate(_CARDS_SHOWN_JS)
 
 
-def _models_visible_values(r: Run) -> list[str]:
-    return r.page.eval_on_selector_all(
-        "#models-table tbody:not([hidden]) tr[data-value]:not([hidden])",
-        "trs => trs.map(tr => tr.dataset.value)",
-    )
+def _shown_ids(r: Run) -> list[str]:
+    return sorted(c for g in _cards_shown(r) for c in g["cards"])
+
+
+def _order_problems(r: Run, key) -> list[str]:  # noqa: ANN001 - card -> tuple, None unknown
+    """The pairs of cards out of order within each visible group, unknown values last."""
+    by_id = {c["id"]: c for c in _api_cards(r)}
+    problems = []
+    for group in _cards_shown(r):
+        values = [key(by_id[c]) for c in group["cards"]]
+        for i in range(1, len(values)):
+            a, b = values[i - 1], values[i]
+            for x, y in zip(a, b, strict=True):
+                if x == y:
+                    continue
+                if x is None or (y is not None and x > y):
+                    problems.append(f"{group['cards'][i - 1]} ({a}) > {group['cards'][i]} ({b})")
+                break
+    return problems
+
+
+def _size_key(card: dict[str, Any]) -> tuple:
+    return (card["size_bytes_min"], card["members"][0]["params_b"])
+
+
+def _window_key(card: dict[str, Any]) -> tuple:
+    return (max((m["window"] or 0) for m in card["members"]) or None,)
+
+
+def _hosting(r: Run, value: str) -> None:
+    r.page.locator(f'#filter-hosting button[data-value="{value}"]').click()
 
 
 def _folded(text: str) -> str:
@@ -9402,98 +9573,71 @@ def _folded(text: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
 
 
+def _card_words(card: dict[str, Any]) -> str:
+    names = [f"{m['name']} {m['publisher_text']}" for m in card["members"]]
+    return _folded(" ".join([card["name"], card["group"]["publisher_text"], *names]))
+
+
 def _models_sort_and_filters(r: Run) -> None:
-    """Sort by size (twice: descending, `aria-sort`), by the window from the keyboard; the
-    network filter with a free text, its count; no result, then « Réinitialiser les filtres »."""
+    """« Trier par » Taille, then Fenêtre, within each group, unknown values last; the network
+    filter with a free text, its count; no result, then « Réinitialiser les filtres »; the
+    tools, reasoning and publisher filters, a card kept when one of its sources matches."""
     page = r.page
-    models = r.api("GET", "/api/diagnostic").json()["models"]
-    rows = [m for g in models["groups"] for m in g["models"]]
-    total = len(rows)
-    size = page.locator('#models-table th[data-sort="size"] .sort-button')
-    size.click()
-    size.click()
-    marks = _models_sort_marks(r)
-    problems = _models_order_problems(r, "size", descending=True)
+    cards = _api_cards(r)
+    total = len(cards)
+    page.select_option("#filter-sort", "size")
+    problems = _order_problems(r, _size_key)
     r.check(
-        marks["size"] == "descending"
-        and all(v is None for k, v in marks.items() if k != "size")
-        and not problems,
-        "tableau : « Taille » deux fois, décroissant par taille dans chaque groupe, inconnues "
-        "en dernier, aria-sort=descending sur cet en-tête seul",
-        f"{marks} · " + "; ".join(problems[:4]),
+        not problems and len(_shown_ids(r)) == total,
+        "« Trier par : Taille » : croissant par taille dans chaque groupe, inconnues en dernier",
+        "; ".join(problems[:4]),
     )
-    window = page.locator('#models-table th[data-sort="window"] .sort-button')
-    window.focus()
-    page.keyboard.press("Enter")
-    marks = _models_sort_marks(r)
-    problems = _models_order_problems(r, "window", descending=False)
+    page.locator("#filter-sort").focus()
+    page.select_option("#filter-sort", "window")
+    problems = _order_problems(r, _window_key)
     r.check(
-        marks["window"] == "ascending" and marks["size"] is None and not problems,
-        "tableau : Entrée sur « Fenêtre », croissant par fenêtre, aria-sort passé à cet en-tête",
-        f"{marks} · " + "; ".join(problems[:4]),
-    )
-    r.check(
-        page.locator("#models-table thead th", has_text="Prix").locator("button").count() == 0,
-        "tableau : le prix ne se trie pas",
+        not problems, "« Trier par : Fenêtre » : croissant par fenêtre", "; ".join(problems[:4])
     )
 
-    page.select_option("#filter-hosting", "network")
+    _hosting(r, "network")
     page.fill("#filter-text", "gem")
     expected = sorted(
-        m["value"]
-        for m in rows
-        if m["hosting"] == "network" and "gem" in _folded(f"{m['name']} {m['publisher_text']}")
+        c["id"] for c in cards if c["hosting"] == "network" and "gem" in _card_words(c)
     )
-    shown = sorted(_models_visible_values(r))
+    shown = _shown_ids(r)
     status = page.inner_text("#models-status")
     word = "modèle" if len(expected) <= 1 else "modèles"
-    local_hidden = page.eval_on_selector_all(
-        "#models-table tbody",
-        "bs => bs.every(b => b.hidden || [...b.querySelectorAll('tr[data-value]')]"
-        ".some(tr => !tr.hidden))",
-    )
+    pressed = page.locator('#filter-hosting button[aria-pressed="true"]').inner_text()
     r.check(
         bool(expected)
         and shown == expected
         and status == f"{len(expected)} {word} sur {total}"
-        and local_hidden,
-        "filtres : réseau + « gem », les seules lignes réseau dont le nom ou l'éditeur contient "
-        "« gem », compteur « n modèles sur N », groupes vides masqués",
-        f"{shown} · attendu {expected} · « {status} »",
+        and pressed == "Réseau"
+        and "Aucun modèle local ne correspond à ces filtres." in page.inner_text("#candidates"),
+        "filtres : « Réseau » (bouton segmenté) + « gem », les seules cartes cloud dont le nom ou "
+        "l'éditeur contient « gem », compteur « n modèles sur N », groupes vides masqués",
+        f"{shown} · attendu {expected} · « {status} » · {pressed}",
     )
     r.shot("44b-modeles-filtres", full_page=True)
 
     page.fill("#filter-text", "zzz")
-    empty = page.locator("#models-empty")
-    expect(empty).to_be_visible(timeout=5000)
     r.check(
-        page.locator("#models-table").is_hidden()
-        and "Aucun modèle ne correspond à ces filtres." in empty.inner_text()
+        not _shown_ids(r)
+        and "Aucun modèle cloud ne correspond à ces filtres." in page.inner_text("#cloud-models")
         and page.inner_text("#models-status") == f"0 modèle sur {total}",
-        "filtres : « zzz », aucun résultat, message dédié, tableau masqué",
+        "filtres : « zzz », aucun résultat, message dans chaque zone",
         page.inner_text("#models-status"),
     )
-    page.locator("#models-empty-reset").click()
-    shown = _models_visible_values(r)
+    page.locator("#filters-reset").click()
+    shown = _shown_ids(r)
     r.check(
-        empty.is_hidden()
-        and len(shown) == total
+        len(shown) == total
         and page.input_value("#filter-text") == ""
-        and page.input_value("#filter-hosting") == ""
-        and page.inner_text("#models-status").startswith(f"{total} modèles"),
-        "« Réinitialiser les filtres » : toutes les lignes de nouveau, compteur entier",
+        and page.locator('#filter-hosting button[aria-pressed="true"]').inner_text() == "Tous"
+        and page.input_value("#filter-sort") == ""
+        and page.inner_text("#models-status").startswith(f"{total} modèle"),
+        "« Réinitialiser les filtres » : toutes les cartes de nouveau, compteur entier",
         f"{len(shown)} / {total} · {page.inner_text('#models-status')}",
-    )
-
-    reasoning = page.locator('#models-table th[data-sort="reasoning"] .sort-button')
-    reasoning.click()
-    ranks = {"always": 0, "toggle": 1, "never": 2}
-    problems = _models_order_problems(r, "reasoning", descending=False, ranks=ranks)
-    r.check(
-        _models_sort_marks(r)["reasoning"] == "ascending" and not problems,
-        "tableau : « Raisonnement », toujours < activable < jamais dans chaque groupe, "
-        "inconnus en dernier",
-        "; ".join(problems[:4]),
     )
 
     publisher = page.eval_on_selector_all(
@@ -9518,31 +9662,37 @@ def _models_sort_and_filters(r: Run) -> None:
     for selector, option, keep, label in filters:
         if option is not None:
             page.select_option(selector, option)
-        expected = sorted(m["value"] for m in rows if keep(m))
-        shown = sorted(_models_visible_values(r))
+        expected = sorted(c["id"] for c in cards if any(keep(m) for m in c["members"]))
+        shown = _shown_ids(r)
         r.check(
             option is not None and bool(expected) and shown == expected,
-            f"filtres : {label}, ses seules lignes",
+            f"filtres : {label}, ses seules cartes",
             f"{len(shown)} affichées · attendu {len(expected)} · "
             f"en trop {sorted(set(shown) - set(expected))[:4]} · "
             f"manquantes {sorted(set(expected) - set(shown))[:4]}",
         )
         page.locator("#filters-reset").click()
+    # An unfolded card the filters hide folds.
+    _unfold(page.locator("#cloud-models .model-card").first)
+    _hosting(r, "local")
+    r.check(
+        page.locator('.model-card-head[aria-expanded="true"]').count() == 0,
+        "filtres : une carte dépliée qui sort du filtre se replie",
+    )
+    page.locator("#filters-reset").click()
 
 
 def _models_window_then_network(r: Run) -> None:
-    """German, at the width of the moment: sort by « Fenster », then the « Netzwerk » filter;
-    the network rows only, by window in their group, the count right (AC of story 3)."""
+    """German, at the width of the moment: « Sortieren nach : Fenster », then « Netzwerk »;
+    the cloud cards only, by window in their group, the count right (AC of story 3)."""
     page = r.page
-    rows = [
-        m for g in r.api("GET", "/api/diagnostic").json()["models"]["groups"] for m in g["models"]
-    ]
-    network = sorted(m["value"] for m in rows if m["hosting"] == "network")
-    page.locator('#models-table th[data-sort="window"] .sort-button').click()
-    page.select_option("#filter-hosting", "network")
-    option = page.eval_on_selector("#filter-hosting", "s => s.selectedOptions[0].textContent")
-    shown = sorted(_models_visible_values(r))
-    problems = _models_order_problems(r, "window", descending=False)
+    cards = _api_cards(r)
+    network = sorted(c["id"] for c in cards if c["hosting"] == "network")
+    page.select_option("#filter-sort", "window")
+    _hosting(r, "network")
+    option = page.locator('#filter-hosting button[aria-pressed="true"]').inner_text()
+    shown = _shown_ids(r)
+    problems = _order_problems(r, _window_key)
     status = page.inner_text("#models-status")
     word = "Modell" if len(network) == 1 else "Modelle"
     r.check(
@@ -9550,8 +9700,8 @@ def _models_window_then_network(r: Run) -> None:
         and option == "Netzwerk"
         and shown == network
         and not problems
-        and status == f"{len(network)} {word} von {len(rows)}",
-        "de : « Fenster » puis « Netzwerk », les seules lignes réseau, par fenêtre dans leur "
+        and status == f"{len(network)} {word} von {len(cards)}",
+        "de : « Fenster » puis « Netzwerk », les seules cartes cloud, par fenêtre dans leur "
         "groupe, compteur juste",
         f"{option} · {len(shown)} / {len(network)} · « {status} » · " + "; ".join(problems[:3]),
     )
@@ -9571,6 +9721,9 @@ def _diagnostic_search_shown(r: Run) -> None:
         f"{real.get('searching')} · {real.get('progress')}",
     )
     fake = {**real, "searching": True, "progress": {"done": 0, "total": 0}, "candidates": []}
+    # Lot 3 of 2026-10-04: no candidate yet, hence no local card (the session builds them).
+    network = [g for g in real["models"]["groups"] if g["hosting"] == "network"]
+    fake["models"] = {**real["models"], "groups": network}
     fake["ready"] = False
     envelope = {
         "seq": real["seq"] + 1000,
@@ -9593,7 +9746,7 @@ def _diagnostic_search_shown(r: Run) -> None:
             "Recherche et test des modèles en cours…" in search.inner_text()
             and count.is_hidden()
             and "Aucun candidat trouvé." not in page.inner_text("#candidates")
-            and page.locator("#candidates li").count() == 0,
+            and page.locator("#candidates .model-card").count() == 0,
             "diagnostic en recherche, rien à sonder : le message sans compteur, jamais "
             "« Aucun candidat trouvé. »",
             search.inner_text(),
@@ -9619,16 +9772,159 @@ def _diagnostic_search_shown(r: Run) -> None:
         page.unroute("**/api/diagnostic")
         page.unroute("**/api/diagnostic/stream")
     page.goto(f"{r.stack.app_url}/diagnostic")
-    expect(page.locator("#candidates li").first).to_be_visible(timeout=20_000)
+    expect(page.locator("#candidates .model-card").first).to_be_visible(timeout=20_000)
     r.check(
         search.is_hidden() and "Aucun candidat trouvé." not in page.inner_text("#candidates"),
         "diagnostic, recherche finie : la liste des candidats, sans message de recherche",
     )
 
 
+def _diagnostic_card_states(r: Run) -> None:
+    """Lot 3 of 2026-10-04, from a simulated `/api/diagnostic`: a card with an active source
+    and an incompatible one says « Actif » (its sources keep their own state); a model whose
+    last load failed says « Erreur », the cause and « Choisir ce modèle » in its detail; a
+    check in warning opens the checks panel, all green folds it."""
+    page = r.page
+    real = r.api("GET", "/api/diagnostic").json()
+    group = next(
+        (g for g in real["models"]["groups"] if g["hosting"] == "local"),
+        real["models"]["groups"][0],
+    )
+    base = {**group["models"][0], "hosting": "local", "usable": True, "disabled_text": None}
+    active = {**base, "kind": "file", "ref": "C:/e2e/actif.gguf", "value": "file:C:/e2e/actif.gguf"}
+    broken = {
+        **base,
+        "kind": "file",
+        "ref": "D:/e2e/actif.gguf",
+        "value": "file:D:/e2e/actif.gguf",
+        "usable": False,
+        "disabled_text": "Incompatible simulé.",
+    }
+    failed = {**base, "kind": "file", "ref": "C:/e2e/panne.gguf", "value": "file:C:/e2e/panne.gguf"}
+    card = {
+        "id": "card:e2e-actif",
+        "name": "e2e-actif",
+        "hosting": "local",
+        "size_bytes_min": 1024**3,
+        "size_text": "1,0 Go",
+        "params_text": None,
+        "origin_text": "2 sources · e2e",
+        "quantization_text": None,
+        "source_values": [active["value"], broken["value"]],
+    }
+    lone = {**card, "id": "card:e2e-panne", "name": "e2e-panne", "origin_text": "e2e"}
+    lone["source_values"] = [failed["value"]]
+    fake_group = {**group, "hosting": "local", "models": [active, broken, failed]}
+    fake_group["cards"] = [card, lone]
+    network = [g for g in real["models"]["groups"] if g["hosting"] == "network"]
+    fake = {
+        **real,
+        "searching": False,
+        "progress": None,
+        "candidates": [],
+        "models": {**real["models"], "groups": [fake_group, *network]},
+        "loaded": {"kind": "file", "ref": active["ref"], "label": "e2e-actif"},
+        "selected": {"kind": "file", "ref": active["ref"]},
+        "load_errors": [{"kind": "file", "ref": failed["ref"], "reason_text": "Panne simulée."}],
+    }
+
+    def checks(network_status: str) -> str:
+        frames = []
+        for i, (check, status) in enumerate(
+            (("memory", "ok"), ("model", "ok"), ("network", network_status), ("port", "ok"))
+        ):
+            envelope = {
+                "seq": i + 1,
+                "ts": "2026-10-04T00:00:00Z",
+                "session_epoch": 0,
+                "kind": "diagnostic_check",
+                "actor": "harness",
+                "trigger": "harness",
+                "payload": {
+                    "check": check,
+                    "status": status,
+                    "message_text": f"{check} simulé",
+                    "action_text": None,
+                    "blocking": False,
+                },
+            }
+            frames.append(f"id: {i + 1}\nevent: diagnostic_check\ndata: {json.dumps(envelope)}\n\n")
+        return "".join(frames)
+
+    stream = {"body": checks("warn")}
+    page.route("**/api/diagnostic", lambda route: route.fulfill(json=fake))
+    page.route(
+        "**/api/diagnostic/stream",
+        lambda route: route.fulfill(
+            status=200, headers={"Content-Type": "text/event-stream"}, body=stream["body"]
+        ),
+    )
+    try:
+        page.goto(f"{r.stack.app_url}/diagnostic")
+        both = page.locator('.model-card[data-card="card:e2e-actif"]')
+        expect(both).to_be_visible(timeout=10_000)
+        pill = both.locator(".model-card-head .state-pill")
+        r.check(
+            pill.get_attribute("data-state") == "active"
+            and pill.inner_text() == "Actif"
+            and "is-active" in (both.get_attribute("class") or "")
+            and both.locator(".sources-chip").inner_text() == "2 sources",
+            "carte à deux sources, une active et une incompatible : pastille « Actif », "
+            "puce « 2 sources »",
+            f"{pill.get_attribute('data-state')} · {pill.inner_text()}",
+        )
+        both.locator(".model-card-head").click()
+        sources = both.locator(".card-source")
+        expect(sources).to_have_count(2, timeout=5_000)
+        own = sources.locator(".state-pill").evaluate_all("ps => ps.map(p => p.dataset.state)")
+        r.check(
+            own == ["active", "incompatible"]
+            and sources.nth(1).locator("button").count() == 0
+            and "Incompatible simulé." in sources.nth(1).inner_text(),
+            "carte dépliée : chaque source son état, pas de « Choisir » sur l'incompatible",
+            str(own),
+        )
+        lone_card = page.locator('.model-card[data-card="card:e2e-panne"]')
+        lone_pill = lone_card.locator(".model-card-head .state-pill")
+        r.check(
+            lone_pill.get_attribute("data-state") == "error"
+            and lone_pill.inner_text() == "Erreur"
+            and "is-unusable" in (lone_card.get_attribute("class") or ""),
+            "dernier chargement en échec : carte « Erreur », fond inutilisable",
+            lone_pill.inner_text(),
+        )
+        lone_card.locator(".model-card-head").click()
+        expect(lone_card.locator(".model-card-detail")).to_be_visible(timeout=5_000)
+        r.check(
+            "Panne simulée." in lone_card.inner_text()
+            and lone_card.get_by_role("button", name="Choisir ce modèle").count() == 1
+            and both.locator(".model-card-detail").count() == 0,
+            "carte « Erreur » dépliée : la cause et « Choisir ce modèle » pour réessayer ; "
+            "une seule carte dépliée",
+        )
+        panel = page.locator("#checks-panel")
+        r.check(
+            panel.get_attribute("open") is not None
+            and "1 avertissement : réseau" in page.inner_text("#checks-summary"),
+            "un contrôle en avertissement : panneau des contrôles ouvert d'office",
+            page.inner_text("#checks-summary"),
+        )
+        stream["body"] = checks("ok")
+        page.reload()
+        expect(page.locator("#checks-summary")).to_contain_text("4 contrôles OK", timeout=10_000)
+        r.check(
+            panel.get_attribute("open") is None,
+            "tous les contrôles OK : panneau replié",
+            page.inner_text("#checks-summary"),
+        )
+    finally:
+        page.unroute("**/api/diagnostic")
+        page.unroute("**/api/diagnostic/stream")
+
+
 def _open_models_page(r: Run) -> None:
-    r.page.goto(f"{r.stack.app_url}/models")
-    expect(r.page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
+    """Lot 3 of 2026-10-04: the models' table is « Diagnostic et modèles »."""
+    _goto_diagnostic(r)
 
 
 def s_model_catalog(r: Run) -> None:
@@ -9710,25 +10006,26 @@ def s_model_catalog(r: Run) -> None:
         }"""
     )
 
-    # « Tableau des modèles… » noted, then « Ouvrir le tableau »: `/models`, same tab.
+    # « Tableau des modèles… » noted, then « Ouvrir le tableau »: lot 3 of 2026-10-04, the
+    # « Diagnostic et modèles » page, same tab; `/models` redirects there.
     page.select_option("#model-picker", label=PICK_MODELS_LABEL)
     apply = page.locator("#model-picker-apply")
     r.check(apply.inner_text() == "Ouvrir le tableau", "bouton « Ouvrir le tableau »")
     apply.click()
-    page.wait_for_url(f"{r.stack.app_url}/models", timeout=10_000)
-    expect(page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
+    page.wait_for_url(f"{r.stack.app_url}/diagnostic", timeout=10_000)
+    expect(page.locator("#cloud-models .model-card").first).to_be_visible(timeout=20_000)
     current = page.locator('.site-nav a[aria-current="page"]')
-    # Lot 1 of 2026-10-04 (D2): « Modèles » out of the bar, « 🛠️ Diagnostic » current here.
     r.check(
         current.inner_text() == "🛠️ Diagnostic"
-        and page.locator('.site-nav a[href="/models"]').count() == 0,
-        "page /models : onglet « 🛠️ Diagnostic » courant, aucun onglet « Modèles »",
+        and page.locator('.site-nav a[href="/models"]').count() == 0
+        and page.title() == "WaveStack — Diagnostic et modèles"
+        and page.locator("h1").inner_text() == "Diagnostic et modèles",
+        "« Tableau des modèles… » : la page « Diagnostic et modèles », « 🛠️ Diagnostic » courant",
         current.inner_text(),
     )
-    r.check(
-        page.locator(".site-nav a", has_text="Diagnostic").get_attribute("href") == "/diagnostic",
-        "page /models : le lien « Diagnostic » de la barre commune mène à /diagnostic",
-    )
+    page.goto(f"{r.stack.app_url}/models")
+    r.check(page.url.endswith("/diagnostic"), "/models redirige vers /diagnostic", page.url)
+    expect(page.locator("#cloud-models .model-card").first).to_be_visible(timeout=20_000)
     llama = _models_row(r, f"server:llama_server/{LLAMA_FILE}")
     r.check(
         llama.get("publisher") == "Qwen (Alibaba)"
@@ -9736,84 +10033,74 @@ def s_model_catalog(r: Run) -> None:
         and llama.get("reasoning") == "activable"
         and llama.get("window") == "4 096 tokens"
         and llama.get("price") == "—",
-        "tableau : faux llama-server Qwen, outils oui, raisonnement activable, 4 096 tokens, "
+        "carte : faux llama-server Qwen, outils oui, raisonnement activable, 4 096 tokens, "
         "prix « — »",
-        str(llama),
+        str({k: v for k, v in llama.items() if k != "text"}),
     )
     reasoning_r = _models_row(r, f"cloud:{REASONING_ENTRY_ID}")
-    r.check(reasoning_r.get("reasoning") == "toujours", "tableau : modèle R « toujours »")
+    r.check(reasoning_r.get("reasoning") == "toujours", "carte : modèle R « toujours »")
     gemini = _models_row(r, "cloud:gemini")
     r.check(
-        gemini.get("model") == "RÉSEAU · Google AI Studio"
-        and gemini.get("model_why") == "gemini-3.5-flash-lite"
+        gemini.get("size") == "RÉSEAU · Google AI Studio"
+        and gemini.get("name") == "gemini-3.5-flash-lite"
         and gemini.get("publisher") == "Gemini (Google)"
         and gemini.get("reasoning") == "activable"
-        and gemini.get("state") == "indisponible"
-        and "clé API" in gemini.get("state_why", "")
+        and gemini.get("state") == "key_missing"
+        and "clé API" in gemini.get("text", "")
         and gemini.get("price") == "0,30 $ / 2,50 $"
         and "par million de tokens" in gemini.get("price_why", ""),
-        "tableau : préréglage Gemini, éditeur « Gemini (Google) », raisonnement « activable », "
-        "indisponible sans clé, avec la raison, prix « 0,30 $ / 2,50 $ » par million de tokens",
-        str(gemini),
+        "carte : préréglage Gemini, éditeur « Gemini (Google) », raisonnement « activable », "
+        "« Clé manquante » avec la raison, prix « 0,30 $ / 2,50 $ » par million de tokens",
+        str({k: v for k, v in gemini.items() if k != "text"}),
     )
     gemma = _models_row(r, "cloud:gemma")
     r.check(
-        gemma.get("model") == "RÉSEAU · Google AI Studio"
-        and gemma.get("model_why") == "gemma-4-26b-a4b-it"
+        gemma.get("name") == "gemma-4-26b-a4b-it"
         and gemma.get("publisher") == "Gemma (Google)"
         and gemma.get("reasoning") == "activable"
-        and gemma.get("size") == "26 B"
-        and gemma.get("state") == "indisponible"
+        and gemma.get("state") == "key_missing"
         and gemma.get("price") == "—",
-        "tableau : préréglage Gemma, éditeur « Gemma (Google) », raisonnement « activable », "
-        "« 26 B » lu dans le nom, indisponible sans clé, prix « — » (gratuit, sans pricing)",
-        str(gemma),
+        "carte : préréglage Gemma, éditeur « Gemma (Google) », raisonnement « activable », "
+        "« Clé manquante », prix « — » (gratuit, sans pricing)",
+        str({k: v for k, v in gemma.items() if k != "text"}),
     )
     fake_a = _models_row(r, f"cloud:{MODEL_ENTRY_ID}")
-    r.check(fake_a.get("reasoning") == "jamais", "tableau : wavestack-fake « jamais »")
-    r.check(fake_a.get("state") == "actif", "tableau : la ligne du modèle actif dit « actif »")
+    r.check(fake_a.get("reasoning") == "jamais", "carte : wavestack-fake « jamais »")
+    r.check(fake_a.get("state") == "active", "carte : celle du modèle actif dit « Actif »")
     ollama = _models_row(r, "server:ollama/faux-ollama:latest")
     r.check(
         ollama.get("reasoning") == "inconnu" and "introuvable" in ollama["reasoning_why"],
-        "tableau : faux Ollama « inconnu », raison visible « introuvable »",
-        str(ollama),
+        "carte : faux Ollama « inconnu », raison visible « introuvable »",
+        str({k: v for k, v in ollama.items() if k != "text"}),
     )
-    network = page.locator("#models-table tr[data-value^='cloud:']")
-    rows = network.all_inner_texts()
+    network = page.locator("#cloud-models .model-card")
     cloud_count = len(r.api("GET", "/api/diagnostic").json()["cloud"]["models"])
+    tags = page.locator("#cloud-models .model-card-head .hosting-tag-network")
     r.check(
-        len(rows) == cloud_count >= 3 and all("RÉSEAU" in t for t in rows),
-        "tableau : chaque ligne réseau montre « RÉSEAU »",
-        f"{len(rows)} lignes, {cloud_count} modèles cloud",
-    )
-    tag = network.first.locator(".hosting-tag-network")
-    r.check(
-        r.css(tag, "background-color") == r.token_color("--color-hosting-network"),
-        "tableau : étiquette réseau sur le jeton jaune",
+        network.count() == cloud_count >= 3
+        and tags.count() == cloud_count
+        and all("RÉSEAU" in t for t in tags.all_inner_texts()),
+        "zone cloud : chaque carte montre « 🌐 RÉSEAU · {fournisseur} »",
+        f"{network.count()} cartes, {cloud_count} modèles cloud",
     )
     r.check(
-        page.locator("#models-table th[scope='rowgroup']").all_inner_texts() == labels
-        and page.locator("#models-table caption").count() == 1,
-        "tableau : une légende, et un en-tête par groupe, ceux du sélecteur",
-        str(page.locator("#models-table th[scope='rowgroup']").all_inner_texts()),
+        r.css(tags.first, "background-color") == r.token_color("--color-hosting-network"),
+        "carte cloud : étiquette réseau sur le jeton jaune",
+    )
+    headers = page.locator(".publisher-group-name").all_inner_texts()
+    r.check(
+        headers == [label.split(" · ", 1)[1] for label in labels],
+        "un en-tête par groupe d'éditeur, ceux du sélecteur, dans son ordre",
+        f"{headers} · {labels}",
     )
     r.check(
         "Capacités lues comme au chargement" in page.inner_text("body"),
-        "tableau : « Capacités lues comme au chargement… »",
+        "page : « Capacités lues comme au chargement… »",
     )
-    r.shot("44-modeles-tableau", full_page=True)
+    r.shot("44-modeles-cartes", full_page=True)
     _models_sort_and_filters(r)  # story 3 of 2026-09-30
-    page.locator(".site-nav a", has_text="Diagnostic").click()
-    page.wait_for_url(f"{r.stack.app_url}/diagnostic", timeout=10_000)
-    r.check(
-        page.locator('.site-nav a[aria-current="page"]').inner_text() == "🛠️ Diagnostic"
-        and page.locator("#models-link").get_attribute("href") == "/models"
-        and page.title() == "WaveStack — Diagnostic et modèles"
-        and page.locator("h1").inner_text() == "Diagnostic et modèles",
-        "diagnostic : même barre commune, « 🛠️ Diagnostic » courant, titre « Diagnostic et "
-        "modèles », lien vers le tableau des modèles",
-    )
     _diagnostic_search_shown(r)  # story 3 of 2026-09-30
+    _diagnostic_card_states(r)  # lot 3 of 2026-10-04: aggregated state, « Erreur », checks
 
     # One truth: the reasoning card after the load and the table say the same.
     r.goto_app()
@@ -9826,9 +10113,9 @@ def s_model_catalog(r: Run) -> None:
         _open_models_page(r)
         row = _models_row(r, f"cloud:{REASONING_ENTRY_ID}")
         r.check(
-            locked and row.get("reasoning") == "toujours" and row.get("state") == "actif",
-            "modèle R actif : carte verrouillée et ligne « toujours », « actif »",
-            str(row),
+            locked and row.get("reasoning") == "toujours" and row.get("state") == "active",
+            "modèle R actif : carte verrouillée et carte du modèle « toujours », « Actif »",
+            str({k: v for k, v in row.items() if k != "text"}),
         )
     finally:
         r.goto_app()
@@ -9840,8 +10127,8 @@ def s_model_catalog(r: Run) -> None:
     r.check(
         row.get("reasoning") == "jamais"
         and any("ne déclare pas de raisonnement" in t for t in reason),
-        "retour à l'entrée A : ligne « jamais », carte indisponible « ne déclare pas de "
-        "raisonnement »",
+        "retour à l'entrée A : carte du modèle « jamais », carte indisponible « ne déclare "
+        "pas de raisonnement »",
         f"{row.get('reasoning')} · {reason}",
     )
     _models_page_language(r)
@@ -9849,16 +10136,17 @@ def s_model_catalog(r: Run) -> None:
 
 
 def _models_page_language(r: Run) -> None:
-    """Story 2 (2026-09-30): on `/models`, the conversation empty, « English » in « Affichage ▾ »
-    of the shared bar: the page reloads in English. Back to French after."""
+    """Story 2 (2026-09-30): on « Diagnostic et modèles » (lot 3 of 2026-10-04: the models'
+    table), the conversation empty, « English » in « Affichage ▾ » of the shared bar: the page
+    reloads in English. Back to French after."""
     page = r.page
     r.goto_app()
     r.launch("bare_llm")
     r.send("Bonjour")
     r.wait_idle()
     page.goto("about:blank")  # an open main screen would reload itself on `language_changed`
-    page.goto(f"{r.stack.app_url}/models")
-    expect(page.locator("#models-table tbody").first).to_be_attached(timeout=20_000)
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    expect(page.locator("#cloud-models .model-card").first).to_be_attached(timeout=20_000)
     try:
         picker = page.locator("#language-picker")
         panel = page.locator("#display-menu-panel")
@@ -9868,7 +10156,7 @@ def _models_page_language(r: Run) -> None:
         title = picker.get_attribute("title") or ""
         r.check(
             ok and "Videz d'abord la conversation" in title,
-            "/models, un tour joué : sélecteur de langue désactivé, l'infobulle dit de vider "
+            "/diagnostic, un tour joué : sélecteur de langue désactivé, l'infobulle dit de vider "
             "la conversation",
             f"{title} ({took:.1f} s)",
         )
@@ -9878,7 +10166,7 @@ def _models_page_language(r: Run) -> None:
         ok, took = r.poll(lambda: picker.is_enabled(), 10)
         r.check(
             cleared.status_code == 200 and ok,
-            "/models, conversation vidée, menu rouvert : sélecteur de langue actif",
+            "/diagnostic, conversation vidée, menu rouvert : sélecteur de langue actif",
             f"{cleared.status_code} · {took:.1f} s",
         )
         # A refusal (409): its reason in the menu, the picker offered again.
@@ -9896,8 +10184,8 @@ def _models_page_language(r: Run) -> None:
             ok, _ = r.poll(lambda: picker.is_enabled(), 10)
             r.check(
                 ok and picker.input_value() == "fr" and _html_lang(r) == "fr",
-                "/models, refus (409) : la raison dans « Affichage ▾ », le sélecteur de nouveau "
-                "actif, sur « Français »",
+                "/diagnostic, refus (409) : la raison dans « Affichage ▾ », le sélecteur de "
+                "nouveau actif, sur « Français »",
                 f"{alert.inner_text()} · {picker.input_value()}",
             )
         finally:
@@ -9909,28 +10197,28 @@ def _models_page_language(r: Run) -> None:
             panel.is_hidden()
             and focused == "display-menu-toggle"
             and page.locator("#display-menu-alert").is_hidden(),
-            "/models : Échap ferme « Affichage ▾ », le focus revient sur sa face, le refus "
+            "/diagnostic : Échap ferme « Affichage ▾ », le focus revient sur sa face, le refus "
             "s'efface",
             f"focus sur {focused}",
         )
         _open_display(page)
         page.locator("h1").click()
-        r.check(panel.is_hidden(), "/models : un clic hors du menu ferme « Affichage ▾ »")
+        r.check(panel.is_hidden(), "/diagnostic : un clic hors du menu ferme « Affichage ▾ »")
         _open_display(page)
         ok, _ = r.poll(lambda: picker.is_enabled(), 10)
         seq = r.ev.mark()
         with page.expect_navigation(timeout=15_000):  # the page reloads, as on the main screen
             picker.select_option("en")
         r.ev.wait("language_changed", seq, lambda p: p["language"] == "en", timeout=15)
-        expect(page.locator("#models-table tbody").first).to_be_attached(timeout=20_000)
+        expect(page.locator("#cloud-models .model-card").first).to_be_attached(timeout=20_000)
         home = page.locator(".site-nav > a:not(.site-nav-brand)").first.inner_text()
         current = page.locator('.site-nav a[aria-current="page"]').inner_text()
         r.check(
-            page.url.endswith("/models")
+            page.url.endswith("/diagnostic")
             and _html_lang(r) == "en"
             and (home, current) == ("Harness", "🛠️ Diagnostics")
             and page.locator("#language-picker-code").inner_text() == "EN",
-            "/models : « English » choisi, la page se recharge en anglais (barre commune "
+            "/diagnostic : « English » choisi, la page se recharge en anglais (barre commune "
             "« Harness », « 🛠️ Diagnostics » courant, « EN »)",
             f"{page.url} · lang={_html_lang(r)} · {home} · {current}",
         )

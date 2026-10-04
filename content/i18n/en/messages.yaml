@@ -1315,6 +1315,20 @@ models:
     served_title: "{provider} on {url}"
     cloud_title: "{provider}: {hosting}"
     no_price: price not declared
+    # Lot 3 of 2026-10-04: where a card's source was found, and the card's size.
+    origin:
+      file: "GGUF file · {where}"
+      ollama_served: "Ollama · local server already running"
+      llama_server: "llama-server · {address}"
+      sources: "{count} sources · {names}"
+    where:
+      models_dir: models folder
+      hf_cache: Hugging Face
+      lm_studio: LM Studio
+      ollama: Ollama folder
+      explicit: path given
+    size_served: "≈ {size}"
+    size_range: "{low} to {high}"
   # `models/load_registry.py` (AD-8, stories 24 and 26): a load refused by the budget.
   load_registry:
     refused: "Change refused: {label} requires about {cost}; WaveStack occupies {without} without the active model, for a budget of {budget}.{stays} {advice}"

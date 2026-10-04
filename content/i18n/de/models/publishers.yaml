@@ -22,30 +22,37 @@ other_text: Andere Hersteller
 publishers:
   - id: qwen
     label_text: Qwen (Alibaba)
+    logo: qwen.png
     architectures: [qwen]
     names: ['qwen', 'qwq']
   - id: llama
     label_text: Llama (Meta)
+    logo: meta.png
     architectures: []
     names: ['llama[-_. ]?\d']
   - id: gemma
     label_text: Gemma (Google)
+    logo: gemma.png
     architectures: [gemma]
     names: ['gemma']
   - id: gemini
     label_text: Gemini (Google)
+    logo: gemini.png
     architectures: []
     names: ['gemini']
   - id: granite
     label_text: Granite (IBM)
+    logo: ibm.png
     architectures: [granite]
     names: ['granite']
   - id: phi
     label_text: Phi (Microsoft)
+    logo: microsoft.png
     architectures: [phi]
     names: ['phi[-_. ]?\d']
   - id: mistral
     label_text: Mistral (Mistral AI)
+    logo: mistral.png
     architectures: [mistral]
     names: ['mistral', 'ministral', 'magistral', 'devstral', 'codestral']
   - id: lfm
@@ -54,18 +61,22 @@ publishers:
     names: ['lfm']
   - id: nemotron
     label_text: Nemotron (NVIDIA)
+    logo: nvidia.png
     architectures: [nemotron]
     names: ['nemotron']
   - id: gpt_oss
     label_text: gpt-oss (OpenAI)
+    logo: openai.png
     architectures: [gpt-oss, gpt_oss]
     names: ['gpt[-_ ]?oss']
   - id: claude
     label_text: Claude (Anthropic)
+    logo: claude.png
     architectures: []
     names: ['^claude']
   - id: gpt
     label_text: GPT (OpenAI)
+    logo: openai.png
     architectures: []
     names: ['^gpt-\d']
   - id: minicpm
@@ -74,10 +85,12 @@ publishers:
     names: ['minicpm']
   - id: deepseek
     label_text: DeepSeek (DeepSeek AI)
+    logo: deepseek.png
     architectures: [deepseek]
     names: ['deepseek']
     names_first: true
   - id: smollm
     label_text: SmolLM (Hugging Face)
+    logo: huggingface.png
     architectures: [smollm]
     names: ['smollm']

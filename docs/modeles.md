@@ -37,8 +37,12 @@ détails d'Ollama ou dans le nom. L'éditeur est reconnu par `content/models/pub
 (architecture, puis nom) ; un modèle inconnu va dans « Autres éditeurs ».
 
 **Tableau des modèles.** L'avant-dernière entrée du sélecteur, « Tableau des modèles et de leurs
-capacités… » (bouton « Ouvrir le tableau »), ouvre la page `/models`, aussi atteinte par
-le lien « Tableau des modèles » de la page Diagnostic. Pour chaque modèle : éditeur, taille
+capacités… » (bouton « Ouvrir le tableau »), ouvre la page « Diagnostic et modèles »
+(`/diagnostic` ; l'ancienne adresse `/models` y redirige). Une carte par modèle, groupée par
+éditeur : un même modèle trouvé sous plusieurs sources (le fichier d'Ollama et le modèle
+qu'Ollama sert, une copie dans le cache Hugging Face et dans LM Studio…) n'a qu'une carte,
+« 2 sources », et chaque source garde son « Choisir cette source » dans la carte dépliée ; le
+sélecteur, lui, garde une option par source. Un clic déplie la carte. Pour chaque modèle : éditeur, taille
 (paramètres et octets), hébergement, fenêtre de contexte que WaveStack utiliserait, appel d'outils (oui, non, inconnu) et
 raisonnement (jamais, toujours, activable ou inconnu), avec la raison. Ces capacités sont lues
 comme au chargement, par les mêmes règles que les cartes des briques, sans charger ni sonder le

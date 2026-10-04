@@ -1021,7 +1021,6 @@ diagnostic:
   title: "Diagnostics and models"
   candidates_title: "💻 Local models detected"
   cloud_title: "☁️ Cloud models"
-  models_link: "Models table: capabilities, prices, sorting and filters"
   cloud_help: "Outside the workstation: each call sends the whole context to the provider."
   cloud_cap: "Session spending cap: {total} spent of {cap}. Once the cap is reached, WaveStack sends no more paid calls; the cap is set by [finops] max_session_usd in settings.json, with WaveStack stopped, then restarted."
   path_label: "Or give the path of a GGUF file:"
@@ -1035,16 +1034,78 @@ diagnostic:
   progress:
     one: "{count} of {total} models tested"
     other: "{count} of {total} models tested"
+  # Lot 3 of 2026-10-04: the summary of the folded checks panel, worst first.
+  checks_summary:
+    ok:
+      one: "{count} check OK: {names}"
+      other: "{count} checks OK: {names}"
+    warn:
+      one: "{count} warning: {names}"
+      other: "{count} warnings: {names}"
+    fail:
+      one: "{count} failure: {names}"
+      other: "{count} failures: {names}"
+    blocking:
+      one: "{count} blocking failure: {names}"
+      other: "{count} blocking failures: {names}"
+  check_names:
+    memory: "memory"
+    model: "model"
+    network: "network"
+    port: "port"
+    cloud: "cloud"
   architecture: "{name} architecture"
-  loaded: "loaded"
   saved_choice: "saved choice"
-  active: "active"
-  choose: "Choose"
   test: "Test"
-  local: "Local"
-  network: "NETWORK"
+  # Lot 3 of 2026-10-04: a card's state pill, in one or two words.
+  states:
+    active: "Active"
+    available: "Available"
+    warning: "Warning"
+    incompatible: "Incompatible"
+    error: "Error"
+    loading: "Loading…"
+    key_missing: "Key missing"
+    ready: "Ready"
+    test_ok: "Test passed"
+    test_warn: "Test with a warning"
+    test_fail: "Test failed"
+    testing: "Testing…"
+  # The sections of an unfolded card.
+  sections:
+    sources: "Sources"
+    diagnostic: "Diagnostics"
+    file: "File"
+    address: "Address"
+    capabilities: "Capabilities"
+    data: "Where the data goes"
+    key: "API key"
+    last_test: "Last test"
+  card:
+    sources:
+      one: "{count} source"
+      other: "{count} sources"
+    publisher_count:
+      one: "· {count} model"
+      other: "· {count} models"
+    name: "{name}, {publisher}, {size}, {state}"
+    name_sources: "{name}, {publisher}, {size}, {state}, {sources}"
+    fold: "✕ Fold"
+    fold_name: "Fold the card"
+    choose: "Choose this model"
+    choose_cloud: "Choose this model…"
+    choose_source: "Choose this source"
+    replace_hint: "Replaces {model} between two turns; the conversation is kept."
+    cloud_hint: "“Choose this model…” first opens the warning “This model runs outside your workstation”."
+    load_error: "Last load failed: {reason}"
+    no_message: "Usable model: no warning."
+    unknown_size: "size unknown"
+    hosting: "Hosting"
+    training: "Training"
+    trial: "trial offer"
+    no_match_local: "No local model matches these filters."
+    no_match_cloud: "No cloud model matches these filters."
   served:
-    title: " — local server already running"
     size: "≈ {size} GB"
     unknown: "unknown"
     resident: "already in memory"
@@ -1053,11 +1114,6 @@ diagnostic:
     memory: "Memory of the served model: {size}{cache}, {where} (a process separate from WaveStack)"
     unusable: "Model unusable."
   no_cloud: "No cloud model declared (see wavestack.toml)."
-  hosting: "Hosting: {hosting}"
-  training: "Training: {training}"
-  trial: "Trial offer"
-  cloud_line: "Hosting: {hosting} · Training: {training}"
-  cloud_line_trial: "Hosting: {hosting} · Training: {training} · trial offer"
   key:
     from_env: "Key read from {env} (enter one to replace it)"
     saved: "Key saved (enter it again to replace it)"
@@ -1080,32 +1136,23 @@ diagnostic:
   ready: "Model ready."
   see_above: "See above."
 
+# Lot 3 of 2026-10-04: the filters, the sort and the capabilities of the « Diagnostic et
+# modèles » page (story 25's table, merged into it).
 models:
-  page_title: "WaveStack — Available models"
-  title: "Available models"
-  loading: "Loading the model list…"
-  caption: "Models found at the last diagnostics, by hosting location then by publisher, from smallest to largest; sizes in parameters (B: billions) and in bytes (1 GB = 1024³ bytes, 1 MB = 1024² bytes)"
   columns:
-    model: "Model"
-    publisher: "Publisher"
-    size: "Size"
-    hosting: "Hosting"
     window: "Window"
     tools: "Tool calling"
     reasoning: "Reasoning"
     price: "Price"
-    state: "State"
   note: "Capabilities read as at loading time: the same rules as the brick cards."
-  state:
-    active: "active"
-    available: "available"
-    unavailable: "unavailable"
-    incompatible: "incompatible"
   list_unavailable: "Model list unavailable ({cause}): reload the page."
   table_unavailable: "Model table unavailable: see the WaveStack terminal."
   count:
     one: "{count} model at the last diagnostics."
     other: "{count} models at the last diagnostics."
+  count_sources:
+    one: "{count} model ({sources} sources) at the last diagnostics"
+    other: "{count} models ({sources} sources) at the last diagnostics"
   none: "No model found at the last diagnostics."
   count_filtered:
     one: "{count} model of {total}"
@@ -1127,5 +1174,10 @@ models:
     answer_unknown: "Unknown"
     reset: "Reset the filters"
     none: "No model matches these filters."
-  sort:
-    title: "Sort by “{column}” (click again to reverse the order)"
+  sort_by:
+    label: "Sort by"
+    catalog: "Catalogue order"
+    size: "Size"
+    name: "Name"
+    window: "Window"
+    state: "State"

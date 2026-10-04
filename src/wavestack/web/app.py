@@ -20,7 +20,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
@@ -388,9 +388,10 @@ def create_app(
         return FileResponse(STATIC_DIR / "diagnostic.html")
 
     @app.get("/models")
-    def models_page() -> FileResponse:
-        """Story 25: the table of the available models and their capabilities."""
-        return FileResponse(STATIC_DIR / "models.html")
+    def models_page() -> RedirectResponse:
+        """Story 25's table of the models, merged into « Diagnostic et modèles » (lot 3 of
+        2026-10-04): a bookmark or an old link lands there (307)."""
+        return RedirectResponse("/diagnostic", status_code=307)
 
     @app.get("/llm")
     def llm_page() -> FileResponse:
@@ -648,6 +649,9 @@ def create_app(
                 ),
                 # Story 11: each declared cloud model, `key_set` only, never the key (AD-20).
                 "cloud": cloud,
+                # Lot 3 of 2026-10-04: the models whose last load failed, `{kind, ref,
+                # reason_text}`: their card says « Erreur », the cause in its detail.
+                "load_errors": app_session.load_errors(),
                 # Story 25: the picker's groups and the `/models` table, built in Python (AD-1).
                 **models,
                 # Story 24: the budget the session refuses with (the diagnostic's memory line).

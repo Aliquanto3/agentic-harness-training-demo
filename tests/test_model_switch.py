@@ -17,6 +17,7 @@ from test_reasoning import NO_REASONING
 from test_tools import QWEN
 
 from wavestack import config
+from wavestack.messages import render
 from wavestack.models import discovery, probe
 from wavestack.models.load_registry import LoadRegistry, ModelChoice
 from wavestack.session.app_session import _LOAD_FAILED_FR, AppSession, SendRefused
@@ -234,6 +235,8 @@ def test_previous_model_failing_too_leaves_idle_with_the_reason(tmp_path):
     assert session.state == "idle" and session.reason_text == _LOAD_FAILED_FR
     assert _events(mark, "model_load_ended")[-1]["status"] == "error"
     assert session.active_model() is None
+    # Lot 3 of 2026-10-04: B's card says « Erreur » (`load_errors`).
+    assert [(e["kind"], e["ref"]) for e in session.load_errors()] == [("file", paths["B"])]
 
 
 def test_budget_exceeded_refuses_before_any_release(tmp_path):
@@ -1126,3 +1129,44 @@ def test_launch_boot_stopped_blocks_the_diagnostic(monkeypatch, tmp_path):
 
     assert not app_session.model_loaded
     assert session.last_result.ready is False and session.last_result.blocking_checks == ["model"]
+
+
+# ---------- lot 3 of 2026-10-04: the card of a model whose last load failed ----------
+
+
+def test_a_failed_load_is_remembered_by_its_model_until_it_loads(tmp_path):
+    """« Erreur » on its card (`/api/diagnostic.load_errors`): the failure of B kept by
+    (kind, ref), with its cause; « Arrêter » changes nothing; a success forgets it."""
+    session, tracker, paths = _booted(tmp_path, {"A": FakeEngine(), "B": FakeEngine()}, fail=("B",))
+    assert session.load_errors() == []
+
+    _, status = _switch(session, ModelChoice("file", paths["B"]))
+
+    assert status == "restored"
+    [error] = session.load_errors()
+    assert (error["kind"], error["ref"]) == ("file", paths["B"])
+    assert render(error["reason_text"], "fr").startswith("B n'a pas pu être chargé")
+    tracker.fail = set()
+
+    def probe_and_stop(path: str, cancel=None) -> None:  # noqa: ANN001
+        assert session.stop() is True  # « Arrêter » during B's probe
+        return None
+
+    _, status = _switch(session, ModelChoice("file", paths["B"]), probe_and_stop)
+    assert status == "cancelled" and session.load_errors() == [error]  # unchanged
+    _, status = _switch(session, ModelChoice("file", paths["B"]))
+    assert status == "ok" and session.load_errors() == []
+
+
+def test_web_diagnostic_carries_the_load_errors(monkeypatch, tmp_path):
+    _, app_session, client, tracker = _web(monkeypatch, tmp_path)
+    tracker.fail = {"B"}
+    b = str(config.models_dir() / "B.gguf")
+    _record_probe(b)
+
+    client.post("/api/intentions/select_model", json={"kind": "file", "ref": b}, headers=ORIGIN)
+    app_session.join()
+
+    [error] = client.get("/api/diagnostic").json()["load_errors"]
+    assert (error["kind"], error["ref"]) == ("file", b)
+    assert isinstance(error["reason_text"], str) and "B" in error["reason_text"]

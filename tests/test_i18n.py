@@ -375,7 +375,7 @@ def test_every_per_language_table_has_exactly_the_languages():
     assert set(get_args(LanguageChangedPayload.model_fields["language"].annotation)) == languages
     static = config.repo_root() / "src" / "wavestack" / "web" / "static"
     # Story 2 (2026-09-30): the picker is in « Affichage ▾ » of the shared bar, on every page.
-    for name in ("index", "llm", "rag", "diagnostic", "models"):
+    for name in ("index", "llm", "rag", "diagnostic"):  # lot 3 of 2026-10-04: no /models page
         html = (static / f"{name}.html").read_text(encoding="utf-8")
         picker = re.search(r'<select id="language-picker".*?</select>', html, re.S).group(0)
         options = re.findall(r'<option value="(\w+)" lang="\w+">([^<]+)</option>', picker)

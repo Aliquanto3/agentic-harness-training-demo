@@ -32,10 +32,10 @@ chaque écran est celui de l'onglet du navigateur et de la page :
 | **MCP** | Atelier MCP | `/mcp` | Le protocole MCP entre le harnais et un serveur (voir [Atelier MCP](#atelier-mcp)) |
 | **🛠️ Diagnostic** | Diagnostic et modèles | `/diagnostic` | Les vérifications du lancement, le choix du modèle et les clés API (voir [l'installation](installation.md#premier-lancement-et-diagnostic)) |
 
-Le tableau des modèles et de leurs capacités (`/models`, voir
-[Changer de modèle](modeles.md#changer-de-modèle)) n'a pas d'onglet : il s'ouvre par le lien
-« Tableau des modèles » de la page Diagnostic, ou depuis le sélecteur de modèle de la barre du
-bas ; son onglet courant est « 🛠️ Diagnostic ».
+Le tableau des modèles et de leurs capacités est la page Diagnostic elle-même (voir
+[Changer de modèle](modeles.md#changer-de-modèle)) : une carte par modèle, locaux puis cloud,
+par éditeur ; l'entrée « Tableau des modèles… » du sélecteur de la barre du bas y mène, et
+l'ancienne adresse `/models` y redirige.
 
 Le menu **Affichage ▾**, à droite, règle le thème, la [langue](#langue) et le mode projection
 (tous les textes agrandis pour la salle).
@@ -466,8 +466,8 @@ estimée » dans la barre du bas dès le premier appel payant : le total de la s
 euros) dans l'infobulle. Ce total compte tous les appels payants : les tours, le sous-agent,
 « Tester » au diagnostic et l'Atelier LLM. Ni « Vider la conversation » ni « Réinitialiser »
 ne le remettent à zéro ; seul un relancement de WaveStack le fait (il n'est jamais écrit sur le
-disque). Les prix déclarés sont aussi dans la colonne « Prix » de la page `/models` et sur la
-ligne « Prix » du diagnostic. Un modèle local n'a pas de coût, et une entrée sans `pricing` non
+disque). Les prix déclarés sont aussi sur la ligne « Prix » de la carte
+dépliée d'un modèle, page Diagnostic. Un modèle local n'a pas de coût, et une entrée sans `pricing` non
 plus.
 
 **Mettre les prix à jour.** Relevez les prix sur la page du fournisseur, puis surchargez l'entrée

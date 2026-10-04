@@ -793,6 +793,9 @@ class AppSession:
         # E119: the model active before the last load, and a refusal of the active model's
         # architecture seen in the running turn (the way back runs once the turn ends).
         self._before_active: ModelChoice | None = None
+        # Lot 3 of 2026-10-04: the last failed load of each model, by (kind, ref), until it
+        # loads: the « Diagnostic et modèles » page shows its card « Erreur » (memory only).
+        self._load_errors: dict[tuple[str, str], Any] = {}
         self._unsupported: UnsupportedArchitecture | None = None
         self._call_ids: set[str] = set()  # the running turn's `tool_call_id`s (AD-4)
         self._cloud_content = None  # `content/cloud.yaml`, read when a cloud model boots
@@ -1708,6 +1711,26 @@ class AppSession:
         with self._lock:
             return self._active
 
+    def load_errors(self) -> list[dict[str, Any]]:
+        """Lot 3 of 2026-10-04, `/api/diagnostic.load_errors`: each model whose last load
+        failed (`model_load_ended` `error`, or `restored` when the previous model came back),
+        `{kind, ref, reason_text}`, until a load of it succeeds; in memory, never saved."""
+        with self._lock:
+            errors = list(self._load_errors.items())
+        return [{"kind": k, "ref": r, "reason_text": reason} for (k, r), reason in errors]
+
+    def _note_load_outcome(self, model: dict[str, Any], status: str, reason: Any) -> None:
+        """Lot 3 of 2026-10-04: remembers a failed load by its model's (kind, ref), forgets
+        it once that model loads; « Arrêter » (`cancelled`) changes nothing."""
+        kind, ref = model.get("kind"), model.get("ref")
+        if not kind or not ref:
+            return
+        with self._lock:
+            if status == "ok":
+                self._load_errors.pop((kind, ref), None)
+            elif status in ("error", "restored"):
+                self._load_errors[(kind, ref)] = reason
+
     @property
     def _ratio(self) -> float:
         """AD-4: the active cloud model's last `usage.prompt_tokens / Σ estimates`, kept by
@@ -2019,6 +2042,8 @@ class AppSession:
                         Message("session.load.scenario_bricks.effect"),
                     )
             memory = self._loaded_memory(choice, rss_before, window) if status == "ok" else None
+            if window is None or status == "ok":  # a window refused leaves the model as it was
+                self._note_load_outcome(model, status, reason_text)
             with scoped(**off_turn):
                 journal.emit(
                     "model_load_ended",
