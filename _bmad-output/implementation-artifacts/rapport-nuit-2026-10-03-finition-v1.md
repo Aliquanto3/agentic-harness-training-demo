@@ -181,6 +181,11 @@ Une suite à la fois, aucun modèle local chargé pendant pytest, dossier `pytes
 3. **Fermer la fenêtre de console** d'un WaveStack qui a un modèle Ollama chargé, puis vérifier que le modèle est déchargé ; refaire le double Ctrl+C avec un modèle Ollama chargé (#21, gestes manuels).
 4. Si vous voulez la mesure : rejouer le scénario `subagent` avec Sonnet 5 pour confirmer #29 (≈ 0,02 $).
 
+**Fait le 2026-10-04 après la revue** (avec votre accord ; détail dans les lignes `progress:` de `deferred-work.md`) :
+- n° 2 rejoué : sept scénarios avec le 2B, tous terminés sans erreur, données restaurées à l'octet. #23 bon (réponse de 111 tokens, `stop`). #5 : délégation puis quiz sans redélégation, quiz 2 et 3 en 2,7 s, mais quiz 1 en 53,5 s (relecture de cause `system`, nouvelle). #4 et #6 : `skills`, `compression`, `iam` et la recherche data.gouv de `mcp_lazy` bons ; `local__define_term` jamais appelé, souveraineté sans recherche, SOC sans escalade (limites du 2B). Ces trois entrées restent ouvertes, à trancher par vous.
+- n° 3 en partie, par script : double Ctrl+C avec `gemma3:1b` chargé, sortie en 2,5 s, modèle déchargé ; fenêtre fermée (`WM_CLOSE` à une console `conhost`) : WaveStack s'arrête, le modèle reste chargé jusqu'à l'expiration d'Ollama (5 min).
+- n° 4 fait : Sonnet 5, sous-agent en 228 tokens, `stop`, 0,022 $.
+
 Ces points, plus la forme réelle du refus d'Anthropic (#36), l'installation à blanc complète (SM-5) et le choix enregistré après un retour E119 raté (#11), sont suivis par l'entrée « Vérifications restantes de la finition V1 » de `deferred-work.md`.
 
 ## Revue de la PR #21 (2026-10-04)
