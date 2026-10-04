@@ -107,8 +107,9 @@ export function section(prefix) {
 
 // Languages (4/5): the links of the pages' navigation (`nav[data-i18n-links]`), named by their
 // address (`/llm` → `common.links.llm`; story 2 of 2026-09-30: `/` → `common.links.home`, the
-// brand « WaveStack » aside): each page keeps its links' HTML as it is.
-const LINK_NAMES = { "/": "home", "/diagnostic": "diagnostic", "/models": "models", "/llm": "llm", "/rag": "rag", "/mcp": "mcp" };
+// brand « WaveStack » aside): each page keeps its links' HTML as it is. Lot 1 of 2026-10-04
+// (D2): five tabs, `/models` no longer in the bar (its page is reached from the diagnostic).
+const LINK_NAMES = { "/": "home", "/llm": "llm", "/rag": "rag", "/mcp": "mcp", "/diagnostic": "diagnostic" };
 
 // The `data-i18n*` attributes of `root` and below: each names the key of its text or attribute.
 // A key the catalogue lacks leaves the French of the HTML.

@@ -63,7 +63,7 @@ session:
   state:
     diagnostic: Start-up diagnostics in progress.
     turn: "A turn is in progress: wait for it to end or stop it."
-    llm_lab: "The “Bare LLM” screen is generating an answer: wait for it to end or stop it."
+    llm_lab: "The LLM workshop is generating an answer: wait for it to end or stop it."
     rag_lab: "RAG workshop: run in progress; wait for it to end or stop it."
     mcp_lab: "MCP workshop: exchange in progress; wait for it to end or stop it."
     awaiting: "Awaiting your approval: allow or refuse the network call."
@@ -108,7 +108,7 @@ session:
       replay: "Replay: the turn starts again from the state before the replayed turn, whereas the engine's cache holds that turn."
       abandoned: "The previous turn did not complete (stopped, failed, blocked or exceeded): its output is in the engine's cache, not in the history."
       subagent: "The sub-agent occupied the engine's cache{why}."
-      llm: "The “Bare LLM” screen occupied the engine's cache{why}."
+      llm: "The LLM workshop occupied the engine's cache{why}."
     evicted:
       stateless: ": this engine cannot save the state of the main context"
       failed: ": saving or restoring the state of the main context failed"
@@ -437,10 +437,10 @@ session:
     sending_context: "Sending the context to {provider} (≈ {tokens} tokens)"
   # « {text} Détail : {detail} »: a content error, with the first line of its cause.
   detail: "{text} Detail: {detail}"
-  # Story 29: the « LLM nu » screen.
+  # Story 29: the LLM workshop (/llm).
   llm_lab:
-    content_invalid: "The “Bare LLM” screen's texts cannot be read (content/llm_lab.yaml): fix the file, then reload the page."
-    content_invalid_effect: The “Bare LLM” page is still served without its texts.
+    content_invalid: "The LLM workshop's texts cannot be read (content/llm_lab.yaml): fix the file, then reload the page."
+    content_invalid_effect: The “LLM workshop” page is still served without its texts.
     tokenizer:
       none: "No active model: no tokenizer to show."
       cloud: "The tokenizer of {model} is at {provider}, not on this workstation: WaveStack cannot split the text the way it does. It estimates the number of tokens from the characters, without any chip."
@@ -449,7 +449,7 @@ session:
       exact: "Exact split, by {how}."
       exact_loaded: Exact split, by the loaded model's tokenizer.
     tokenize_failed: Splitting into tokens failed.
-    nothing_changed: "Nothing has changed; the workshop and the “Bare LLM” screen stay usable."
+    nothing_changed: "Nothing has changed; the harness workshop and the LLM workshop stay usable."
     no_model: no active model
     dimensions_cloud: "Dimensions unknown: the model runs at {provider}, which does not publish them in its API."
     dimensions_unknown: This engine does not report the model's dimensions.
@@ -481,9 +481,9 @@ session:
     reading: "Reading the prompt ({tokens} tokens)"
     sending: "Sending the prompt to {provider} (≈ {tokens} tokens)"
     too_long: "Prompt too long: {tokens} tokens for {usable} usable (window of {window} minus {reserve} reserved for the answer). Shorten it: the call is not sent."
-    interrupted: The “Bare LLM” screen's generation stopped on an error.
-    still_usable: The “Bare LLM” screen and the workshop stay usable.
-    end_untraced: The end of the “Bare LLM” screen's generation could not be traced.
+    interrupted: The LLM workshop's generation stopped on an error.
+    still_usable: The LLM workshop and the harness workshop stay usable.
+    end_untraced: The end of the LLM workshop's generation could not be traced.
     back_to_idle: "The session goes back to waiting; the workshop stays usable."
     stops: "The screen's generation stops; WaveStack stays usable."
   # Story 30: the RAG workshop.
@@ -500,14 +500,14 @@ session:
       message: A model loaded by the RAG workshop could not be closed.
       effect: "It is forgotten; its memory slot is released."
     no_embedding: No embedding model is declared.
-    embedding_absent: "Embedding model missing ({names} in {folder}). Download it from the workshop's RAG card."
+    embedding_absent: "Embedding model missing ({names} in {folder}). Download it from the workshop's RAG card. Or follow docs/installation.md, section “Modèles du RAG” (in French)."
     noun:
       embedding: embedding model
       reranking: reranking model
     to_load: "the {noun} {model}"
     fastembed_unavailable: fastembed unavailable.
     no_reranker: No reranking model is declared.
-    reranker_absent: "Reranking model missing ({names} in {folder}): download it from the workshop's RAG card (“Reranking” sub-option). Context building keeps the search order."
+    reranker_absent: "Reranking model missing ({names} in {folder}): download it from the workshop's RAG card (“Reranking” sub-option). Context building keeps the search order. Or follow docs/installation.md, section “Modèles du RAG” (in French)."
     import:
       label: Import
       budget_label: Budget
@@ -929,7 +929,7 @@ rag_lab:
     no_gap: "No rank gap between the common excerpts."
     other_cut: "The two pipelines split the corpus differently: comparison by document."
 
-# The « LLM nu » screen (story 29, `session/llm_lab.py`): its figures and its diagram.
+# The LLM workshop (story 29, `session/llm_lab.py`): its figures and its diagram.
 llm_lab:
   count:
     billion:

@@ -53,6 +53,7 @@ def test_diagnostic_route_still_works(monkeypatch, tmp_path):
 
 # Story 2 (2026-09-30): the bar shared by the five pages, in a fixed order.
 SITE_PAGES = ("/", "/llm", "/rag", "/mcp", "/diagnostic", "/models")  # story 6: /mcp
+BAR_PAGES = SITE_PAGES[:-1]  # lot 1 of 2026-10-04 (D2): /models served, out of the bar
 
 
 def _site_nav(page: str) -> str:
@@ -89,15 +90,17 @@ def test_every_page_opens_on_the_same_shared_bar(monkeypatch, tmp_path):
         nav = _site_nav(page)
         assert nav.count('aria-current="page"') == 1, path
         current = nav[: nav.index('aria-current="page"')]
-        assert current[current.rindex("<a ") :].startswith(f'<a href="{path}"'), path
+        # Lot 1 of 2026-10-04 (D2): the models page's tab is « 🛠️ Diagnostic ».
+        own = "/diagnostic" if path == "/models" else path
+        assert current[current.rindex("<a ") :].startswith(f'<a href="{own}"'), path
         assert "site-nav-brand" not in current[current.rindex("<a ") :], path
         hrefs = re.findall(r'<a href="([^"]*)"', nav)
-        assert hrefs == ["/", *SITE_PAGES], (path, hrefs)
+        assert hrefs == ["/", *BAR_PAGES], (path, hrefs)
         assert '<a href="/" class="site-nav-brand">WaveStack</a>' in nav
         assert 'data-i18n-aria-label="common.links.pages" data-i18n-links>' in nav
         for control in ('id="display-menu"', 'id="theme-picker"', 'id="language-picker"'):
             assert control in nav, (path, control)
-        assert nav.index("/models") < nav.index('id="display-menu"'), path
+        assert nav.index("/diagnostic") < nav.index('id="display-menu"'), path
         assert ('id="projection-toggle"' in page) == (path == "/"), path
         if path == "/":
             nav = nav.replace(_projection_row(nav), "")

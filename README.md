@@ -17,8 +17,8 @@ montrent chaque étape. [Version vidéo (MP4)](docs/assets/wavestack-demo.mp4).*
 - **Quatre volets synchronisés** : ce que voit l'utilisateur, ce que lit vraiment le modèle,
   ce que fait le harnais pas à pas, et où tourne chaque pièce (sur le poste ou sur le réseau).
 - **Des briques à brancher une à une**, au fil d'un programme guidé de six modules (5 h 15).
-- **Trois écrans pour regarder à l'intérieur** : le LLM nu (tokens, échantillonnage), l'Atelier
-  RAG et l'Atelier MCP.
+- **Trois écrans pour regarder à l'intérieur** : l'Atelier LLM (tokens, échantillonnage),
+  l'Atelier RAG et l'Atelier MCP.
 - **Un petit modèle local** (Qwen3.5-2B, 1,3 Go), installé sans droits administrateur, ou un
   modèle cloud si vous avez une clé API.
 
@@ -26,7 +26,8 @@ montrent chaque étape. [Version vidéo (MP4)](docs/assets/wavestack-demo.mp4).*
 
 Pour Windows 10 ou 11 x64 ; aucun droit administrateur n'est nécessaire. Sous macOS ou Linux,
 ou si une étape bloque (politique du poste, proxy), suivez
-[l'installation détaillée](docs/installation.md).
+[l'installation détaillée](docs/installation.md) ; les deux modèles de la brique RAG sont
+décrits dans sa section [Modèles du RAG](docs/installation.md#modèles-du-rag).
 
 **Sur un réseau d'entreprise**, tapez d'abord `$env:UV_SYSTEM_CERTS = "1"` dans le terminal, et
 faites autoriser par votre service informatique les domaines listés dans
@@ -66,9 +67,9 @@ faites autoriser par votre service informatique les domaines listés dans
 
 Le premier lancement télécharge Python 3.13 et les dépendances dans votre profil (quelques
 minutes), puis ouvre le navigateur sur le diagnostic. Si plusieurs modèles sont trouvés sur le
-poste, cliquez sur « Choisir » en face de Qwen3.5-2B. Ouvrez ensuite l'atelier par le lien « Atelier » de la barre
-de navigation, choisissez le scénario « LLM nu » dans le sélecteur en bas à gauche et suivez sa
-consigne : le [programme de formation](docs/guide.md#programme-de-formation) enchaîne ensuite
+poste, cliquez sur « Choisir » en face de Qwen3.5-2B. Ouvrez ensuite l'Atelier Harnais par le
+lien « Harnais » de la barre de navigation, choisissez le scénario « LLM nu » dans le sélecteur
+en bas à gauche et suivez sa consigne : le [programme de formation](docs/guide.md#programme-de-formation) enchaîne ensuite
 les modules. Ctrl+C dans le terminal arrête WaveStack ; `uv run wavestack` le relance.
 
 ## Utiliser un modèle cloud (clé API)

@@ -62,7 +62,7 @@ scenarios:
       second prompt again to see it forget.
     bricks: [short_memory]
     prompts:
-      - My name is Camille and I am a cybersecurity consultant.
+      - My name is Pascal and I am a cybersecurity consultant.
       - What is my name, and what do I do for a living?
 
   system_prompt:

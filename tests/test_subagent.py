@@ -106,7 +106,7 @@ def test_the_sub_agent_context_has_its_prompt_the_task_and_its_tools_only():
     outputs = ["Enchanté.", delegation(), RESULT, "Voilà."]
     engine, session = sub_session(outputs, bricks=("short_memory", "system_prompt", "tools"))
     session.set_brick("subagent", True)
-    run(session, "Je m'appelle Camille.")
+    run(session, "Je m'appelle Pascal.")
 
     events = run(session, "Résume les notes.")
 
@@ -121,7 +121,7 @@ def test_the_sub_agent_context_has_its_prompt_the_task_and_its_tools_only():
     assert "read_file" in catalog and "delegate" not in catalog  # no nested delegation
     assert "calculator" not in catalog  # `[subagent] tools` only
     text = "".join(s["text"] for s in first["segments"])
-    assert "Camille" not in text and "assistant de démonstration" not in text
+    assert "Pascal" not in text and "assistant de démonstration" not in text
     assert sum(s["tokens"] for s in first["segments"]) == first["used"]
     assert list("".join(s["text"] for s in first["segments"]).encode()) == engine.calls[2]
     session.close()

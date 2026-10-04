@@ -5,7 +5,7 @@
   <script src="/static/theme.js"></script>
   <script type="module" src="/static/i18n.js"></script>
   <script type="module" src="/static/site-nav.js"></script>
-  <title data-i18n="diagnostic.page_title">WaveStack — Diagnostic de démarrage</title>
+  <title data-i18n="diagnostic.page_title">WaveStack — Diagnostic et modèles</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
@@ -140,12 +140,11 @@
        `aria-current` and, on the main screen only, the projection mode (site-nav.js). -->
   <nav class="site-nav" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
     <a href="/" class="site-nav-brand">WaveStack</a>
-    <a href="/">Atelier</a>
-    <a href="/llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM nu</a>
-    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">Atelier RAG</a>
-    <a href="/mcp" title="Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)" data-i18n-title="common.links.mcp_title">Atelier MCP</a>
-    <a href="/diagnostic" aria-current="page">Diagnostic</a>
-    <a href="/models">Modèles</a>
+    <a href="/">Harnais</a>
+    <a href="/llm" title="Atelier LLM : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM</a>
+    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">RAG</a>
+    <a href="/mcp" title="Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)" data-i18n-title="common.links.mcp_title">MCP</a>
+    <a href="/diagnostic" aria-current="page">🛠️ Diagnostic</a>
     <div class="display-menu" id="display-menu">
       <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="common.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="common.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
       <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="common.display.menu" hidden>
@@ -172,7 +171,10 @@
     </div>
   </nav>
   <main>
-    <h1 data-i18n="diagnostic.title">Diagnostic de démarrage WaveStack</h1>
+    <h1 data-i18n="diagnostic.title">Diagnostic et modèles</h1>
+    <!-- Lot 1 of 2026-10-04: « Modèles » left the bar; its table is reached from here until
+         the merge of lot 3. -->
+    <p class="diagnostic-help"><a href="/models" id="models-link" data-i18n="diagnostic.models_link">Tableau des modèles : capacités, prix, tri et filtres</a></p>
 
     <section class="diagnostic-section" aria-labelledby="checks-title">
       <h2 id="checks-title" data-i18n="diagnostic.checks_title">Contrôles</h2>
@@ -181,7 +183,7 @@
     </section>
 
     <section class="diagnostic-section" aria-labelledby="candidates-title">
-      <h2 id="candidates-title" data-i18n="diagnostic.candidates_title">Modèles détectés</h2>
+      <h2 id="candidates-title" data-i18n="diagnostic.candidates_title">💻 Modèles locaux détectés</h2>
       <!-- Story 3 of 2026-09-30: until the `model` check, the search and its probes, never
            « Aucun candidat trouvé. » -->
       <div id="candidates-search" class="search-status" role="status" hidden>
@@ -201,7 +203,7 @@
     </section>
 
     <section class="diagnostic-section" aria-labelledby="cloud-title">
-      <h2 id="cloud-title" data-i18n="diagnostic.cloud_title">Modèles cloud</h2>
+      <h2 id="cloud-title" data-i18n="diagnostic.cloud_title">☁️ Modèles cloud</h2>
       <p class="diagnostic-help" data-i18n="diagnostic.cloud_help">Hors du poste : chaque appel envoie tout le contexte au fournisseur.</p>
       <!-- Finition V1 (#27): the session's cap and its spend so far (diagnostic.cloud_cap). -->
       <p class="diagnostic-help" id="cloud-cap" hidden></p>

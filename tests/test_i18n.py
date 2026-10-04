@@ -549,18 +549,18 @@ def test_demo_memory_follows_the_language():
     change; restored (« Réinitialiser »), it is the English demonstration."""
     _, session = _session()
     session.set_brick("global_memory", True)
-    session.edit_memory("replace", "demo3", "Camille aime le thé.")
+    session.edit_memory("replace", "demo3", "Pascal aime le thé.")
 
     session.set_language("en")
 
-    assert "Camille aime le thé." in [e.text for e in session._memory]  # the user's, kept
+    assert "Pascal aime le thé." in [e.text for e in session._memory]  # the user's, kept
     session.reset()
     session.join()
     written = json.loads(config.memory_path().read_text(encoding="utf-8"))
     assert [e["text"] for e in written] == [
-        "The user's name is Camille.",
-        "Camille is a cybersecurity consultant.",
-        "Camille is preparing a training course on AI agents.",
+        "The user's name is Pascal.",
+        "Pascal is a cybersecurity consultant.",
+        "Pascal is preparing a training course on AI agents.",
     ]
     assert [e.text for e in session._memory] == [e["text"] for e in written]
     assert session._registry.get("remember").description.startswith("Remembers a lasting")
@@ -571,16 +571,16 @@ def test_the_demonstration_memory_changes_language_with_the_session():
     """Never written (H5), it is rebuilt in the new language; written, it is written again."""
     _, session = _session()
     session.set_brick("global_memory", True)
-    assert [e.text for e in session._memory][0] == "L'utilisateur s'appelle Camille."
+    assert [e.text for e in session._memory][0] == "L'utilisateur s'appelle Pascal."
     session.set_language("de")
-    assert [e.text for e in session._memory][0] == "Der Benutzer heißt Camille."
+    assert [e.text for e in session._memory][0] == "Der Benutzer heißt Pascal."
     assert not config.memory_path().exists()  # still the demonstration, not written
-    session.edit_memory("replace", "demo3", "Camille trinkt Tee.")
+    session.edit_memory("replace", "demo3", "Pascal trinkt Tee.")
     session.reset()  # written: the German demonstration
     session.join()
     session.set_language("en")
-    assert [e.text for e in session._memory][0] == "The user's name is Camille."
-    assert "The user's name is Camille." in config.memory_path().read_text(encoding="utf-8")
+    assert [e.text for e in session._memory][0] == "The user's name is Pascal."
+    assert "The user's name is Pascal." in config.memory_path().read_text(encoding="utf-8")
     session.close()
 
 

@@ -21,11 +21,11 @@ from wavestack import memory as memory_file
 from wavestack.trace.journal import get_journal
 
 DEMO = [
-    "L'utilisateur s'appelle Camille.",
-    "Camille est consultante en cybersécurité.",
-    "Camille prépare une formation sur les agents IA.",
+    "L'utilisateur s'appelle Pascal.",
+    "Pascal est consultant en cybersécurité.",
+    "Pascal prépare une formation sur les agents IA.",
 ]
-PREFERENCE = "Camille préfère des réponses en trois points au plus."
+PREFERENCE = "Pascal préfère des réponses en trois points au plus."
 
 
 def remember(text: str) -> str:
@@ -202,7 +202,7 @@ def test_refusals_are_reinjected_without_effect(text, error):
 
 
 def test_duplicate_adds_nothing():
-    _, session = memory_session([remember("  l'utilisateur S'APPELLE camille.  "), "Déjà su."])
+    _, session = memory_session([remember("  l'utilisateur S'APPELLE pascal.  "), "Déjà su."])
 
     events = run(session, "Retiens mon prénom.")
 
@@ -252,23 +252,23 @@ def test_drawer_replace_delete_clear_and_refusals():
     route = "/api/intentions/memory"
     mark = get_journal().last_seq()
 
-    body = {"op": "replace", "entry_id": "demo2", "text": " Consultante. "}
+    body = {"op": "replace", "entry_id": "demo2", "text": " Consultant. "}
     ok = client.post(route, json=body, headers=HEADERS)
     assert ok.status_code == 200
     session.join()
     replaced = saved()[1]
-    assert replaced["id"] == "demo2" and replaced["text"] == "Consultante."
+    assert replaced["id"] == "demo2" and replaced["text"] == "Consultant."
     assert replaced["source"] == "user"
     (applied,) = [e for e in get_journal().events_since(mark) if e.kind == "effect_applied"]
     assert applied.payload == {
         "effect": "memory_write",
         "op": "replace",
         "entry_id": "demo2",
-        "text": "Consultante.",
+        "text": "Consultant.",
     }
     assert (applied.brick, applied.component) == ("global_memory", "file.memory")
     assert applied.trigger == "user"  # the drawer is the user's (independent review)
-    assert "- Consultante." in memory_texts(last("context_preview", mark))
+    assert "- Consultant." in memory_texts(last("context_preview", mark))
 
     unknown = client.post(route, json={"op": "delete", "entry_id": "nope"}, headers=HEADERS)
     empty = client.post(

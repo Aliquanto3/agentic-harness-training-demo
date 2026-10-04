@@ -10,7 +10,7 @@ modèles (local, serveur, cloud), voir [Modèles](modeles.md).
 - [Programme de formation](#programme-de-formation)
 - [Brique RAG, corpus et index](#brique-rag-corpus-et-index)
 - [Compression du contexte (Headroom)](#compression-du-contexte-headroom)
-- [Écran LLM nu](#écran-llm-nu)
+- [Atelier LLM](#atelier-llm)
 - [Atelier RAG](#atelier-rag)
 - [Atelier MCP](#atelier-mcp)
 - [Langue](#langue)
@@ -21,16 +21,21 @@ modèles (local, serveur, cloud), voir [Modèles](modeles.md).
 
 ![L'atelier après un tour avec la brique Outils : briques à gauche, Vue humain, Contexte LLM, Orchestration et Schéma d'architecture](assets/atelier.jpg)
 
-La barre de navigation, en haut de chaque page, mène aux six écrans :
+La barre de navigation, en haut de chaque page, mène aux cinq onglets ; le titre complet de
+chaque écran est celui de l'onglet du navigateur et de la page :
 
-| Écran | Adresse | À quoi il sert |
-|---|---|---|
-| **Atelier** | `/` | L'écran principal : les briques, la conversation et ses quatre volets |
-| **LLM nu** | `/llm` | L'intérieur du modèle actif, sans aucune brique (voir [Écran LLM nu](#écran-llm-nu)) |
-| **Atelier RAG** | `/rag` | Une chaîne RAG à monter et exécuter pièce par pièce (voir [Atelier RAG](#atelier-rag)) |
-| **Atelier MCP** | `/mcp` | Le protocole MCP entre le harnais et un serveur (voir [Atelier MCP](#atelier-mcp)) |
-| **Diagnostic** | `/diagnostic` | Les vérifications du lancement, le choix du modèle et les clés API (voir [l'installation](installation.md#premier-lancement-et-diagnostic)) |
-| **Modèles** | `/models` | Le tableau des modèles et de leurs capacités (voir [Changer de modèle](modeles.md#changer-de-modèle)) |
+| Onglet | Écran | Adresse | À quoi il sert |
+|---|---|---|---|
+| **Harnais** | Atelier Harnais | `/` | L'écran principal : les briques, la conversation et ses quatre volets |
+| **LLM** | Atelier LLM | `/llm` | L'intérieur du modèle actif, sans aucune brique (voir [Atelier LLM](#atelier-llm)) |
+| **RAG** | Atelier RAG | `/rag` | Une chaîne RAG à monter et exécuter pièce par pièce (voir [Atelier RAG](#atelier-rag)) |
+| **MCP** | Atelier MCP | `/mcp` | Le protocole MCP entre le harnais et un serveur (voir [Atelier MCP](#atelier-mcp)) |
+| **🛠️ Diagnostic** | Diagnostic et modèles | `/diagnostic` | Les vérifications du lancement, le choix du modèle et les clés API (voir [l'installation](installation.md#premier-lancement-et-diagnostic)) |
+
+Le tableau des modèles et de leurs capacités (`/models`, voir
+[Changer de modèle](modeles.md#changer-de-modèle)) n'a pas d'onglet : il s'ouvre par le lien
+« Tableau des modèles » de la page Diagnostic, ou depuis le sélecteur de modèle de la barre du
+bas ; son onglet courant est « 🛠️ Diagnostic ».
 
 Le menu **Affichage ▾**, à droite, règle le thème, la [langue](#langue) et le mode projection
 (tous les textes agrandis pour la salle).
@@ -210,9 +215,9 @@ uv run wavestack
   `[compression] min_chars` (300 caractères) n'est pas compressé. La brique n'a d'effet
   qu'avec Outils, MCP ou RAG : sans eux, rien à compresser.
 
-## Écran LLM nu
+## Atelier LLM
 
-Le lien **« LLM nu »** de la barre de navigation ouvre la page `/llm` : ce qui se passe *dans* le modèle
+Le lien **« LLM »** de la barre de navigation ouvre l'Atelier LLM (page `/llm`) : ce qui se passe *dans* le modèle
 actif, sans aucune brique (ni prompt système, ni historique, ni outil, ni mémoire) et sans
 toucher à la conversation de l'atelier. Le modèle ne s'y change pas : le lien « Changer de modèle
 dans l'atelier » ramène au sélecteur de la barre du bas.
@@ -262,7 +267,7 @@ montre.
 
 ## Atelier RAG
 
-Le lien **« Atelier RAG »** de la barre de navigation ouvre la page `/rag` : l'architecture d'une chaîne
+Le lien **« RAG »** de la barre de navigation ouvre l'Atelier RAG (page `/rag`) : l'architecture d'une chaîne
 RAG, dessinée pièce par pièce, puis exécutée sur une question, étape par étape. C'est un bac à
 sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne change pas.
 
@@ -357,8 +362,8 @@ uv run wavestack
 
 ## Atelier MCP
 
-Le lien **« Atelier MCP »** de la barre de navigation (ou « Voir le protocole dans l'atelier MCP → »
-sur la carte MCP) ouvre la page `/mcp` : le protocole MCP entre le harnais et un serveur, sans
+Le lien **« MCP »** de la barre de navigation (ou « Voir le protocole dans l'atelier MCP → »
+sur la carte MCP) ouvre l'Atelier MCP (page `/mcp`) : le protocole MCP entre le harnais et un serveur, sans
 modèle. C'est un bac à sable : l'atelier ouvre ses propres connexions, la brique MCP de
 l'atelier (ses serveurs cochés, son mode, ses connexions) ne change pas, et rien n'est généré.
 
@@ -407,8 +412,8 @@ La langue change :
   langue (« 1 234 », « 1,234 », « 1.234 »). Ses textes sont dans `content/ui.yaml`.
 
 - **le reste** : les noms et explications des briques, les scénarios et leurs consignes,
-  les ateliers (« LLM nu », « Atelier RAG », « Atelier MCP ») et les pages « Diagnostic » et
-  « Modèles », le corpus RAG et les titres de ses documents, et les messages produits par le
+  les ateliers (« Atelier LLM », « Atelier RAG », « Atelier MCP ») et les pages « Diagnostic et
+  modèles » et « Modèles disponibles », le corpus RAG et les titres de ses documents, et les messages produits par le
   harnais (erreurs, raisons d'indisponibilité, erreurs d'outils lues par le modèle, marque de
   troncature, refus des hooks, résultat de `get_datetime`), tirés de `content/messages.yaml`.
 
@@ -459,7 +464,7 @@ revient à zéro qu'au relancement.
 estimée » dans la barre du bas dès le premier appel payant : le total de la séance, entrée + sortie
 (arrondies au centième de cent), la phrase entière (4 chiffres significatifs, conversion en
 euros) dans l'infobulle. Ce total compte tous les appels payants : les tours, le sous-agent,
-« Tester » au diagnostic et l'écran « LLM nu ». Ni « Vider la conversation » ni « Réinitialiser »
+« Tester » au diagnostic et l'Atelier LLM. Ni « Vider la conversation » ni « Réinitialiser »
 ne le remettent à zéro ; seul un relancement de WaveStack le fait (il n'est jamais écrit sur le
 disque). Les prix déclarés sont aussi dans la colonne « Prix » de la page `/models` et sur la
 ligne « Prix » du diagnostic. Un modèle local n'a pas de coût, et une entrée sans `pricing` non
@@ -522,8 +527,8 @@ n'arrête jamais un tour : l'appel n'a pas d'empreinte, avec la raison.
 
 **Affichage.** « Empreinte estimée : 0,11 Wh · 0,046 g CO₂e » dans le détail de chaque appel
 (la méthode et ses limites dans l'infobulle), la somme du tour dans son en-tête, et l'empreinte
-de la séance dans la barre du bas : en fin de deuxième ligne de « Dépense estimée »
-(« · 0,12 g CO₂e ») quand elle tient, sinon dans l'infobulle ; « Empreinte estimée » seule tant
-qu'aucun appel payant n'a eu lieu. Comme la dépense, ce total compte les tours, le sous-agent,
-« Tester » et l'écran « LLM nu », et seul un relancement le remet à zéro. L'embedding et le
+de la séance dans la barre du bas : troisième ligne de « Dépense estimée », sous la dépense
+(« 🍃 0,12 g CO₂e »), la phrase entière dans l'infobulle ; « Empreinte estimée » sur deux lignes
+tant qu'aucun appel payant n'a eu lieu. Comme la dépense, ce total compte les tours, le sous-agent,
+« Tester » et l'Atelier LLM, et seul un relancement le remet à zéro. L'embedding et le
 reranker du RAG ne sont pas comptés.

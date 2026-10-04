@@ -85,7 +85,7 @@ const store = {
   ragNotice: null,
   rerankNotice: null, // story 16: the same, for the reranker's download or load
   openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
-  openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
+  openBrickHelp: new Set(), // brick ids (and "force-section") whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
   openApprovalPayloads: new Set(), // approval ids whose payload is unfolded in the Vue humain card
   // Story 19, UI state only: the context Contexte LLM shows, `null` for the main one, else
@@ -97,10 +97,11 @@ const store = {
   openReasoning: new Set(),
   // Story 32, UI state only: Contexte LLM's view (« Lecture groupée », « Texte exact »,
   // « Corps JSON »; remembered by the browser), the « déjà lu » blocks unfolded (by call), the
-  // JSON nodes folded (open by default) and the exact texts shown, by key.
+  // JSON nodes the user toggled (lot 1 of 2026-10-04: a tree opens on its root's keys, every
+  // node under it folded) and the exact texts shown, by key.
   ctxMode: "grouped",
   openSeen: new Set(),
-  jsonClosed: new Set(),
+  jsonToggled: new Set(),
   openExact: new Set(),
   // Story 9: the armed actions as the session last sent them (AD-3), and every label seen, so
   // an `action_dropped` still names its action once the list moved on.
@@ -122,7 +123,9 @@ const store = {
     turnOpen: new Map(), // turn id -> unfolded, when the user chose
     selected: null, // the step key last clicked
     current: null, // the live step's key, computed at each render
-    currentSticky: false,
+    // The live step is not unfolded as the live one: sticky (always open) or quiet (lot 1 of
+    // 2026-10-04: on a click only); a frozen view then keeps it as it was.
+    currentApart: false,
     prepGroupOpen: true,
     prepOpen: new Set(), // MCP connection lines unfolded
     logOpen: false,
@@ -1099,7 +1102,6 @@ function render() {
   renderOutboundSummary();
   updateBrickLinks();
   applyLinks();
-  fitFootprint(); // GreenOps: once the top bar is drawn
 }
 
 function el(tag, className, text) {
@@ -1178,13 +1180,13 @@ function renderBricks() {
   );
   // Story 34: how to read the panes together.
   pane.appendChild(el("p", "brick-link-hint", t("main.bricks.link_hint")));
-  pane.appendChild(forcedToggle());
+  const reopenPopovers = []; // help popovers that were open before this rebuild
+  pane.appendChild(forcedToggle(reopenPopovers));
   if (store.armError) {
     const error = el("p", "force-error", store.armError);
     error.setAttribute("role", "alert");
     pane.appendChild(error);
   }
-  const reopenPopovers = []; // help popovers that were open before this rebuild
   let group = null;
   for (const brick of store.bricks.bricks) {
     // Story 33: the group comes with the card (AD-1); the list's order is the display order.
@@ -1624,13 +1626,35 @@ function saveShowForced() {
   }
 }
 
-// D3 of 2026-10-01: a titled section with the ✋, told apart from the bricks' switches.
-function forcedToggle() {
+// D3 of 2026-10-01: a titled section with the ✋, told apart from the bricks' switches. Lot 1 of
+// 2026-10-04: a « ? » by its title, the bricks' help (`.brick-help` and its popover, anchored
+// to the button), open again after a rebuild (`reopen`, the pane's list).
+const FORCE_HELP = "force-section"; // its key in `store.openBrickHelp` (no brick has this id)
+function forcedToggle(reopen) {
   const box = el("section", "force-section");
   // Its own class: the E2E reads the two groups' titles by `.brick-group-title`.
   const title = el("h3", "force-section-title", t("main.force.section_title"));
   title.id = "force-section-title";
   box.setAttribute("aria-labelledby", title.id);
+  const head = el("div", "force-section-head");
+  const help = el("button", "brick-help brick-help-inline", "?");
+  help.type = "button";
+  help.id = "force-help";
+  help.dataset.focusKey = "force-help";
+  help.setAttribute("popovertarget", "explain-force-section");
+  help.setAttribute("aria-label", t("main.force.help_label"));
+  help.style.setProperty("anchor-name", "--force-help-anchor");
+  const popover = el("div", "brick-explanation force-explanation");
+  popover.id = "explain-force-section";
+  popover.setAttribute("popover", "");
+  popover.style.setProperty("position-anchor", "--force-help-anchor");
+  popover.appendChild(el("p", "", t("main.force.help_text")));
+  popover.addEventListener("toggle", (event) => {
+    if (event.newState === "open") store.openBrickHelp.add(FORCE_HELP);
+    else store.openBrickHelp.delete(FORCE_HELP);
+  });
+  if (store.openBrickHelp.has(FORCE_HELP)) reopen.push(popover);
+  head.append(title, help, popover);
   const row = el("label", "force-toggle");
   const toggle = el("input", "brick-toggle");
   toggle.type = "checkbox";
@@ -1655,7 +1679,7 @@ function forcedToggle() {
   const hand = el("span", "force-toggle-icon", "✋");
   hand.setAttribute("aria-hidden", "true"); // the label alone is read aloud
   row.append(toggle, hand, el("span", "", t("main.force.show")));
-  box.append(title, row);
+  box.append(head, row);
   return box;
 }
 
@@ -2397,26 +2421,27 @@ const shortUsd = (n) =>
     ? t("common.format.usd_below", { amount: shortMoneyFormat().format(0.0001) })
     : t("common.format.usd", { amount: shortMoneyFormat().format(n) });
 
-// FinOps: the session's API spend in the top bar, from the first paid call: « Dépense estimée »
-// over « entrée $ + sortie $ », the whole sentence (4 significant digits, the euros) in the
-// tooltip and the accessible name (every figure from the session, AD-1). GreenOps: the
-// session's footprint ends the second line (« · 0,12 g CO₂e ») when the bar still fits, else
-// it is said in the sentence only; before any paid call (local calls only), « Empreinte
-// estimée » over the footprint.
+// FinOps: the session's API spend in the top bar, from the first paid call, on three lines
+// (lot 1 of 2026-10-04): « Dépense estimée », « 💰 entrée $ + sortie $ », « 🍃 a–b g CO₂e »;
+// the whole sentence (4 significant digits, the euros) in the tooltip and the accessible name
+// (every figure from the session, AD-1). Before any paid call (local calls only), two lines:
+// « Empreinte estimée » over the footprint.
 function renderConsumption() {
   const node = document.getElementById("consumption");
   const c = store.consumption;
   node.hidden = !c;
-  footprintOptional = false;
   if (!c) return;
   const paid = c.calls > 0;
   const green = (c.impact_calls ?? 0) > 0;
   const guess = approx(c.approx);
   const grams = green ? rangeText(c.gco2e_min, c.gco2e_max, "g CO₂e") : "";
   setText(document.getElementById("consumption-label"), paid ? t("main.consumption.spend_label") : t("main.consumption.footprint_label"));
-  setText(document.getElementById("consumption-money"), paid ? `${guess}${shortUsd(c.total_in_usd)} + ${shortUsd(c.total_out_usd)}` : "");
+  const money = document.getElementById("consumption-money");
+  setText(money, paid ? `💰 ${guess}${shortUsd(c.total_in_usd)} + ${shortUsd(c.total_out_usd)}` : "");
+  money.hidden = !paid;
   const footprint = document.getElementById("consumption-footprint");
-  setText(footprint, green ? `${paid ? " · " : ""}${grams}` : "");
+  setText(footprint, green ? `🍃 ${grams}` : "");
+  footprint.hidden = !green;
   const sentences = [];
   if (paid) {
     sentences.push(
@@ -2449,45 +2474,6 @@ function renderConsumption() {
     node.title = sentence;
     node.setAttribute("aria-label", sentence);
   }
-  footprintOptional = green; // measured by `fitFootprint`, last, in every case
-}
-
-// GreenOps: the session's footprint in the bar (after the spend, or alone) only when the top
-// bar still fits (every control whole, the gauge's figures cut no further), else in the
-// tooltip only; measured at the end of `render`, once the bar's controls are drawn, and again
-// when its texts, the window's width, the projection mode or the fonts (once loaded) change.
-let footprintOptional = false;
-let footprintFitKey = null;
-function fitFootprint() {
-  const footprint = document.getElementById("consumption-footprint");
-  if (!footprintOptional) {
-    footprint.hidden = false;
-    footprintFitKey = null;
-    return;
-  }
-  const bar = footprint.closest(".top-bar");
-  const key = [innerWidth, document.documentElement.className, bar.textContent].join("|");
-  if (key === footprintFitKey) return;
-  footprintFitKey = key;
-  const figures = document.getElementById("gauge-figures");
-  const cut = () => figures.scrollWidth - figures.clientWidth;
-  footprint.hidden = true;
-  const before = cut();
-  footprint.hidden = false;
-  if (!topBarFits(bar) || cut() > Math.max(before, 0) + 1) footprint.hidden = true;
-}
-
-function topBarFits(bar) {
-  if (bar.scrollWidth > bar.clientWidth + 1) return false;
-  const box = bar.getBoundingClientRect();
-  return [...bar.children].every((e) => {
-    if (!e.id || !e.offsetParent || getComputedStyle(e).position === "absolute") return true;
-    const b = e.getBoundingClientRect();
-    if (b.width === 0) return true;
-    if (b.left < box.left - 1 || b.right > box.right + 1) return false;
-    if (b.top < box.top - 1 || b.bottom > box.bottom + 1) return false;
-    return e.scrollWidth <= e.clientWidth + 1 && e.scrollHeight <= e.clientHeight + 1;
-  });
 }
 
 // The model indicator (EXPERIENCE.md model-indicator): tag, name; tooltip = the cloud warning.
@@ -2615,7 +2601,6 @@ function bindWindowPicker() {
   });
   window.addEventListener("resize", () => {
     if (!windowPanel().hidden) placeWindowPanel();
-    fitFootprint(); // GreenOps: whether the session's footprint still fits the top bar
   });
 }
 
@@ -3183,7 +3168,7 @@ function revealStep(turn, key, links) {
   o.turnOpen.set(turn.id, true);
   if (o.live) {
     o.live = false;
-    o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+    o.userOpen = new Set(o.current && !o.currentApart ? [o.current] : []);
   }
   o.userOpen.add(key);
   o.selected = key;
@@ -3587,7 +3572,7 @@ function stepsAfter(owner, call) {
 
 // « Vider la conversation » and « Réinitialiser »: the folds of calls that are gone.
 function clearCtxFolds() {
-  for (const set of [store.openSeen, store.jsonClosed, store.openExact]) set.clear();
+  for (const set of [store.openSeen, store.jsonToggled, store.openExact]) set.clear();
 }
 
 // A call step clicked in Orchestration (story 34 selection): its call in Contexte LLM is
@@ -4198,15 +4183,15 @@ function jsonBlock(value, exact, key) {
   return block;
 }
 
-// A JSON tree in native JS (no library, AD-18): a `details` per object or array, open by
-// default, its folding kept by key; keys, strings and literals in their classes.
+// A JSON tree in native JS (no library, AD-18): a `details` per object or array, the root
+// open and the others folded by default (lot 1 of 2026-10-04), its folding kept by key; keys, strings and literals in their classes.
 function jsonTree(value, key) {
   const tree = el("span", "json-tree");
-  tree.appendChild(jsonNode(value, undefined, `json:${key}`, true));
+  tree.appendChild(jsonNode(value, undefined, `json:${key}`, true, true));
   return tree;
 }
 
-function jsonNode(value, name, path, last) {
+function jsonNode(value, name, path, last, root = false) {
   const head = [];
   if (typeof name === "string") head.push(el("span", "json-key", JSON.stringify(name)), el("span", "json-punct", ": "));
   const comma = () => (last ? [] : [el("span", "json-punct", ",")]);
@@ -4220,10 +4205,11 @@ function jsonNode(value, name, path, last) {
       return leaf;
     }
     const node = el("details", "json-node");
-    node.open = !store.jsonClosed.has(path);
+    // Open by default: the root only; `jsonToggled`, the paths whose state the user inverted.
+    node.open = root !== store.jsonToggled.has(path);
     node.addEventListener("toggle", () => {
-      if (node.open) store.jsonClosed.delete(path);
-      else store.jsonClosed.add(path);
+      if (node.open !== root) store.jsonToggled.add(path);
+      else store.jsonToggled.delete(path);
     });
     const summary = el("summary", "json-summary");
     summary.dataset.focusKey = path;
@@ -5177,8 +5163,9 @@ function plural(count, noun) {
 }
 
 // One line per step (DESIGN.md turn-step). A row: key (stable across renders), icon, title,
-// actor, key figure, network host, tone, `sticky` (stays unfolded whatever happens), `sig`
-// (the body is rebuilt only when it changes) and `body` (the former card's content).
+// actor, key figure, network host, tone, `sticky` (stays unfolded whatever happens), `quiet`
+// (never unfolded as the live step), `sig` (the body is rebuilt only when it changes) and
+// `body` (the former card's content).
 function turnRows(turn) {
   const rows = [];
   const calls = turn.steps.filter((s) => s.type === "call");
@@ -5471,14 +5458,19 @@ function stepRows(turn, step, i, calls, rows) {
         body: () => [harnessEvent(title, retries ? "error" : "info", [el("p", "", step.payload.message_text)])],
       });
     } else if (step.type === "prefix_not_reused") {
+      // Lot 1 of 2026-10-04: « Cache non réutilisé », the cause and the tokens read again;
+      // quiet: folded even as the live step (its message on a click).
       const cause = PREFIX_CAUSES[step.payload.cause];
+      const again = step.payload.again_tokens;
+      const reread = again > 0 ? t("main.orch.rows.again_tokens", { count: again }) : null;
       rows.push({
         key,
         icon: "ℹ",
         title: t("main.orch.rows.prefix"),
         actor: "harness",
-        figure: `${cause ? `${cause} · ` : ""}${t("main.orch.rows.common_tokens", { tokens: step.payload.common_tokens })}`,
+        figure: [cause, reread].filter(Boolean).join(" · "),
         tone: "hook",
+        quiet: true,
         sig: 1,
         body: () => [harnessEvent(t("main.orch.rows.prefix"), "info", [el("p", "", step.payload.message_text)])],
       });
@@ -5863,7 +5855,7 @@ function toggleStep(key) {
     // A click freezes the view (EXPERIENCE: direct par défaut); the live step stays open.
     if (o.live) {
       o.live = false;
-      o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+      o.userOpen = new Set(o.current && !o.currentApart ? [o.current] : []);
     }
     toggleSet(o.userOpen, key);
     o.selected = key;
@@ -5916,7 +5908,7 @@ function revealOutbound(componentId) {
     o.turnOpen.set(turn.id, true);
     if (o.live) {
       o.live = false;
-      o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+      o.userOpen = new Set(o.current && !o.currentApart ? [o.current] : []);
     }
     o.userOpen.add(row.key);
     o.selected = row.key;
@@ -5986,7 +5978,7 @@ function renderSteps() {
   const lastRows = lastOpen ? turnRows(lastTurn) : [];
   const currentRow = lastRows.at(-1);
   o.current = currentRow?.key ?? null;
-  o.currentSticky = Boolean(currentRow?.sticky);
+  o.currentApart = Boolean(currentRow?.sticky || currentRow?.quiet);
   const running = Boolean(lastTurn && lastTurn.status === null);
 
   const top = [];
@@ -6052,7 +6044,8 @@ function renderSteps() {
     const rowNodes = open
       ? (isLast ? lastRows : turnRows(turn)).map((row) => {
           const isCurrent = isLast && row.key === o.current;
-          const unfolded = row.sticky || (o.live ? isCurrent : o.userOpen.has(row.key));
+          // Lot 1 of 2026-10-04: a quiet row (`prefix_not_reused`) is never unfolded as the live one.
+          const unfolded = row.sticky || (o.live ? isCurrent && !row.quiet : o.userOpen.has(row.key));
           return stepNode(row, unfolded, { current: isCurrent && running, selected: row.key === o.selected });
         })
       : [];
@@ -7465,7 +7458,6 @@ function setProjection(on) {
   document.documentElement.classList.toggle("projection", on);
   document.getElementById("projection-toggle").setAttribute("aria-pressed", String(on));
   scheduleWires(); // the schema's pieces moved
-  fitFootprint(); // GreenOps: whether the session's footprint still fits the top bar
 }
 
 function loadProjection() {
@@ -7504,11 +7496,6 @@ async function boot() {
   // Remembered pane layout first, so the page does not open on the defaults then jump.
   loadPaneLayout();
   loadProjection();
-  // GreenOps: the loaded fonts change the bar's widths: the footprint's fit, measured again.
-  document.fonts?.ready.then(() => {
-    footprintFitKey = null;
-    fitFootprint();
-  });
   bindLinkedView();
   loadShowForced();
   loadShowReasoning();

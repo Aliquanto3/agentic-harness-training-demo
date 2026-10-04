@@ -66,7 +66,7 @@ session:
   state:
     diagnostic: Diagnostic de démarrage en cours.
     turn: "Un tour est en cours : attendez sa fin ou arrêtez-le."
-    llm_lab: "L'écran « LLM nu » génère une réponse : attendez sa fin ou arrêtez-la."
+    llm_lab: "L'Atelier LLM génère une réponse : attendez sa fin ou arrêtez-la."
     rag_lab: "Atelier RAG : exécution en cours ; attendez sa fin ou arrêtez-la."
     mcp_lab: "Atelier MCP : échange en cours ; attendez sa fin ou arrêtez-le."
     awaiting: "En attente de votre validation : autorisez ou refusez l'appel réseau."
@@ -111,7 +111,7 @@ session:
       replay: "Rejeu : le tour repart de l'état qui précédait le tour rejoué, alors que le cache du moteur contient ce tour."
       abandoned: "Le tour précédent n'a pas abouti (arrêté, en erreur, bloqué ou dépassé) : sa sortie est dans le cache du moteur, pas dans l'historique."
       subagent: "Le sous-agent a occupé le cache du moteur{why}."
-      llm: "L'écran « LLM nu » a occupé le cache du moteur{why}."
+      llm: "L'Atelier LLM a occupé le cache du moteur{why}."
     evicted:
       stateless: " : ce moteur ne sait pas sauvegarder l'état du contexte principal"
       failed: " : la sauvegarde ou la restauration de l'état du contexte principal a échoué"
@@ -441,10 +441,10 @@ session:
     sending_context: "Envoi du contexte à {provider} (≈ {tokens} tokens)"
   # « {text} Détail : {detail} »: a content error, with the first line of its cause.
   detail: "{text} Détail : {detail}"
-  # Story 29: the « LLM nu » screen.
+  # Story 29: the LLM workshop (« Atelier LLM », /llm).
   llm_lab:
-    content_invalid: "Textes de l'écran « LLM nu » illisibles (content/llm_lab.yaml) : corrigez le fichier puis rechargez la page."
-    content_invalid_effect: La page « LLM nu » reste servie sans ses textes.
+    content_invalid: "Textes de l'Atelier LLM illisibles (content/llm_lab.yaml) : corrigez le fichier puis rechargez la page."
+    content_invalid_effect: La page « Atelier LLM » reste servie sans ses textes.
     tokenizer:
       none: "Aucun modèle actif : aucun tokenizer à montrer."
       cloud: "Le tokenizer de {model} est chez {provider}, pas sur ce poste : WaveStack ne peut pas découper le texte comme lui. Il estime le nombre de tokens à partir des caractères, sans aucune puce."
@@ -453,7 +453,7 @@ session:
       exact: "Découpage exact, par {how}."
       exact_loaded: Découpage exact, par le tokenizer du modèle chargé.
     tokenize_failed: Le découpage en tokens a échoué.
-    nothing_changed: "Rien n'a changé ; l'atelier et l'écran « LLM nu » restent utilisables."
+    nothing_changed: "Rien n'a changé ; l'Atelier Harnais et l'Atelier LLM restent utilisables."
     no_model: aucun modèle actif
     dimensions_cloud: "Dimensions inconnues : le modèle tourne chez {provider}, qui ne les publie pas dans son API."
     dimensions_unknown: Ce moteur ne dit pas les dimensions du modèle.
@@ -485,9 +485,9 @@ session:
     reading: "Lecture du prompt ({tokens} tokens)"
     sending: "Envoi du prompt à {provider} (≈ {tokens} tokens)"
     too_long: "Prompt trop long : {tokens} tokens pour {usable} utilisables (fenêtre de {window} moins {reserve} réservés à la réponse). Raccourcissez-le : l'appel n'est pas envoyé."
-    interrupted: La génération de l'écran « LLM nu » s'est interrompue sur une erreur.
-    still_usable: L'écran « LLM nu » et l'atelier restent utilisables.
-    end_untraced: La fin de la génération de l'écran « LLM nu » n'a pas pu être tracée.
+    interrupted: La génération de l'Atelier LLM s'est interrompue sur une erreur.
+    still_usable: L'Atelier LLM et l'Atelier Harnais restent utilisables.
+    end_untraced: La fin de la génération de l'Atelier LLM n'a pas pu être tracée.
     back_to_idle: "La session revient en attente ; l'atelier reste utilisable."
     stops: "La génération de l'écran s'arrête ; WaveStack reste utilisable."
   # Story 30: the RAG workshop.
@@ -504,7 +504,7 @@ session:
       message: Un modèle chargé par l'atelier RAG n'a pas pu être fermé.
       effect: "Il est oublié ; son créneau mémoire est libéré."
     no_embedding: Aucun modèle d'embedding n'est déclaré.
-    embedding_absent: "Modèle d'embedding absent ({names} dans {folder}). Téléchargez-le depuis la carte RAG de l'atelier."
+    embedding_absent: "Modèle d'embedding absent ({names} dans {folder}). Téléchargez-le depuis la carte RAG de l'atelier. Ou suivez docs/installation.md, section « Modèles du RAG »."
     noun:
       embedding: modèle d'embedding
       reranking: modèle de reranking
@@ -512,7 +512,7 @@ session:
     to_load: "le {noun} {model}"
     fastembed_unavailable: fastembed indisponible.
     no_reranker: Aucun modèle de reranking n'est déclaré.
-    reranker_absent: "Modèle de reranking absent ({names} dans {folder}) : téléchargez-le depuis la carte RAG de l'atelier (sous-option « Reranking »). La construction du contexte garde l'ordre de la recherche."
+    reranker_absent: "Modèle de reranking absent ({names} dans {folder}) : téléchargez-le depuis la carte RAG de l'atelier (sous-option « Reranking »). La construction du contexte garde l'ordre de la recherche. Ou suivez docs/installation.md, section « Modèles du RAG »."
     import:
       label: Import
       budget_label: Budget
@@ -934,7 +934,7 @@ rag_lab:
     no_gap: "Aucun écart de rang entre les extraits communs."
     other_cut: "Les deux chaînes découpent le corpus autrement : comparaison par document."
 
-# The « LLM nu » screen (story 29, `session/llm_lab.py`): its figures and its diagram.
+# The LLM workshop (story 29, `session/llm_lab.py`): its figures and its diagram.
 llm_lab:
   count:
     billion:

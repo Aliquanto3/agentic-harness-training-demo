@@ -2653,6 +2653,24 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   border-radius: var(--rounded-sm);
 }
 
+/* Lot 1 of 2026-10-04: the title and its « ? » on one line; the button in the flow (the
+   cards' is absolute, top-right), its popover anchored to it (`anchor-name`, app.js). */
+.force-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.brick-help.brick-help-inline {
+  position: static;
+  flex: 0 0 auto;
+}
+
+.force-explanation {
+  inset: auto;
+  position-area: block-end span-inline-end;
+}
+
 .force-section-title {
   margin: 0;
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
@@ -4830,9 +4848,10 @@ body .arch .arch-robots .robot.is-selection-linked {
   text-overflow: clip;
 }
 
-/* FinOps: the session's API spend, after the gauge: a compact block of two lines, « Dépense
-   estimée » over « entrée $ + sortie $ », never cut (the whole sentence, euros included, in its
-   tooltip and its accessible name); the gauge's figures give way before it. */
+/* FinOps: the session's API spend, after the gauge: a compact block of three lines (lot 1 of
+   2026-10-04), « Dépense estimée », « 💰 entrée $ + sortie $ », « 🍃 g CO₂e », never cut (the
+   whole sentence, euros included, in its tooltip and its accessible name); the gauge's figures
+   give way before it. Local calls only: two lines, « Empreinte estimée » over the footprint. */
 .top-bar > #consumption {
   flex: 0 0 auto;
   display: flex;
@@ -4840,6 +4859,8 @@ body .arch .arch-robots .robot.is-selection-linked {
   justify-content: center;
   overflow: visible;
   font-size: var(--typography-label-font-size);
+  line-height: var(--typography-label-line-height);
+  white-space: nowrap;
 }
 
 .top-bar > #consumption[hidden] {
@@ -4852,8 +4873,7 @@ body .arch .arch-robots .robot.is-selection-linked {
   color: var(--color-on-ink-soft);
 }
 
-/* GreenOps: the session's footprint ends the second line only when the bar still fits
-   (app.js measures it); hidden, it stays in the block's tooltip and accessible name. */
+#consumption-money[hidden],
 #consumption-footprint[hidden] {
   display: none;
 }

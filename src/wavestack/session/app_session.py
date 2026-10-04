@@ -7528,6 +7528,7 @@ class AppSession:
                 "prefix_not_reused",
                 {
                     "common_tokens": common,
+                    "again_tokens": len(ids) - common,  # lot 1 of 2026-10-04: read again
                     "cause": "in_turn",
                     "message_text": (
                         self._t(
@@ -7603,7 +7604,12 @@ class AppSession:
             tail = self._t("session.prefix.all", again=self._n(again))
         self._journal().emit(
             "prefix_not_reused",
-            {"common_tokens": common, "cause": cause, "message_text": why + tail},
+            {
+                "common_tokens": common,
+                "again_tokens": again,  # lot 1 of 2026-10-04: the tokens read again
+                "cause": cause,
+                "message_text": why + tail,
+            },
         )
 
     def _diverging_cause(self, rendered: RenderedContext, common: int) -> str:

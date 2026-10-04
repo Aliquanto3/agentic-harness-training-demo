@@ -5,7 +5,7 @@
 # - Variables {name} ; un nombre passé en variable est formaté dans la langue.
 # - Pluriel : une clé .one et une clé .other, choisies par Intl.PluralRules sur {count}.
 # - common : les textes partagés, dont la navigation et le thème des cinq pages ; main : l'écran
-#   principal (index.html, app.js) ; llm : « LLM nu » (llm.html, llm.js) ; rag : l'atelier RAG
+#   principal (index.html, app.js) ; llm : l'Atelier LLM (llm.html, llm.js) ; rag : l'atelier RAG
 #   (rag.html, rag.js) ; diagnostic et models : les pages du diagnostic et des modèles (langues
 #   4/5). Les textes des ateliers eux-mêmes sont dans content/llm_lab.yaml et content/rag_lab.yaml.
 
@@ -73,14 +73,13 @@ common:
       other: "{count} outils"
   links:
     pages: "Pages de WaveStack"
-    home: "Atelier"
-    diagnostic: "Diagnostic"
-    models: "Modèles"
-    llm: "LLM nu"
-    llm_title: "LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)"
-    rag: "Atelier RAG"
+    home: "Harnais"
+    diagnostic: "🛠️ Diagnostic"
+    llm: "LLM"
+    llm_title: "Atelier LLM : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)"
+    rag: "RAG"
     rag_title: "Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)"
-    mcp: "Atelier MCP"
+    mcp: "MCP"
     mcp_title: "Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)"
   display:
     menu: "Affichage"
@@ -92,6 +91,9 @@ common:
     dark: "☾ Sombre"
 
 main:
+  # Lot 1 of 2026-10-04 (D2): the full title, in <title> and the visually hidden h1.
+  page_title: "WaveStack — Atelier Harnais"
+  title: "Atelier Harnais"
   pane_titles:
     bricks: "Panneau des briques"
     human: "Vue humain"
@@ -170,6 +172,8 @@ main:
     text_field: "Texte"
     show: "Afficher les actions forcées"
     section_title: "Actions forcées"
+    help_label: "Ce que font les actions forcées"
+    help_text: "Le harnais déclenche lui-même l'outil, sans laisser le modèle décider."
     doc_form_label: "Charger la documentation d'un outil de {server}"
     tool_field: "Outil"
     task_form_label: "{action} : tâche et préréglages"
@@ -490,6 +494,7 @@ main:
       replay: "rejeu"
       abandoned: "tour précédent abandonné"
       subagent: "sous-agent"
+      llm: "Atelier LLM"
     hook_decisions:
       allow: "laissé passer"
       modify: "modifié"
@@ -578,8 +583,10 @@ main:
       turn_stopped: "tour arrêté"
       sub_limit: "Borne du sous-agent atteinte"
       turn_limit: "Borne du tour atteinte"
-      prefix: "Préfixe non réutilisé"
-      common_tokens: "{tokens} tokens communs"
+      prefix: "Cache non réutilisé"
+      again_tokens:
+        one: "{count} token relu"
+        other: "{count} tokens relus"
       reasoning_cut: "Raisonnement coupé"
       reasoning_cut_figure: "{tokens} tokens · {reserve} pour la réponse"
       reasoning_dropped: "Raisonnement jeté par le fournisseur"
@@ -685,7 +692,7 @@ main:
       tool_ended: "Outil terminé"
       tool_call_malformed: "Appel d'outil mal formé"
       limit_reached: "Borne du tour atteinte"
-      prefix_not_reused: "Préfixe non réutilisé"
+      prefix_not_reused: "Cache non réutilisé"
       context_prefill_started: "Préremplissage du cache commencé"
       context_prefill_ended: "Préremplissage du cache terminé"
       server_cache_used: "Cache du serveur local"
@@ -709,11 +716,11 @@ main:
       rag_rerank_ended: "Reranking terminé"
       compression_started: "Compression commencée"
       compression_ended: "Compression terminée"
-      llm_tokenized: "LLM nu : texte découpé en tokens"
+      llm_tokenized: "Atelier LLM : texte découpé en tokens"
       model_load_step: "Étape du chargement du modèle"
-      llm_generation_started: "LLM nu : génération commencée"
-      llm_token: "LLM nu : token produit"
-      llm_generation_ended: "LLM nu : génération terminée"
+      llm_generation_started: "Atelier LLM : génération commencée"
+      llm_token: "Atelier LLM : token produit"
+      llm_generation_ended: "Atelier LLM : génération terminée"
       mcp_lab_message: "Atelier MCP : message JSON-RPC"
       mcp_lab_connect_ended: "Atelier MCP : poignée de main terminée"
       mcp_lab_call_ended: "Atelier MCP : appel terminé"
@@ -743,7 +750,7 @@ main:
       index_build: "construction de l'index RAG"
       reset: "réinitialisation"
       diagnostic: "diagnostic"
-      llm_lab: "écran LLM nu"
+      llm_lab: "atelier LLM"
       rag_lab: "atelier RAG"
       mcp_lab: "atelier MCP"
     lab_status:
@@ -768,7 +775,7 @@ main:
     sub: "tout ce que le harnais émet, brut"
     empty: "Aucun événement pour l'instant."
     deltas: "Morceaux de réponse × {count}"
-    lab_tokens: "LLM nu : tokens produits × {count}"
+    lab_tokens: "Atelier LLM : tokens produits × {count}"
     sampling_provider: "réglé par le fournisseur"
     bricks_wanted: "{wanted} sur {total} briques voulues"
     footprint: "empreinte {footprint} ({calls})"
@@ -897,7 +904,7 @@ main:
     leads_out: "Clic : ses données sortantes dans Orchestration"
 
 llm:
-  page_title: "WaveStack — LLM nu"
+  page_title: "WaveStack — Atelier LLM"
   token_list: "Tokens du texte"
   generated_list: "Tokens produits"
   invalid_intention: "Intention invalide : {detail}"
@@ -1016,10 +1023,12 @@ mcp:
   unavailable: "Atelier MCP indisponible ({cause}) : rechargez la page."
 
 diagnostic:
-  page_title: "WaveStack — Diagnostic de démarrage"
-  title: "Diagnostic de démarrage WaveStack"
-  candidates_title: "Modèles détectés"
-  cloud_title: "Modèles cloud"
+  page_title: "WaveStack — Diagnostic et modèles"
+  title: "Diagnostic et modèles"
+  candidates_title: "💻 Modèles locaux détectés"
+  cloud_title: "☁️ Modèles cloud"
+  # Lot 1 of 2026-10-04: the models table leaves the bar; reached from here until lot 3.
+  models_link: "Tableau des modèles : capacités, prix, tri et filtres"
   cloud_help: "Hors du poste : chaque appel envoie tout le contexte au fournisseur."
   cloud_cap: "Plafond de dépense de la séance : {total} dépensés sur {cap}. Une fois le plafond atteint, WaveStack n'envoie plus d'appel payant ; le plafond se règle par [finops] max_session_usd dans settings.json, WaveStack arrêté, puis relancé."
   path_label: "Ou indiquez le chemin d'un fichier GGUF :"

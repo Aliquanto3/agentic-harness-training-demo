@@ -206,11 +206,14 @@ def test_each_page_awaits_the_texts_and_shares_the_navigation(name):
     links = re.findall(r'<a href="/(\w*)"( class="site-nav-brand")?[^>]*>([^<]+)</a>', nav)
     assert [(href, text) for href, brand, text in links if brand] == [("", "WaveStack")], name
     named = [(href or "home", text) for href, brand, text in links if not brand]
-    assert [href for href, _ in named] == ["home", "llm", "rag", "mcp", "diagnostic", "models"], (
-        name
-    )
+    # Lot 1 of 2026-10-04 (D2): five tabs, « Modèles » out of the bar.
+    assert [href for href, _ in named] == ["home", "llm", "rag", "mcp", "diagnostic"], name
     for link, text in named:
         assert FRENCH["common"]["links"][link] == text, (name, link)
+    # The page's own tab is the current one; the models page's is « 🛠️ Diagnostic ».
+    current = re.findall(r'<a href="/(\w*)"[^>]*aria-current="page"[^>]*>', nav)
+    own = {"index.html": "", "models.html": "diagnostic"}.get(name, name.removesuffix(".html"))
+    assert current == [own], name
 
 
 def test_i18n_names_the_links_by_their_address_the_brand_aside():
@@ -219,20 +222,25 @@ def test_i18n_names_the_links_by_their_address_the_brand_aside():
     assert dict(re.findall(r'"(/\w*)": "(\w+)"', names)) == {
         "/": "home",
         "/diagnostic": "diagnostic",
-        "/models": "models",
         "/llm": "llm",
         "/rag": "rag",
         "/mcp": "mcp",
     }
     assert ":not(.site-nav-brand)" in script
-    homes = {
-        lang: _read(CONTENT / "i18n" / lang / "ui.yaml")["common"]["links"]["home"]
-        for lang in TRANSLATED
+    # Lot 1 of 2026-10-04 (D2): the short names of the bar, in each language.
+    bars = {
+        lang: _read(CONTENT / "i18n" / lang / "ui.yaml")["common"]["links"] for lang in TRANSLATED
     }
-    assert (FRENCH["common"]["links"]["home"], homes) == (
-        "Atelier",
-        {"en": "Workshop", "de": "Werkstatt"},
-    )
+    bars["fr"] = FRENCH["common"]["links"]
+    shown = {
+        lang: [bar[k] for k in ("home", "llm", "rag", "mcp", "diagnostic")]
+        for lang, bar in bars.items()
+    }
+    assert shown == {
+        "fr": ["Harnais", "LLM", "RAG", "MCP", "🛠️ Diagnostic"],
+        "en": ["Harness", "LLM", "RAG", "MCP", "🛠️ Diagnostics"],
+        "de": ["Harness", "LLM", "RAG", "MCP", "🛠️ Diagnose"],
+    }
 
 
 def test_the_models_table_headers_are_the_catalogues_in_order():

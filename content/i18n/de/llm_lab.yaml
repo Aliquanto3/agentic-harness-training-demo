@@ -1,7 +1,7 @@
 # German translation of content/llm_lab.yaml (languages 4/5, AD-19): same keys, same
 # placeholders.
 
-title_text: "Nacktes LLM: das Innere des Modells"
+title_text: "LLM-Werkstatt: das Innere des Modells"
 intro_text: >-
   Hier gibt es keinen Baustein: keinen System-Prompt, keinen Verlauf, kein Tool, kein
   Gedächtnis. Wir sehen, was das Modell selbst tut: den Text in Tokens zerlegen, sie in

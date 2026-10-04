@@ -661,6 +661,8 @@ PrefixCause = Literal[
 
 class PrefixNotReusedPayload(BaseModel):
     common_tokens: int
+    # Lot 1 of 2026-10-04: the tokens the engine reads again (Orchestration's figure).
+    again_tokens: int
     message_text: str
     cause: PrefixCause = "in_turn"
 

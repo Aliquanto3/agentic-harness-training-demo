@@ -399,8 +399,8 @@ Vérifications ajoutées aux scénarios existants :
   prix « — » sans `pricing`) ; dans le groupe Qwen, le faux Ollama (0.6B) avant le faux llama-server
   (taille inconnue) ; chaque modèle commence par « Local · » ou « RÉSEAU · » ; « Tableau des
   modèles et de leurs capacités… » puis « Autre fichier ou clé API… » en dernier. « Ouvrir le
-  tableau » mène à `/models` : onglet « Modèles » courant, « Diagnostic » vers `/diagnostic`
-  (mêmes onglets) ; lignes du faux llama-server (Qwen, outils « oui », « activable »,
+  tableau » mène à `/models` : onglet « 🛠️ Diagnostic » courant, aucun onglet « Modèles »,
+  « 🛠️ Diagnostic » vers `/diagnostic` (mêmes onglets) ; lignes du faux llama-server (Qwen, outils « oui », « activable »,
   « 4 096 tokens »), de R (« toujours »), de `wavestack-fake` (« jamais », « actif »), du faux
   Ollama (« inconnu », raison « introuvable » visible), « RÉSEAU » sur chaque ligne cloud,
   étiquette sur le jeton jaune, un en-tête par groupe du sélecteur. Puis R activé depuis le
@@ -454,7 +454,8 @@ Vérifications ajoutées aux scénarios existants :
   toute section lue ; « Produit par le modèle » visible. « Texte exact » : chaque `pre.ctx-exact`
   est le `body` du `context_rendered` de son appel, et son `json.loads` le corps reçu par le faux
   fournisseur, sans habillage. « Corps JSON » : l'arbre montre `"messages"`, un clic sur le
-  summary replie, un second déplie. Retour à « Lecture groupée » (mémorisée par le navigateur).
+  summary replie, un second déplie ; la racine s'ouvre seule, ses sous-nœuds repliés, et un
+  sous-nœud déplié par un clic le reste au rendu suivant (lot 1 du 2026-10-04). Retour à « Lecture groupée » (mémorisée par le navigateur).
   Captures `40-contexte-appels-numerotes.jpg`, `41-contexte-texte-exact.jpg`,
   `42-contexte-corps-json.jpg` (Contexte LLM en mode focus).
 - `bare_llm`, « Bonjour [raisonne] » : la réflexion (`--color-reasoning-soft`) précède la réponse,
@@ -480,14 +481,14 @@ Vérifications ajoutées aux scénarios existants :
   sa section ; `disciplines`, `linked_view` : les vérifications portent sur `.ctx-section` (au
   clavier, sa marge `.ctx-section-select`, seul contrôle de la ligne).
 
-## Écran « LLM nu » (story 29)
+## Atelier LLM (story 29)
 
 - `llm_screen`, joué entre `context_window` et `relaunch` (seul, il part du faux cloud A et y
-  revient, même après un échec) : (1) à 1600 × 1000, le lien « LLM nu » de la barre haute est
+  revient, même après un échec) : (1) à 1600 × 1000, le lien « LLM » de la barre haute est
   entier (`_fully_visible`) et toutes les commandes de la barre restent entières, sur une ligne
   (`_bar_fits`) ; (2) « ☾ Sombre » choisi dans l'atelier, le clic sur le lien ouvre `/llm` en
-  sombre (`data-theme`, fond `surface-dark`), avec son sélecteur de thème, son titre et l'onglet
-  « LLM nu » courant ; (3) sur le faux cloud A, « Découper en tokens » : `llm_tokenized` non
+  sombre (`data-theme`, fond `surface-dark`), avec son sélecteur de thème, son titre « Atelier LLM » (`h1` et
+  `<title>`) et l'onglet « LLM » courant ; (3) sur le faux cloud A, « Découper en tokens » : `llm_tokenized` non
   exact, « chez Faux fournisseur (e2e) », l'estimation « ≈ » et aucune puce ; (4) le faux
   llama-server choisi dans le sélecteur de l'atelier, « Bonjour <|im_end|> 🙂 » : une puce par
   token avec son identifiant, autant que `token_count`, `<|im_end|>` une seule puce « spécial »
@@ -547,12 +548,12 @@ Vérifications ajoutées aux scénarios existants :
 ## Atelier RAG (story 30)
 
 - `rag_lab`, joué juste après `rag_rerank` (index construit, faux modèles d'embedding et de
-  reranking présents), à 1600 × 1000 : (1) le lien « Atelier RAG » de la barre haute est entier
+  reranking présents), à 1600 × 1000 : (1) le lien « RAG » de la barre haute est entier
   (`_fully_visible`), vers `/rag`, et toute la barre tient sur une ligne (`_bar_fits`) ; (2) sur
   `/rag`, sept cartes dans l'ordre (Découpage, Embedding, Base vectorielle, Recherche,
   Reranking, Construction du contexte, Génération), les options « Faux embedding (e2e) »,
   « sqlite-vec » et « Faux reranker (e2e) », chaque carte expliquée, la génération sur
-  `--color-ink-fill`, l'onglet « Atelier RAG » courant, contrastes AA en clair et en sombre
+  `--color-ink-fill`, l'onglet « RAG » courant et le titre « Atelier RAG », contrastes AA en clair et en sombre
   (`_contrast_sweep`) ; capture `55-atelier-rag-chaine.jpg` ; (3) « Combien de jours de
   télétravail par semaine ? » puis « Lancer la chaîne » : une paire `started`/`ended` par étape
   exécutée, les statuts vus au fil de l'eau (`MutationObserver`) passent par « en cours » puis
@@ -710,6 +711,22 @@ haut) :
 - `gemini_shape` (#27) : l'infobulle de la dépense dit « x $ sur <plafond> $ » et « ce total » /
   « ces totaux » selon les totaux affichés ; le diagnostic dit le plafond et la dépense sous
   les modèles cloud (`#cloud-cap`).
+
+## Lot 1 du plan de corrections du 2026-10-04
+
+- `diagnostic` : sur `/`, `<title>` « WaveStack — Atelier Harnais », un seul `h1` masqué
+  (`.sr-only`) et l'onglet « Harnais » courant ; `model_catalog` : `/diagnostic` titré
+  « Diagnostic et modèles », lien `#models-link` vers `/models`.
+- `themes`, `mcp_lab`, `rag_lab`, `llm_screen` : la barre commune à cinq onglets
+  (`Harnais · LLM · RAG · MCP · 🛠️ Diagnostic`), titres et `h1` complets des ateliers.
+- `forced_native` : le « ? » d'« Actions forcées » ouvre son aide, ancrée sous le bouton, encore
+  ouverte après un nouveau rendu du panneau.
+- `gemini_shape`, `local_server`, `priced_estimate` : la dépense sur trois lignes (« Dépense
+  estimée », « 💰 … », « 🍃 … »), deux sans appel payant, l'empreinte visible à 1600, 1440 et
+  1280 px, en mode normal et projection.
+- `local_server` (`_cache_not_reused`) : « Prompt système » basculé entre deux tours,
+  `prefix_not_reused` avec `again_tokens`, ligne « Cache non réutilisé » « <cause> · N tokens
+  relus », repliée en fin de tour, son message au clic.
 
 ## Déclencheurs du faux modèle
 

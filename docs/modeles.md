@@ -38,8 +38,8 @@ détails d'Ollama ou dans le nom. L'éditeur est reconnu par `content/models/pub
 
 **Tableau des modèles.** L'avant-dernière entrée du sélecteur, « Tableau des modèles et de leurs
 capacités… » (bouton « Ouvrir le tableau »), ouvre la page `/models`, aussi atteinte par
-l'onglet « Modèles » du diagnostic. Pour chaque modèle : éditeur, taille (paramètres et octets),
-hébergement, fenêtre de contexte que WaveStack utiliserait, appel d'outils (oui, non, inconnu) et
+le lien « Tableau des modèles » de la page Diagnostic. Pour chaque modèle : éditeur, taille
+(paramètres et octets), hébergement, fenêtre de contexte que WaveStack utiliserait, appel d'outils (oui, non, inconnu) et
 raisonnement (jamais, toujours, activable ou inconnu), avec la raison. Ces capacités sont lues
 comme au chargement, par les mêmes règles que les cartes des briques, sans charger ni sonder le
 modèle : l'en-tête du fichier GGUF (lu une fois, puis mémorisé), le gabarit de llama-server, la
@@ -422,7 +422,7 @@ briques changées), chaque requête demande à Anthropic de jeter un raisonnemen
 plutôt que de refuser l'appel ; quand il le fait, le journal le dit (« Raisonnement jeté », avec
 la cause). Seuls les modèles qui font ce contrôle d'historique (Opus 5.5, Fable 5.1) peuvent
 produire cette ligne : avec les préréglages actifs, Haiku 4.5 et Sonnet 5, elle n'apparaît pas.
-La température (écran « LLM nu », Haiku seulement) ne part que raisonnement éteint : Anthropic la
+La température (Atelier LLM, Haiku seulement) ne part que raisonnement éteint : Anthropic la
 refuse avec le raisonnement. Pas de top-p : Haiku 4.5 refuse la température et le top-p
 ensemble. Le cache de prompt d'Anthropic
 n'est jamais activé. Opus 5.5 figure en commentaire dans `wavestack.toml` (son raisonnement ne
@@ -445,7 +445,7 @@ automatique, affiché au canal Raisonnement ; éteinte : effort « none » (Luna
 « minimal »). Le raisonnement reçu (items `reasoning` chiffrés) repart tel quel au seul modèle
 qui l'a produit. OpenAI peut exiger la vérification de l'organisation (console OpenAI) avant
 d'envoyer les résumés de raisonnement : sans elle, le canal Raisonnement reste vide. Température
-et top-p (écran « LLM nu ») ne partent que raisonnement éteint : OpenAI les refuse avec le
+et top-p (Atelier LLM) ne partent que raisonnement éteint : OpenAI les refuse avec le
 raisonnement. Un compte sans crédit est refusé avec « le crédit du compte est épuisé » :
 ajoutez du crédit dans la console OpenAI.
 GPT-6.1 Sol figure en commentaire dans `wavestack.toml` (il raisonne toujours).
@@ -511,10 +511,10 @@ Quatre champs facultatifs :
   de la séance, ne vient pas de l'espacement : le quota du compte est épuisé, et
   `min_interval_s` n'y peut rien. Lisez d'abord le message du fournisseur dans le journal
   (capacité saturée ou quota), puis vérifiez le quota dans la console Mistral.
-- `sampling` (écran « LLM nu ») : les réglages d'échantillonnage que le modèle accepte, parmi
+- `sampling` (Atelier LLM) : les réglages d'échantillonnage que le modèle accepte, parmi
   `"temperature"` et `"top_p"` (les deux champs de l'API compatible OpenAI) ; vide par défaut :
-  le fournisseur garde les siens. Les préréglages Groq et Mistral déclarent les deux. Seul l'écran
-  « LLM nu » les envoie ; les tours de l'atelier n'envoient aucun réglage, et top-k et min-p ne
+  le fournisseur garde les siens. Les préréglages Groq et Mistral déclarent les deux. Seul l'Atelier
+  LLM les envoie ; les tours de l'atelier n'envoient aucun réglage, et top-k et min-p ne
   partent jamais chez un fournisseur.
 - `pricing` (voir [FinOps](guide.md#finops-coût-estimé-des-appels-cloud)) : les prix du modèle, par exemple
   `"pricing": {"input_usd_per_mtok": 0.15, "output_usd_per_mtok": 0.6, "checked": "2026-09-29"}`.

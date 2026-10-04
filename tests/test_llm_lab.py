@@ -97,7 +97,7 @@ def test_dimensions_from_a_synthetic_gguf_header(tmp_path):
 
 def test_the_content_file_is_valid():
     content = llm_lab.load_lab_content()
-    assert content.title_text == "LLM nu : l'intérieur du modèle"
+    assert content.title_text == "Atelier LLM : l'intérieur du modèle"
     sections = content.sections.model_dump()
     assert list(sections) == [
         "tokenization",
@@ -281,7 +281,7 @@ def test_routes_answer_refuse_and_validate():
     for path in ("/llm", "/static/llm.js", "/static/llm.css"):
         assert client.get(path).status_code == 200, path
     lab = client.get("/api/llm_lab").json()
-    assert lab["content"]["title_text"] == "LLM nu : l'intérieur du modèle"
+    assert lab["content"]["title_text"] == "Atelier LLM : l'intérieur du modèle"
     assert lab["content_error_text"] is None and lab["tokenizer"]["exact"] is True
     assert lab["session_state"]["state"] == "idle" and lab["active_model"]["hosting"] == "local"
     assert lab["seq"] <= get_journal().last_seq()
@@ -413,7 +413,7 @@ def test_a_stateless_engine_says_the_screen_took_its_cache():
     session.join()
     causes = [e.payload for e in get_journal().events_since(mark) if e.kind == "prefix_not_reused"]
     assert [c["cause"] for c in causes] == ["llm"]
-    assert causes[0]["message_text"].startswith("L'écran « LLM nu » a occupé le cache du moteur")
+    assert causes[0]["message_text"].startswith("L'Atelier LLM a occupé le cache du moteur")
 
 
 def test_stop_ends_the_screen_generation_cancelled():
@@ -815,14 +815,14 @@ def test_the_content_is_read_again_once_the_file_changed(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "content_dir", lambda: content)
     llm_lab.load_lab_content.cache_clear()
     try:
-        assert llm_lab.load_lab_content().title_text == "LLM nu : l'intérieur du modèle"
+        assert llm_lab.load_lab_content().title_text == "Atelier LLM : l'intérieur du modèle"
         path = content / "llm_lab.yaml"
         path.write_text(path.read_text("utf-8").replace("l'intérieur", "le dedans"), "utf-8")
         import os
 
         stat = path.stat()
         os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
-        assert llm_lab.load_lab_content().title_text == "LLM nu : le dedans du modèle"
+        assert llm_lab.load_lab_content().title_text == "Atelier LLM : le dedans du modèle"
         path.write_text("", "utf-8")
         os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 2 * 10**9))
         session = booted_session(FakeEngine())

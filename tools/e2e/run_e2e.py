@@ -381,6 +381,18 @@ def s_diagnostic(r: Run) -> None:
     page.wait_for_url(f"{r.stack.app_url}/", timeout=10_000)
     expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=20_000)
     r.check(True, "l'indicateur de modèle de la barre de l'atelier montre le faux modèle")
+    # Lot 1 of 2026-10-04 (D2): « Harnais » current, the full title in <title> and in a
+    # visually hidden h1 (no height taken).
+    h1 = page.locator("h1")
+    r.check(
+        page.title() == "WaveStack — Atelier Harnais"
+        and h1.count() == 1
+        and h1.text_content() == "Atelier Harnais"
+        and (h1.bounding_box() or {"height": 0})["height"] <= 1
+        and page.locator('.site-nav a[aria-current="page"]').inner_text() == "Harnais",
+        "atelier : titre « WaveStack — Atelier Harnais », h1 masqué, onglet « Harnais » courant",
+        page.title(),
+    )
     r.wait_idle()
 
 
@@ -561,12 +573,12 @@ def _parent_off_cards(r: Run, lazy_on: httpx.Response) -> None:
 def s_short_memory(r: Run) -> None:
     r.launch("short_memory")
     prompts = [
-        "Je m'appelle Camille et je suis consultante en cybersécurité.",
+        "Je m'appelle Pascal et je suis consultant en cybersécurité.",
         "Comment je m'appelle, et quel est mon métier ?",
     ]
     r.send(prompts[0])
     r.send(prompts[1])
-    r.check("Camille" in r.last_answer(), "mémoire active : le prénom revient", r.last_answer())
+    r.check("Pascal" in r.last_answer(), "mémoire active : le prénom revient", r.last_answer())
     r.check(len(r.fake_calls()[-1]["messages"]) >= 3, "l'historique est réinjecté")
     r.set_brick("Mémoire courte", False)
     r.send(prompts[1])
@@ -738,6 +750,73 @@ def _braces_stay_text(r: Run, where: str) -> None:
     )
 
 
+def _cache_not_reused(r: Run) -> None:
+    """Lot 1 of 2026-10-04, in local text mode (the ids of the fake llama-server, AD-4): the
+    system message changed between two turns (« Prompt système » switched), the next turn's
+    first call does not extend the engine's cache. `prefix_not_reused` carries `again_tokens`;
+    Orchestration's « Cache non réutilisé » says « <cause> · N tokens relus », folded at the
+    turn's end, its message on a click."""
+    page = r.page
+    was = bool(r.bricks()["system_prompt"]["wanted"])
+    r.set_brick("Prompt système", not was)
+    try:
+        seq = r.ev.mark()
+        ended = r.send("Et maintenant ?")
+        events = [e["payload"] for e in r.ev.since(seq, "prefix_not_reused")]
+        payload = events[0] if events else {}
+        again = payload.get("again_tokens")
+        r.check(
+            ended["payload"]["status"] == "completed"
+            and len(events) == 1
+            and payload.get("cause") == "system"
+            and isinstance(again, int)
+            and again > 0,
+            "cache : « Prompt système » basculé entre deux tours, un `prefix_not_reused` "
+            "(cause « system ») avec `again_tokens`",
+            str(events)[:300],
+        )
+        if not payload:
+            return
+        catalogue = _ui_catalogue("fr")
+        number = page.evaluate("n => new Intl.NumberFormat('fr-FR').format(n)", again)
+        figure = " · ".join(
+            [
+                catalogue["main.orch.prefix_causes.system"],
+                catalogue[f"main.orch.rows.again_tokens.{'one' if again == 1 else 'other'}"].format(
+                    count=number
+                ),
+            ]
+        )
+        row = (
+            _turn_group(r, ended["turn_id"])
+            .locator(".turn-step")
+            .filter(has=page.locator(".turn-step-name", has_text="Cache non réutilisé"))
+        )
+        expect(row).to_have_count(1, timeout=5000)
+        shown = row.locator(".turn-step-figure").inner_text()
+        folded = row.locator(".turn-step-line").get_attribute("aria-expanded") == "false"
+        r.check(
+            shown == figure and folded and row.locator(".turn-step-body").count() == 0,
+            "Orchestration : « Cache non réutilisé », figure « <cause> · N tokens relus », "
+            "repliée à la fin du tour",
+            f"{shown!r} · attendu {figure!r} · repliée {folded}",
+        )
+        row.locator(".turn-step-line").click()
+        body = row.locator(".turn-step-body")
+        expect(body).to_be_visible(timeout=5000)
+        said = " ".join(body.inner_text().split())
+        r.check(
+            " ".join(payload["message_text"].split()) in said,
+            "un clic déplie la ligne et montre son message",
+            said[:200],
+        )
+        follow = page.locator("#follow-live")
+        if follow.is_visible():
+            follow.click()  # the frozen view back to live, for what follows
+    finally:
+        r.set_brick("Prompt système", was)
+
+
 def _read_and_produced(r: Run, seq: int) -> None:
     """Story 32, « Quelle heure est-il ? » with the fake cloud: two numbered calls, the second
     folding what the first read and showing the tool result as new; what each produced, on
@@ -838,6 +917,21 @@ def _read_and_produced(r: Run, seq: int) -> None:
     summary.click()
     unfolded = children.is_visible()
     r.check(folded and unfolded, "un clic sur le summary replie l'arbre, un second le déplie")
+    # Lot 1 of 2026-10-04: the root open (its keys shown), every node under it folded; a
+    # click unfolds one, and it stays so after the next rendering (another view, then back).
+    inner = tree.locator("details.json-node details.json-node").first
+    sub_folded = (
+        inner.evaluate("n => !n.open")
+        and tree.locator("details.json-node details.json-node[open]").count() == 0
+    )
+    r.check(sub_folded, "« Corps JSON » : racine ouverte, sous-nœuds repliés à l'ouverture")
+    inner.locator(":scope > summary").click()
+    opened = inner.evaluate("n => n.open")
+    _ctx_mode(r, "Lecture groupée")
+    _ctx_mode(r, "Corps JSON")
+    tree = page.locator("#ctx .json-tree").first
+    kept = tree.locator("details.json-node details.json-node").first.evaluate("n => n.open")
+    r.check(opened and kept, "un sous-nœud déplié par un clic le reste au rendu suivant")
     _ctx_focus_shot(r, "42-contexte-corps-json")
     _ctx_mode(r, "Lecture groupée")
 
@@ -2339,7 +2433,7 @@ _SITE_NAV_PROBLEMS_JS = """() => {
   const items = [...nav.children].filter(e => e.checkVisibility());
   const links = items.filter(e => e.tagName === 'A').map(e => e.getAttribute('href'));
   const order = links.join(' ');
-  if (order !== '/ / /llm /rag /mcp /diagnostic /models') problems.push(`liens ${order}`);
+  if (order !== '/ / /llm /rag /mcp /diagnostic') problems.push(`liens ${order}`);
   if (!items.some(e => e.id === 'display-menu')) problems.push('« Affichage ▾ » absent');
   for (const e of [...items, document.getElementById('display-menu-toggle')]) {
     if (!e) continue;
@@ -5272,6 +5366,37 @@ def _forced_section(r: Run) -> None:
         and r.page.locator("#bricks .force-section article.brick-card").count() == 0,
         "D3 : la section ne porte que l'interrupteur des actions forcées",
     )
+    # Lot 1 of 2026-10-04: the « ? » by the title, the bricks' help popover, anchored to the
+    # button, still open after a rebuild of the panel (a brick switched by the API, so that no
+    # click light-dismisses it).
+    help_button = section.locator("#force-help")
+    help_button.click()
+    bubble = r.page.locator("#explain-force-section")
+    expect(bubble).to_be_visible(timeout=5000)
+    button_box, bubble_box = help_button.bounding_box(), bubble.bounding_box()
+    anchored = bool(button_box and bubble_box) and (
+        abs(bubble_box["y"] - (button_box["y"] + button_box["height"])) < 24
+        and bubble_box["x"] - 24 < button_box["x"] < bubble_box["x"] + bubble_box["width"]
+    )
+    r.check(
+        help_button.get_attribute("aria-label") == "Ce que font les actions forcées"
+        and bubble.inner_text().strip()
+        == "Le harnais déclenche lui-même l'outil, sans laisser le modèle décider."
+        and anchored,
+        "lot 1 : le « ? » d'« Actions forcées » ouvre son aide, ancrée sous le bouton",
+        f"{button_box} · {bubble_box}",
+    )
+    was = bool(r.bricks()["system_prompt"]["wanted"])
+    seq = r.ev.mark()
+    r.api("POST", "/api/intentions/brick", {"brick": "system_prompt", "wanted": not was})
+    r.ev.wait("bricks_changed", seq, timeout=10)
+    time.sleep(0.5)
+    r.check(
+        r.page.locator("#explain-force-section").evaluate("e => e.matches(':popover-open')"),
+        "lot 1 : l'aide d'« Actions forcées » reste ouverte après un nouveau rendu",
+    )
+    r.page.keyboard.press("Escape")
+    r.set_brick("Prompt système", was)
     r.show_forced(True)
     opened, _ = r.poll(lambda: details.get_attribute("open") is not None, 5)
     r.check(opened, "D3 : « Afficher les actions forcées » déplie la liste des outils")
@@ -5500,7 +5625,7 @@ def s_global_memory(r: Run) -> None:
     r.ev.wait("conversation_cleared", seq, timeout=10)
     r.send("Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.")
     r.check(
-        "Camille" in r.last_answer(),
+        "Pascal" in r.last_answer(),
         "après « Vider la conversation », le prénom revient de la mémoire globale",
         r.last_answer()[:120],
     )
@@ -5521,7 +5646,7 @@ def s_global_memory(r: Run) -> None:
     card.get_by_role("button", name="Écrire en mémoire : Mémoire globale").click()
     form = card.locator(".force-form")
     expect(form).to_be_visible(timeout=5000)
-    form.locator("input").fill("Camille anime la formation à Nantes.")
+    form.locator("input").fill("Pascal anime la formation à Nantes.")
     seq = r.ev.mark()
     form.get_by_role("button", name="Armer").click()
     r.ev.wait("armed_actions_changed", seq, lambda p: bool(p["actions"]), timeout=10)
@@ -5576,12 +5701,12 @@ def s_global_memory(r: Run) -> None:
     r.shot("20-memoire-tiroir")
 
     seq = r.ev.mark()
-    entries.first.locator("textarea").fill("L'utilisateur s'appelle Camille Martin.")
+    entries.first.locator("textarea").fill("L'utilisateur s'appelle Pascal Martin.")
     entries.first.get_by_role("button", name="Enregistrer l'entrée 1").click()
     r.ev.wait("memory_changed", seq, timeout=10)
     saved = _memory_file(r)
     r.check(
-        saved[0]["text"] == "L'utilisateur s'appelle Camille Martin."
+        saved[0]["text"] == "L'utilisateur s'appelle Pascal Martin."
         and saved[0]["source"] == "user",
         "modifier : memory.json réécrit, source user",
     )
@@ -6315,12 +6440,12 @@ def _mcp_lab(r: Run, errors: list[str]) -> None:
     # (1) The links: the shared bar's, whole, and the MCP card's.
     link = page.locator('.site-nav a[href="/mcp"]')
     r.check(
-        link.is_visible() and link.inner_text() == "Atelier MCP",
-        "barre commune : lien « Atelier MCP » visible, entier, vers /mcp",
+        link.is_visible() and link.inner_text() == "MCP",
+        "barre commune : lien « MCP » visible, entier, vers /mcp",
         link.inner_text() if link.count() else "absent",
     )
     ok, detail = _bar_fits(r)
-    r.check(ok, "barre commune entière avec six pages, sur une ligne, à 1600 × 1000", detail)
+    r.check(ok, "barre commune entière avec cinq onglets, sur une ligne, à 1600 × 1000", detail)
     r.check(
         page.locator('a.brick-workshop-link[href="/mcp"]').count() == 1,
         "la carte de la brique MCP renvoie à l'atelier MCP",
@@ -6331,9 +6456,11 @@ def _mcp_lab(r: Run, errors: list[str]) -> None:
     page.wait_for_url("**/mcp")
     expect(page.locator("body[data-mcp-ready]")).to_be_attached(timeout=10_000)
     r.check(
-        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "Atelier MCP"
+        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "MCP"
+        and page.title() == "WaveStack — Atelier MCP"
+        and page.locator("h1").inner_text().startswith("Atelier MCP")
         and not _site_nav_problems(r),
-        "/mcp : barre commune entière, « Atelier MCP » courant",
+        "/mcp : barre commune entière, « MCP » courant, titre « Atelier MCP »",
         str(_site_nav_problems(r)),
     )
     servers = page.locator("#mcp-servers .mcp-server")
@@ -8391,7 +8518,7 @@ def s_model_switch(r: Run) -> None:
     a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
     b_label = f"RÉSEAU · Faux fournisseur B (e2e) · {SECOND_MODEL}"
     r.launch("short_memory")
-    r.send("Je m'appelle Camille.")
+    r.send("Je m'appelle Pascal.")
     options = _picker_options(r)
     r.check(options.get(f"{a_label} (actif)") is True, "sélecteur : modèle actif marqué et grisé")
     r.check(
@@ -8464,10 +8591,10 @@ def s_model_switch(r: Run) -> None:
     r.check(ended["payload"]["status"] == "ok", "chargement terminé", ended["payload"]["status"])
     expect(page.locator("#model-indicator")).to_contain_text(SECOND_MODEL, timeout=10_000)
     r.wait_idle()
-    r.check("Je m'appelle Camille." in page.inner_text("#chat"), "la conversation est conservée")
+    r.check("Je m'appelle Pascal." in page.inner_text("#chat"), "la conversation est conservée")
 
     r.send("Comment je m'appelle ?")
-    r.check("Camille" in r.last_answer(), "le nouveau modèle reçoit l'historique", r.last_answer())
+    r.check("Pascal" in r.last_answer(), "le nouveau modèle reçoit l'historique", r.last_answer())
     r.check(r.fake_calls()[-1].get("model") == SECOND_MODEL, "l'appel part avec le nouveau modèle")
     lines = page.locator("#chat .model-switch-line").all_inner_texts()
     r.check(
@@ -8821,6 +8948,7 @@ def s_local_server(r: Run) -> None:
     )
     r.shot("23-serveur-local-llama-server")
     _braces_stay_text(r, "mode local")
+    _cache_not_reused(r)
 
     # Story 32: a reasoning cut by the harness stays one call; the harness's note sits
     # between the reflection and the answer. The LLM nu, so that the reasoning's reserve
@@ -9306,7 +9434,13 @@ def s_model_catalog(r: Run) -> None:
     page.wait_for_url(f"{r.stack.app_url}/models", timeout=10_000)
     expect(page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
     current = page.locator('.site-nav a[aria-current="page"]')
-    r.check(current.inner_text() == "Modèles", "page /models : lien « Modèles » courant")
+    # Lot 1 of 2026-10-04 (D2): « Modèles » out of the bar, « 🛠️ Diagnostic » current here.
+    r.check(
+        current.inner_text() == "🛠️ Diagnostic"
+        and page.locator('.site-nav a[href="/models"]').count() == 0,
+        "page /models : onglet « 🛠️ Diagnostic » courant, aucun onglet « Modèles »",
+        current.inner_text(),
+    )
     r.check(
         page.locator(".site-nav a", has_text="Diagnostic").get_attribute("href") == "/diagnostic",
         "page /models : le lien « Diagnostic » de la barre commune mène à /diagnostic",
@@ -9388,9 +9522,12 @@ def s_model_catalog(r: Run) -> None:
     page.locator(".site-nav a", has_text="Diagnostic").click()
     page.wait_for_url(f"{r.stack.app_url}/diagnostic", timeout=10_000)
     r.check(
-        page.locator('.site-nav a[aria-current="page"]').inner_text() == "Diagnostic"
-        and page.locator(".site-nav a", has_text="Modèles").get_attribute("href") == "/models",
-        "diagnostic : même barre commune, « Diagnostic » courant",
+        page.locator('.site-nav a[aria-current="page"]').inner_text() == "🛠️ Diagnostic"
+        and page.locator("#models-link").get_attribute("href") == "/models"
+        and page.title() == "WaveStack — Diagnostic et modèles"
+        and page.locator("h1").inner_text() == "Diagnostic et modèles",
+        "diagnostic : même barre commune, « 🛠️ Diagnostic » courant, titre « Diagnostic et "
+        "modèles », lien vers le tableau des modèles",
     )
     _diagnostic_search_shown(r)  # story 3 of 2026-09-30
 
@@ -9507,10 +9644,10 @@ def _models_page_language(r: Run) -> None:
         r.check(
             page.url.endswith("/models")
             and _html_lang(r) == "en"
-            and (home, current) == ("Workshop", "Models")
+            and (home, current) == ("Harness", "🛠️ Diagnostics")
             and page.locator("#language-picker-code").inner_text() == "EN",
             "/models : « English » choisi, la page se recharge en anglais (barre commune "
-            "« Workshop », « Models » courant, « EN »)",
+            "« Harness », « 🛠️ Diagnostics » courant, « EN »)",
             f"{page.url} · lang={_html_lang(r)} · {home} · {current}",
         )
     finally:
@@ -10006,19 +10143,26 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
     top = page.locator("#consumption")
     expect(top).to_be_visible(timeout=5000)
     text = top.inner_text()
-    label, _, amounts = text.partition("\n")
+    # Lot 1 of 2026-10-04: three lines, « Dépense estimée », « 💰 … $ + … $ », « 🍃 … g CO₂e »
+    # (two without a footprint measured).
+    lines = text.split("\n")
+    label, amounts = lines[0], lines[1] if len(lines) > 1 else ""
+    green = spend.get("impact_calls", 0) > 0
     title = top.get_attribute("title") or ""
     r.check(
         label == "Dépense estimée"
+        and amounts.startswith("💰 ")
         and amounts.count(" $") == 2
         and " + " in amounts
+        and len(lines) == (3 if green else 2)
+        and (not green or (lines[2].startswith("🍃 ") and lines[2].endswith(" g CO₂e")))
         and spend.get("calls", 0) >= 2
         and title.startswith("Dépense API estimée de la séance : entrée ")
         and ", sortie " in title
         and " € au taux de " in title
         and top.get_attribute("aria-label") == title,
-        "FinOps : « Dépense estimée » dans la barre de l'atelier, entrée + sortie, la phrase "
-        "entière "
+        "FinOps : « Dépense estimée » dans la barre de l'atelier, « 💰 entrée + sortie » sur sa "
+        "ligne (« 🍃 » sur la troisième), la phrase entière "
         "(euros compris) en infobulle et en nom accessible",
         f"{text!r} · {title} · {spend}",
     )
@@ -10095,9 +10239,9 @@ def _footprint_line(r: Run) -> tuple[str, str]:
 
 
 def _session_footprint(r: Run, what: str) -> None:
-    """GreenOps: the turn's footprint in its head, the session's in the top bar (its line when
-    it fits, always its sentence), the bar whole. Alone (no spend yet), the footprint is the
-    block's whole second line: it must show at 1600 px in normal mode."""
+    """GreenOps: the turn's footprint in its head, the session's in the top bar (lot 1 of
+    2026-10-04: its own line, « 🍃 … g CO₂e », always shown; its sentence in the tooltip), the
+    bar whole at 1600, 1440 and 1280 px, normal and projection mode."""
     page = r.page
     head = page.locator("#orch-scroll .turn-group .turn-group-figures").last.inner_text()
     r.check(
@@ -10109,18 +10253,22 @@ def _session_footprint(r: Run, what: str) -> None:
     spend = r.state().get("consumption_updated") or {}
     shown = page.locator("#consumption-footprint")
     grams = shown.inner_text() if shown.is_visible() else ""
+    lines = top.inner_text().split("\n")
     r.check(
         "Empreinte estimée de la séance : " in title
         and " g CO₂e" in title
         and top.get_attribute("aria-label") == title
         and spend.get("impact_calls", 0) >= 1
-        and (not grams or grams.endswith(" g CO₂e")),
-        f"GreenOps ({what}) : l'empreinte de la séance dans la barre de l'atelier (sa phrase en "
-        "infobulle, sa ligne quand elle tient)",
+        and grams.startswith("🍃 ")
+        and grams.endswith(" g CO₂e")
+        and lines[-1] == grams
+        and len(lines) == (3 if spend.get("calls") else 2),
+        f"GreenOps ({what}) : l'empreinte de la séance dans la barre de l'atelier, « 🍃 » sur sa "
+        "propre ligne (sa phrase en infobulle)",
         f"{top.inner_text()!r} · {title} · {spend.get('impact_calls')}",
     )
     # The bar whole with the session's block, at every width of the themes' check, in normal
-    # and in projection mode (the footprint's line then hides when it does not fit).
+    # and in projection mode, the footprint's line always shown.
     toggle = page.locator("#projection-toggle")
     visible: dict[str, bool] = {}
     try:
@@ -10135,10 +10283,10 @@ def _session_footprint(r: Run, what: str) -> None:
                 shown = page.locator("#consumption-footprint").is_visible()
                 visible[f"{width} {mode}"] = shown
                 r.check(
-                    ok,
-                    f"GreenOps ({what}) : barre entière avec l'empreinte, {width} × {height}, "
-                    f"{mode} (ligne d'empreinte {'visible' if shown else 'en infobulle'})",
-                    detail,
+                    ok and shown,
+                    f"GreenOps ({what}) : barre entière avec l'empreinte visible, "
+                    f"{width} × {height}, {mode}",
+                    detail if shown else "ligne d'empreinte masquée",
                 )
                 if projection:
                     _toggle_projection(page)
@@ -10147,12 +10295,11 @@ def _session_footprint(r: Run, what: str) -> None:
             _toggle_projection(page)
         page.set_viewport_size({"width": 1600, "height": 1000})
         time.sleep(0.3)
-    if not spend.get("calls"):  # the footprint alone: it fits the widest bar
-        r.check(
-            visible.get("1600 mode normal") is True,
-            f"GreenOps ({what}) : l'empreinte seule visible dans la barre à 1600 px (mode normal)",
-            str(visible),
-        )
+    r.check(
+        all(visible.values()),
+        f"GreenOps ({what}) : l'empreinte visible dans la barre à chaque largeur, dans chaque mode",
+        str(visible),
+    )
 
 
 def _gemini_footprint(r: Run, calls: list[dict]) -> None:
@@ -10193,14 +10340,17 @@ def _local_footprint(r: Run, calls: list[dict]) -> None:
     if installed and not spend.get("calls"):
         # Before any priced cloud call: « Empreinte estimée » over the footprint alone.
         label = r.page.locator("#consumption-label").inner_text()
-        amounts = r.page.locator("#consumption-amounts").inner_text()
+        amounts = r.page.locator("#consumption-footprint").inner_text()
+        whole = r.page.locator("#consumption").inner_text()
         r.check(
             label == "Empreinte estimée"
+            and amounts.startswith("🍃 ")
             and amounts.endswith(" g CO₂e")
-            and "$" not in r.page.locator("#consumption").inner_text()
-            and not amounts.lstrip().startswith("·"),
-            "GreenOps : sans dépense, « Empreinte estimée » sur l'empreinte seule (ni « $ », ni "
-            "« · » en tête)",
+            and "$" not in whole
+            and "💰" not in whole
+            and whole.split("\n") == [label, amounts],
+            "GreenOps : sans dépense, deux lignes, « Empreinte estimée » sur « 🍃 … g CO₂e » (ni "
+            "« $ », ni « · » en tête)",
             f"{label!r} · {amounts!r}",
         )
     notes = [c.get("impact_note_text") or "" for c in calls]
@@ -10364,7 +10514,7 @@ def s_priced_estimate(r: Run) -> None:
         spend = r.state().get("consumption_updated") or {}
         money = r.page.locator("#consumption-money").inner_text()
         r.check(
-            spend.get("approx") is True and money.startswith("≈ "),
+            spend.get("approx") is True and money.startswith("💰 ≈ "),
             "E135 : « ≈ » devant la dépense de la séance dans la barre de l'atelier",
             f"{money!r} · approx {spend.get('approx')}",
         )
@@ -10447,8 +10597,8 @@ def _llm_screen(r: Run) -> None:
     # (1) The link, whole in the shared bar (story 2 of 2026-09-30), which stays on one line.
     link = page.locator('.site-nav a[href="/llm"]')
     r.check(
-        link.is_visible() and link.inner_text() == "LLM nu",
-        "barre commune : lien « LLM nu » visible et entier",
+        link.is_visible() and link.inner_text() == "LLM",
+        "barre commune : lien « LLM » visible et entier",
         link.inner_text(),
     )
     ok, detail = _bar_fits(r)
@@ -10470,10 +10620,11 @@ def _llm_screen(r: Run) -> None:
         f"{_theme_attr(r)} · {_body_bg(r)}",
     )
     r.check(
-        page.locator("h1").inner_text() == "LLM nu : l'intérieur du modèle"
-        and page.locator("nav.site-nav a[aria-current=page]").inner_text() == "LLM nu"
+        page.locator("h1").inner_text() == "Atelier LLM : l'intérieur du modèle"
+        and page.title() == "WaveStack — Atelier LLM"
+        and page.locator("nav.site-nav a[aria-current=page]").inner_text() == "LLM"
         and not _site_nav_problems(r),
-        "/llm : titre, barre commune entière, « LLM nu » courant",
+        "/llm : titre « Atelier LLM », barre commune entière, « LLM » courant",
     )
 
     # (3) The fake cloud A: the tokenizer is at the provider.
@@ -11328,8 +11479,8 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     # (1) The link, whole in the shared bar (story 2 of 2026-09-30), which stays on one line.
     link = page.locator('.site-nav a[href="/rag"]')
     r.check(
-        link.is_visible() and link.inner_text() == "Atelier RAG",
-        "barre commune : lien « Atelier RAG » visible, entier, vers /rag",
+        link.is_visible() and link.inner_text() == "RAG",
+        "barre commune : lien « RAG » visible, entier, vers /rag",
         link.inner_text(),
     )
     ok, detail = _bar_fits(r)
@@ -11358,10 +11509,12 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         str(options),
     )
     r.check(
-        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "Atelier RAG"
+        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "RAG"
+        and page.title() == "WaveStack — Atelier RAG"
+        and page.locator("h1").inner_text().startswith("Atelier RAG")
         and page.locator("select[data-theme-picker]").count() == 1
         and not _site_nav_problems(r),
-        "/rag : barre commune entière, « Atelier RAG » courant, sélecteur de thème",
+        "/rag : barre commune entière, « RAG » courant, titre « Atelier RAG », sélecteur de thème",
     )
     generation = page.locator('#rag-chain [data-kind="generation"]')
     r.check(

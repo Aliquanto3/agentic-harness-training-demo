@@ -65,7 +65,7 @@ session:
   state:
     diagnostic: Startdiagnose läuft.
     turn: "Eine Runde läuft: Warten Sie ihr Ende ab oder stoppen Sie sie."
-    llm_lab: "Die Ansicht „Nacktes LLM“ erzeugt eine Antwort: Warten Sie ihr Ende ab oder stoppen Sie sie."
+    llm_lab: "Die LLM-Werkstatt erzeugt eine Antwort: Warten Sie ihr Ende ab oder stoppen Sie sie."
     rag_lab: "RAG-Werkstatt: Ausführung läuft; warten Sie ihr Ende ab oder stoppen Sie sie."
     mcp_lab: "MCP-Werkstatt: Austausch läuft; warten Sie sein Ende ab oder stoppen Sie ihn."
     awaiting: "Warten auf Ihre Freigabe: Erlauben oder lehnen Sie den Netzwerkaufruf ab."
@@ -110,7 +110,7 @@ session:
       replay: "Wiederholung: Die Runde startet wieder vom Zustand vor der wiederholten Runde, während der Cache der Engine diese Runde enthält."
       abandoned: "Die vorige Runde wurde nicht abgeschlossen (gestoppt, mit Fehler, blockiert oder überschritten): Ihre Ausgabe steht im Cache der Engine, nicht im Verlauf."
       subagent: "Der Sub-Agent hat den Cache der Engine belegt{why}."
-      llm: "Die Ansicht „Nacktes LLM“ hat den Cache der Engine belegt{why}."
+      llm: "Die LLM-Werkstatt hat den Cache der Engine belegt{why}."
     evicted:
       stateless: ": Diese Engine kann den Zustand des Hauptkontexts nicht sichern"
       failed: ": Das Sichern oder Wiederherstellen des Zustands des Hauptkontexts ist fehlgeschlagen"
@@ -439,10 +439,10 @@ session:
     sending_context: "Kontext wird an {provider} gesendet (≈ {tokens} Tokens)"
   # « {text} Détail : {detail} »: a content error, with the first line of its cause.
   detail: "{text} Detail: {detail}"
-  # Story 29: the « LLM nu » screen.
+  # Story 29: the LLM workshop (/llm).
   llm_lab:
-    content_invalid: "Texte der Ansicht „Nacktes LLM“ unlesbar (content/llm_lab.yaml): Korrigieren Sie die Datei und laden Sie die Seite dann neu."
-    content_invalid_effect: Die Seite „Nacktes LLM“ wird ohne ihre Texte weiter ausgeliefert.
+    content_invalid: "Texte der LLM-Werkstatt unlesbar (content/llm_lab.yaml): Korrigieren Sie die Datei und laden Sie die Seite dann neu."
+    content_invalid_effect: Die Seite „LLM-Werkstatt“ wird ohne ihre Texte weiter ausgeliefert.
     tokenizer:
       none: "Kein aktives Modell: kein Tokenizer zu zeigen."
       cloud: "Der Tokenizer von {model} liegt bei {provider}, nicht auf diesem Arbeitsplatz: WaveStack kann den Text nicht wie er zerlegen. Es schätzt die Anzahl der Tokens anhand der Zeichen, ohne einen einzigen Chip."
@@ -451,7 +451,7 @@ session:
       exact: "Exakte Zerlegung durch {how}."
       exact_loaded: Exakte Zerlegung durch den Tokenizer des geladenen Modells.
     tokenize_failed: Die Zerlegung in Tokens ist fehlgeschlagen.
-    nothing_changed: "Es hat sich nichts geändert; die Werkstatt und die Ansicht „Nacktes LLM“ bleiben nutzbar."
+    nothing_changed: "Es hat sich nichts geändert; die Harness-Werkstatt und die LLM-Werkstatt bleiben nutzbar."
     no_model: kein aktives Modell
     dimensions_cloud: "Dimensionen unbekannt: Das Modell läuft bei {provider}, der sie nicht in seiner API veröffentlicht."
     dimensions_unknown: Diese Engine nennt die Dimensionen des Modells nicht.
@@ -483,9 +483,9 @@ session:
     reading: "Lesen des Prompts ({tokens} Tokens)"
     sending: "Prompt wird an {provider} gesendet (≈ {tokens} Tokens)"
     too_long: "Prompt zu lang: {tokens} Tokens bei {usable} nutzbaren (Fenster von {window}, davon {reserve} für die Antwort reserviert). Kürzen Sie ihn: Der Aufruf wird nicht gesendet."
-    interrupted: Die Generierung der Ansicht „Nacktes LLM“ wurde durch einen Fehler unterbrochen.
-    still_usable: Die Ansicht „Nacktes LLM“ und die Werkstatt bleiben nutzbar.
-    end_untraced: Das Ende der Generierung der Ansicht „Nacktes LLM“ konnte nicht protokolliert werden.
+    interrupted: Die Generierung der LLM-Werkstatt wurde durch einen Fehler unterbrochen.
+    still_usable: Die LLM-Werkstatt und die Harness-Werkstatt bleiben nutzbar.
+    end_untraced: Das Ende der Generierung der LLM-Werkstatt konnte nicht protokolliert werden.
     back_to_idle: "Die Sitzung kehrt in den Wartezustand zurück; die Werkstatt bleibt nutzbar."
     stops: "Die Generierung der Ansicht stoppt; WaveStack bleibt nutzbar."
   # Story 30: the RAG workshop.
@@ -502,7 +502,7 @@ session:
       message: Ein von der RAG-Werkstatt geladenes Modell konnte nicht geschlossen werden.
       effect: "Es wird verworfen; sein Speicherplatz wird freigegeben."
     no_embedding: Es ist kein Embedding-Modell deklariert.
-    embedding_absent: "Embedding-Modell fehlt ({names} in {folder}). Laden Sie es über die RAG-Karte der Werkstatt herunter."
+    embedding_absent: "Embedding-Modell fehlt ({names} in {folder}). Laden Sie es über die RAG-Karte der Werkstatt herunter. Oder folgen Sie docs/installation.md, Abschnitt „Modèles du RAG“ (auf Französisch)."
     noun:
       embedding: Embedding-Modell
       reranking: Reranking-Modell
@@ -510,7 +510,7 @@ session:
     to_load: "das {noun} {model}"
     fastembed_unavailable: fastembed nicht verfügbar.
     no_reranker: Es ist kein Reranking-Modell deklariert.
-    reranker_absent: "Reranking-Modell fehlt ({names} in {folder}): Laden Sie es über die RAG-Karte der Werkstatt herunter (Unteroption „Reranking“). Der Aufbau des Kontexts behält die Reihenfolge der Suche."
+    reranker_absent: "Reranking-Modell fehlt ({names} in {folder}): Laden Sie es über die RAG-Karte der Werkstatt herunter (Unteroption „Reranking“). Der Aufbau des Kontexts behält die Reihenfolge der Suche. Oder folgen Sie docs/installation.md, Abschnitt „Modèles du RAG“ (auf Französisch)."
     import:
       label: Import
       budget_label: Budget
@@ -932,7 +932,7 @@ rag_lab:
     no_gap: "Kein Rangunterschied zwischen den gemeinsamen Auszügen."
     other_cut: "Die beiden Ketten zerlegen den Korpus unterschiedlich: Vergleich nach Dokument."
 
-# The « LLM nu » screen (story 29, `session/llm_lab.py`): its figures and its diagram.
+# The LLM workshop (story 29, `session/llm_lab.py`): its figures and its diagram.
 llm_lab:
   count:
     billion:
