@@ -52,11 +52,12 @@ def test_story_28_procedure_no_longer_reads_releases_latest():
     assert "lot K, point 8" in text.split("## Spec Change Log")[1].split("##")[0]
 
 
-# Story 28 rewrote the README, the palier 2 guide and its cahier from the older procedure: the
-# same correction there, and the three procedures stay word for word the same.
+# Story 28 rewrote the README (since moved to docs/modeles.md), the palier 2 guide and its cahier
+# from the older procedure: the same correction there, and the three procedures stay word for
+# word the same.
 IMPLEMENTATION = ARTIFACTS / "implementation-artifacts"
 PALIER_2 = {
-    "README": config.repo_root() / "README.md",
+    "modeles": config.repo_root() / "docs" / "modeles.md",
     "guide": IMPLEMENTATION / "guide-test-pc-palier-2.md",
     "cahier": IMPLEMENTATION / "cahier-recette-palier-2.html",
 }
@@ -78,4 +79,4 @@ def test_palier_2_procedures_take_the_first_release_with_the_windows_archive():
         assert "releases/latest" not in install, name
         assert "/releases?per_page=10" in install, name
         assert f"$_.assets.name -match {ARCHIVE} }} | Select-Object -First 1" in install, name
-    assert procedures["guide"] == procedures["README"] == procedures["cahier"]
+    assert procedures["guide"] == procedures["modeles"] == procedures["cahier"]
