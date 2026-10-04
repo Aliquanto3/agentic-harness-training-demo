@@ -3788,11 +3788,16 @@ def _focus_back_on_the_card(r: Run) -> None:
 
 def _h1_block_cleared(r: Run) -> None:
     """Finition V1 (#16): after « Vider la conversation », the strip no longer says H1
-    blocked (the red line of a hidden turn)."""
+    blocked (the red line of a hidden turn), which it said just before."""
+    node = r.page.locator('#schema .arch-hook[data-component="hooks.h1"]')
+    r.check(
+        node.count() == 1 and "is-blocked" in (node.get_attribute("class") or ""),
+        "#16 : H1 dit « ✖ a bloqué » avant « Vider la conversation »",
+        (node.get_attribute("class") or "") if node.count() else "absent",
+    )
     seq = r.ev.mark()
     r.page.click("#clear-conversation")
     r.ev.wait("conversation_cleared", seq, timeout=10)
-    node = r.page.locator('#schema .arch-hook[data-component="hooks.h1"]')
     gone, _ = r.poll(
         lambda: node.count() == 1 and "is-blocked" not in (node.get_attribute("class") or ""), 5
     )
@@ -5719,6 +5724,9 @@ def s_rag(r: Run) -> None:
     seq = r.ev.mark()
     card.get_by_role("button", name=re.compile("Télécharger le modèle d'embedding")).click()
     r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
+    # The `.part` open first (the answer's headers received): its removal is what is checked.
+    started, _ = r.poll(lambda: bool(list((r.stack.data_dir / "models").rglob("*.part"))), 10)
+    r.check(started, "#20 : le fichier .part existe avant « Arrêter »")
     r.api("POST", "/api/intentions/stop")
     stopped = r.ev.wait(
         "effect_applied", seq, lambda p: p["effect"] == "model_download_stopped", 20
@@ -9848,21 +9856,27 @@ def s_reasoning_dropped(r: Run) -> None:
         top = rail.locator(".turn-step:not(.is-sub) .turn-step-line", has_text=title)
         child = rail.locator(".turn-step.is-sub", has_text=title)
         shown, _ = r.poll(lambda: top.count() >= 1 and child.count() >= 1, 10)
+        figures = [x.first.inner_text() if x.count() else "" for x in (top, child)]
         r.check(
-            shown and "historique réécrit" in top.first.inner_text(),
+            shown and all("historique réécrit" in f for f in figures),
             "#35 : ligne « Raisonnement jeté par le fournisseur » et figure « historique "
             "réécrit », au tour et chez le sous-agent",
-            f"tour {top.count()} · sous-agent {child.count()}",
+            " · ".join(f[:100] for f in figures),
         )
         top.first.click()
         body = top.first.locator("xpath=following-sibling::div[contains(@class,'turn-step-body')]")
-        expect(body).to_contain_text(main[0]["payload"]["message_text"], timeout=5000)
-        r.check(True, "#35 : l'étape dépliée donne la phrase du harnais")
+        said = main[0]["payload"]["message_text"] if main else ""
+        unfolded, _ = r.poll(lambda: bool(said) and said in (body.text_content() or ""), 5)
+        r.check(
+            unfolded,
+            "#35 : l'étape dépliée donne la phrase du harnais",
+            (body.text_content() or "")[:200] if body.count() else "aucun corps",
+        )
         page.click("#event-log-head")
         try:
             expect(page.locator("#event-log-list")).to_be_visible(timeout=5000)
             rows = [x for x in page.evaluate(_LOG_ROWS_JS) if x["kind"] == "reasoning_dropped"]
-            path = main[0]["payload"]["path"]
+            path = main[0]["payload"]["path"] if main else "?"
             r.check(
                 rows
                 and all(x["summary"] == f"historique réécrit · {path}" for x in rows)
@@ -9967,6 +9981,7 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
         f"{text!r} · {title} · {spend}",
     )
     cap = r.state().get("max_session_usd")
+    cap_text = f"{cap:g}".replace(".", ",") if cap is not None else "?"
     # The reset sentence counts the totals shown (spend, footprint), never the cap's.
     reset = (
         "Seul un relancement de WaveStack remet ces totaux à zéro."
@@ -9976,7 +9991,8 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
     r.check(
         cap is not None
         and "Plafond de dépense de la séance : " in title
-        and " $ ; une fois le plafond atteint, aucun appel payant ne part." in title
+        and f" $ sur {cap_text} $ ; une fois le plafond atteint, aucun appel payant ne part."
+        in title
         and title.endswith(reset),
         "Finition V1 (#27) : le plafond de la séance dans l'infobulle de la dépense, "
         "et la phrase de remise à zéro au nombre des totaux affichés",
@@ -10002,7 +10018,6 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
     line = page.locator("#cloud-cap")
     expect(line).to_be_visible(timeout=20_000)
     said = line.inner_text()
-    cap_text = f"{cap:g}".replace(".", ",") if cap is not None else "?"
     r.check(
         said.startswith("Plafond de dépense de la séance : ")
         and f" $ dépensés sur {cap_text} $." in said

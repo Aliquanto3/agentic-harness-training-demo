@@ -1,18 +1,21 @@
 """The scenarios with Qwen3.5-2B, without a browser (finition V1, entries #4 to #6).
 
-Launches WaveStack in its own console (port 8420, the user's data dir: save `settings.json`
-and `memory.json` first, the session saves the language, the model and the demo memory there),
+Launches WaveStack in its own console (port 8420, the user's data dir: the session saves the
+language, the model and the demo memory there, so `settings.json` and `memory.json` are first
+copied to `*.avant-recette-<date>` beside them, to put back by hand once WaveStack is stopped),
 selects Qwen3.5-2B and French, then plays each scenario's prompts by the API, as the trainer
 would; every event read from `/api/stream`, any H5 validation allowed. Writes
-`recette-scenarios-2b.json` in the current folder. `--attach`: use a WaveStack already
-running. First argument, optional: the scenarios, comma-separated. Needs about 4 GB of free
-RAM (the 2B loaded): close Edge, Teams and Outlook first.
+`recette-scenarios-2b.json` in the current folder (ignored by git). `--attach`: use a WaveStack
+already running. First argument, optional: the scenarios, comma-separated. Needs about 4 GB
+of free RAM (the 2B loaded): close Edge, Teams and Outlook first. The server is left running
+(its pid printed), the 2B loaded.
 
     uv run python tools/recette_scenarios_2b.py
 """
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -24,7 +27,8 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 BASE = "http://127.0.0.1:8420"
-MODEL = str(Path(os.environ["LOCALAPPDATA"]) / "WaveStack" / "models" / "Qwen3.5-2B-Q4_K_M.gguf")
+DATA = Path(os.environ["LOCALAPPDATA"]) / "WaveStack"  # `config.data_dir()`, without the override
+MODEL = str(DATA / "models" / "Qwen3.5-2B-Q4_K_M.gguf")
 SCENARIOS = (
     sys.argv[1].split(",")
     if len(sys.argv) > 1 and not sys.argv[1].startswith("-")
@@ -39,13 +43,24 @@ lock = threading.Lock()
 
 
 def listen() -> None:
+    """The journal's envelopes, each once: a reconnection resumes after the last `seq` read
+    (`Last-Event-ID`), and `server_instance` (no `seq`, no `kind`) is skipped."""
+    last = -1
     while True:
+        headers = {"Last-Event-ID": str(last)} if last >= 0 else {}
         try:
-            with httpx.stream("GET", BASE + "/api/stream", timeout=None, trust_env=False) as r:
+            with httpx.stream(
+                "GET", BASE + "/api/stream", headers=headers, timeout=None, trust_env=False
+            ) as r:
                 for line in r.iter_lines():
-                    if line.startswith("data:"):
-                        with lock:
-                            events.append(json.loads(line[5:]))
+                    if not line.startswith("data:"):
+                        continue
+                    envelope = json.loads(line[5:])
+                    if "seq" not in envelope or envelope["seq"] <= last:
+                        continue
+                    last = envelope["seq"]
+                    with lock:
+                        events.append(envelope)
         except Exception:  # noqa: BLE001 - reconnect
             time.sleep(1)
 
@@ -113,6 +128,9 @@ def launch() -> subprocess.Popen:
 def play(scenario_id: str, prompts: list[str]) -> dict:
     r = client.post("/api/intentions/scenario", json={"scenario_id": scenario_id})
     out = {"scenario": scenario_id, "start_status": r.status_code, "prompts": []}
+    if r.status_code != 200:  # never its prompts under the previous scenario's bricks
+        out["start_body"] = r.text[:300]
+        return out
     time.sleep(2)
     wait_idle()
     for i, prompt in enumerate(prompts):
@@ -129,6 +147,9 @@ def play(scenario_id: str, prompts: list[str]) -> dict:
             continue
         ended = wait(m, "turn_ended")
         took = time.monotonic() - started
+        if ended is None:  # « Arrêter », then the next prompt (status « timeout »)
+            client.post("/api/intentions/stop")
+            wait(m, "turn_ended", timeout=60)
         calls = [e for e in since(m, "model_call_ended")]
         main_calls = [e["payload"] for e in calls if e.get("context_id") == "main"]
         tools = [(e.get("context_id"), e["payload"].get("tool")) for e in since(m, "tool_started")]
@@ -139,7 +160,7 @@ def play(scenario_id: str, prompts: list[str]) -> dict:
         text = "".join(
             e["payload"].get("text", "")
             for e in since(m, "model_delta")
-            if e.get("context_id") == "main"
+            if e.get("context_id") == "main" and e["payload"].get("channel") == "text"
         )
         out["prompts"].append(
             {
@@ -167,7 +188,19 @@ def play(scenario_id: str, prompts: list[str]) -> dict:
     return out
 
 
+def backup() -> None:
+    """`settings.json` and `memory.json` copied beside them before the session writes them."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    for name in ("settings.json", "memory.json"):
+        source = DATA / name
+        if source.exists():
+            copy = source.with_name(f"{name}.avant-recette-{stamp}")
+            shutil.copy2(source, copy)
+            print("sauvegarde :", copy, flush=True)
+
+
 def main() -> int:
+    backup()
     threading.Thread(target=listen, daemon=True).start()
     proc = None if "--attach" in sys.argv else launch()
     time.sleep(2)
@@ -182,8 +215,12 @@ def main() -> int:
         n = mark()
         r = client.post("/api/intentions/select_model", json={"kind": "file", "ref": MODEL})
         print("select_model :", r.status_code, r.text[:200])
-        ended = wait(n, "model_load_ended", timeout=600)
-        print("chargement :", (ended or {}).get("payload", {}).get("status"))
+        ended = wait(n, "model_load_ended", timeout=600) if r.status_code == 200 else None
+        loaded = (ended or {}).get("payload", {}).get("status")
+        print("chargement :", loaded)
+        if loaded != "ok":  # never the scenarios on another model, said as the 2B's
+            print("le 2B n'est pas chargé : recette arrêtée")
+            return 1
     wait_idle()
     content = yaml.safe_load((REPO / "content" / "scenarios.yaml").read_text(encoding="utf-8"))
     results = []

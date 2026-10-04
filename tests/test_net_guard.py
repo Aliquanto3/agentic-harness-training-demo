@@ -341,6 +341,9 @@ def refused_with(key, fn, *args):
             assert refused_with("net.host_refused", socket.getnameinfo, ("198.51.100.7", 443), 0)
             assert refused_with("net.host_refused", sys.audit, "socket.getnameinfo",
                                 ("example.org", 443))
+            # A socket address that is no tuple (or an empty one) is refused, never read.
+            assert refused_with("net.host_refused", sys.audit, "socket.getnameinfo", "x")
+            assert refused_with("net.host_refused", sys.audit, "socket.getnameinfo", ())
             """,
             id="reverse-lookup-off-list",
         ),
