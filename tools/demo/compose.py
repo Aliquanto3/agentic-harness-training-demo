@@ -98,6 +98,8 @@ class Film:
                 path = self.frames / sequence / entry["file"]
                 self.entries[path] = entry
                 paths.append(path)
+        if not paths:
+            sys.exit(f"Aucune capture pour {sequence}/{name} : relancez drive.py.")
         return paths
 
     def add(self, img: Image.Image, seconds: float) -> None:
@@ -109,7 +111,9 @@ class Film:
             caption(img, step, text, icon)
             for box, *rest in highlights:
                 if box == ANSWER:  # measured by drive.py on this very screenshot
-                    box = self.entries[path]["answer"]
+                    box = self.entries[path].get("answer")
+                    if box is None:  # no model bubble in view
+                        continue
                 highlight(img, box, *rest)
             self.add(img, total / len(paths))
 
@@ -250,6 +254,8 @@ def render(film: Film, work: Path) -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit("usage : compose.py <dossier des captures>")
     frames = Path(sys.argv[1])
     film = build(frames)
     render(film, frames / "composed")

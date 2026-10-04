@@ -2,20 +2,22 @@
 
 [← Retour au README](../README.md)
 
-WaveStack fait tourner un petit modèle local (un fichier GGUF), le modèle d'un serveur que vous
-avez lancé (Ollama, llama-server) ou un modèle cloud. Pour obtenir le modèle recommandé, voir
+WaveStack utilise au choix un petit modèle local (un fichier GGUF), le modèle d'un serveur que
+vous avez lancé (Ollama, llama-server) ou un modèle cloud. Pour obtenir le modèle recommandé, voir
 [l'installation](installation.md#le-modèle-local).
 
-- [Changer de modèle](#changer-de-modèle)
+- [Changer de modèle](#changer-de-modèle), et le [budget mémoire](#budget-mémoire)
 - [Fenêtre de contexte](#fenêtre-de-contexte)
 - [Utiliser un serveur déjà lancé (Ollama, llama-server)](#utiliser-un-serveur-déjà-lancé-ollama-llama-server)
-- [Modèles cloud](#modèles-cloud)
+- [Modèles cloud](#modèles-cloud) : [clé, test et choix](#clé-test-et-choix),
+  [particularités des fournisseurs](#particularités-des-fournisseurs),
+  [ajouter ou modifier un modèle](#ajouter-ou-modifier-un-modèle)
 
 ## Changer de modèle
 
 Le modèle se change sans relancer WaveStack, entre deux tours (pas pendant un tour ni une
 validation) :
-- **Barre haute** : le sélecteur « Changer de modèle… », à droite de l'indicateur de modèle,
+- **Barre du bas** : le sélecteur « Changer de modèle… », à droite de l'indicateur de modèle,
   liste les fichiers GGUF du poste, les modèles d'un serveur local déjà lancé et les modèles
   cloud déclarés (grisés sans clé). Un modèle cloud affiche d'abord son avertissement. « Autre
   fichier ou clé API… » ouvre le diagnostic.
@@ -46,7 +48,7 @@ chargement : un modèle Ollama dont le fichier est introuvable, un gabarit sans 
 raisonnement qui contient `<think>` (le modèle raisonne peut-être de lui-même, WaveStack ne sait
 ni l'allumer ni l'éteindre).
 
-Pendant le chargement, la barre haute et la Vue humain affichent « Chargement du modèle… » avec
+Pendant le chargement, la barre du bas et la Vue humain affichent « Chargement du modèle… » avec
 un chronomètre ; l'envoi est désactivé. La conversation est conservée : l'historique est
 reconstruit à chaque tour avec le gabarit du nouveau modèle, et « Rejouer le dernier prompt »
 le fait jouer par le nouveau modèle. Une ligne « Modèle : … » marque dans la Vue humain le
@@ -61,7 +63,9 @@ Le choix est mémorisé pour les lancements suivants une fois le chargement réu
 modèle ne se charge pas (fichier incompatible, erreur), WaveStack recharge le modèle précédent et
 l'explique.
 
-**Budget mémoire.** Un seul modèle est en mémoire à la fois : l'ancien est libéré avant le
+### Budget mémoire
+
+Un seul modèle est en mémoire à la fois : l'ancien est libéré avant le
 chargement du nouveau (et avant la sonde d'un fichier jamais chargé). Avant de libérer quoi que
 ce soit, WaveStack estime le coût du nouveau modèle (mémoire mesurée par la sonde, sinon taille
 du fichier, plus son cache de contexte et une marge) et refuse le changement, chiffres à
@@ -121,7 +125,7 @@ load_margin_mb = 256     # marge ajoutée au coût estimé de chaque modèle loc
 ## Fenêtre de contexte
 
 La fenêtre de contexte vaut **4 096 tokens par défaut** : les scénarios sont conçus pour elle.
-Elle se règle dans la barre haute, par le bouton « Fenêtre 4 096 ▾ » juste après la jauge, à
+Elle se règle dans la barre du bas, par le bouton « Fenêtre 4 096 ▾ » juste après la jauge, à
 **4 096, 8 192 ou 16 384 tokens** (par exemple quand les trois serveurs MCP en lazy loading font
 déborder 4 096 tokens après le chargement d'une documentation). Le panneau donne, pour chaque
 choix et pour le modèle actif, ce que la fenêtre coûte :
@@ -179,7 +183,7 @@ lancement la mémoire de ce contexte entier, quelle que soit la longueur des con
 plusieurs emplacements (`-np N`), `-c` est partagé entre eux : gardez `-np 1`. Le diagnostic
 signale un contexte trop grand et conseille la commande à relancer. Au diagnostic, chaque
 modèle servi apparaît avec l'étiquette « Local », son serveur, son adresse et sa mémoire ;
-« Choisir » le charge, comme un fichier. Il est aussi dans le sélecteur de la barre haute
+« Choisir » le charge, comme un fichier. Il est aussi dans le sélecteur de la barre du bas
 (« Local · Ollama · … », « Local · llama-server · … »). Un modèle servi n'est jamais choisi
 d'office ; un choix mémorisé est repris au lancement si le serveur le sert encore. Les modèles
 « cloud » d'Ollama (`…-cloud`), qui tournent chez ollama.com, ne sont pas listés.
@@ -261,6 +265,8 @@ Si ça bloque encore :
 - Gardez `llama-server.exe` avec ses DLL : ne le copiez pas seul, et ne le décompressez pas dans
   `Program Files`.
 
+### Ce que reçoit le serveur
+
 **Le harnais construit toujours le texte.** Le gabarit de conversation du modèle est appliqué
 par WaveStack, comme pour un fichier : le serveur reçoit le texte déjà rendu, jamais des
 messages au format chat. L'échantillonnage est celui du modèle en processus (température 0,7,
@@ -317,6 +323,8 @@ Mistral (`mistral-small-latest`), Gemini (`gemini-3.5-flash-lite`) et Gemma
 (`gemma-4-26b-a4b-it`, tous deux sur Google AI Studio) sont déclarés dans `wavestack.toml` ;
 NVIDIA et OpenRouter y figurent en exemples commentés, avec leur avertissement.
 
+### Clé, test et choix
+
 1. **Clé.** Créez une clé API dans la console du fournisseur, puis collez-la sur la page de
    diagnostic, dans la ligne du modèle (« Enregistrer la clé »). Elle est stockée sur ce poste
    seulement (`api_keys.json` dans le dossier de données), jamais affichée ni tracée, et envoyée au
@@ -352,6 +360,8 @@ NVIDIA et OpenRouter y figurent en exemples commentés, avec leur avertissement.
    que le harnais ne voit plus) ; « Utiliser ce modèle » le confirme. Le choix est repris aux
    lancements suivants, sans nouvel avertissement. Choisi après le chargement d'un modèle, il le
    remplace sans relance (voir [Changer de modèle](#changer-de-modèle)).
+
+### Particularités des fournisseurs
 
 **Fenêtre de Groq.** Son quota gratuit (8 000 tokens par minute) limite la fenêtre à 4 000 tokens,
 dont 1 536 réservés à la réponse : il reste **2 464 tokens utilisables**. Les scénarios lourds
@@ -440,14 +450,20 @@ raisonnement. Un compte sans crédit est refusé avec « le crédit du compte es
 ajoutez du crédit dans la console OpenAI.
 GPT-6.1 Sol figure en commentaire dans `wavestack.toml` (il raisonne toujours).
 
-**Revenir au modèle local.** Choisissez un fichier GGUF dans le sélecteur de la barre haute, ou
+### Revenir au modèle local
+
+Choisissez un fichier GGUF dans le sélecteur de la barre du bas, ou
 cliquez sur « Choisir » en face d'un fichier sur la page de diagnostic : le modèle local est
 rechargé sans relance, conversation gardée.
 
-**Hôtes à autoriser** sur le réseau de l'entreprise : `api.groq.com`, `api.mistral.ai`,
+### Hôtes à autoriser
+
+Sur le réseau de l'entreprise : `api.groq.com`, `api.mistral.ai`,
 `generativelanguage.googleapis.com`, `api.anthropic.com` et `api.openai.com` (plus l'hôte de tout modèle ajouté dans `settings.json`).
 
-**Ajouter un modèle.** Les exemples NVIDIA et OpenRouter de `wavestack.toml` sont en TOML :
+### Ajouter ou modifier un modèle
+
+Les exemples NVIDIA et OpenRouter de `wavestack.toml` sont en TOML :
 recopiez-en les champs, en JSON, dans `settings.json` (dossier de données, WaveStack arrêté). Une
 entrée nouvelle doit être complète :
 

@@ -9,7 +9,8 @@ administrateur.
 ## Environnement de développement
 
 Installez WaveStack comme indiqué dans [l'installation détaillée](docs/installation.md), puis,
-depuis le dossier du dépôt :
+depuis le dossier du dépôt, installez les extras (leurs tests en ont besoin), vérifiez le lint et
+le format, et lancez les tests :
 
 ```bash
 uv sync --extra compression --extra rag-alt --extra greenops   # leurs tests
@@ -19,10 +20,11 @@ uv run pytest
 ```
 
 Les tests marqués `model` nécessitent un vrai fichier GGUF sur le poste ; ils sont sautés par
-défaut. Pour les jouer : `uv run pytest -m model`, avec `WAVESTACK_TEST_GGUF` (chemin d'un
-fichier GGUF) et, pour ceux du RAG, `WAVESTACK_TEST_MODELS_DIR` (le dossier `models` de
-WaveStack, par exemple `%LOCALAPPDATA%\WaveStack\models`). Les tests ne touchent jamais au
-vrai dossier de données : chacun a le sien, temporaire.
+défaut. Pour les jouer : `uv run pytest -m model`, en définissant les variables d'environnement
+`WAVESTACK_TEST_GGUF` (chemin d'un fichier GGUF) et, pour ceux du RAG,
+`WAVESTACK_TEST_MODELS_DIR` (le dossier `models` de WaveStack, par exemple
+`%LOCALAPPDATA%\WaveStack\models`). Les tests ne touchent jamais au vrai dossier de données :
+chacun a le sien, temporaire.
 
 Les tests de bout en bout rejouent l'interface dans un navigateur, avec un faux modèle : voir
 [tools/e2e/README.md](tools/e2e/README.md).
@@ -53,16 +55,17 @@ fois sur un poste relié au réseau `uv run python scripts/snapshot_mcp.py` : il
 outils dans `content/mcp_snapshots/`. En séance, à la connexion d'un serveur public qui a un
 instantané, WaveStack compare sa liste d'outils à l'instantané : si elle s'en écarte de plus de
 `[mcp] snapshot_drift_threshold` (`wavestack.toml`, 0.2 soit 20 % : outils ajoutés ou retirés,
-ou poids de leur documentation), la carte MCP l'affiche en le nommant ; la jauge prévue pour
-ses scénarios peut alors ne plus tenir, relancez le script pour mettre l'instantané à jour.
+ou poids de leur documentation), la carte MCP l'affiche en le nommant (voir le
+[programme de formation](docs/guide.md#programme-de-formation)) : relancez alors le script pour
+mettre l'instantané à jour.
 
 ## Reconstruire les index du RAG
 
-Après un changement de `[rag.embedding]` ou de `[rag] chunk_max_chars`, ou du corpus,
+Après un changement du corpus, de `[rag.embedding]` ou de `[rag] chunk_max_chars`,
 reconstruisez les trois index livrés avec le dépôt : voir
 [Brique RAG, corpus et index](docs/guide.md#brique-rag-corpus-et-index).
 
 ## Régénérer le GIF de démonstration
 
-Le GIF et la vidéo du README (`docs/assets/wavestack-demo.gif` et `.mp4`) se régénèrent quand
+Le GIF et la vidéo du README (`docs/assets/wavestack-demo.gif` et `.mp4`) sont à régénérer quand
 l'interface change : voir [tools/demo/README.md](tools/demo/README.md).

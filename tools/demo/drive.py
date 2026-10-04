@@ -26,6 +26,7 @@ class Recorder:
         folder.mkdir(parents=True, exist_ok=True)
         for old in folder.glob("*.png"):
             old.unlink()
+        (folder / "manifest.json").unlink(missing_ok=True)  # never a stale one after a crash
 
     def shot(self, phase: str) -> None:
         path = self.folder / f"{len(self.manifest):04d}.png"
@@ -64,14 +65,19 @@ def answer_box(page: Page) -> list[float] | None:
           if (!bubbles.length || !chat) return null;
           const b = bubbles[bubbles.length - 1].getBoundingClientRect();
           const c = chat.getBoundingClientRect();
-          return [b.left, Math.max(b.top, c.top), b.right, Math.min(b.bottom, c.bottom)];
+          const top = Math.max(b.top, c.top), bottom = Math.min(b.bottom, c.bottom);
+          return top < bottom ? [b.left, top, b.right, bottom] : null;  // scrolled out of view
         }"""
     )
 
 
-def session_state() -> str:
+def api_state() -> dict:
     with urllib.request.urlopen(BASE + "/api/state", timeout=5) as response:
-        return json.load(response)["session_state"]["state"]
+        return json.load(response)
+
+
+def session_state() -> str:
+    return (api_state().get("session_state") or {}).get("state", "")
 
 
 def turn(rec: Recorder, phase: str, timeout: float = 300) -> None:
@@ -80,9 +86,13 @@ def turn(rec: Recorder, phase: str, timeout: float = 300) -> None:
     while session_state() == "idle" and time.time() - start < 10:
         rec.shot(phase)
         time.sleep(0.2)
+    if session_state() == "idle":
+        sys.exit(f"{phase} : le tour n'a pas démarré (message refusé ?)")
     while session_state() != "idle" and time.time() - start < timeout:
         rec.shot(phase)
         time.sleep(0.5)
+    if session_state() != "idle":
+        sys.exit(f"{phase} : le tour dure encore après {timeout} s")
     rec.hold(phase + "_done", 2.5)
 
 
@@ -120,6 +130,13 @@ def llm_sequence(page: Page, folder: Path) -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit("usage : drive.py <dossier des captures>")
+    state = api_state()
+    if (state.get("session_state") or {}).get("language") != "fr":
+        sys.exit("WaveStack doit tourner en français (les libellés cherchés sont en français).")
+    if session_state() != "idle":
+        sys.exit("WaveStack doit avoir un modèle chargé et attendre (état « idle »).")
     frames = Path(sys.argv[1])
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel="chrome")

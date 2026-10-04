@@ -69,8 +69,15 @@ def _install_procedure(path) -> str:
     return text[start : text.index("Expand-Archive", start)]
 
 
+def test_the_shipped_llama_server_procedure_is_where_the_comparison_reads_it():
+    # Only the recette documents may be absent (an archive without `_bmad-output`): a moved
+    # docs/modeles.md must fail here, not silently skip the comparison below.
+    assert "$px = @{}   # erreur 407" in PALIER_2["modeles"].read_text(encoding="utf-8")
+
+
 @pytest.mark.skipif(
-    not all(path.exists() for path in PALIER_2.values()), reason="documents de recette absents"
+    not all(PALIER_2[name].exists() for name in ("guide", "cahier")),
+    reason="documents de recette absents",
 )
 def test_palier_2_procedures_take_the_first_release_with_the_windows_archive():
     procedures = {name: _install_procedure(path) for name, path in PALIER_2.items()}
