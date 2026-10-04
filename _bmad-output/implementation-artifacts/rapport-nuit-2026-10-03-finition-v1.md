@@ -7,7 +7,7 @@
 
 ## En bref
 
-- **47 entrées ouvertes au départ, 8 encore ouvertes** : les 5 bancs V2 « Hors V1 » (non touchés) et les 3 vérifications de scénarios avec le 2B, que la mémoire du poste a empêchées (voir « Phase 2 »).
+- **47 entrées ouvertes au départ, 8 encore ouvertes** à la fin de la nuit : les 5 bancs V2 « Hors V1 » (non touchés) et les 3 vérifications de scénarios avec le 2B, que la mémoire du poste a empêchées (voir « Phase 2 »). La revue de la PR en a ouvert 4 de plus (voir « Revue de la PR #21 »).
 - 15 entrées corrigées (code, contenu ou contrôles E2E), 8 fermées comme limites connues sur décision [A] (dont #12, pour sa partie `.brick-drift`), 16 fermées sur décision antérieure, preuve E2E ou mesure.
 - Deux défauts trouvés en mesurant et corrigés : le rendu Markdown cubique sur des `*` non fermés (553 ms → 0,6 ms) et la double lecture des en-têtes GGUF au diagnostic (6,5 s → 3,5 à 4,2 s).
 - Un test échouait sur `main` depuis la PR #20 (empreinte du corps Gemini, `thinking_level` passé à « high ») : empreinte mise à jour.
@@ -21,9 +21,9 @@ Numéros du plan : les 11 entrées déjà tranchées n'en ont pas (lettre D ou s
 |---|---|---|---|
 | D1 | Détail de la jauge (grille `/context`) | Fermée (décision « non » du 01/10) | `deferred-work.md` |
 | D2 | Repli hors ligne de `fetch_page` | Fermée (décision « non ») | idem |
-| 9b | Documentations MCP au rejeu | Fermée (story 9b livrée) | `test_replay.py` |
+| 9b (doc. MCP) | Documentations MCP au rejeu | Fermée (story 9b livrée) | `test_replay.py` |
 | 8e | Arête du schéma sous un nœud | Fermée (story 8e livrée) | E2E `h5`, `data_flows` |
-| 9b | Rejeu du dernier prompt | Fermée (story 9b livrée) | `test_replay.py` |
+| 9b (rejeu) | Rejeu du dernier prompt | Fermée (story 9b livrée) | `test_replay.py` |
 | 11b | Front de la story 11b sans test | Fermée (obsolète) | — |
 | D8 | Ajout d'entrée depuis le tiroir | Fermée (décision « non ») | — |
 | D10 | `transform_context` point d'accroche | Fermée (décision « non ») | — |
@@ -56,7 +56,7 @@ Numéros du plan : les 11 entrées déjà tranchées n'en ont pas (lettre D ou s
 | #24 | `_stream` : annulation pendant la connexion | Limite connue [A] | — |
 | #25 | Préréglage Mistral : plan à activer | Corrigée | README, `wavestack.toml` |
 | #26 | Decision 2.0 | **Ouverte, hors V1** | — |
-| #27 | Plafond de séance visible | Corrigée | `test_web_app.py`, E2E `priced_estimate` |
+| #27 | Plafond de séance visible | Corrigée | `test_web_app.py`, E2E `gemini_shape` (`_gemini_costs`) |
 | #28 | `reasoning_dropped` sans E2E | Corrigée | E2E `reasoning_dropped` |
 | #29 | Sous-agent de Sonnet coupé à 512 | Corrigée (même consigne que #23) | non rejoué avec Sonnet |
 | #30 | tev1 | **Ouverte, hors V1** | — |
@@ -73,7 +73,7 @@ Numéros du plan : les 11 entrées déjà tranchées n'en ont pas (lettre D ou s
 
 ## Phase 1 — corrections
 
-Chaque groupe : tests d'abord, ruff, tests ciblés, revue adversariale (une passe, méthode `/bmad-code-review`, sous-agent en lecture seule), commit. Chaînes d'interface en fr, en, de.
+Chaque groupe : tests d'abord, ruff, tests ciblés, commit. Chaînes d'interface en fr, en, de. Revue adversariale (une passe, méthode `/bmad-code-review`, sous-agent en lecture seule) pour 1-A et 1-B seulement, contrairement au plan : 1-C et 1-D n'ont été relus que par la revue de la PR (voir « Décisions prises seul » et « Revue de la PR #21 »).
 
 **1-A** (`d61b294`). Revue : 9 constats mineurs, tous corrigés, dont :
 - le plafond suivi en direct sur le diagnostic ;
@@ -89,7 +89,7 @@ Chaque groupe : tests d'abord, ruff, tests ciblés, revue adversariale (une pass
 
 **1-C** (`d61b294`, `0b5a50f`).
 - Le faux fournisseur E2E parle l'API Messages (`POST /v1/messages`, sixième entrée `fake_a`).
-- Scénario `reasoning_dropped` : 14 vérifications.
+- Scénario `reasoning_dropped` : 7 contrôles (14 vérifications réussies en le jouant seul, démarrage compris).
 - Six contrôles H5 et H1. Deux mutations d'`app.js` (`toolLabel`, carte reconstruite à chaque rendu) font échouer leur contrôle.
 
 **1-D, mesures** (`cfd4d43`, `8dfdded`, `9a01142`) :
@@ -107,18 +107,17 @@ Chaque groupe : tests d'abord, ruff, tests ciblés, revue adversariale (une pass
 
 ## Phase 2 — vérifications sur le PC
 
-- **#7** : `test_program.py`, mode exact (`WAVESTACK_TEST_GGUF` = Qwen3.5-2B), passe en 256 s.
+- **#7** : le test `fits` de `test_program.py` (`test_every_scenario_fits_the_default_window_with_every_prompt`), mode exact (`WAVESTACK_TEST_GGUF` = Qwen3.5-2B), passe en 256 s.
 - **#4, #5, #6, non faites.** Le script, désormais dans le dépôt (`tools/recette_scenarios_2b.py`), devait jouer les sept scénarios par l'API, sur le port 8420 et avec les données d'Anaël, préalablement sauvegardées.
   - Premier essai : refusé en 403, il manquait l'en-tête `Origin` ; aucun prompt envoyé.
   - Second essai : arrêté par Claude Code pendant le chargement du 2B, le poste manquant de mémoire (3,6 Go libres, Edge ouvert pour la recette).
   - Consigne de Claude Code : ne pas le relancer sans votre accord. Ces trois entrées restent donc ouvertes.
   - Serveur arrêté ; `settings.json` et `memory.json` d'Anaël restaurés et vérifiés à l'octet (le lancement avait changé la langue, le modèle et la mémoire de démonstration).
-- **Installation à blanc (SM-5), en version légère.**
-  - Procédure : `git archive` de HEAD en zip (20,6 Mo), décompression (36 s), `uv run wavestack --port 8421` avec un `WAVESTACK_DATA_DIR` vide, Ollama et le cache HF isolés, sans droits admin.
-  - Santé à 19 s ; diagnostic fini à 22 s : 7 modèles cloud, 19 modèles servis par Ollama, contrôle `model` bloquant tant qu'aucun choix n'est fait.
-  - Soit environ 1 min, bien sous la cible de 20 min. Mais le cache uv était chaud : un poste neuf télécharge aussi Python et les roues.
-  - Choix et chargement d'un modèle non joués, pour la mémoire.
-  - Aucun écart au README relevé.
+- **Installation à blanc (SM-5), vérification partielle.**
+  - Procédure : `git archive` de HEAD en zip (20,6 Mo), décompression (36 s), `uv run wavestack --port 8421` avec un `WAVESTACK_DATA_DIR` vide, les dossiers de modèles d'Ollama et le cache HF isolés de la recherche de fichiers GGUF, sans droits admin.
+  - Santé à 19 s ; diagnostic fini à 22 s : 7 modèles cloud, 19 modèles servis par Ollama (listés par son serveur, qui tournait), contrôle `model` bloquant tant qu'aucun choix n'est fait. Le test de chaque fichier GGUF trouvé, qui prend une dizaine de minutes au premier lancement sur ce poste (#22), a donc été évité.
+  - La cible de 20 min n'est donc pas vérifiée : cache uv chaud (un poste neuf télécharge aussi Python et les roues), premier test des GGUF évité, choix et chargement d'un modèle non joués (pour la mémoire). Suivi : entrée « Vérifications restantes de la finition V1 » de `deferred-work.md`.
+  - Écart au README relevé : l'entrée « Diagnostic » du menu « Volets ▾ », disparu (corrigé avec #22) ; aucun autre.
 - **Double Ctrl+C (#21)** : deux Ctrl+C à 0,3 s d'écart sur cette instance sans modèle. Sortie en 2,6 s, sans blocage.
   - Non mesuré : un modèle Ollama chargé, pour la mémoire.
   - La fermeture de la fenêtre de console reste à tester par vous (geste manuel).
@@ -158,27 +157,50 @@ Une suite à la fois, aucun modèle local chargé pendant pytest, dossier `pytes
 - **#18** : seuls les `*` sont corrigés ; les `[` non fermés restent sous le seuil (19,5 ms).
 - **#29** : non rejoué avec Sonnet, pour éviter la dépense ; la borne de 80 mots fait environ 110 tokens.
 - **#21** : `finally` en plus de l'`atexit` demandé par le plan, sur le constat de la revue.
+- **#12** : la priorité de l'indicateur sur le texte de chargement est fermée comme limite connue avec `.brick-drift`, que le plan était seul à nommer.
+- **Revues** : pas de revue adversariale pour 1-C et 1-D, contrairement au plan. La revue de la PR y a trouvé des contrôles trop faibles (#16, #27, #35), corrigés.
 - **Phase 2** : le passage avec le 2B n'est pas relancé, à cause de la consigne de Claude Code après l'arrêt pour mémoire.
 
 ## Coûts
 
 | Poste | Dépense |
 |---|---|
-| Sonde Sonnet 5 (#34), 6 appels | ≈ 0,05 $ |
+| Sonde Sonnet 5 (#34) : 3 sondes, chacune un appel puis son renvoi (6 appels) | ≈ 0,05 $ |
 | Total | ≈ 0,05 $ sur 1 $ autorisé |
 
 ## Ce qui vous revient
 
 1. **Relire la PR [#21](https://github.com/Aliquanto3/agentic-harness-training-demo/pull/21)**, puis la fusionner si elle vous convient.
 2. **Rejouer #4 à #6 avec le 2B**, la mémoire libre (Edge, Teams et Outlook fermés, ≈ 4 Go libres) :
-   - sauvegarder `%LOCALAPPDATA%\WaveStack\settings.json` et `memory.json` ;
-   - lancer `uv run python tools/recette_scenarios_2b.py` (sept scénarios, ≈ 30 min, résultats dans `recette-scenarios-2b.json`) ;
-   - restaurer les deux fichiers.
-   - Critères : appels de `local__define_term`, `mslearn__microsoft_docs_search` et `datagouv__search_datasets` ; escalade SOC ; délégation au premier prompt de `subagent`, puis quiz sans redélégation ; `prompt_ms` du premier appel de chaque quiz < 15 s, aucun `prefix_not_reused` de cause `history`.
-3. **Fermer la fenêtre de console** d'un WaveStack qui a un modèle Ollama chargé, puis vérifier que le modèle est déchargé (#21, geste manuel).
+   - vérifier qu'aucun WaveStack n'écoute déjà sur le port 8420 ;
+   - lancer `uv run python tools/recette_scenarios_2b.py` (sept scénarios, ≈ 30 min, résultats dans `recette-scenarios-2b.json`, ignoré par git). Le script copie d'abord `%LOCALAPPDATA%\WaveStack\settings.json` et `memory.json` en `*.avant-recette-<date>`, et s'arrête si le 2B n'est pas chargé ;
+   - à la fin, arrêter WaveStack (le script laisse le serveur tourner, son PID affiché), puis remettre les deux copies à leur place.
+   - Critères de #4 : `skills` appelle `load_skill` (pas `load_tool_doc`) pour `meeting_minutes`, `compression` lit `journal_serveur.log`, aucun extrait RAG hors sujet dans `mcp_lazy`, `skills`, `subagent` et `compression`.
+   - Critères de #5 et #6 : appels de `local__define_term`, `mslearn__microsoft_docs_search` et `datagouv__search_datasets` ; escalade SOC ; délégation au premier prompt de `subagent`, puis quiz sans redélégation ; `prompt_ms` du premier appel de chaque quiz < 15 s, aucun `prefix_not_reused` de cause `history`.
+   - Critère de #23 : le premier prompt de `subagent` ne finit plus sur `length` (`main_calls`, dernier champ).
+3. **Fermer la fenêtre de console** d'un WaveStack qui a un modèle Ollama chargé, puis vérifier que le modèle est déchargé ; refaire le double Ctrl+C avec un modèle Ollama chargé (#21, gestes manuels).
 4. Si vous voulez la mesure : rejouer le scénario `subagent` avec Sonnet 5 pour confirmer #29 (≈ 0,02 $).
 
+Ces points, plus la forme réelle du refus d'Anthropic (#36), l'installation à blanc complète (SM-5) et le choix enregistré après un retour E119 raté (#11), sont suivis par l'entrée « Vérifications restantes de la finition V1 » de `deferred-work.md`.
+
+## Revue de la PR #21 (2026-10-04)
+
+`/bmad-code-review`, quatre relecteurs par groupe (Blind Hunter, Edge Case Hunter, Verification Gap, Acceptance Auditor), sur `a5488a4..0c2e4f7` en trois groupes. Correctifs poussés sur la branche, PR non fusionnée.
+
+| Groupe | Commit | Correctifs | Différés | Rejetés |
+|---|---|---|---|---|
+| 1. `src/`, `content/`, README, `wavestack.toml` | `6dadb6a` | 6 | 2 | 14 |
+| 2. `tests/`, `tools/` | `2f4cb05` | 7 | 0 | 22 |
+| 3. `_bmad-output` | celui qui ajoute cette section | 14 | 1 | 9 |
+
+- **Groupe 1** : `atexit` retiré une fois la session fermée ; README (refus d'un compte Anthropic sans crédit, prix Mistral facturé sur un plan payant) ; contrôles E2E de #18 (rendu Markdown, mutation détectée : 334,7 ms avec l'ancien code contre 1,3 ms) et de #27 (ligne `#cloud-cap` du diagnostic, « ce total » / « ces totaux »).
+- **Groupe 2** : `recette_scenarios_2b.py` rendu robuste (reconnexion du flux sans doublon, tour hors délai arrêté, arrêt si le 2B n'est pas chargé, sauvegarde des deux fichiers) ; contrôles E2E resserrés (#16 H1 bloqué avant le vidage, #20 `.part` ouvert avant « Arrêter », #27 chiffre du plafond, #35 figure chez le sous-agent) : tranches touchées 101 réussies, 0 échec ; trois tests unitaires.
+- **Groupe 3** : ce rapport, `deferred-work.md` et le journal de la nuit corrigés (preuves, comptes, hashes, procédure de #4 à #6).
+- **Entrées ouvertes par la revue** (en plus des 8 de la nuit) : ligne neutre de l'arrêt non vérifiée sur la sous-option Reranking ; AD-15 de la spine en retard sur #14, #20 et #21 ; section du modèle de décision de la spine (critère 1, verdicts de Julia-1 et Laya, Kev-0.8B) ; « Vérifications restantes de la finition V1 ».
+
 ## Étape suivante
+
+Faite le 2026-10-04 (voir « Revue de la PR #21 ») : reste la fusion par vous, puis les vérifications de « Ce qui vous revient ». Pour mémoire, la consigne de départ :
 
 - **Skill** : `/bmad-code-review` sur la PR de la nuit (revue complète, couches multiples), puis fusion par vous.
 - **Prompt** (prêt à coller) :
@@ -189,4 +211,4 @@ Une suite à la fois, aucun modèle local chargé pendant pytest, dossier `pytes
 - **Effort** : medium. Les revues adversariales de 1-A et 1-B ont déjà été faites pendant la nuit ; une passe de plus n'a pas besoin d'aller plus profond.
 - **`/clear` avant** : oui. La session de la nuit est longue, et la revue repart du diff et du rapport.
 
-Ensuite, une fois la PR fusionnée et #4 à #6 rejouées : la V1 est terminée, à part les 5 bancs V2 du backlog.
+Ensuite, une fois la PR fusionnée, #4 à #6 rejouées et les « Vérifications restantes de la finition V1 » faites : la V1 est terminée, à part les 5 bancs V2 du backlog et les trois entrées de documentation et de contrôle ouvertes par la revue.
