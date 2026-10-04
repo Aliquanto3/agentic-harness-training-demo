@@ -28,7 +28,8 @@ model's file, a 503 until `POST /_e2e/model_ready` (a failed, then a successful 
 `{"slow": true}` serves it a byte a second, for « Arrêter », finition V1 #20);
 story 16: `GET /_e2e/reranker.gguf` is the fake reranker's, served unless
 `POST /_e2e/reranker_fail` (`{"fail": true}`) armed a failure (restes différés, story 6:
-a 503 until `{"fail": false}`).
+a 503 until `{"fail": false}`); `POST /_e2e/reranker_slow` (`{"slow": true}`) serves it a
+byte a second, for « Arrêter » (finition V1, 2026-10-04), until `{"slow": false}`.
 
 Run: `uv run python tools/e2e/fake_openai.py --port 8765`.
 """
@@ -819,30 +820,41 @@ def create_app() -> Starlette:
         received.clear()
         return JSONResponse({"ok": True})
 
-    model = {"ready": False, "slow": False, "reranker_fails": False}
+    model = {"ready": False, "slow": False, "reranker_fails": False, "reranker_slow": False}
+
+    def trickle(byte: bytes, size: int) -> StreamingResponse:
+        """A file served a byte a second, for « Arrêter » during its download."""
+
+        async def chunks():
+            for _ in range(size):
+                yield byte
+                await asyncio.sleep(1)
+
+        headers = {"content-length": str(size)}
+        return StreamingResponse(chunks(), media_type="application/octet-stream", headers=headers)
 
     async def model_file(_: Request) -> Response:
         if not model["ready"]:
             return JSONResponse({"error": "fichier indisponible (e2e)"}, status_code=503)
         if model["slow"]:
-
-            async def trickle():
-                for _ in range(MODEL_FILE_SIZE):
-                    yield b"\0"
-                    await asyncio.sleep(1)
-
-            size = {"content-length": str(MODEL_FILE_SIZE)}
-            return StreamingResponse(trickle(), media_type="application/octet-stream", headers=size)
+            return trickle(b"\0", MODEL_FILE_SIZE)
         return Response(b"\0" * MODEL_FILE_SIZE, media_type="application/octet-stream")
 
     async def reranker_file(_: Request) -> Response:
         if model["reranker_fails"]:
             return JSONResponse({"error": "fichier indisponible (e2e)"}, status_code=503)
+        if model["reranker_slow"]:
+            return trickle(b"\1", RERANKER_FILE_SIZE)
         return Response(b"\1" * RERANKER_FILE_SIZE, media_type="application/octet-stream")
 
     async def reranker_fail(request: Request) -> JSONResponse:
         model["reranker_fails"] = bool(json.loads(await request.body()).get("fail"))
         return JSONResponse({"fail": model["reranker_fails"]})
+
+    async def reranker_slow(request: Request) -> JSONResponse:
+        """V1 finishing (2026-10-04): the reranker's file served a byte a second."""
+        model["reranker_slow"] = bool(json.loads(await request.body()).get("slow"))
+        return JSONResponse({"slow": model["reranker_slow"]})
 
     async def model_ready(request: Request) -> JSONResponse:
         body = await request.body()
@@ -860,6 +872,7 @@ def create_app() -> Starlette:
             Route("/_e2e/model_ready", model_ready, methods=["POST"]),
             Route("/_e2e/reranker.gguf", reranker_file),
             Route("/_e2e/reranker_fail", reranker_fail, methods=["POST"]),
+            Route("/_e2e/reranker_slow", reranker_slow, methods=["POST"]),
         ]
     )
 
