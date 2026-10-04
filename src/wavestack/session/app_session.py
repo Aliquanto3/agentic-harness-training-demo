@@ -337,6 +337,9 @@ _RAG_LAB_FR = Message("session.state.rag_lab")
 _MCP_LAB_FR = Message("session.state.mcp_lab")  # story 6 of 2026-09-30
 # Story 6 of 2026-09-30: past the connection's own delay, what its closing may take.
 MCP_LAB_CLOSE_WAIT_S = CLOSE_TIMEOUT_S + 1
+# V1 finishing (#5, 2026-10-04): past the connection's own delay, what applying its outcome on
+# the worker may take, for a turn that waits for the connections under way (`_start`).
+MCP_APPLY_WAIT_S = 2.0
 CANDIDATES = 5  # story 29: the candidates read with each token, the one drawn added if apart
 # Lot A (AD-4): the segment kinds of the system message, for the `system` cause, and those
 # of the conversation, for `history`.
@@ -948,6 +951,8 @@ class AppSession:
         self._mcp_servers = mcp_servers(self.cfg)
         self._mcp_enabled: set[str]
         self._mcp_conns: dict[str, McpConnection] = {}
+        # #5 (2026-10-04): one event per connection under way, set once its outcome is applied.
+        self._mcp_pending: set[threading.Event] = set()
         self._mcp_state: dict[str, tuple[str, str | None]] = {}  # contact, reason_text
         # AD-9 (E089): a connected public server's gap to its snapshot, beyond the threshold.
         self._mcp_drift: dict[str, mcp_snapshot.Drift] = {}
@@ -4516,6 +4521,7 @@ class AppSession:
     def _start(self, message: str | None) -> str:
         """Starts a turn: `message`, or the replay of the last turn when `None`."""
         replay_of = None
+        self._wait_mcp_connections()  # #5: the tools this turn freezes include theirs
         with self._memory_lock, self._lock:  # never while a drawer write or a reset runs
             if self.state != "idle" or self._engine is None or self.reason_text:
                 raise SendRefused(self._refusal_reason())
@@ -5436,10 +5442,12 @@ class AppSession:
     def _mcp_connect(self, server_id: str) -> None:
         """Start contacting `server_id` on the loop; `_mcp_connected` applies the outcome."""
         server = self._mcp_servers[server_id]
+        applied = threading.Event()  # #5: set by `_mcp_apply`, waited for by `_start`
         with self._lock:
             if server_id in self._mcp_conns:
                 return
             self._mcp_state[server_id] = ("not_contacted", None)
+            self._mcp_pending.add(applied)
             loop = self._loop
             conn = (
                 McpConnection(
@@ -5469,7 +5477,14 @@ class AppSession:
         if conn is None:
             reason = Message("session.mcp.no_loop")
             self._executor.submit(
-                self._mcp_apply, server_id, None, started, started, None, RuntimeError(reason)
+                self._mcp_apply,
+                server_id,
+                None,
+                started,
+                started,
+                None,
+                RuntimeError(reason),
+                applied,
             )
             return
         future = asyncio.run_coroutine_threadsafe(conn.start(), conn.loop)
@@ -5477,21 +5492,50 @@ class AppSession:
         def done(_: Any) -> None:
             ended = time.monotonic()  # not counting any wait behind a turn on the worker
             try:
-                self._executor.submit(self._mcp_connected, server_id, conn, started, ended, future)
-            except RuntimeError:  # the session is closing
-                pass
+                self._executor.submit(
+                    self._mcp_connected, server_id, conn, started, ended, future, applied
+                )
+            except RuntimeError:  # the session is closing: nothing will be applied
+                self._mcp_applied(applied)
 
         future.add_done_callback(done)
 
-    def _mcp_connected(self, server_id, conn, started, ended, future) -> None:  # noqa: ANN001
+    def _mcp_connected(self, server_id, conn, started, ended, future, applied) -> None:  # noqa: ANN001
         """On the worker: the connection's outcome becomes a state, tools and events."""
         try:
             tools, error = future.result(), None
         except BaseException as exc:  # noqa: BLE001 - AD-16: a state, never a crash
             tools, error = None, exc
-        self._mcp_apply(server_id, conn, started, ended, tools, error)
+        self._mcp_apply(server_id, conn, started, ended, tools, error, applied)
 
-    def _mcp_apply(self, server_id, conn, started, ended, tools, error) -> None:  # noqa: ANN001
+    def _mcp_applied(self, applied: threading.Event | None) -> None:
+        """#5: a connection's outcome applied (or never to be): a turn waiting for it goes."""
+        if applied is None:
+            return
+        with self._lock:
+            self._mcp_pending.discard(applied)
+        applied.set()
+
+    def _wait_mcp_connections(self) -> None:
+        """#5 (2026-10-04): before a turn freezes its tools, the connections under way end and
+        their outcome is applied, at most for their own delay (a scenario's first prompt sent
+        at once would otherwise go without the MCP tools, and the next turn read the whole
+        context again). Never on the worker, which applies them."""
+        with self._lock:
+            pending = list(self._mcp_pending)
+        if not pending:
+            return
+        deadline = time.monotonic() + self.cfg.mcp_connect_timeout_s + MCP_APPLY_WAIT_S
+        for applied in pending:
+            applied.wait(max(0.0, deadline - time.monotonic()))
+
+    def _mcp_apply(self, server_id, conn, started, ended, tools, error, applied=None) -> None:  # noqa: ANN001
+        try:
+            self._mcp_apply_outcome(server_id, conn, started, ended, tools, error)
+        finally:
+            self._mcp_applied(applied)
+
+    def _mcp_apply_outcome(self, server_id, conn, started, ended, tools, error) -> None:  # noqa: ANN001
         server = self._mcp_servers[server_id]
         with self._lock:
             current_conn = self._mcp_conns.get(server_id)
