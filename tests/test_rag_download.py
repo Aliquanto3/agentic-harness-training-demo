@@ -143,8 +143,18 @@ def test_stop_cancels_the_download(index):
     gate.set()
     wait_download(session)
 
-    errors = [e.payload for e in get_journal().events_since(mark) if e.kind == "harness_error"]
-    assert errors[0]["message_text"] == "Téléchargement du modèle d'embedding arrêté."
+    # Finition V1 (#20, R3 of 2026-10-02): a stop asked is no failure. No `harness_error`
+    # (the card's red notice), no copy by hand: a neutral line on the card, from the effect.
+    events = get_journal().events_since(mark)
+    assert [e for e in events if e.kind == "harness_error"] == []
+    stopped = [e for e in events if e.kind == "effect_applied"]
+    assert [e.payload["effect"] for e in stopped] == ["model_download_stopped"]
+    assert stopped[0].brick == "rag" and stopped[0].component == "rag.retriever"
+    assert stopped[0].payload["lines"] == [
+        "Téléchargement du modèle d'embedding arrêté : le fichier en cours est supprimé, "
+        "« Télécharger » reprend les fichiers manquants."
+    ]
+    assert session.state == "idle" and card(session)["download"] is not None
     assert not (config.models_dir() / MODEL_FILE).exists()
     assert not (config.models_dir() / (MODEL_FILE + ".part")).exists()
     session.close()

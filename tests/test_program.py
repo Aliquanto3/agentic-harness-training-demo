@@ -377,6 +377,30 @@ def test_small_model_prompts_name_the_tool_or_skill_and_the_fallback():
         assert "« Vider la conversation »" in scenario[scenario_id].description_text, scenario_id
 
 
+# The bound of the five-point summary, by language: one line a point, 80 words at most.
+SUMMARY_BOUND = {
+    "fr": ("cinq points d'une ligne", "80 mots au plus"),
+    "en": ("five one-line points", "80 words at most"),
+    "de": ("fünf einzeiligen Punkten", "höchstens 80 Wörtern"),
+}
+
+
+@pytest.mark.parametrize("lang", sorted(SUMMARY_BOUND))
+def test_subagent_summary_is_bounded_in_every_language(lang):
+    """Finition V1 (#23, #29): the five-point summary overflowed the 512-token output reserve,
+    the 2B's final answer (recette of 2026-10-02, R12) and Sonnet 5's sub-agent (S6 of
+    2026-10-03). Prompt 1 and the « Résumer le guide du harnais » preset both bound it."""
+    from wavestack.subagent import load_subagent_content
+
+    french = _content()
+    fields = ("bricks", "tools", "mcp_servers", "skills", "hooks")
+    known = {f: {i for s in french.scenarios.values() for i in getattr(s, f) or []} for f in fields}
+    prompt = scenarios.load_scenarios(known, lang).scenarios["subagent"].prompts[0]
+    preset = load_subagent_content(lang).presets[0].args["task"]
+    for text in (prompt, preset):
+        assert all(bound in text for bound in SUMMARY_BOUND[lang]), text
+
+
 def test_call_presets_name_real_tools_and_their_arguments(loop):  # noqa: F811
     """Lot K: every tool of `call_presets` (content/mcp.yaml) is a tool of its server (the
     local server's own list, a public server's snapshot or fixture), and every argument of

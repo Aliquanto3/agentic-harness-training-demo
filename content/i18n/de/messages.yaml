@@ -174,6 +174,7 @@ session:
       effect: "Das Laden wird abgeschlossen; die Karte jedes Bausteins bleibt korrekt."
     back: "Zurück zum vorigen Modell: {label}."
     previous_failed: "Das vorige Modell ({label}) konnte nicht neu geladen werden."
+    way_back_failed: "Die Rückkehr zu {label} ist fehlgeschlagen: Kein Modell ist aktiv ({refused} ist entladen). Wählen Sie ein Modell in der oberen Leiste."
     failed:
       cloud: "Das Cloud-Modell {label} konnte nicht vorbereitet werden."
       server: "Das von {provider} bereitgestellte Modell {label} konnte nicht vorbereitet werden."
@@ -332,7 +333,7 @@ session:
     no_model: "Der RAG-Baustein hat kein deklariertes {noun}-Modell."
     nothing: "Nichts herunterzuladen: Die Dateien des {noun}-Modells sind bereits in {dest}."
     progress: "Download des {noun}-Modells: {percent} % ({done} / {total} MB)"
-    stopped: "Download des {noun}-Modells gestoppt."
+    stopped: "Download des {noun}-Modells gestoppt: Die laufende Datei wird gelöscht, die Schaltfläche zum Herunterladen lädt die fehlenden Dateien erneut."
     failed: "Der Download des {noun}-Modells ist fehlgeschlagen."
     by_hand: "Es wird nichts installiert. Um fortzufahren, kopieren Sie die Datei von Hand nach {folder} ({names}) und klicken Sie dann erneut auf die Schaltfläche zum Herunterladen."
   build:
@@ -505,6 +506,8 @@ session:
     noun:
       embedding: Embedding-Modell
       reranking: Reranking-Modell
+    # Accusative: „um das Embedding-Modell X zu laden“ (the budget's refusal).
+    to_load: "das {noun} {model}"
     fastembed_unavailable: fastembed nicht verfügbar.
     no_reranker: Es ist kein Reranking-Modell deklariert.
     reranker_absent: "Reranking-Modell fehlt ({names} in {folder}): Laden Sie es über die RAG-Karte der Werkstatt herunter (Unteroption „Reranking“). Der Aufbau des Kontexts behält die Reihenfolge der Suche."

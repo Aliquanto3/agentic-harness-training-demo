@@ -68,8 +68,15 @@ chemin d'un fichier `.gguf` (partage, clé USB, cache Hugging Face, LM Studio, O
   diagnostic s'ouvre.
 - Si WaveStack tourne déjà, la commande ouvre l'interface principale quand l'instance est prête,
   sinon le diagnostic.
-- Le diagnostic reste accessible par l'indicateur de modèle de la barre haute et par l'entrée
-  « Diagnostic » du menu « Volets ▾ ».
+- Le diagnostic reste accessible par l'indicateur de modèle de la barre haute et par le lien
+  « Diagnostic » de la barre de navigation, en haut de chaque page.
+
+**Premier lancement long sur un poste qui a beaucoup de modèles.** Avant de proposer un choix,
+le diagnostic teste chaque fichier GGUF trouvé (dossier des modèles, cache Hugging Face,
+LM Studio, Ollama), chacun dans un processus à part. Sur un poste qui a beaucoup de modèles
+Ollama, comptez une dizaine de minutes (18 modèles le 2026-10-02) ; la page dit « n modèles
+testés sur N ». Les résultats sont gardés dans `settings.json` : les lancements suivants ne
+refont pas ces tests (sauf pour un fichier modifié).
 
 ## Programme de formation
 
@@ -760,6 +767,10 @@ NVIDIA et OpenRouter y figurent en exemples commentés, avec leur avertissement.
    seulement (`api_keys.json` dans le dossier de données), jamais affichée ni tracée, et envoyée au
    seul hôte déclaré. Si l'adresse du fournisseur change, la clé est à ressaisir.
 
+   **Mistral : un plan d'abord.** Avant le premier appel, activez un plan dans la console
+   Mistral, « Experiment » (gratuit) ou payant : sans plan, le compte n'a aucun quota et chaque
+   appel répond 429 (« Aucun quota actif sur ce compte »).
+
    **Ou par variable d'environnement.** Chaque préréglage nomme une variable (`key_env`) :
    `GROQ_API_KEY` pour Groq, `MISTRAL_API_KEY` pour Mistral, `GEMINI_API_KEY` pour Gemini et
    Gemma (même clé), `ANTHROPIC_API_KEY` pour Claude (Haiku et Sonnet, même clé) et
@@ -943,7 +954,8 @@ Chaque entrée `[[cloud.models]]` peut déclarer ses prix dans `pricing` : prix 
 sortie, en dollars par million de tokens, et la date du relevé (`checked`, au format
 AAAA-MM-JJ). Relevés le 2026-09-29 sur les pages officielles : Groq `openai/gpt-oss-120b` et
 Mistral Small 4 à 0,15 $ / 0,60 $, Gemini `gemini-3.5-flash-lite` à 0,30 $ / 2,50 $. Sur le
-plan gratuit de Mistral, le coût réel est nul : le prix affiché est le prix catalogue. Gemma n'a
+plan gratuit de Mistral, le coût réel est nul : le prix affiché est le prix catalogue ; sur un
+plan payant, il est facturé. Gemma n'a
 pas de `pricing` : le modèle est gratuit, aucun coût n'est estimé ni affiché (« — »).
 
 **Estimation.** Pour chaque appel cloud, WaveStack calcule le coût d'entrée (tokens du prompt ×

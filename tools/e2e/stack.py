@@ -50,6 +50,11 @@ GEMINI_PROVIDER = "Faux Gemini (e2e)"
 PRICED_ENTRY_ID = "fake_m"
 PRICED_MODEL = "faux-modele-tarife"
 PRICED_PROVIDER = "Faux fournisseur M (e2e)"
+# Finition V1 (#28, #35): a sixth, in the shape of Anthropic's Messages API (`/v1/messages`
+# of the fake server), for `reasoning_dropped`.
+ANTHROPIC_ENTRY_ID = "fake_a"
+ANTHROPIC_MODEL = "faux-claude"
+ANTHROPIC_PROVIDER = "Faux Anthropic (e2e)"
 
 
 # The launcher's own requests only reach the loopback: never through the workstation's proxy.
@@ -122,6 +127,15 @@ def _gemini_entry(fake_port: int) -> dict:
     return entry
 
 
+def _anthropic_entry(fake_port: int) -> dict:
+    entry = _entry(fake_port, ANTHROPIC_ENTRY_ID, ANTHROPIC_PROVIDER, ANTHROPIC_MODEL)
+    entry["api"] = "anthropic_messages"
+    entry["auth_header"] = {"name": "x-api-key", "scheme": ""}
+    entry["extra_headers"] = {"anthropic-version": "2023-06-01"}
+    entry["sampling"] = ["temperature"]
+    return entry
+
+
 def rag_settings(fake_port: int, data_dir: Path) -> dict:
     """Story 15: the index in the data dir (absent at first, built from the RAG card, as on a
     fresh install), the fake embedding model (its file served by the fake server, over the
@@ -158,9 +172,10 @@ def rag_settings(fake_port: int, data_dir: Path) -> dict:
 
 
 def settings(fake_port: int, data_dir: Path, llama_port: int = 0, ollama_port: int = 0) -> dict:
-    """The `settings.json` override: five cloud models, all on the fake server (the third
+    """The `settings.json` override: six cloud models, all on the fake server (the third
     always reasons, story 33; the fourth is shaped as Gemini; the fifth is priced and never
-    asks for `usage`, restes différés story 6); the RAG's
+    asks for `usage`, restes différés story 6; the sixth speaks Anthropic's Messages API,
+    finition V1); the RAG's
     index and fake embedding model (story 15); the ports of the fake local servers (story
     18)."""
     values: dict = {
@@ -178,6 +193,7 @@ def settings(fake_port: int, data_dir: Path, llama_port: int = 0, ollama_port: i
                 ),
                 _gemini_entry(fake_port),
                 _priced_entry(fake_port),
+                _anthropic_entry(fake_port),
             ]
         },
     }

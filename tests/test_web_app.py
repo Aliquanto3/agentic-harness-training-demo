@@ -468,6 +468,35 @@ def test_the_session_spend_is_in_the_state_and_has_its_place_in_the_top_bar(monk
     assert '<span class="sort-label">Prix</span>' in client.get("/models").text
 
 
+def test_the_session_cap_is_shown_before_it_bites(monkeypatch, tmp_path):
+    """Finition V1 (#27): the session's cap (`[finops] max_session_usd`) is in `/api/state`,
+    for the spend's tooltip (« x $ sur 5 $ »), and in `/api/diagnostic` with the spend so
+    far; the figure is the configuration's, never a copy."""
+    import json
+
+    from wavestack.models import openai_chat
+
+    monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path / "data"))
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps({"finops": {"max_session_usd": 2}}), "utf-8")
+    client = _client(_build(monkeypatch, tmp_path))
+
+    assert client.get("/api/state").json()["max_session_usd"] == 2.0
+    assert client.get("/api/diagnostic").json()["spend_cap"] == {
+        "total_usd": 0,
+        "approx": False,
+        "cap_usd": 2.0,
+    }
+    openai_chat.record_spend(openai_chat.CallCost(0.25, 0.5, "api"), 0.86)
+    assert client.get("/api/diagnostic").json()["spend_cap"] == {
+        "total_usd": 0.75,
+        "approx": False,
+        "cap_usd": 2.0,
+    }
+    page = client.get("/diagnostic").text
+    assert 'id="cloud-cap"' in page and "diagnostic.cloud_cap" in page
+
+
 def test_select_model_boots_the_found_candidate_path(monkeypatch, tmp_path):
     _build(monkeypatch, tmp_path)
     received = []

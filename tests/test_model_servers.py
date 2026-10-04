@@ -576,6 +576,37 @@ def test_ollama_too_old_for_the_architecture_explains_and_goes_back(fake):
     session.close()
 
 
+def test_a_way_back_that_fails_leaves_no_model_and_says_so(fake):
+    """Finition V1 (#11, E119 review): the model to go back to fails to load in its turn (its
+    file gone, the budget): the model Ollama refused is not installed again (the next turn
+    would fail the same way); no model is active, and the effect says the way back failed."""
+    gone = {"A": False}
+
+    def engine(path, n_ctx):  # noqa: ANN001, ANN202
+        if gone["A"]:
+            raise OSError("A.gguf introuvable")
+        return FakeEngine()
+
+    session = _session(engine_factory=engine)
+    assert session.boot("A.gguf").result() == "ok"
+    _, future = session.switch_model(ModelChoice.served(_candidate("ollama")))
+    assert future.result() == "ok"
+    fake.generate_error, gone["A"] = OLD_OLLAMA, True
+
+    events = _run(session, "Bonjour")
+
+    [ended] = events["model_load_ended"]
+    assert ended["status"] == "error" and ended["model"]["label"] == "A"
+    back = events["harness_error"][-1]
+    assert back["effect_text"] == (
+        f"Le retour à A a échoué : aucun modèle n'est actif ({OLLAMA_NAME} est déchargé). "
+        "Choisissez un modèle dans la barre haute."
+    )
+    assert session.active_model() is None and session.state == "idle"
+    assert fake.posts("/api/generate")[-1] == {"model": OLLAMA_NAME, "keep_alive": 0}
+    session.close()
+
+
 def test_ollama_too_old_without_a_previous_model_explains_only(fake):
     """E119, launched on the served model: no model to go back to, the reason and the way
     out are said, the turn ends in error and WaveStack stays usable."""

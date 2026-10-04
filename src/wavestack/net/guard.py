@@ -2,7 +2,9 @@
 
 Filters `socket.getaddrinfo` (hostnames — the only event seen on every loop,
 Windows ProactorEventLoop included), `socket.gethostbyname` (hostnames too,
-raised by `gethostbyname_ex` as well), and `socket.connect`, `socket.sendto` and
+raised by `gethostbyname_ex` as well), the reverse lookups `socket.gethostbyaddr`
+(a name or an IP) and `socket.getnameinfo` (the host of its socket address), and
+`socket.connect`, `socket.sendto` and
 `socket.sendmsg` (IPs). A connect or a UDP send is accepted when its IP was
 returned by resolving an allowed host (or the proxy), so the wrapped
 `socket.getaddrinfo` records those addresses. A host name given to
@@ -59,7 +61,13 @@ _confiscated = False
 # UDP send, the address check.
 # ponytail: `gethostbyname(_ex)` records no address, so a connect to the IP it gave for an
 # allowed host is refused (the safe way); wrap them as `getaddrinfo` if a client needs it.
-_RESOLVE_EVENTS = frozenset({"socket.getaddrinfo", "socket.gethostbyname"})
+# Finition V1 (#14): the reverse lookups too, `gethostbyaddr` on its name or IP and
+# `getnameinfo` on its socket address's host (`_REVERSE_EVENTS`).
+# ponytail: `socket.getfqdn()` (no argument, or the machine's own name) is then refused with
+# `NetworkBlocked`, which it does not catch; nothing in WaveStack calls it (as for
+# `gethostbyname(gethostname())` before).
+_RESOLVE_EVENTS = frozenset({"socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyaddr"})
+_REVERSE_EVENTS = frozenset({"socket.getnameinfo"})
 _SEND_EVENTS = frozenset({"socket.connect", "socket.sendto", "socket.sendmsg"})
 
 # The system lookups `getproxies()` falls back on, blinded by the confiscation.
@@ -177,6 +185,11 @@ def install(allowed_hosts: list[str]) -> None:
     def hook(event: str, args: tuple[object, ...]) -> None:
         if event in _RESOLVE_EVENTS:
             check_host(args[0])
+        elif event in _REVERSE_EVENTS:  # (sockaddr,): its host, as a resolution
+            sock_address = args[0]
+            if not (isinstance(sock_address, tuple) and sock_address):
+                raise NetworkBlocked(Message("net.host_refused", host=repr(sock_address)))
+            check_host(sock_address[0])
         elif event in _SEND_EVENTS:  # (socket, address); `sendmsg` without one: None
             check_address(args[1])
 

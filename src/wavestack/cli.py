@@ -8,6 +8,7 @@ are imported and used at module load time, ahead of everything else.
 from __future__ import annotations
 
 import argparse
+import atexit
 import http.client
 import json
 import logging
@@ -60,8 +61,10 @@ BROWSER_DELAY_S = 1.0  # the page opens 1 s after the start at the earliest
 LAUNCH_WAIT_S = 30.0  # past this, the diagnostic page opens while the checks go on
 # Story 7 of the deferred leftovers (E077): an open page keeps its SSE stream, which uvicorn
 # would wait for forever at Ctrl+C; past this delay the streams are cancelled and the
-# lifespan still closes the engines (a second Ctrl+C would skip it, an Ollama model staying
-# loaded).
+# lifespan still closes the engines. A second Ctrl+C skips the lifespan: `main` closes the
+# session after `uvicorn.run` returns, and `atexit` as a last resort (finition V1, #21; `close`
+# does nothing the second time). The local MCP servers are then left to `asyncio.run`, whose
+# loop is closed. Closing the console window may end the process before either (not measured).
 SHUTDOWN_GRACE_S = 2.0
 # Languages (5/5): the terminal speaks English, whatever the session's language; never
 # read from settings.json.
@@ -231,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     _cfg.memory_budget  # noqa: B018 - evaluated for its cached value
     session = DiagnosticSession(_cfg, args.port)
     app_session = AppSession(_cfg)
+    atexit.register(app_session.close)  # #21: the lifespan skipped by a second Ctrl+C
     app = create_app(session, port=args.port, version=VERSION, app_session=app_session)
 
     get_journal().subscribe(_print_journal_event)
@@ -250,13 +254,18 @@ def main(argv: list[str] | None = None) -> int:
         daemon=True,
     ).start()
 
-    uvicorn.run(
-        app,
-        host="127.0.0.1",
-        port=args.port,
-        log_level="warning",
-        timeout_graceful_shutdown=SHUTDOWN_GRACE_S,
-    )
+    try:
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=args.port,
+            log_level="warning",
+            timeout_graceful_shutdown=SHUTDOWN_GRACE_S,
+        )
+    finally:
+        # #21: on the main thread, before the interpreter joins the worker threads (a turn
+        # waiting for an H5 answer would hold the exit): `stop()` cancels it first.
+        app_session.close()
     return 0
 
 

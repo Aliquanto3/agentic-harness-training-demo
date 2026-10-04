@@ -277,8 +277,8 @@ scenarios:
     prompts:
       - >-
         Delegate the reading of the file guide_harnais.md to your sub-agent, without
-        reading it yourself: it must read it and give you back a summary in five points.
-        Then present this summary to me.
+        reading it yourself: it must read it and give you back a summary in five one-line
+        points, 80 words at most. Then present this summary to me.
       - "Quiz: what bounds does the harness set on an agent's loop?"
       - "Quiz: why does delegating to a sub-agent save the main context?"
       - "Quiz: what happens if the sub-agent's context overflows?"

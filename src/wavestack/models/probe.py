@@ -383,9 +383,14 @@ def gguf_kv_bytes_per_token(path: str | None) -> int | None:
 
 @functools.lru_cache(maxsize=32)
 def _header_kv(path: str, size: int, mtime: float) -> int | None:
-    """Read once per file version (`size`, `mtime`): the diagnostic lists servers often."""
-    meta = gguf_meta.try_read_metadata(path)
-    return kv_bytes_per_token(meta) if meta else None
+    """Read once per file version (`size`, `mtime`): the diagnostic lists servers often.
+    Finition V1 (#19): through `catalog.header_metadata`, which the diagnostic warms for
+    the model table anyway (82 % of `discovery.discover()` on the target PC was this read,
+    done twice); imported here, `catalog` imports `discovery`, which imports this module."""
+    from wavestack.models import catalog
+
+    header = catalog.header_metadata(path)
+    return kv_bytes_per_token(header[1]) if header else None
 
 
 def _args(argv: list[str]) -> tuple[str, int] | None:

@@ -71,14 +71,15 @@ vrais services.
   le corps est un tableau JSON
   (`[{"error": …}]`, « missing a thought_signature … `default_api:nom` , position n »).
 - `stack.py` : réseau sortant de WaveStack coupé (proxy fermé, voir plus haut), dossier de
-  données temporaire, `settings.json` qui déclare cinq modèles sur le faux serveur (tous avec `sampling = ["temperature", "top_p"]` depuis la story 29), `fake`
+  données temporaire, `settings.json` qui déclare six modèles sur le faux serveur (tous avec `sampling = ["temperature", "top_p"]` depuis la story 29), `fake`
   (`wavestack-fake`), `fake_b` (`faux-modele-b`, pour le changement de modèle de la
   story 17), `fake_r` (`faux-modele-raisonne`, `reasoning: {format: "field", always: true}`,
   pour la carte Raisonnement verrouillée de la story 33) et `fake_g` (`gemini-e2e-flash-lite`,
   « Faux Gemini (e2e) », avec le `reasoning` et le `tool_call_extra` du préréglage `gemini` lus
   dans `wavestack.toml`) et, depuis la story 6 des restes différés, `fake_m`
   (`faux-modele-tarife`, « Faux fournisseur M (e2e) », prix du préréglage `mistral`,
-  `stream_usage = false` : coûts estimés, « ≈ »), clé par
+  `stream_usage = false` : coûts estimés, « ≈ ») et `fake_a` (`faux-claude`, au format
+  Anthropic, finition V1), clé par
   `key_env = WAVESTACK_FAKE_API_KEY`, lancement des deux serveurs sur
   `127.0.0.1`. `wavestack.toml` n'est jamais modifié. Pour le RAG (story 15),
   `settings.json` pointe `[rag]` vers un index dans ce dossier, absent au départ comme sur
@@ -248,6 +249,16 @@ Vérifications ajoutées aux scénarios existants :
   la barre haute ; carte Raisonnement cochée et désactivée, 🔒, « Imposé par ce modèle » ; puis
   retour à l'entrée A, qui ne raisonne pas : plus de verrou. Capture
   `34-raisonnement-impose.jpg`.
+- `reasoning_dropped` (finition V1, #28 et #35), joué après `reasoning_locked` : sixième entrée
+  `fake_a` (`faux-claude`, « Faux Anthropic (e2e) », `api = "anthropic_messages"`), servie par
+  `POST /v1/messages` du faux serveur (le même script, au format de l'API Messages, clé dans
+  `x-api-key`). Scénario « Sous-agent », premier prompt suivi de « [jeté] », recopié dans la
+  tâche du sous-agent : chaque `message_start` porte `input_transformations`
+  (`thinking_dropped`, `prefix_binding_mismatch`). `reasoning_dropped` au tour et au
+  sous-agent ; ligne « Raisonnement jeté par le fournisseur » et figure « historique réécrit »
+  dans Orchestration, aux deux niveaux ; phrase du harnais dans l'étape dépliée ; journal
+  « historique réécrit · <chemin> ». Retour à l'entrée A même après un échec. Capture
+  `35-raisonnement-jete.jpg`.
 
 ## Gemini (Google AI Studio)
 

@@ -548,6 +548,18 @@ def test_an_error_event_after_the_200_is_explained(kind, said):
             },
             "Contexte dépassé",
         ),
+        # Finition V1 (#36): an account without credit, in the form Anthropic documents (not
+        # measured: no account at zero to try it on).
+        (
+            400,
+            {},
+            {
+                "type": "invalid_request_error",
+                "message": "Your credit balance is too low to access the Anthropic API. Please "
+                "go to Plans & Billing to upgrade or purchase credits.",
+            },
+            "le crédit du compte est épuisé",
+        ),
     ],
 )
 def test_http_refusals_follow_the_common_rule(status, headers, error, fragment):

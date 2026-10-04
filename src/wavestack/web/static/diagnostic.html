@@ -203,6 +203,8 @@
     <section class="diagnostic-section" aria-labelledby="cloud-title">
       <h2 id="cloud-title" data-i18n="diagnostic.cloud_title">Modèles cloud</h2>
       <p class="diagnostic-help" data-i18n="diagnostic.cloud_help">Hors du poste : chaque appel envoie tout le contexte au fournisseur.</p>
+      <!-- Finition V1 (#27): the session's cap and its spend so far (diagnostic.cloud_cap). -->
+      <p class="diagnostic-help" id="cloud-cap" hidden></p>
       <ul id="cloud-models" class="diagnostic-list"><li class="loading-note" data-i18n="diagnostic.loading">Diagnostic en cours…</li></ul>
     </section>
   </main>
@@ -482,6 +484,7 @@
     const testResults = new Map();
     const cloudStatus = new Map(); // model id -> the last intention's message
     let cloud = { models: [], key_hint_text: "" };
+    let spendCap = null; // finition V1 (#27): `spend_cap` of `/api/diagnostic`
     let warningFor = null;
     let warningOpener = null; // the « Choisir » button that opened the warning
 
@@ -495,7 +498,19 @@
     // A row kept by `patchList` keeps its listeners: they read the model as it is now.
     const currentModel = (m) => cloud.models.find((x) => x.id === m.id) || m;
 
+    // Finition V1 (#27): « Plafond de dépense de la séance : x $ dépensés sur 5 $ », with the
+    // cloud models only.
+    function renderCap() {
+      const capEl = document.getElementById("cloud-cap");
+      capEl.hidden = !spendCap || !cloud.models.length;
+      if (capEl.hidden) return;
+      const usd = (n) => t("common.format.usd", { amount: numberFormat({ maximumSignificantDigits: 4 }).format(n) });
+      const total = `${spendCap.approx ? "≈ " : ""}${usd(spendCap.total_usd)}`;
+      capEl.textContent = t("diagnostic.cloud_cap", { total, cap: usd(spendCap.cap_usd) });
+    }
+
     function renderCloud() {
+      renderCap();
       if (!cloud.models.length) {
         patchList(cloudEl, [node("li", "", t("diagnostic.no_cloud"))]);
         return;
@@ -697,6 +712,7 @@
       selectedModel = body.selected;
       loadedModel = body.loaded;
       cloud = body.cloud || cloud;
+      spendCap = body.spend_cap ?? spendCap;
       searching = Boolean(body.searching);
       progress = searching ? (body.progress ?? progress) : null;
       renderSearch();
@@ -729,9 +745,17 @@
       source.addEventListener("harness_error", (event) => onEnvelope(event, renderHarnessError));
       source.addEventListener("model_load_ended", (event) => onEnvelope(event, onModelLoadEnded));
       source.addEventListener("diagnostic_progress", (event) => onEnvelope(event, onProgress));
+      source.addEventListener("consumption_updated", (event) => onEnvelope(event, onSpend));
     }
     await ready; // the page's texts and formats in the session's language (languages 4/5)
     loadDiagnostic().then(openStream);
+
+    // Finition V1 (#27): the spend so far, live (turns run in the workshop's tab meanwhile).
+    function onSpend(payload, live) {
+      if (!live || !spendCap) return;
+      spendCap = { ...spendCap, total_usd: payload.total_usd, approx: payload.approx };
+      renderCap();
+    }
 
     function onModelLoadEnded(payload, live) {
       if (!live) return; // an earlier load: the lists already show where it led

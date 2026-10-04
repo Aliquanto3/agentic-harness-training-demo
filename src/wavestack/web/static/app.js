@@ -78,9 +78,12 @@ const store = {
   // FinOps: the session's API spend, the last `consumption_updated` (or `/api/state`), as the
   // session computed it (AD-1); `null` before the first paid call.
   consumption: null,
+  maxSessionUsd: null, // finition V1 (#27): `[finops] max_session_usd`, from `/api/state`
   downloadError: null, // story 15: the last refusal of « Télécharger » (UI state only)
-  ragNotice: null, // story 15: the last failure of the RAG's download or build (`harness_error`)
-  rerankNotice: null, // story 16: the last failure of the reranker's download or load
+  // Story 15: the last failure of the RAG's download or build (`harness_error`), or a stopped
+  // download (finition V1, #20): `{ text, error }`, `error` false for a stop (neutral).
+  ragNotice: null,
+  rerankNotice: null, // story 16: the same, for the reranker's download or load
   openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
   openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
@@ -595,6 +598,13 @@ function applyEnvelope(envelope) {
       }
       break;
     case "effect_applied": {
+      // Finition V1 (#20): a download stopped by « Arrêter », said on its card, neutral.
+      if (!turn && envelope.brick === "rag" && p.effect === "model_download_stopped") {
+        const notice = { text: p.lines.join(" "), error: false };
+        if (envelope.component === "rag.reranker") store.rerankNotice = notice;
+        else store.ragNotice = notice;
+        break;
+      }
       if (p.effect === "memory_write") {
         // Story 14: the entry `remember` wrote, shown in its own step (model's or forced).
         const step = turn?.steps.filter((s) => s.type === "tool" && s.started.tool === "remember").at(-1);
@@ -656,7 +666,8 @@ function applyEnvelope(envelope) {
       if (turn) turn.errors.push([p.message_text, ...(p.hints_text ?? [])].join(" "));
       // Story 15: a failed download (or load) of the RAG's model, said on its card.
       else if (envelope.brick === "rag") {
-        const notice = [p.message_text, p.cause ? t("main.bricks.notice_cause", { cause: p.cause }) : null, p.effect_text].filter(Boolean).join(" ");
+        const text = [p.message_text, p.cause ? t("main.bricks.notice_cause", { cause: p.cause }) : null, p.effect_text].filter(Boolean).join(" ");
+        const notice = { text, error: true };
         // Story 16: the reranker's, said under its switch.
         if (envelope.component === "rag.reranker") store.rerankNotice = notice;
         else store.ragNotice = notice;
@@ -1407,8 +1418,11 @@ function markParentOff(row, toggle, offReason) {
 }
 
 function sessionKey() {
-  return `${store.sessionState?.state ?? ""}|${store.sessionState?.reason_text ?? ""}|${store.ragNotice ?? ""}|${store.rerankNotice ?? ""}`;
+  return `${store.sessionState?.state ?? ""}|${store.sessionState?.reason_text ?? ""}|${store.ragNotice?.text ?? ""}|${store.rerankNotice?.text ?? ""}`;
 }
+
+// A notice of the RAG's card: red for a failure, neutral for a download stopped (#20).
+const noticeLine = (notice) => el("p", notice.error ? "force-error" : "brick-note", notice.text);
 
 // Story 15 (AD-21): « Télécharger » while the model is missing, the progress and « Arrêter »
 // while it downloads; the figures come from the session (`session_state.reason_text`).
@@ -1434,7 +1448,7 @@ function downloadParts(brick) {
     offer = { label: brick.build_index.label_text, key: "build", run: () => ragAction("/api/intentions/build_rag_index", {}) };
   }
   // The last failure stays said while the card still offers an action (AD-1: from the event).
-  const notice = store.ragNotice && !brick.available && offer ? [el("p", "force-error", store.ragNotice)] : [];
+  const notice = store.ragNotice && !brick.available && offer ? [noticeLine(store.ragNotice)] : [];
   if (!offer) return notice;
   const button = el("button", `brick-edit brick-${offer.key}`, offer.label);
   button.type = "button";
@@ -1478,7 +1492,7 @@ function rerankParts(brick, offReason = null) {
     box.appendChild(why);
   }
   // The last failure of its download or load (`harness_error`), while still unavailable.
-  if (store.rerankNotice && !option.available) box.appendChild(el("p", "force-error", store.rerankNotice));
+  if (store.rerankNotice && !option.available) box.appendChild(noticeLine(store.rerankNotice));
   if (option.download) {
     const state = store.sessionState?.state;
     const button = el("button", "brick-edit brick-download-rerank", option.download.label_text);
@@ -2414,6 +2428,10 @@ function renderConsumption() {
         calls: t("main.consumption.paid_calls", { count: c.calls }),
       }),
     );
+    // Finition V1 (#27): the session's cap, shown before it bites (no warning as it nears).
+    if (store.maxSessionUsd != null) {
+      sentences.push(t("main.consumption.cap_sentence", { total: `${guess}${usd(c.total_usd)}`, cap: usd(store.maxSessionUsd) }));
+    }
   }
   if (green) {
     sentences.push(
@@ -2424,7 +2442,8 @@ function renderConsumption() {
       }),
     );
   }
-  sentences.push(sentences.length > 1 ? t("main.consumption.reset_totals") : t("main.consumption.reset_total"));
+  // The totals shown (spend, footprint), never the cap's sentence (finition V1, #27).
+  sentences.push(paid && green ? t("main.consumption.reset_totals") : t("main.consumption.reset_total"));
   const sentence = sentences.join(" ");
   if (node.title !== sentence) {
     node.title = sentence;
@@ -6565,7 +6584,7 @@ function eventSummary(group) {
       return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
       if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · ${quote(p.text)}`;
-      if (p.effect === "model_download" || p.effect === "rag_index_write") return p.lines.join(" · ");
+      if (["model_download", "model_download_stopped", "rag_index_write"].includes(p.effect)) return p.lines.join(" · ");
       if (p.effect === "audit_append") return t("main.log.audit_lines", { lines: plural(p.lines.length, "line") });
       return p.key ?? p.id ?? p.effect;
     case "memory_changed":
@@ -7630,6 +7649,7 @@ async function boot() {
     store.memory = body.memory_changed ?? null;
     store.windowState = body.context_window_state ?? null;
     store.consumption = body.consumption_updated ?? null; // FinOps: kept across a reload
+    store.maxSessionUsd = body.max_session_usd ?? null;
     if (body.language) {
       store.language = {
         language: body.language,

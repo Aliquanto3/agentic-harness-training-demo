@@ -350,7 +350,8 @@ def test_main_gives_uvicorn_the_shutdown_grace(monkeypatch):
 
     monkeypatch.setattr(cli, "_try_reserve_port", lambda port: _Reserved())
     monkeypatch.setattr(cli, "DiagnosticSession", _Session)
-    monkeypatch.setattr(cli, "AppSession", lambda cfg: object())
+    monkeypatch.setattr(cli, "AppSession", lambda cfg: type("S", (), {"close": lambda s: None})())
+    monkeypatch.setattr(cli.atexit, "register", lambda fn: None)  # #21, never for real here
     monkeypatch.setattr(cli, "create_app", lambda *args, **kwargs: "app")
     monkeypatch.setattr(
         cli, "get_journal", lambda: type("J", (), {"subscribe": lambda s, f: None})()
@@ -430,3 +431,58 @@ def test_shutdown_with_an_open_stream_ends_and_runs_the_lifespan():
     assert not serving.is_alive()
     assert time.monotonic() - started < cli.SHUTDOWN_GRACE_S + 3
     assert closed.is_set()
+
+
+def test_the_session_is_closed_at_exit_even_without_the_lifespan(monkeypatch):
+    """Finition V1 (#21): a second Ctrl+C during the grace delay skips uvicorn's lifespan,
+    which closes the session (an Ollama model stays loaded): `main` closes it, then `atexit`."""
+    registered: list = []
+
+    class _Session:
+        def __init__(self, cfg, port) -> None:
+            pass
+
+        def first_launch(self) -> bool:
+            return False
+
+    class _AppSession:
+        closed = 0
+
+        def __init__(self, cfg) -> None:
+            pass
+
+        def close(self) -> None:
+            _AppSession.closed += 1
+
+    monkeypatch.setattr(
+        cli, "_try_reserve_port", lambda port: type("R", (), {"close": lambda s: None})()
+    )
+    monkeypatch.setattr(cli, "DiagnosticSession", _Session)
+    monkeypatch.setattr(cli, "AppSession", _AppSession)
+    monkeypatch.setattr(cli, "create_app", lambda *args, **kwargs: "app")
+    monkeypatch.setattr(
+        cli, "get_journal", lambda: type("J", (), {"subscribe": lambda s, f: None})()
+    )
+    monkeypatch.setattr(cli, "_run_diagnostic_then_boot", lambda *args: None)
+    monkeypatch.setattr(cli, "_open_browser", lambda *args: None)
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kwargs: None)  # no lifespan ran
+    monkeypatch.setattr(cli.atexit, "register", registered.append)
+
+    assert cli.main([]) == 0
+    # On the main thread as `uvicorn.run` returns, before the worker threads are joined...
+    assert _AppSession.closed == 1
+    # ... and at the interpreter's exit, as a last resort (`close` does nothing twice).
+    [close] = registered
+    assert close.__func__ is _AppSession.close
+
+
+def test_closing_the_session_twice_closes_its_engine_once():
+    """Finition V1 (#21): the lifespan, then `atexit`; the second `close` does nothing."""
+    from fake_engine import FakeEngine, booted_session
+
+    engine, closed = FakeEngine(), []
+    engine.close = lambda: closed.append(1)
+    session = booted_session(engine)
+    session.close()
+    session.close()
+    assert closed == [1] and not session.model_loaded
