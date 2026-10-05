@@ -232,6 +232,12 @@ class LlmDistributionRequest(BaseModel):
     sampling: SamplingIntention
 
 
+class LlmExampleDistributionRequest(BaseModel):
+    """Correction C of 2026-10-05, read only: the sampling to draw the OUTPUT's example with."""
+
+    sampling: SamplingIntention
+
+
 class RagLabRunIntention(BaseModel):
     """Story 30: the question the RAG workshop's chain runs on (500 characters at most), and
     the chain (the shipped one when absent). Lot 5c-1: one chain, a list of one (two: 422)."""
@@ -529,6 +535,20 @@ def create_app(
         sampling = Sampling(**request.sampling.model_dump())
         try:
             return shown(app_session.llm_distribution(request.index, sampling))
+        except DistributionMissing as missing:
+            raise HTTPException(
+                status_code=404, detail=render(missing.reason_text, app_session.language)
+            ) from None
+
+    @app.post("/api/llm_lab/example_distribution")
+    def llm_lab_example_distribution(request: LlmExampleDistributionRequest) -> dict[str, object]:
+        """Correction C of 2026-10-05, read only, in any state (AD-1: computed by the
+        session): the OUTPUT's example drawn again for a sampling, shown while no real
+        candidates can be (a cloud model, a server, before a step); 404 when the screen's
+        texts cannot be read."""
+        sampling = Sampling(**request.sampling.model_dump())
+        try:
+            return shown(app_session.llm_example_distribution(sampling))
         except DistributionMissing as missing:
             raise HTTPException(
                 status_code=404, detail=render(missing.reason_text, app_session.language)

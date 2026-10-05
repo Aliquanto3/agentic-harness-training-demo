@@ -113,6 +113,13 @@ stages:
     column_label_text: "{texte} → token {token} → identifier {id}"
     produced_label_text: "{texte} → token {token} → identifier {id}, drawn by the engine and added at the end"
     bos_text: "Before these tokens, the engine also reads {bos}: the begin-of-text token this model asks for."
+    example_tag_text: "Example · illustrative tokens"
+    example_text: >-
+      Example: a text split as a tokenizer would, with illustrative ids. Split your text: its
+      real tokens will replace these.
+    example_cloud_text: >-
+      An example of splitting, not this model's: its tokenizer is at its provider. For your
+      text, WaveStack only gives the estimate alongside.
   transfo:
     title_text: "TRANSFORMATION"
     subtitle_text: "the numbers go through the model's layers"
@@ -167,6 +174,7 @@ stages:
       among many, and only those compute.
     example_text: "example: split a text, its real tokens will replace these"
     example_tokens: ["Hello", ",", " how", " are", " you"]
+    example_ids: [9707, 11, 1246, 525, 498]
     labels:
       tokens_text: "Tokens"
       ids_text: "Identifiers"
@@ -286,6 +294,18 @@ stages:
     step_token_text: "Candidates of the token the engine drew: {texte}."
     help_text: "What this setting does"
     tokenize_first_text: "First split this text into tokens (stage 1)."
+    example:
+      tag_text: "Example · illustrative probabilities"
+      note_text: "An illustrative example, not the model's computation: the settings move it as they move the real draw."
+      unsupported_text: "It only moves the example."
+      candidates:
+        - {text: "?", p: 0.48}
+        - {text: " doing", p: 0.17}
+        - {text: " today", p: 0.09}
+        - {text: ",", p: 0.06}
+        - {text: "!", p: 0.04}
+        - {text: " all", p: 0.03}
+      tail: 0.13
 
 tokenization:
   prompt_label_text: "Text to split"

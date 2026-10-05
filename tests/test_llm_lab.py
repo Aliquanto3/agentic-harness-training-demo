@@ -30,7 +30,12 @@ from wavestack.models.candidates import (
 )
 from wavestack.models.engine import EngineMetadata, Sampling
 from wavestack.session import llm_lab
-from wavestack.session.app_session import CANDIDATES, DistributionMissing, SendRefused
+from wavestack.session.app_session import (
+    CANDIDATES,
+    AppSession,
+    DistributionMissing,
+    SendRefused,
+)
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.journal import get_journal
 from wavestack.web.app import create_app
@@ -1599,3 +1604,118 @@ def test_the_three_stages_texts_are_valid(lang):
     assert "{actifs}" in stages.transfo.banner_moe_text
     assert "{reglage}" in stages.output.dropped_text
     assert "{n}" in stages.input.ids_count_text.one and "{max}" in stages.input.ids_count_text.other
+
+
+# ---------- correction C of 2026-10-05: INPUT and OUTPUT never empty (an example) ----------
+
+
+@pytest.mark.parametrize("lang", ["fr", "en", "de"])
+def test_the_examples_are_valid_in_each_language(lang):
+    stages = llm_lab.load_lab_content(lang).stages
+    assert len(stages.transfo.example_ids) == len(stages.transfo.example_tokens) == 5
+    assert stages.input.example_tag_text and stages.input.example_text
+    assert stages.input.example_cloud_text
+    example = stages.output.example
+    assert example.tag_text and example.note_text and example.unsupported_text
+    values = [c.p for c in example.candidates]
+    assert len(values) == 6 and values == sorted(values, reverse=True)
+    assert sum(values) + example.tail == pytest.approx(1.0, abs=0.01)
+
+
+def test_an_example_whose_ids_or_probabilities_do_not_fit_is_refused():
+    content = llm_lab.load_lab_content("fr").model_dump()
+    transfo = content["stages"]["transfo"]
+    with pytest.raises(ValueError, match="example_ids"):
+        llm_lab.TransfoStage.model_validate(transfo | {"example_ids": [1, 2]})
+    with pytest.raises(ValueError, match="non-negative"):
+        llm_lab.TransfoStage.model_validate(transfo | {"example_ids": [-1, 11, 3681, 70593, 45844]})
+    with pytest.raises(ValueError, match="at least one token"):
+        llm_lab.TransfoStage.model_validate(transfo | {"example_tokens": [], "example_ids": []})
+    example = content["stages"]["output"]["example"]
+    first = example["candidates"][0]
+    for wrong in (
+        {"candidates": example["candidates"][:5]},
+        {"candidates": list(reversed(example["candidates"]))},
+        {"tail": 0.5},
+        {"tail": example["tail"] + 0.02},  # beyond the 0.01 the sum may miss 1 by
+        {"tail": -0.01},
+        {"candidates": [first | {"p": 0.0}] + example["candidates"][1:]},
+        {"candidates": [first | {"p": 1.2}] + example["candidates"][1:]},
+    ):
+        with pytest.raises(ValueError):
+            llm_lab.OutputExample.model_validate(example | wrong)
+
+
+EXAMPLE_SAMPLINGS = [
+    Sampling(0.7, 20, 0.8, 0.0),  # the harness's values
+    Sampling(1.5, 0, 1.0, 0.0),
+    Sampling(0.0, 0, 1.0, 0.0),
+    Sampling(1.0, 2, 1.0, 0.0),
+    Sampling(1.0, 0, 0.6, 0.2),
+]
+
+
+@pytest.mark.parametrize("sampling", EXAMPLE_SAMPLINGS)
+def test_the_example_is_drawn_again_by_the_session_as_real_candidates(sampling):
+    session = booted_session(FakeEngine(output="ab"))
+    example = llm_lab.load_lab_content("fr").stages.output.example
+    values = [c.p for c in example.candidates]
+    body = session.llm_example_distribution(sampling)
+    rows = distribution(values, example.tail, sampling)
+    assert body["example"] is True and body["token_text"] is None and body["tokens"] == 0
+    assert [c["text"] for c in body["candidates"]] == [c.text for c in example.candidates]
+    assert [{k: c[k] for k in ("p", "kept", "p_sampled")} for c in body["candidates"]] == rows
+    assert body["dropped_by"] == dropped_by(values, example.tail, sampling)
+    assert body["kept_count"] == sum(r["kept"] for r in rows) and body["tail"] == example.tail
+
+
+def test_the_example_is_served_without_any_model():
+    session = AppSession(config.Config(values={}))  # never booted: no model at all
+    client = _web(session)
+    answer = client.post(
+        "/api/llm_lab/example_distribution", json={"sampling": OPEN}, headers=ORIGIN
+    )
+    assert answer.status_code == 200 and answer.json()["example"] is True
+    assert answer.json()["kept_count"] == 6
+
+
+def test_the_example_needs_no_engine_in_process_nor_rest():
+    cloud = _cloud_session("groq", Provider(sse(delta(content="ok"), delta("stop"))))
+    assert cloud.lab_state()["candidates"]["available"] is False
+    body = cloud.llm_example_distribution(Sampling(1.0, 2, 1.0, 0.0))
+    assert body["kept_count"] == 2 and body["dropped_by"][2:] == ["top-k"] * 4
+    cloud.state, cloud.reason_text = "turn", "Un tour est en cours."
+    assert cloud.llm_example_distribution(SCREEN)["example"] is True
+
+
+def test_example_route_answers_in_any_state_validates_and_real_reads_say_so():
+    engine = FakeEngine(output="abc", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    client = _web(session)
+
+    def post(body: dict):
+        return client.post("/api/llm_lab/example_distribution", json=body, headers=ORIGIN)
+
+    answer = post({"sampling": OPEN})
+    assert answer.status_code == 200 and answer.json()["example"] is True
+    assert len(answer.json()["candidates"]) == 6
+    for field, value in (("temperature", 2.5), ("top_k", -1), ("top_p", 0.01), ("min_p", 0.6)):
+        assert post({"sampling": OPEN | {field: value}}).status_code == 422, field
+    session.state, session.reason_text = "turn", "Un tour est en cours."
+    assert post({"sampling": OPEN}).status_code == 200
+    session.state, session.reason_text = "idle", None
+    _generate(session, candidates=True)
+    real = client.post(
+        "/api/llm_lab/distribution", json={"index": 0, "sampling": OPEN}, headers=ORIGIN
+    )
+    assert real.status_code == 200 and real.json()["example"] is False
+
+
+def test_the_example_route_says_why_when_the_texts_cannot_be_read(monkeypatch):
+    session = booted_session(FakeEngine(output="ab"))
+    monkeypatch.setattr(session, "_lab_content", lambda: (None, "Contenu illisible (test)."))
+    client = _web(session)
+    answer = client.post(
+        "/api/llm_lab/example_distribution", json={"sampling": OPEN}, headers=ORIGIN
+    )
+    assert answer.status_code == 404 and answer.json()["detail"] == "Contenu illisible (test)."

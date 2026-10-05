@@ -71,7 +71,7 @@
       <header class="llm-stage-head">
         <span class="llm-stage-num" aria-hidden="true">1</span>
         <h2 class="llm-stage-title" id="stage-input-title"><span data-text="stages.input.title_text">INPUT</span> <small data-text="stages.input.subtitle_text"></small></h2>
-        <span class="llm-stage-tag" data-text="stages.input.tag_text"></span>
+        <span class="llm-stage-tag" id="input-tag"></span>
         <div class="llm-stage-stepper" id="input-stepper"></div>
       </header>
       <div class="llm-input-top">
@@ -100,6 +100,8 @@
         <div class="llm-input-counts" id="token-counts" hidden></div>
       </div>
       <p class="llm-note" id="token-bos" hidden></p>
+      <!-- Correction C (2026-10-05): what the example columns are, when no exact cut is shown. -->
+      <p class="llm-note llm-input-example-note" id="token-example" hidden></p>
       <p class="llm-note" id="token-blanks" data-text="tokenization.blanks_text" hidden></p>
       <p class="llm-stage-caption" id="input-caption" aria-live="polite"></p>
     </section>
@@ -137,7 +139,7 @@
       <header class="llm-stage-head">
         <span class="llm-stage-num" aria-hidden="true">3</span>
         <h2 class="llm-stage-title" id="stage-output-title"><span data-text="stages.output.title_text">OUTPUT</span> <small data-text="stages.output.subtitle_text"></small></h2>
-        <span class="llm-stage-tag" data-text="stages.output.tag_text"></span>
+        <span class="llm-stage-tag" id="output-tag"></span>
         <div class="llm-stage-stepper" id="output-stepper"></div>
       </header>
       <!-- Story 5 (2026-09-30): the live distribution, drawn again by the session at each
@@ -178,6 +180,9 @@
               </div>
               <ol class="distribution-bars" id="distribution-bars" aria-label="Candidats du token choisi" data-i18n-aria-label="llm.distribution_list"></ol>
               <p class="llm-note" id="distribution-kept" role="status"></p>
+              <!-- Correction C (2026-10-05): the example's note and why the real candidates are
+                   not shown, under the chart (room left there by the settings). -->
+              <p class="llm-note llm-output-example-note" id="distribution-note" role="status"></p>
             </div>
           </div>
         </section>
