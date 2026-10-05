@@ -4,17 +4,19 @@
 
 title_text: "Atelier RAG : l'architecture RAG à manipuler"
 intro_text: >-
-  Une chaîne RAG, pièce par pièce : le corpus est découpé en extraits, chaque extrait devient
-  un vecteur, les vecteurs sont rangés dans une base, puis la question est comparée à eux pour
-  retrouver les extraits utiles, qu'un reranker peut réordonner avant qu'ils n'entrent dans le
-  contexte du modèle. Lancez la chaîne sur une question pour voir ce que chaque étape reçoit,
-  produit, et ce qu'elle coûte. C'est un bac à sable : la brique RAG de l'atelier ne change pas.
+  Un RAG en deux temps : l'indexation (build) range une fois pour toutes les chunks du corpus
+  dans un vector store ; la requête (run), à chaque question, y cherche les chunks utiles et les
+  place dans le prompt du modèle. Lancez la chaîne sur une question pour voir ce que chaque
+  étape reçoit, produit, et ce qu'elle coûte. C'est un bac à sable : la brique RAG de l'atelier
+  ne change pas.
 busy_text: "Indisponible pour l'instant : {raison}"
 
-chain_title_text: "La chaîne"
+chain_title_text: "La chaîne RAG, étape par étape"
 chain_help_text: >-
-  Les étapes, de gauche à droite. Entre la base vectorielle et le contexte, les recherches, la
-  fusion et le reranking se retirent, s'ajoutent et se déplacent. La génération est dessinée
+  La séquence des étapes, les composants qu'elle sollicite et le focus sur l'étape choisie. En
+  mode Dérouler, les étapes et leurs composants arrivent un à un, à la main (◀ ▶) ou au fil
+  d'une exécution. En mode Composer, les étapes du segment de récupération (Dense retrieval,
+  BM25, Fusion, Reranking) se retirent, s'ajoutent et se déplacent ; la Generation est dessinée
   pour montrer ce que le modèle recevrait, mais elle ne s'exécute pas ici.
 
 question_label_text: "Question"
@@ -24,7 +26,31 @@ run_text: "Lancer la chaîne"
 stop_text: "Arrêter"
 running_text: "Exécution en cours…"
 
-results_title_text: "Ce que fait chaque étape"
+# Lot 5a : les trois vues (séquence, architecture, focus) et les deux modes.
+modes_label_text: "Mode"
+compose_text: "✎ Composer"
+play_text: "▶ Dérouler"
+sequence_title_text: "Séquence"
+architecture_title_text: "Architecture"
+focus_title_text: "Focus"
+focus_empty_text: "Cliquez sur une étape de la séquence pour la voir ici en détail."
+focus_no_run_text: "Lancez la chaîne pour voir ce que l'étape reçoit, produit et coûte."
+focus_position_text: "{phase} · étape {n} sur {total}"
+uses_title_text: "Composants sollicités"
+reads_text: "lu"
+writes_text: "écrit"
+calls_text: "appelé"
+same_model_text: "Même modèle que l'Embedding des chunks"
+question_received_text: "reçue"
+focus_play_hint_text: "Les chiffres de la dernière exécution de cette chaîne sont en mode Dérouler."
+# Lot 5b : les architectures toutes faites (mode Composer).
+presets_title_text: "Architectures toutes faites"
+# Lot 5a-2 : la légende du pas-à-pas en mode Dérouler.
+legend_tour_text: "Visite guidée : les étapes et les composants arrivent un à un, avancez avec ▶."
+legend_live_text: "Exécution en cours…"
+legend_done_text: "Exécution terminée : rejouez avec ◀ ▶."
+legend_replay_text: "Relecture de l'exécution."
+details_text: "Toutes les étapes en détail (tableaux complets, durées, mémoire)"
 results_empty_text: "Lancez la chaîne : chaque étape affichera ici ce qu'elle reçoit, ce qu'elle produit, sa durée et la mémoire de WaveStack."
 generation_not_run_text: >-
   Non exécutée dans l'atelier RAG : générer une réponse, c'est un tour de l'atelier, avec sa
@@ -37,21 +63,13 @@ facts_text: "Chiffres"
 duration_text: "Durée"
 memory_text: "Mémoire de WaveStack"
 last_run_text: "Dernière exécution"
-compare_text: "Comparer avec une autre configuration"
 reset_chain_text: "Revenir à la chaîne livrée"
-chain_a_text: "Chaîne A"
-chain_b_text: "Chaîne B"
 unavailable_text: "indisponible"
 add_text: "Ajouter un composant"
 add_button_text: "Ajouter"
 move_before_text: "Déplacer avant"
 move_after_text: "Déplacer après"
 remove_text: "Retirer"
-comparison_title_text: "Comparaison des deux contextes"
-common_text: "En commun"
-only_a_text: "Seulement dans A"
-only_b_text: "Seulement dans B"
-rank_changes_text: "Écarts de rang"
 
 status:
   waiting_text: "en attente"
@@ -68,58 +86,62 @@ columns:
   document_text: "Document"
   score_text: "Score"
 
-# Une carte par type d'étape : son nom et ce qu'elle fait (2 à 3 phrases).
+# Une étape de la chaîne : son nom technique (en anglais, le même dans les trois langues) et
+# ce qu'elle fait (2 à 3 phrases).
 stages:
   chunking:
-    label_text: "Découpage"
+    label_text: "Chunking"
     explain_text: >-
-      Les documents du corpus sont coupés en extraits : les paragraphes sont regroupés tant
+      Les documents du corpus sont coupés en chunks : les paragraphes sont regroupés tant
       qu'ils tiennent dans la taille maximale, un paragraphe trop long est coupé en fin de
-      phrase. Un extrait trop petit perd son contexte ; trop grand, il noie l'information.
+      phrase. Un chunk trop petit perd son contexte ; trop grand, il noie l'information.
   embedding:
     label_text: "Embedding"
     explain_text: >-
-      Un modèle d'embedding transforme chaque extrait, puis la question, en un vecteur de
+      Un modèle d'embedding transforme chaque chunk, puis la question, en un vecteur de
       nombres. Deux textes au sens proche donnent des vecteurs proches, même sans mot commun.
   vector_store:
-    label_text: "Base vectorielle"
+    label_text: "Vector store"
     explain_text: >-
-      Les vecteurs des extraits sont rangés dans une base, calculée une fois pour toutes :
-      c'est l'indexation. À chaque question, on n'embedde plus que la question.
+      Les vecteurs des chunks sont rangés dans un vector store, calculé une fois pour toutes :
+      c'est l'indexation. Il sait retrouver vite les vecteurs les plus proches d'un autre ; à
+      chaque question, on ne vectorise plus que la question.
   vector_search:
-    label_text: "Recherche"
+    label_text: "Dense retrieval"
     explain_text: >-
-      La base rend les extraits dont le vecteur est le plus proche de celui de la question
-      (similarité cosinus), sans seuil : les k plus proches, pertinents ou non.
+      Le vector store rend les chunks dont le vecteur est le plus proche de celui de la
+      question (similarité cosinus), sans seuil : les k plus proches, pertinents ou non.
   lexical_search:
-    label_text: "Recherche lexicale BM25"
+    label_text: "BM25"
     explain_text: >-
-      Une recherche par mots, sans embedding : les extraits qui partagent des mots avec la
+      Une recherche par mots-clés, sans embedding : les chunks qui partagent des mots avec la
       question passent devant, un mot rare pesant plus qu'un mot courant (BM25) ; les accents et
       les petits mots (le, de, et…) sont ignorés. Elle retrouve un sigle, un code ou un nombre
       exact (« RH », « 35 ») qu'un embedding peut manquer.
   fusion:
-    label_text: "Fusion"
+    label_text: "Fusion (RRF)"
     explain_text: >-
-      Deux recherches donnent deux classements ; la fusion des rangs réciproques les combine :
-      chaque extrait gagne 1 / (60 + son rang) dans chaque liste. Un extrait bien classé par les
-      deux passe devant : c'est la recherche hybride.
+      Deux recherches donnent deux classements ; la fusion des rangs réciproques (RRF) les
+      combine : chaque chunk gagne 1 / (60 + son rang) dans chaque liste. Un chunk bien classé
+      par les deux passe devant : c'est la recherche hybride.
   rerank:
     label_text: "Reranking"
     explain_text: >-
-      Un reranker relit la question et chaque candidat ensemble, et note leur pertinence. Plus
-      lent qu'une recherche vectorielle, il ne voit que les candidats qu'elle a retenus, puis
-      les réordonne.
+      Un reranker relit la question et chaque candidat ensemble, et note leur pertinence. Le
+      Dense retrieval comparait deux vecteurs calculés séparément ; le reranker lit les deux
+      textes côte à côte : il juge mieux, mais il est bien plus lent. C'est pourquoi il ne voit
+      que les candidats retenus, puis les réordonne.
   context:
-    label_text: "Construction du contexte"
+    label_text: "Prompt augmentation"
     explain_text: >-
-      Seuls les premiers extraits entrent dans le contexte, numérotés, avec le titre de leur
-      document, avant la question. Chaque extrait coûte des tokens dans la fenêtre du modèle.
+      Seuls les premiers chunks entrent dans le prompt, numérotés, avec le titre de leur
+      document, avant la question : c'est le prompt augmenté. Chaque chunk coûte des tokens
+      dans la fenêtre du modèle.
   generation:
-    label_text: "Génération"
+    label_text: "Generation"
     explain_text: >-
-      Le modèle lit ce contexte et la question, puis répond en s'appuyant sur les extraits.
-      Une bonne réponse dépend de ce que les étapes précédentes lui ont apporté.
+      Le LLM lit le prompt augmenté et répond en s'appuyant sur les chunks. Une bonne réponse
+      dépend de ce que les étapes précédentes lui ont apporté.
 
 # Le nom de chaque option ; celles qui nomment un modèle déclaré prennent son libellé.
 options:
@@ -162,11 +184,139 @@ options:
 # Les réglages : leur nom et leur unité.
 params:
   chunk_max_chars:
-    label_text: "Taille maximale d'un extrait"
+    label_text: "Taille maximale d'un chunk"
     unit_text: "caractères"
   candidates:
     label_text: "Candidats retenus"
-    unit_text: "extraits"
+    unit_text: "chunks"
   top_k:
-    label_text: "Extraits dans le contexte"
-    unit_text: "extraits"
+    label_text: "Chunks dans le prompt"
+    unit_text: "chunks"
+
+# Lot 5a : les lignes de la séquence (vues-atelier-rag.md §2). Le nom technique est le même
+# dans les trois langues ; l'action et l'explication sont dans la langue de la page. Sans
+# `explain_text`, le focus reprend celui de l'étape de la chaîne.
+steps:
+  documents:
+    label_text: "Documents"
+    action_text: "Charger le corpus"
+    explain_text: >-
+      Le corpus que le RAG rend consultable : les documents d'une entreprise fictive, Exemplia.
+      Il ne change pas d'une question à l'autre ; c'est pourquoi tout le travail sur lui se fait
+      une fois, avant les questions : c'est l'indexation.
+  chunking:
+    label_text: "Chunking"
+    action_text: "Découper les documents en chunks"
+  embed_passages:
+    label_text: "Embedding"
+    action_text: "Vectoriser chaque chunk"
+    explain_text: >-
+      Le modèle d'embedding transforme chaque chunk en un vecteur de nombres. Deux textes au
+      sens proche donnent des vecteurs proches, même sans mot commun. Ce calcul est fait une
+      fois : les vecteurs de l'index de la brique RAG sont relus sans être recalculés.
+  vector_store:
+    label_text: "Indexing"
+    action_text: "Ranger les vecteurs dans le vector store"
+  question:
+    label_text: "Question"
+    action_text: "Recevoir la question"
+    explain_text: >-
+      La question posée en langage naturel. Elle part vers l'Embedding pour une recherche par le
+      sens, telle quelle vers BM25 si la chaîne en a un, et rejoint enfin le prompt du modèle.
+  embed_query:
+    label_text: "Embedding"
+    action_text: "Vectoriser la question"
+    explain_text: >-
+      Le même modèle d'embedding transforme la question en vecteur. Il doit être le même que pour
+      les chunks : deux modèles différents ne rangent pas les sens dans le même espace, leurs
+      vecteurs ne se comparent pas.
+  vector_search:
+    label_text: "Dense retrieval"
+    action_text: "Chercher les chunks les plus proches"
+  lexical_search:
+    label_text: "BM25"
+    action_text: "Chercher par mots-clés"
+  fusion:
+    label_text: "Fusion (RRF)"
+    action_text: "Fusionner les deux classements"
+  rerank:
+    label_text: "Reranking"
+    action_text: "Reclasser les candidats"
+  context:
+    label_text: "Prompt augmentation"
+    action_text: "Construire le prompt avec les chunks retenus"
+  generation:
+    label_text: "Generation"
+    action_text: "Générer la réponse"
+    note_text: "Non exécutée dans l'atelier RAG pour l'instant : voici ce que le LLM recevrait."
+
+# Les tuiles de l'architecture : leur nom, et leur sous-titre quand aucune option ne le donne.
+components:
+  documents:
+    label_text: "Documents"
+    note_text: "Le corpus d'Exemplia"
+  chunks:
+    label_text: "Chunks"
+    note_text: "Les morceaux des documents"
+  vector_store:
+    label_text: "Vector store"
+    note_text: "Les vecteurs des chunks"
+  embedding_model:
+    label_text: "Embedding model"
+    note_text: "Le modèle d'embedding"
+  reranker:
+    label_text: "Reranker"
+    note_text: "Le modèle de reranking"
+  llm:
+    label_text: "LLM"
+    note_text: "Le modèle actif de l'atelier"
+  question:
+    label_text: "Question"
+    note_text: "La question posée"
+  augmented_prompt:
+    label_text: "Augmented prompt"
+    note_text: "Les chunks retenus et la question"
+  answer:
+    label_text: "Réponse"
+    note_text: "Non générée dans l'atelier RAG"
+
+groups:
+  data:
+    label_text: "Données"
+  models:
+    label_text: "Modèles"
+  exchange:
+    label_text: "Échange avec l'utilisateur"
+
+phases:
+  build:
+    tag_text: "BUILD"
+    label_text: "Indexing"
+    help_text: "une fois pour toutes, avant les questions"
+  run:
+    tag_text: "RUN"
+    label_text: "Retrieval"
+    help_text: "à chaque question"
+
+# Lot 5b : les architectures toutes faites ; appliquer l'une remplace le segment de
+# récupération seulement, ses étapes aux réglages livrés. L'explication est l'infobulle.
+presets:
+  dense:
+    label_text: "RAG dense"
+    explain_text: >-
+      Une seule recherche, par le sens (Dense retrieval) : le RAG le plus simple. Rapide, mais
+      il peut manquer un sigle ou un nombre exact.
+  hybrid:
+    label_text: "RAG hybride (BM25 + dense)"
+    explain_text: >-
+      Une recherche par le sens (Dense retrieval) et une par mots-clés (BM25), puis la Fusion
+      (RRF) de leurs deux classements : le sigle exact et la paraphrase se retrouvent tous deux.
+      Deux recherches au lieu d'une : plus lent que le RAG dense. Un Reranking s'ajoute à la
+      main après la Fusion.
+  rerank:
+    label_text: "RAG + reranking"
+    explain_text: >-
+      Le Dense retrieval retient des candidats, puis le Reranker les relit avec la question et
+      les réordonne : plus juste, plus lent. Seul le segment de récupération revient à celui de
+      la chaîne livrée : les réglages du Chunking, de l'Embedding, du vector store et du prompt
+      restent les vôtres.

@@ -3,18 +3,19 @@
 
 title_text: "RAG workshop: the RAG architecture to handle"
 intro_text: >-
-  A RAG pipeline, piece by piece: the corpus is split into excerpts, each excerpt becomes a
-  vector, the vectors are stored in a database, then the question is compared with them to
-  find the useful excerpts, which a reranker can reorder before they enter the model's
-  context. Run the pipeline on a question to see what each step receives, produces and
-  costs. This is a sandbox: the workshop's RAG brick does not change.
+  A RAG in two phases: indexing (build) stores the corpus's chunks in a vector store once and
+  for all; the query (run), for each question, searches it for the useful chunks and places
+  them in the model's prompt. Run the pipeline on a question to see what each step receives,
+  produces and costs. This is a sandbox: the workshop's RAG brick does not change.
 busy_text: "Unavailable for now: {raison}"
 
-chain_title_text: "The pipeline"
+chain_title_text: "The RAG pipeline, step by step"
 chain_help_text: >-
-  The steps, from left to right. Between the vector database and the context, the searches,
-  the fusion and the reranking can be removed, added and moved. Generation is drawn to show
-  what the model would receive, but it does not run here.
+  The sequence of steps, the components it calls on and the focus on the chosen step. In Play
+  mode, the steps and their components arrive one by one, by hand (◀ ▶) or as a run goes. In
+  Compose mode, the steps of the retrieval segment (Dense retrieval,
+  BM25, Fusion, Reranking) can be removed, added and moved; Generation is drawn to show what
+  the model would receive, but it does not run here.
 
 question_label_text: "Question"
 question_placeholder_text: "Ask a question about Exemplia's documentation"
@@ -23,7 +24,30 @@ run_text: "Run the pipeline"
 stop_text: "Stop"
 running_text: "Running…"
 
-results_title_text: "What each step does"
+# Lot 5a: the three views (sequence, architecture, focus) and the two modes.
+modes_label_text: "Mode"
+compose_text: "✎ Compose"
+play_text: "▶ Play"
+sequence_title_text: "Sequence"
+architecture_title_text: "Architecture"
+focus_title_text: "Focus"
+focus_empty_text: "Click a step of the sequence to see it here in detail."
+focus_no_run_text: "Run the pipeline to see what the step receives, produces and costs."
+focus_position_text: "{phase} · step {n} of {total}"
+uses_title_text: "Components called on"
+reads_text: "read"
+writes_text: "written"
+calls_text: "called"
+same_model_text: "Same model as the chunks' Embedding"
+question_received_text: "received"
+focus_play_hint_text: "The figures of this chain's last run are in Play mode."
+# Lot 5b: the ready-made architectures (Composer mode).
+presets_title_text: "Ready-made architectures"
+legend_tour_text: "Guided tour: the steps and components arrive one by one, move on with ▶."
+legend_live_text: "Run in progress…"
+legend_done_text: "Run finished: replay it with ◀ ▶."
+legend_replay_text: "Replaying the run."
+details_text: "Every step in detail (full tables, durations, memory)"
 results_empty_text: "Run the pipeline: each step will show here what it receives, what it produces, how long it takes and WaveStack's memory."
 generation_not_run_text: >-
   Not run in the RAG workshop: generating an answer is a turn of the workshop, with its
@@ -36,21 +60,13 @@ facts_text: "Figures"
 duration_text: "Duration"
 memory_text: "WaveStack's memory"
 last_run_text: "Last run"
-compare_text: "Compare with another configuration"
 reset_chain_text: "Back to the default pipeline"
-chain_a_text: "Pipeline A"
-chain_b_text: "Pipeline B"
 unavailable_text: "unavailable"
 add_text: "Add a component"
 add_button_text: "Add"
 move_before_text: "Move before"
 move_after_text: "Move after"
 remove_text: "Remove"
-comparison_title_text: "Comparison of the two contexts"
-common_text: "In common"
-only_a_text: "Only in A"
-only_b_text: "Only in B"
-rank_changes_text: "Rank shifts"
 
 status:
   waiting_text: "waiting"
@@ -67,59 +83,62 @@ columns:
   document_text: "Document"
   score_text: "Score"
 
-# One card per step type: its name and what it does (2 to 3 sentences).
+# A stage of the pipeline: its technical name (English, the same in the three languages) and
+# what it does (2 to 3 sentences).
 stages:
   chunking:
     label_text: "Chunking"
     explain_text: >-
-      The corpus documents are cut into excerpts: paragraphs are grouped as long as they fit
+      The corpus documents are cut into chunks: paragraphs are grouped as long as they fit
       within the maximum size, and a paragraph that is too long is cut at the end of a
-      sentence. An excerpt that is too small loses its context; too large, it drowns the
+      sentence. A chunk that is too small loses its context; too large, it drowns the
       information.
   embedding:
     label_text: "Embedding"
     explain_text: >-
-      An embedding model turns each excerpt, then the question, into a vector of numbers.
-      Two texts with a similar meaning give close vectors, even with no word in common.
+      An embedding model turns each chunk, then the question, into a vector of numbers. Two
+      texts with a similar meaning give close vectors, even with no word in common.
   vector_store:
-    label_text: "Vector database"
+    label_text: "Vector store"
     explain_text: >-
-      The excerpts' vectors are stored in a database, computed once and for all: this is
-      indexing. For each question, only the question still needs embedding.
+      The chunks' vectors are stored in a vector store, computed once and for all: this is
+      indexing. It quickly finds the vectors closest to another one; for each question, only
+      the question still needs embedding.
   vector_search:
-    label_text: "Search"
+    label_text: "Dense retrieval"
     explain_text: >-
-      The database returns the excerpts whose vector is closest to the question's (cosine
+      The vector store returns the chunks whose vector is closest to the question's (cosine
       similarity), with no threshold: the k closest, relevant or not.
   lexical_search:
-    label_text: "BM25 lexical search"
+    label_text: "BM25"
     explain_text: >-
-      A search by words, with no embedding: excerpts that share words with the question come
+      A keyword search, with no embedding: chunks that share words with the question come
       first, a rare word weighing more than a common one (BM25); accents and short English
       function words (the, of, and…) are ignored. It finds an acronym, a code or an exact
       number (“HR”, “IT”, “35”) that an embedding may miss.
   fusion:
-    label_text: "Fusion"
+    label_text: "Fusion (RRF)"
     explain_text: >-
-      Two searches give two rankings; reciprocal rank fusion combines them: each excerpt
-      earns 1 / (60 + its rank) in each list. An excerpt ranked well by both comes first:
-      this is hybrid search.
+      Two searches give two rankings; reciprocal rank fusion (RRF) combines them: each chunk
+      earns 1 / (60 + its rank) in each list. A chunk ranked well by both comes first: this
+      is hybrid search.
   rerank:
     label_text: "Reranking"
     explain_text: >-
       A reranker reads the question and each candidate together, and scores their relevance.
-      Slower than a vector search, it only sees the candidates that search kept, then
-      reorders them.
+      Dense retrieval compared two vectors computed apart; the reranker reads both texts side
+      by side: it judges better, but it is much slower. That is why it only sees the
+      candidates kept, then reorders them.
   context:
-    label_text: "Context building"
+    label_text: "Prompt augmentation"
     explain_text: >-
-      Only the top excerpts enter the context, numbered, with their document's title, before
-      the question. Each excerpt costs tokens in the model's window.
+      Only the top chunks enter the prompt, numbered, with their document's title, before the
+      question: this is the augmented prompt. Each chunk costs tokens in the model's window.
   generation:
     label_text: "Generation"
     explain_text: >-
-      The model reads this context and the question, then answers based on the excerpts. A
-      good answer depends on what the previous steps brought it.
+      The LLM reads the augmented prompt and answers based on the chunks. A good answer
+      depends on what the previous steps brought it.
 
 # Each option's name; those naming a declared model take its label.
 options:
@@ -162,11 +181,138 @@ options:
 # The settings: their name and unit.
 params:
   chunk_max_chars:
-    label_text: "Maximum excerpt size"
+    label_text: "Maximum chunk size"
     unit_text: "characters"
   candidates:
     label_text: "Candidates kept"
-    unit_text: "excerpts"
+    unit_text: "chunks"
   top_k:
-    label_text: "Excerpts in the context"
-    unit_text: "excerpts"
+    label_text: "Chunks in the prompt"
+    unit_text: "chunks"
+
+# Lot 5a: the lines of the sequence. The technical name is the same in the three languages;
+# the action and the explanation are in the page's language. Without `explain_text`, the
+# focus takes its pipeline stage's.
+steps:
+  documents:
+    label_text: "Documents"
+    action_text: "Load the corpus"
+    explain_text: >-
+      The corpus the RAG makes searchable: the documents of a fictitious company, Exemplia. It
+      does not change from one question to the next; that is why all the work on it is done
+      once, before the questions: this is indexing.
+  chunking:
+    label_text: "Chunking"
+    action_text: "Cut the documents into chunks"
+  embed_passages:
+    label_text: "Embedding"
+    action_text: "Embed each chunk"
+    explain_text: >-
+      The embedding model turns each chunk into a vector of numbers. Two texts with a similar
+      meaning give close vectors, even with no word in common. This is computed once: the
+      vectors of the RAG brick's index are read again, not recomputed.
+  vector_store:
+    label_text: "Indexing"
+    action_text: "Store the vectors in the vector store"
+  question:
+    label_text: "Question"
+    action_text: "Receive the question"
+    explain_text: >-
+      The question asked in natural language. It goes to the Embedding for a search by meaning,
+      as it is to BM25 if the pipeline has one, and finally joins the model's prompt.
+  embed_query:
+    label_text: "Embedding"
+    action_text: "Embed the question"
+    explain_text: >-
+      The same embedding model turns the question into a vector. It must be the one used for
+      the chunks: two different models do not place meanings in the same space, their vectors
+      cannot be compared.
+  vector_search:
+    label_text: "Dense retrieval"
+    action_text: "Find the closest chunks"
+  lexical_search:
+    label_text: "BM25"
+    action_text: "Search by keywords"
+  fusion:
+    label_text: "Fusion (RRF)"
+    action_text: "Merge the two rankings"
+  rerank:
+    label_text: "Reranking"
+    action_text: "Reorder the candidates"
+  context:
+    label_text: "Prompt augmentation"
+    action_text: "Build the prompt with the chunks kept"
+  generation:
+    label_text: "Generation"
+    action_text: "Generate the answer"
+    note_text: "Not run in the RAG workshop for now: here is what the LLM would receive."
+
+# The architecture's tiles: their name, and their subtitle when no option gives one.
+components:
+  documents:
+    label_text: "Documents"
+    note_text: "Exemplia's corpus"
+  chunks:
+    label_text: "Chunks"
+    note_text: "The pieces of the documents"
+  vector_store:
+    label_text: "Vector store"
+    note_text: "The chunks' vectors"
+  embedding_model:
+    label_text: "Embedding model"
+    note_text: "The embedding model"
+  reranker:
+    label_text: "Reranker"
+    note_text: "The reranking model"
+  llm:
+    label_text: "LLM"
+    note_text: "The workshop's active model"
+  question:
+    label_text: "Question"
+    note_text: "The question asked"
+  augmented_prompt:
+    label_text: "Augmented prompt"
+    note_text: "The chunks kept and the question"
+  answer:
+    label_text: "Answer"
+    note_text: "Not generated in the RAG workshop"
+
+groups:
+  data:
+    label_text: "Data"
+  models:
+    label_text: "Models"
+  exchange:
+    label_text: "Exchange with the user"
+
+phases:
+  build:
+    tag_text: "BUILD"
+    label_text: "Indexing"
+    help_text: "once and for all, before the questions"
+  run:
+    tag_text: "RUN"
+    label_text: "Retrieval"
+    help_text: "for each question"
+
+# Lot 5b: the ready-made architectures; applying one replaces the retrieval segment only,
+# its steps at their shipped settings. The explanation is the tooltip.
+presets:
+  dense:
+    label_text: "Dense RAG"
+    explain_text: >-
+      A single search, by meaning (Dense retrieval): the simplest RAG. Fast, but it may miss an
+      acronym or an exact number.
+  hybrid:
+    label_text: "Hybrid RAG (BM25 + dense)"
+    explain_text: >-
+      One search by meaning (Dense retrieval) and one by keywords (BM25), then the Fusion (RRF)
+      of their two rankings: the exact acronym and the paraphrase are both found. Two searches
+      instead of one: slower than dense RAG. A Reranking can be added by hand after the
+      Fusion.
+  rerank:
+    label_text: "RAG + reranking"
+    explain_text: >-
+      Dense retrieval keeps candidates, then the Reranker reads them again with the question and
+      reorders them: more accurate, slower. Only the retrieval segment goes back to the shipped
+      pipeline's: your Chunking, Embedding, vector store and prompt settings are kept.

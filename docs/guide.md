@@ -271,12 +271,22 @@ Le lien **« RAG »** de la barre de navigation ouvre l'Atelier RAG (page `/rag`
 RAG, dessinée pièce par pièce, puis exécutée sur une question, étape par étape. C'est un bac à
 sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne change pas.
 
-- **La chaîne.** Sept cartes : découpage du corpus, embedding, base vectorielle, recherche,
-  reranking, construction du contexte, génération. Chaque carte nomme son option (le modèle
-  déclaré dans `[rag.embedding]` et `[rag.reranker]`, sqlite-vec…), ses réglages, et explique
-  ce qu'elle fait ; une note dit ce qu'une exécution rencontrerait (modèle absent, index de la
-  brique à construire). La génération est dessinée mais ne s'exécute pas ici : générer, c'est un
-  tour de l'atelier ; la carte montre ce que le modèle recevrait.
+- **Trois vues.** À gauche la **séquence** des étapes, en deux temps : « BUILD · Indexing »
+  (Documents, Chunking, Embedding des chunks, Indexing dans le vector store), fait une fois pour
+  toutes, puis « RUN · Retrieval » (Question, Embedding de la question, recherches, Reranking,
+  Prompt augmentation, Generation), à chaque question. Au milieu, l'**architecture** : les
+  composants que ces étapes sollicitent, en trois groupes (Données, Modèles, Échange avec
+  l'utilisateur). À droite, le **focus** sur une étape : ce qu'elle fait, les composants qu'elle
+  lit, écrit ou appelle, et après une exécution son entrée, sa sortie, ses chiffres et ses
+  extraits. Les noms techniques restent en anglais dans les trois langues. La Generation est
+  dessinée mais ne s'exécute pas ici : le focus montre ce que le modèle recevrait.
+- **Composer et Dérouler.** « ✎ Composer » montre toute la chaîne, réglable dans la séquence.
+  « ▶ Dérouler » fait arriver les étapes et les composants un à un : sans exécution, c'est une
+  visite guidée (◀ ▶) ; pendant une exécution, chaque étape atteinte s'allume avec ses
+  composants, et ◀ ▶ la rejouent ensuite. Le choix du mode est gardé par le navigateur.
+- **Architectures toutes faites.** En Composer, « RAG dense », « RAG hybride (BM25 + dense) » et
+  « RAG + reranking » remplacent d'un clic le segment de recherche, réglages livrés, sans toucher
+  le Chunking, l'Embedding, le vector store ni le prompt.
 - **L'exécution.** « Lancer la chaîne » exécute chaque étape sur la question (500 caractères au
   plus) et montre ce qu'elle reçoit, ce qu'elle produit, ses chiffres, ses extraits (rang, rang
   d'avant, document, score), sa durée et la mémoire de WaveStack. La chaîne livrée lit l'index
@@ -286,8 +296,8 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   sans reranker, le reranking est sauté et le contexte garde l'ordre de la recherche.
   « Arrêter » interrompt entre deux étapes. Pendant l'exécution, l'atelier attend (état
   « Atelier RAG : exécution en cours »).
-- **Options et réglages.** Chaque carte propose ses options (les indisponibles sont grisées, la
-  raison sous la carte) et ses réglages : taille des extraits (200 à 1 500 caractères), candidats
+- **Options et réglages.** Chaque étape propose ses options (les indisponibles sont grisées, la
+  raison sous l'étape choisie) et ses réglages : taille des extraits (200 à 1 500 caractères), candidats
   retenus et extraits du contexte (1 à 20, jamais moins de candidats que d'extraits). La base
   vectorielle peut être l'index sqlite-vec ou une **recherche exhaustive en mémoire** (Python pur,
   sans index) ; l'embedding peut être un modèle **fastembed** (ONNX), proposé seulement s'il est
@@ -296,21 +306,17 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   dossier>` du dossier de données (par défaut `models--<model_name>`, « / » devenant « -- ») :
   l'atelier ne
   télécharge jamais rien. Une chaîne refusée dit pourquoi, en nommant l'étape.
-- **Comparer deux configurations.** « Comparer avec une autre configuration » ouvre une chaîne
-  B ; les deux s'exécutent l'une après l'autre sur la même question, en deux colonnes, suivies
-  d'une synthèse : extraits communs, propres à A ou à B, écarts de rang (par document quand les
-  deux chaînes découpent le corpus autrement). Les chaînes en cours d'édition sont gardées par le
-  navigateur ; « Revenir à la chaîne livrée » les oublie.
-- **Ajouter, retirer, déplacer.** Entre la base vectorielle et le contexte, les recherches, la
-  fusion et le reranking se déplacent par leurs boutons « ◀ » et « ▶ » (au clavier aussi) et se
-  retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le contexte : la
-  **recherche lexicale BM25** (par mots, sans embedding, k1 = 1,5 et b = 0,75 ; accents et petits
+- **Ajouter, retirer, déplacer.** Entre le vector store et le Prompt augmentation, les
+  recherches, la fusion et le reranking se déplacent par leurs boutons « ▲ » et « ▼ » (au clavier
+  aussi) et se retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le
+  Prompt augmentation : la **recherche par mots-clés BM25** (par mots, sans embedding, k1 = 1,5 et b = 0,75 ; accents et petits
   mots ignorés, sigles et nombres gardés, comme « RH » ou « 35 ») et la **fusion**
   des rangs réciproques (k = 60), qui combine deux recherches en une recherche hybride. Les
   autres étapes sont fixes. WaveStack vérifie la chaîne à chaque modification : une chaîne
   invalide (deux recherches sans fusion après elles, une fusion sans deux recherches avant elle,
-  un reranking avant toute recherche…) affiche sa raison sur la carte fautive, et « Lancer » est
-  désactivé.
+  un reranking avant toute recherche…) affiche sa raison sur l'étape fautive, et « Lancer » est
+  désactivé. Les chaînes en cours d'édition sont gardées par le navigateur ; « Revenir à la
+  chaîne livrée » les oublie.
 - **Le dossier `rag_lab`.** Hors de la chaîne livrée, les vecteurs du corpus sont calculés une
   fois par modèle et par taille d'extrait, puis relus (« relus du cache »), et les index sqlite-vec
   de l'atelier sont construits à côté, dans `rag_lab/` du dossier de données (moins de 1 Mo par

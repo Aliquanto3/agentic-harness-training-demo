@@ -975,3 +975,24 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-lot-4-atelier-mcp-en-sequence-2026-10-04.md`
   summary: Rendre déterministes les deux chemins de fermeture d'une connexion de l'Atelier MCP perdue hors échange (`mcp_lab_closed{lost}` et `call_ended{lost}`) dans `test_a_server_gone_closes_the_workshops_connection`.
   evidence: le test accepte l'une ou l'autre fin selon la course entre la tâche de connexion et l'appel suivant ; chaque chemin n'est couvert que par le hasard du minutage (non vérifié : il faudrait un point d'accroche dans la tâche de connexion pour forcer chaque branche).
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
+  summary: Passer au vocabulaire « chunk » / « prompt » les refus de l'Atelier RAG et les comptes `rag_lab.noun` de `content/messages.yaml` (fr, en, de), qui disent encore « extrait » et « contexte ».
+  evidence: `messages.yaml` est un fichier carrefour des lots 3 à 6 (ajouts seulement pendant le parallélisme) ; à faire après la fusion du lot 6.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
+  summary: Retirer les clés orphelines de la comparaison A/B (`rag.chain_a`, `rag.chain_b`, `rag.chain_b_steps`, `rag.comparison.*`) de `content/ui.yaml` et de ses copies en/de, avec la voie B du backend (5c-1).
+  evidence: Plus aucun appel depuis rag.js ; `rag.chain` reste utilisé par app.js. Gardées pendant le parallélisme (fichier carrefour).
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
+  summary: Vérifier en E2E que la raison d'indisponibilité de FAISS ou LanceDB devient visible une fois la ligne Vector store choisie (branche sans l'extra rag-alt).
+  evidence: low ; `_rag_lab_alt` lit `all_inner_texts()`, qui renvoie le texte même masqué. Pour trancher : `is_visible()` après `_focus_of(r, "vector_store")`.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5b-1-architectures-toutes-faites.md`
+  summary: Vérifier en E2E que le focus clavier revient sur le bouton du préréglage appliqué après le redessin de la rangée (Atelier RAG, mode Composer).
+  evidence: low ; `applyPreset` refocalise le bouton, aucun contrôle de `document.activeElement` dans les scénarios RAG.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/SPEC.md`
+  summary: Mettre à jour les lignes `rag-screen`, `rag-chain` et `rag-stage-card` d'EXPERIENCE.md (et DESIGN.md si besoin) d'après `vues-atelier-rag.md` : trois vues, modes Composer / Dérouler, architectures toutes faites, sans comparaison A/B.
+  evidence: Documents UX partagés interdits pendant le parallélisme des lots 3 à 6 ; la décision UX du lot 5 vit dans sa spec.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/SPEC.md`
+  summary: E2E `annex_language` et `backend_language` : en anglais et en allemand, `/diagnostic` affiche encore en français l'erreur de téléchargement (`models.download.http_error`, « le serveur a répondu 503… ») et les messages `models.openai_chat.with_provider_message` laissés par les scénarios précédents.
+  evidence: Reproduit au commit de base 370bb36 (`--only rag rag_rerank rag_lab annex_language backend_language`), donc antérieur au lot 5 ; relève du lot 3 (Diagnostic) ou des messages du backend.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/SPEC.md`
+  summary: E2E `mcp_full`, « mode cloud : les descriptions d'outils, MCP compris, en arbres JSON » échoue (arbres vides).
+  evidence: Reproduit au commit de base 370bb36 (`--only mcp_full`), antérieur au lot 5 ; relève du Contexte LLM (app.js) ou du lot 4.

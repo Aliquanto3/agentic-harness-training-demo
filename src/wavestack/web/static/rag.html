@@ -57,45 +57,56 @@
       <p class="rag-busy" id="rag-busy" role="status" hidden></p>
     </header>
 
+    <!-- Lot 5a: one section, the bar (question, « Lancer », mode), then three views side by
+         side (the sequence BUILD then RUN, the architecture of its components, the focus on
+         a step), every step's detail folded under them (vues-atelier-rag.md). -->
     <section class="rag-section" id="sec-chain" aria-labelledby="sec-chain-title">
-      <h2 class="rag-section-title" id="sec-chain-title"><span class="rag-step" aria-hidden="true">1</span> <span data-text="chain_title_text">La chaîne</span></h2>
+      <h2 class="rag-section-title" id="sec-chain-title"><span class="rag-step" aria-hidden="true">1</span> <span data-text="chain_title_text">La chaîne RAG, étape par étape</span></h2>
       <p class="rag-note" data-text="chain_help_text"></p>
-      <h3 class="rag-chain-title" id="rag-chain-title-a" data-i18n="rag.chain_a" hidden>Chaîne A</h3>
-      <ol class="rag-chain" id="rag-chain" aria-label="Étapes de la chaîne RAG" data-i18n-aria-label="rag.chain_steps" data-lane="a"></ol>
-      <p class="rag-chain-refusal-general" id="rag-chain-refusal-a" hidden></p>
-      <div class="rag-palette" id="rag-palette-a"></div>
-      <h3 class="rag-chain-title" id="rag-chain-title-b" data-i18n="rag.chain_b" hidden>Chaîne B</h3>
-      <ol class="rag-chain" id="rag-chain-b" aria-label="Étapes de la chaîne B" data-i18n-aria-label="rag.chain_b_steps" data-lane="b" hidden></ol>
-      <p class="rag-chain-refusal-general" id="rag-chain-refusal-b" hidden></p>
-      <p class="rag-visually-hidden" id="rag-refusal-live" role="status" aria-live="polite"></p>
-      <div class="rag-palette" id="rag-palette-b"></div>
-      <div class="rag-actions">
-        <label class="rag-compare"><input type="checkbox" id="rag-compare" /> <span data-text="compare_text">Comparer avec une autre configuration</span></label>
-        <button type="button" id="rag-reset-chain" class="rag-button-secondary" data-text="reset_chain_text">Revenir à la chaîne livrée</button>
-      </div>
-    </section>
-
-    <section class="rag-section" id="sec-question" aria-labelledby="sec-question-title">
-      <h2 class="rag-section-title" id="sec-question-title"><span class="rag-step" aria-hidden="true">2</span> <span data-text="question_label_text">Question</span></h2>
-      <label class="rag-label" for="rag-question" data-text="question_label_text">Question</label>
-      <input type="text" id="rag-question" class="rag-question" maxlength="500" autocomplete="off" />
-      <div class="rag-actions">
+      <div class="rag-toolbar">
+        <label class="rag-visually-hidden" for="rag-question" data-text="question_label_text">Question</label>
+        <input type="text" id="rag-question" class="rag-question" maxlength="500" autocomplete="off" />
         <button type="button" id="rag-run" class="rag-button-primary" data-text="run_text">Lancer la chaîne</button>
         <button type="button" id="rag-stop" class="rag-button-secondary" data-text="stop_text" disabled>Arrêter</button>
         <span class="rag-status" id="rag-status" role="status" aria-live="polite"></span>
       </div>
-    </section>
-
-    <section class="rag-section" id="sec-results" aria-labelledby="sec-results-title">
-      <h2 class="rag-section-title" id="sec-results-title"><span class="rag-step" aria-hidden="true">3</span> <span data-text="results_title_text">Ce que fait chaque étape</span></h2>
-      <p class="rag-note" id="rag-results-empty" data-text="results_empty_text"></p>
-      <p class="rag-run-summary" id="rag-run-summary" role="status" hidden></p>
-      <div class="rag-results" id="rag-results"></div>
-      <section class="rag-comparison" id="rag-comparison" aria-labelledby="rag-comparison-title" hidden>
-        <h3 class="rag-comparison-title" id="rag-comparison-title" data-text="comparison_title_text">Comparaison des deux contextes</h3>
-        <p class="rag-comparison-summary" id="rag-comparison-summary"></p>
-        <dl class="rag-comparison-lists" id="rag-comparison-lists"></dl>
-      </section>
+      <div class="rag-toolbar">
+        <div class="rag-modes" id="rag-modes" role="group" aria-label="Mode">
+          <button type="button" data-mode="compose" aria-pressed="false" data-text="compose_text">✎ Composer</button>
+          <button type="button" data-mode="play" aria-pressed="true" data-text="play_text">▶ Dérouler</button>
+        </div>
+        <!-- Lot 5b: the ready-made architectures (Composer), from `catalog.presets`. -->
+        <div class="rag-presets" id="rag-presets" role="group" hidden></div>
+        <button type="button" id="rag-reset-chain" class="rag-button-secondary" data-text="reset_chain_text">Revenir à la chaîne livrée</button>
+        <!-- Lot 5a-2: « Dérouler »'s stepper (diagram.createStepper, placed here by rag.js)
+             and its legend. -->
+        <div class="rag-stepper-box" id="rag-stepper" hidden>
+          <span class="rag-stepper-caption" id="rag-legend"></span>
+        </div>
+      </div>
+      <div class="rag-views" id="rag-views" data-mode="play">
+        <div class="rag-seq" id="rag-seq">
+          <span class="rag-view-label" data-text="sequence_title_text">Séquence</span>
+          <p class="rag-phase is-build" id="rag-phase-build"></p>
+          <ol class="rag-seq-list" id="rag-seq-build" aria-labelledby="rag-phase-build"></ol>
+          <p class="rag-phase is-run" id="rag-phase-run"></p>
+          <ol class="rag-seq-list" id="rag-seq-run" aria-labelledby="rag-phase-run"></ol>
+          <p class="rag-chain-refusal-general" id="rag-chain-refusal-a" hidden></p>
+          <p class="rag-visually-hidden" id="rag-refusal-live" role="status" aria-live="polite"></p>
+          <div class="rag-palette" id="rag-palette-a"></div>
+        </div>
+        <div class="rag-arch" id="rag-arch">
+          <span class="rag-view-label" data-text="architecture_title_text">Architecture</span>
+          <div id="rag-arch-groups"></div>
+        </div>
+        <article class="rag-focus" id="rag-focus"></article>
+      </div>
+      <details class="rag-details" id="rag-details">
+        <summary data-text="details_text">Toutes les étapes en détail</summary>
+        <p class="rag-note" id="rag-results-empty" data-text="results_empty_text"></p>
+        <p class="rag-run-summary" id="rag-run-summary" role="status" hidden></p>
+        <div class="rag-results" id="rag-results"></div>
+      </details>
     </section>
   </main>
 

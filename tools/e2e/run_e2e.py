@@ -12539,14 +12539,39 @@ def _llm_live(r: Run, live: _LiveLab, errors: list[str]) -> None:
 # ---------- story 30: the RAG workshop ----------
 
 RAG_LAB_QUESTION = "Combien de jours de télétravail par semaine ?"
+# Lot 5a: the chain's stages (their technical names, English in every language)...
 RAG_LAB_STAGES = [
-    "Découpage",
+    "Chunking",
     "Embedding",
-    "Base vectorielle",
-    "Recherche",
+    "Vector store",
+    "Dense retrieval",
     "Reranking",
-    "Construction du contexte",
-    "Génération",
+    "Prompt augmentation",
+    "Generation",
+]
+# ... and the sequence's lines, BUILD then RUN (vues-atelier-rag.md §2).
+RAG_LAB_SEQUENCE = [
+    "Documents",
+    "Chunking",
+    "Embedding",
+    "Indexing",
+    "Question",
+    "Embedding",
+    "Dense retrieval",
+    "Reranking",
+    "Prompt augmentation",
+    "Generation",
+]
+RAG_LAB_TILES = [
+    "Documents",
+    "Chunks",
+    "Vector store",
+    "Embedding model",
+    "Reranker",
+    "LLM",
+    "Question",
+    "Augmented prompt",
+    "Réponse",
 ]
 
 # Every text a `.rag-stage-status` shows, recorded as it changes (the run is fast: a status
@@ -12559,21 +12584,48 @@ _WATCH_STATUSES_JS = """() => {
     { childList: true, subtree: true, characterData: true });
 }"""
 
+# The three views' boxes, and whether the page scrolls sideways.
+_RAG_VIEWS_JS = """() => {
+  const box = (id) => { const r = document.getElementById(id).getBoundingClientRect();
+    return { l: r.left, r: r.right, t: r.top, b: r.bottom, h: r.height }; };
+  return { seq: box('rag-seq'), arch: box('rag-arch'), focus: box('rag-focus'),
+    views: box('rag-views'), scroll: document.documentElement.scrollWidth - innerWidth };
+}"""
+
 
 def _goto_rag_lab(r: Run) -> None:
     r.page.goto(f"{r.stack.app_url}/rag")
     expect(r.page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
 
 
-def _rag_lab_run(r: Run, question: str = RAG_LAB_QUESTION) -> tuple[dict[str, Any], int]:
-    """« Lancer la chaîne »: the run's end, and the mark before it."""
+def _rag_mode(r: Run, mode: str) -> None:
+    """« ✎ Composer » (`compose`) or « ▶ Dérouler » (`play`), pressed."""
+    button = r.page.locator(f'#rag-modes [data-mode="{mode}"]')
+    if button.get_attribute("aria-pressed") != "true":
+        button.click()
+    expect(button).to_have_attribute("aria-pressed", "true")
+
+
+def _open_details(r: Run) -> None:
+    """« Toutes les étapes en détail », unfolded (its cards read as rendered)."""
+    r.page.evaluate("() => { document.getElementById('rag-details').open = true; }")
+
+
+def _rag_lab_run(
+    r: Run, question: str = RAG_LAB_QUESTION, compose: bool = False
+) -> tuple[dict[str, Any], int]:
+    """« Lancer la chaîne »: the run's end, and the mark before it. « Lancer » passes into
+    « Dérouler » (lot 5a-2); `compose`: back to « Composer » once the run ended."""
     page = r.page
     page.fill("#rag-question", question)
     expect(page.locator("#rag-run")).to_be_enabled(timeout=10_000)
     seq = r.ev.mark()
     page.click("#rag-run")
+    expect(page.locator('#rag-modes [data-mode="play"]')).to_have_attribute("aria-pressed", "true")
     ended = r.ev.wait("rag_lab_run_ended", seq, timeout=60)
     expect(page.locator("#rag-run")).to_be_enabled(timeout=10_000)
+    if compose:
+        _rag_mode(r, "compose")
     return ended, seq
 
 
@@ -12586,15 +12638,49 @@ def _stage_ended(r: Run, seq: int, kind: str, lane: str = "a") -> dict[str, Any]
     return found[-1] if found else {}
 
 
-def _result_card(r: Run, kind: str, lane: str = "a"):
-    return r.page.locator(f'.rag-lane[data-lane="{lane}"] .rag-stage-card[data-kind="{kind}"]')
+def _result_card(r: Run, kind: str):
+    return r.page.locator(f'#rag-details .rag-lane .rag-stage-card[data-kind="{kind}"]')
+
+
+def _seq_row(r: Run, kind: str):
+    """The sequence's line of a chain's stage (Composer: it carries the stage's editor)."""
+    return r.page.locator(f'#rag-seq li.rag-chain-card[data-kind="{kind}"]')
+
+
+def _option_label(r: Run, kind: str) -> str:
+    """The option a stage's line shows: its select's choice, else its single option."""
+    return _seq_row(r, kind).evaluate(
+        "row => { const s = row.querySelector('select.rag-option');"
+        " return s ? s.selectedOptions[0].textContent"
+        " : row.querySelector('.rag-chain-option').textContent; }"
+    )
+
+
+def _focus_of(r: Run, step: str) -> dict[str, Any]:
+    """A line clicked: the focus's step and name, its components, the wires drawn."""
+    page = r.page
+    page.locator(f'#rag-seq .rag-seq-step[data-step="{step}"] .rag-seq-head').click()
+    time.sleep(0.15)  # the wires, drawn at the next frame
+    return page.evaluate(
+        "() => { const f = document.getElementById('rag-focus');"
+        " return { step: f.dataset.step,"
+        " name: f.querySelector('.rag-focus-name')?.textContent ?? '',"
+        " explain: f.querySelector('.rag-focus-explain')?.textContent ?? '',"
+        " uses: [...f.querySelectorAll('.rag-focus-uses .rag-tag')].map(t => t.dataset.component),"
+        " wires: [...document.querySelectorAll('#rag-views .diagram-path-core')]"
+        ".map(p => p.dataset.component),"
+        " rows: f.querySelectorAll('.rag-items tbody tr').length,"
+        " text: f.innerText }; }"
+    )
 
 
 def s_rag_lab(r: Run) -> None:
     """Story 30, after `rag_rerank` (index built, both fake models on the workstation): the
-    « Atelier RAG » link of the top bar, the chain drawn (seven cards, the shipped options,
-    their explanations), a run on a question (each stage's input, output, excerpts, duration
-    and memory), the same run after a reload, a 409 while a workshop turn runs. Back to `/`."""
+    « Atelier RAG » link of the top bar; lot 5a: the three views side by side (the sequence
+    BUILD then RUN, the architecture, the focus of a line clicked, its wires), the editor in
+    the sequence (Composer); a run on a question (each stage's input, output, excerpts,
+    duration and memory, in the details and in the focus), the same run after a reload, a 409
+    while a workshop turn runs. Back to `/`."""
     page = r.page
     page.set_viewport_size({"width": 1600, "height": 1000})
     errors: list[str] = []
@@ -12625,46 +12711,138 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         ok, "barre commune et barre de l'atelier entières, sur une ligne, à 1600 × 1000", detail
     )
 
-    # (2) The chain: seven cards in order, their shipped options, their explanations.
+    # (2) Lot 5a: the three views, the sequence BUILD then RUN, the architecture's tiles.
     link.click()
     page.wait_for_url("**/rag")
     expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
-    cards = page.locator("#rag-chain .rag-chain-card")
-    names = [cards.nth(i).locator(".rag-chain-name").inner_text() for i in range(cards.count())]
-    r.check(names == RAG_LAB_STAGES, "/rag : sept cartes dans l'ordre de la chaîne", str(names))
-    options = {
-        page.locator(f'#rag-chain [data-kind="{kind}"] .rag-chain-option').inner_text()
-        for kind in ("embedding", "vector_store", "rerank")
-    }
-    explained = all(
-        len(cards.nth(i).locator(".rag-chain-explain").inner_text()) > 40
-        for i in range(cards.count())
+    page.evaluate("() => localStorage.removeItem('wavestack.ragLab.mode')")
+    page.reload()
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    r.check(
+        page.locator('#rag-modes [data-mode="play"]').get_attribute("aria-pressed") == "true"
+        and page.locator("#rag-reset-chain").is_hidden()
+        and not page.locator("#rag-seq .rag-seq-controls").count(),
+        "/rag s'ouvre en « Dérouler » : ni éditeur ni « Revenir à la chaîne livrée »",
+    )
+    boxes = page.evaluate(_RAG_VIEWS_JS)
+    r.check(
+        boxes["views"]["h"] <= 1000 and boxes["focus"]["l"] > boxes["arch"]["r"],
+        "Dérouler : les trois vues tiennent dans 1 000 px de haut",
+        str(boxes["views"]),
+    )
+    _rag_mode(r, "compose")
+    names = page.locator("#rag-seq .rag-seq-name").all_inner_texts()
+    build = page.locator("#rag-seq-build .rag-seq-step").count()
+    run_rows = page.locator("#rag-seq-run .rag-seq-step").count()
+    bands = [page.inner_text(f"#rag-phase-{p}") for p in ("build", "run")]
+    r.check(
+        names == RAG_LAB_SEQUENCE
+        and (build, run_rows) == (4, 6)
+        and bands[0].startswith("BUILD")
+        and "Indexing" in bands[0]
+        and bands[1].startswith("RUN")
+        and "Retrieval" in bands[1],
+        "séquence : 10 lignes, 4 sous « BUILD · Indexing », 6 sous « RUN · Retrieval »",
+        f"{names} · {bands}",
+    )
+    kinds = _chain_kinds(r)
+    tiles = page.locator("#rag-arch .rag-arch-name").all_inner_texts()
+    groups = page.locator("#rag-arch .rag-arch-group").count()
+    r.check(
+        kinds == RAG_LAB_STAGES_KINDS and tiles == RAG_LAB_TILES and groups == 3,
+        "Composer : une ligne-éditeur par étape de la chaîne ; architecture en trois groupes, "
+        "neuf tuiles (Documents… Réponse)",
+        f"{kinds} · {tiles}",
+    )
+    boxes = page.evaluate(_RAG_VIEWS_JS)
+    seq, arch, focus = boxes["seq"], boxes["arch"], boxes["focus"]
+    r.check(
+        seq["r"] < arch["l"]
+        and arch["r"] < focus["l"]
+        and abs(seq["t"] - focus["t"]) < 40
+        and boxes["scroll"] <= 0,
+        "Composer : séquence, architecture et focus côte à côte, sans défilement horizontal",
+        str(boxes),
+    )
+    options = {kind: _option_label(r, kind) for kind in ("embedding", "vector_store", "rerank")}
+    subs = page.eval_on_selector_all(
+        "#rag-arch .rag-arch-tile",
+        "ts => Object.fromEntries(ts.map(t => [t.dataset.component,"
+        " t.querySelector('.rag-arch-sub').textContent]))",
     )
     r.check(
-        options == {"Faux embedding (e2e)", "sqlite-vec", "Faux reranker (e2e)"} and explained,
-        "chaque carte nomme son option livrée et l'explique",
-        str(options),
+        options
+        == {
+            "embedding": "Faux embedding (e2e)",
+            "vector_store": "sqlite-vec",
+            "rerank": "Faux reranker (e2e)",
+        }
+        and subs.get("embedding_model") == "Faux embedding (e2e)"
+        and subs.get("reranker") == "Faux reranker (e2e)",
+        "chaque ligne nomme son option livrée ; les tuiles Embedding model et Reranker aussi",
+        f"{options} · {subs}",
+    )
+    r.check(
+        "Même modèle" in page.inner_text('#rag-seq [data-step="embed_query"]'),
+        "Embedding de la question : « même modèle que l'Embedding des chunks »",
     )
     r.check(
         page.locator("nav.site-nav a[aria-current=page]").inner_text() == "RAG"
         and page.title() == "WaveStack — Atelier RAG"
         and page.locator("h1").inner_text().startswith("Atelier RAG")
         and page.locator("select[data-theme-picker]").count() == 1
+        and not page.locator("#rag-compare, #rag-chain-b, #rag-comparison").count()
         and not _site_nav_problems(r),
-        "/rag : barre commune entière, « RAG » courant, titre « Atelier RAG », sélecteur de thème",
+        "/rag : barre commune entière, « RAG » courant, titre « Atelier RAG », plus de "
+        "comparaison A/B",
     )
-    generation = page.locator('#rag-chain [data-kind="generation"]')
+    generation = page.locator('#rag-seq [data-step="generation"]')
     r.check(
-        r.css(generation, "background-color") == r.token_color("--color-ink-fill"),
-        "la carte Génération repose sur l'encre (ink-fill), les autres en discipline context",
-        r.css(generation, "background-color"),
+        r.css(generation, "border-left-color") == r.token_color("--color-ink-fill"),
+        "la ligne Generation repose sur l'encre (ink-fill)",
+        r.css(generation, "border-left-color"),
     )
+    # Each line opens its focus on a click, with its wires to the components it calls on.
+    catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
+    uses = {s["key"]: [u["component"] for u in s["uses"]] for s in catalog["steps"]}
+    keys = page.eval_on_selector_all("#rag-seq .rag-seq-step", "rs => rs.map(r => r.dataset.step)")
+    wrong = []
+    for key, name in zip(keys, RAG_LAB_SEQUENCE, strict=True):
+        shown = _focus_of(r, key)
+        if (
+            shown["step"] != key
+            or shown["name"] != name
+            or len(shown["explain"]) < 40
+            or shown["uses"] != uses[key]
+            or sorted(shown["wires"]) != sorted(uses[key])
+            or "Lancez la chaîne" not in shown["text"]
+        ):
+            wrong.append(f"{key}: {shown}")
+    r.check(
+        not wrong and len(keys) == 10,
+        "Composer : chaque ligne ouvre son focus au clic (nom, explication, composants "
+        "sollicités, une flèche par composant), sans chiffres de run",
+        "; ".join(wrong)[:400],
+    )
+    shown = _focus_of(r, "rerank")
+    selected = page.locator('#rag-seq [data-step="rerank"]')
+    r.check(
+        "is-selected" in (selected.get_attribute("class") or "")
+        and shown["uses"] == ["question", "reranker"]
+        and shown["wires"] == ["question", "reranker"],
+        "Reranking sélectionné : flèches vers Question (lu) et Reranker (appelé)",
+        str(shown)[:300],
+    )
+    page.locator('#rag-seq [data-step="chunking"] .rag-seq-head').focus()
+    page.keyboard.press("Enter")
+    expect(page.locator("#rag-focus")).to_have_attribute("data-step", "chunking")
     light = _contrast_sweep(r, ["main", "nav.site-nav"])
     _pick_theme(page, "dark")
     dark = _contrast_sweep(r, ["main", "nav.site-nav"])
     _pick_theme(page, "system")
     r.check(not light and not dark, "/rag : contrastes AA en clair et en sombre", str(light + dark))
-    r.shot("55-atelier-rag-chaine", full_page=True)
+    r.shot("55-atelier-rag-chaine")
+    _rag_lab_views(r)
 
     # (3) A run on the question: each stage, its excerpts, its duration and its memory.
     page.evaluate(_WATCH_STATUSES_JS)
@@ -12685,6 +12863,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "une paire started/ended par étape exécutée, la génération non exécutée",
         str(sorted(started)),
     )
+    _open_details(r)
     statuses = page.evaluate("() => window.__ragStatuses")
     figures = [
         _result_card(r, kind).locator(".rag-stage-figures").inner_text()
@@ -12693,7 +12872,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     r.check(
         any(s.startswith("en cours") for s in statuses)
         and all(re.search(r"\d+ ms", f) and re.search(r"\d+ Mo", f) for f in figures),
-        "chaque carte passe de « en cours » à une durée en ms et une mémoire en Mo",
+        "détail : chaque carte passe de « en cours » à une durée en ms et une mémoire en Mo",
         f"{sorted(set(statuses))[:6]} · {figures[0]!r}",
     )
     cfg_candidates = 8
@@ -12707,7 +12886,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
             re.match(r"\d,\d{3}$", rows.nth(i).locator("td").nth(3).inner_text())
             for i in range(rows.count())
         ),
-        "Recherche : 8 extraits (rag_rerank_candidates) avec rang et score",
+        "Dense retrieval : 8 extraits (rag_rerank_candidates) avec rang et score",
         str([(i["rank"], i["doc_id"], i["score"]) for i in search.get("items", [])]),
     )
     rerank = _stage_ended(r, seq, "rerank")
@@ -12728,14 +12907,28 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         and output.count("Extrait ") == 3
         and "Extrait 1 — " in output
         and "Extrait 3 — " in output,
-        "Contexte : les 3 extraits (top_k) au format de la brique",
+        "Prompt augmentation : les 3 extraits (top_k) au format de la brique",
         output[:200],
     )
     gen = _result_card(r, "generation").inner_text()
     r.check(
         "non exécutée dans l'atelier rag" in gen.lower(),
-        "Génération : « non exécutée dans l'atelier RAG »",
+        "Generation : « non exécutée dans l'atelier RAG »",
         gen[:200],
+    )
+    # In « Dérouler », the focus shows what the step received and produced.
+    _rag_mode(r, "play")
+    shown = _focus_of(r, "vector_search")
+    pills = page.eval_on_selector_all(
+        "#rag-seq .rag-seq-status", "ps => ps.filter(p => !p.hidden).map(p => p.textContent)"
+    )
+    r.check(
+        shown["rows"] == cfg_candidates
+        and re.search(r"\d+ ms", shown["text"]) is not None
+        and len(pills) == len(RAG_LAB_SEQUENCE),
+        "Dérouler : le focus de Dense retrieval montre ses 8 candidats et sa durée ; une "
+        "pastille d'état par ligne",
+        f"{shown['rows']} lignes · {pills}",
     )
     r.check(not errors, "aucune pageerror", str(errors[:3]))
     r.shot("56-atelier-rag-resultats", full_page=True)
@@ -12744,14 +12937,16 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     run_id = ended["payload"]["run_id"]
     page.reload()
     expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
-    reloaded = page.locator(".rag-stage-card").count()
+    _open_details(r)
+    reloaded = page.locator("#rag-details .rag-stage-card").count()
     summary = page.inner_text("#rag-run-summary")
     state = r.api("GET", "/api/rag_lab").json()
     r.check(
         reloaded == len(RAG_LAB_STAGES)
         and RAG_LAB_QUESTION in summary
-        and state["last_run"][0]["payload"]["run_id"] == run_id,
-        "après rechargement, le même run se réaffiche (last_run)",
+        and state["last_run"][0]["payload"]["run_id"] == run_id
+        and page.locator('#rag-modes [data-mode="play"]').get_attribute("aria-pressed") == "true",
+        "après rechargement, le même run se réaffiche (last_run), le mode est gardé",
         f"{reloaded} cartes · {summary}",
     )
 
@@ -12770,14 +12965,308 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     r.api("POST", "/api/intentions/stop")
     r.ev.wait("turn_ended", seq, timeout=30)
     expect(button).to_be_enabled(timeout=10_000)
+    _rag_mode(r, "compose")
     _rag_lab_compare(r)
     _rag_lab_alt(r)
     _rag_lab_hybrid(r)
+    _rag_lab_presets(r)
+
+
+# Lot 5a-2: what « Dérouler » shows now: the steps, tiles and band visible, the tiles just
+# arrived, the blocks lit, the wires, the stepper, the legend and the focus.
+_RAG_PLAY_JS = """() => {
+  const visible = (n) => getComputedStyle(n).visibility !== 'hidden';
+  const tiles = [...document.querySelectorAll('#rag-arch .rag-arch-tile')];
+  const focus = document.getElementById('rag-focus');
+  const step = focus.dataset.step;
+  const row = step ? document.querySelector(`#rag-seq .rag-seq-step[data-step="${step}"]`) : null;
+  const bar = document.querySelector('#rag-stepper .diagram-stepper');
+  const fresh = tiles.filter(t => t.classList.contains('is-new'));
+  return {
+    rows: [...document.querySelectorAll('#rag-seq .rag-seq-step')].filter(visible)
+      .map(r => r.dataset.step),
+    build: [...document.querySelectorAll('#rag-seq-build .rag-seq-step')].filter(visible).length,
+    tiles: tiles.filter(visible).map(t => t.dataset.component),
+    fresh: fresh.map(t => t.dataset.component),
+    animation: fresh.map(t => getComputedStyle(t).animationName),
+    lit: [...document.querySelectorAll('#rag-views .is-active')]
+      .map(n => n.dataset.step || n.dataset.component).sort(),
+    run_band: visible(document.getElementById('rag-phase-run')),
+    focus: step,
+    position: bar?.querySelector('.diagram-step-position').textContent ?? '',
+    prev: bar?.querySelector('.diagram-step-prev').disabled,
+    next: bar?.querySelector('.diagram-step-next').disabled,
+    legend: document.getElementById('rag-legend').textContent,
+    stepper: !document.getElementById('rag-stepper').hidden,
+    live_button: !bar?.querySelector('.diagram-step-live').hidden,
+    wires: [...document.querySelectorAll('#rag-views .diagram-path-core')]
+      .map(p => p.dataset.component).sort(),
+    flowing: document.querySelectorAll('#rag-views .diagram-path-core.is-flow').length,
+    pill: row?.querySelector('.rag-seq-status')?.textContent ?? '',
+    run: row?.dataset.run ?? '',
+    error: focus.querySelector('.rag-stage-error')?.textContent ?? '',
+    generation_top: document.querySelector('#rag-seq [data-step="generation"]')
+      ?.getBoundingClientRect().top ?? 0,
+    height: document.getElementById('rag-views').getBoundingClientRect().height,
+  };
+}"""
+
+# Every state of « Dérouler » a run goes through, recorded as the views change (a frame may
+# last one render only): the step shown, its pill, the blocks lit, the wires drawn.
+_WATCH_PLAY_JS = """() => {
+  window.__ragPlay = [];
+  const note = () => {
+    const step = document.getElementById('rag-focus').dataset.step;
+    const row = step
+      ? document.querySelector(`#rag-seq .rag-seq-step[data-step="${step}"]`) : null;
+    window.__ragPlay.push({
+      step,
+      pill: row?.querySelector('.rag-seq-status')?.textContent ?? '',
+      lit: [...document.querySelectorAll('#rag-views .is-active')]
+        .map(n => n.dataset.step || n.dataset.component).sort(),
+      wires: [...document.querySelectorAll('#rag-views .diagram-path-core')]
+        .map(p => p.dataset.component).sort(),
+      flowing: document.querySelectorAll('#rag-views .diagram-path-core.is-flow').length,
+    });
+  };
+  window.__ragPlayObserver?.disconnect();
+  window.__ragPlayObserver = new MutationObserver(note);
+  window.__ragPlayObserver.observe(document.getElementById('rag-views'),
+    { childList: true, subtree: true, characterData: true, attributes: true,
+      attributeFilter: ['class'] });
+}"""
+
+
+def _rag_play(r: Run) -> dict[str, Any]:
+    time.sleep(0.15)  # the wires, drawn at the next frame
+    return r.page.evaluate(_RAG_PLAY_JS)
+
+
+def _rag_lab_views(r: Run) -> None:
+    """Lot 5a-2, « Dérouler »: the guided tour without a run (image 1: Documents and its tile
+    alone; each ▶ the next step and the tiles it calls on first, arriving, none moving with
+    reduced motion; the steps after it keep their place); a run, from « Composer »: « Lancer »
+    passes into « Dérouler », the steps arrive one by one, the step running lit with its
+    components, its wires flowing; at the end, Generation « non exécutée » and « rejouez avec
+    ◀ ▶ »; ◀ ▶ replay; the same state after a reload; a step in error: its ✖ and its error in
+    the focus."""
+    page = r.page
+    state = r.api("GET", "/api/rag_lab").json()
+    uses = {s["key"]: [u["component"] for u in s["uses"]] for s in state["catalog"]["steps"]}
+    texts = state["content"]
+    keys = ["documents", "chunking", "embed_passages", "vector_store", "question", "embed_query"]
+    keys += ["vector_search", "rerank", "context", "generation"]
+    prev = page.locator("#rag-stepper .diagram-step-prev")
+    nxt = page.locator("#rag-stepper .diagram-step-next")
+
+    # (a) The guided tour: no run of this chain yet.
+    _rag_mode(r, "play")
+    first = _rag_play(r)
+    r.check(
+        first["stepper"]
+        and first["rows"] == ["documents"]
+        and first["tiles"] == ["documents"]
+        and not first["run_band"]
+        and first["prev"]
+        and not first["next"]
+        and first["position"] == "Étape 1 / 10"
+        and first["legend"] == texts["legend_tour_text"]
+        and first["focus"] == "documents"
+        and first["lit"] == ["documents", "documents"]
+        and not first["live_button"]
+        and "Lancez la chaîne" in page.inner_text("#rag-focus"),
+        "Dérouler sans run : image 1, Documents seule et sa tuile, allumées, ◀ grisé, "
+        "« Visite guidée », pas de « Suivre le direct »",
+        str({k: first[k] for k in ("rows", "tiles", "position", "legend", "lit")}),
+    )
+    nxt.click()
+    second = _rag_play(r)
+    r.check(
+        second["rows"] == ["documents", "chunking"]
+        and second["tiles"] == ["documents", "chunks"]
+        and second["fresh"] == ["chunks"]
+        and second["animation"] == ["rag-appear"]
+        and second["lit"] == ["chunking", "chunks", "documents"]
+        and second["wires"] == sorted(uses["chunking"])
+        and not second["flowing"]
+        and not second["prev"],
+        "▶ : Chunking et la tuile Chunks arrivent (is-new), Chunking allumé avec Documents et "
+        "Chunks, ses deux flèches",
+        str({k: second[k] for k in ("rows", "tiles", "fresh", "lit", "wires")}),
+    )
+    nxt.click()
+    third = _rag_play(r)
+    page.emulate_media(reduced_motion="reduce")
+    try:
+        nxt.click()
+        fourth = _rag_play(r)
+    finally:
+        page.emulate_media(reduced_motion="no-preference")
+    r.check(
+        fourth["build"] == 4
+        and fourth["rows"] == keys[:4]
+        and "vector_store" not in third["tiles"]
+        and "vector_store" in fourth["tiles"]
+        and fourth["fresh"] == ["vector_store"]
+        and fourth["animation"] == ["none"]
+        and not fourth["run_band"]
+        and fourth["position"] == "Étape 4 / 10",
+        "▶ trois fois : quatre étapes BUILD visibles, la tuile Vector store apparaît à la "
+        "quatrième (sans mouvement avec prefers-reduced-motion), bandeau RUN encore masqué",
+        str({k: fourth[k] for k in ("rows", "tiles", "fresh", "animation", "position")}),
+    )
+    for _ in range(len(keys) - 4):  # ▶ up to the last image
+        nxt.click()
+    last = _rag_play(r)
+    page.locator('#rag-seq [data-step="chunking"] .rag-seq-head').click()
+    clicked = _rag_play(r)
+    r.check(
+        last["rows"] == keys
+        and last["run_band"]
+        and abs(last["generation_top"] - first["generation_top"]) < 1
+        and abs(last["height"] - first["height"]) < 1
+        and clicked["position"] == "Étape 2 / 10"
+        and clicked["focus"] == "chunking",
+        "visite : à la dernière image tout est visible, aux mêmes places qu'à l'image 1 ; un "
+        "clic sur une ligne montre son image",
+        f"{last['generation_top']} / {first['generation_top']} · {clicked['position']}",
+    )
+
+    # (b) A run, launched from « Composer »: it passes into « Dérouler », live.
+    _rag_mode(r, "compose")
+    page.evaluate(_WATCH_PLAY_JS)
+    ended, seq = _rag_lab_run(r)
+    states = page.evaluate(
+        "() => { window.__ragPlayObserver.disconnect(); return window.__ragPlay; }"
+    )
+    shown = [s["step"] for s in states if s["step"]]
+    order = [k for i, k in enumerate(shown) if i == 0 or k != shown[i - 1]]
+    indices = [keys.index(k) for k in order if k in keys]
+    running = [s for s in states if s["pill"].startswith("en cours") and s["step"] in uses]
+    unlit = [s for s in running if s["lit"] != sorted([s["step"], *uses[s["step"]]])]
+    # The wires are drawn at the next frame: a state whose wires are its step's.
+    drawn = [s for s in running if s["wires"] and s["wires"] == sorted(uses[s["step"]])]
+    r.check(
+        ended["payload"]["status"] == "ok"
+        and len(set(order)) >= 3
+        and indices == sorted(indices)
+        and order[-1] == "generation"
+        and running
+        and not unlit
+        and all(s["flowing"] == len(s["wires"]) for s in drawn),
+        "Lancer passe en Dérouler : les étapes arrivent une à une ; l'étape en cours (« en "
+        "cours ») est allumée avec ses composants, ses flèches animées",
+        f"{order} · en cours : {sorted({s['step'] for s in running})} · "
+        f"flèches vues en cours : {len(drawn)} · {unlit[:2]} · "
+        f"{[s for s in drawn if s['flowing'] != len(s['wires'])][:2]}",
+    )
+    end = _rag_play(r)
+    r.check(
+        end["rows"] == keys
+        and end["focus"] == "generation"
+        and end["pill"] == texts["status"]["not_run_text"]
+        and end["legend"] == texts["legend_done_text"]
+        and "◀ ▶" in end["legend"]
+        and end["position"] == "Étape 10 / 10"
+        and end["next"]
+        and end["live_button"]
+        and not end["flowing"],
+        "fin de run : dernière image Generation « non exécutée », légende « rejouez avec ◀ ▶ »",
+        str({k: end[k] for k in ("focus", "pill", "legend", "position")}),
+    )
+    prev.click()
+    back = _rag_play(r)
+    r.check(
+        back["focus"] == "context"
+        and back["rows"] == keys[:-1]
+        and "llm" not in back["tiles"]
+        and "answer" not in back["tiles"]
+        and back["lit"] == sorted(["context", *uses["context"]])
+        and back["legend"] == texts["legend_replay_text"]
+        and re.search(r"\d+ ms", page.inner_text("#rag-focus")) is not None,
+        "◀ : Prompt augmentation montrée avec ses chiffres, Generation masquée (et ses tuiles "
+        "LLM, Réponse), « Relecture »",
+        str({k: back[k] for k in ("focus", "rows", "tiles", "legend")}),
+    )
+    nxt.click()
+    again = _rag_play(r)
+
+    # (c) Reloaded: the same state, from `last_run`, straight to the last image.
+    page.reload()
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    reloaded = _rag_play(r)
+    same = ("rows", "tiles", "focus", "pill", "legend", "position", "lit", "wires")
+    r.check(
+        again["focus"] == "generation"
+        and all(reloaded[k] == end[k] for k in same)
+        and not reloaded["fresh"],
+        "▶ revient à Generation ; après rechargement, le même état depuis last_run, sur la "
+        "dernière image",
+        str({k: (reloaded[k], end[k]) for k in same if reloaded[k] != end[k]})[:300],
+    )
+    # The steps that read a stage: the question for the question and its Embedding, no
+    # excerpts for the latter, and none of them claims its stage's duration.
+    # From the last one back: a line shown hides the lines after it.
+    read = {key: _focus_of(r, key) for key in ("embed_query", "question", "documents")}
+    r.check(
+        all(RAG_LAB_QUESTION in read[k]["text"] for k in ("question", "embed_query"))
+        and read["embed_query"]["rows"] == 0
+        and read["documents"]["step"] == "documents"
+        and not any(re.search(r"\d+ ms", f["text"]) for f in read.values()),
+        "Dérouler : Documents, Question et l'Embedding de la question montrent ce qu'ils "
+        "lisent (la question), sans extraits ni durée empruntée à leur étape",
+        str({k: f["text"][-160:] for k, f in read.items()})[:400],
+    )
+
+    # (d) A step in error (the fake reranker breaks down): the run lands on it, ✖, its error
+    # in the focus; the chain went on with the search's order (a soft failure).
+    ended, seq = _rag_lab_run(r, f"{RAG_LAB_QUESTION} [reranker-en-panne]")
+    failed = _rag_play(r)
+    nxt.click()
+    after = _rag_play(r)
+    r.check(
+        _stage_ended(r, seq, "rerank").get("status") == "error"
+        and failed["focus"] == "rerank"
+        and failed["run"] == "error"
+        and failed["pill"].startswith(texts["status"]["error_text"])
+        and bool(failed["error"])
+        and failed["rows"] == keys[:8]
+        and after["focus"] == "context",
+        "étape en erreur : le run s'arrête sur Reranking, pastille ✖ et l'erreur dans le "
+        "focus ; ▶ montre la suite",
+        str({k: failed[k] for k in ("focus", "run", "pill", "error", "rows")})[:300],
+    )
+    page.fill("#rag-question", RAG_LAB_QUESTION)
+
+    # (e) Composer: the last run is this chain's, its figures are in « Dérouler »; a setting
+    # edited, « Dérouler » gives the edited chain's guided tour, without the run's figures.
+    _rag_mode(r, "compose")
+    hint = _focus_of(r, "chunking")["text"]
+    _set_stage(r, "context", top_k=2)
+    time.sleep(0.4)
+    _rag_mode(r, "play")
+    tour = _rag_play(r)
+    pills = page.eval_on_selector_all(
+        "#rag-seq .rag-seq-status", "ps => ps.filter(p => !p.hidden).length"
+    )
+    r.check(
+        texts["focus_play_hint_text"] in hint
+        and tour["legend"] == texts["legend_tour_text"]
+        and tour["position"] == f"Étape 1 / {len(keys)}"
+        and not pills
+        and "Lancez la chaîne" in page.inner_text("#rag-focus"),
+        "Composer après un run : le focus renvoie à Dérouler ; un réglage changé, Dérouler "
+        "repart en visite guidée, sans pastille ni chiffres",
+        f"{hint[-120:]!r} · {tour['legend']} · {tour['position']} · {pills} pastilles",
+    )
+    _rag_mode(r, "compose")
+    page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
 
 
 def _chain_kinds(r: Run) -> list[str]:
     return r.page.eval_on_selector_all(
-        "#rag-chain .rag-chain-card", "cards => cards.map(c => c.dataset.kind)"
+        "#rag-seq li.rag-chain-card", "rows => rows.map(c => c.dataset.kind)"
     )
 
 
@@ -12788,21 +13277,29 @@ def _add_stage(r: Run, label: str) -> None:
 
 
 def _stage_button(r: Run, kind: str, label: str):
-    card = r.page.locator(f'#rag-chain .rag-chain-card[data-kind="{kind}"]')
-    return card.get_by_role("button", name=label)
+    return _seq_row(r, kind).get_by_role("button", name=label)
 
 
 def _rag_lab_hybrid(r: Run) -> None:
-    """Increment 4: the Reranking removed, « Recherche lexicale BM25 » added without a fusion
-    (refused on its card, « Lancer » greyed), the Fusion added, the Reranking added back and
-    moved after the Fusion by its buttons; a run: the Fusion gives each excerpt's rank in both
-    searches and its RRF score. A Fusion moved before a search: refused, 409 if posted."""
+    """Increment 4: the Reranking removed, BM25 added without a fusion (refused on its line,
+    « Lancer » greyed), the Fusion added, the Reranking added back and moved after the Fusion
+    by its buttons; a run: the Fusion gives each excerpt's rank in both searches and its RRF
+    score. A Fusion moved before a search: refused, 409 if posted. Lot 5a: the sequence and
+    the architecture follow (a Reranker tile only with the reranking)."""
     page = r.page
     page.locator("#rag-reset-chain").click()
     time.sleep(0.4)
     _stage_button(r, "rerank", "Retirer").click()
-    _add_stage(r, "Recherche lexicale BM25")
-    bm25 = page.locator('#rag-chain .rag-chain-card[data-kind="lexical_search"]')
+    tiles = page.locator("#rag-arch .rag-arch-tile").evaluate_all(
+        "ts => ts.map(t => t.dataset.component)"
+    )
+    r.check(
+        "reranker" not in tiles and "rerank" not in _chain_kinds(r),
+        "sans reranking : plus de tuile Reranker",
+        str(tiles),
+    )
+    _add_stage(r, "BM25")
+    bm25 = _seq_row(r, "lexical_search")
     expect(bm25.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
     run = page.locator("#rag-run")
     r.check(
@@ -12810,28 +13307,32 @@ def _rag_lab_hybrid(r: Run) -> None:
         in bm25.locator(".rag-chain-refusal").inner_text()
         and run.is_disabled()
         and "fusion" in (run.get_attribute("title") or ""),
-        "BM25 sans fusion : la carte BM25 dit « Deux recherches demandent une fusion après "
+        "BM25 sans fusion : la ligne BM25 dit « Deux recherches demandent une fusion après "
         "elles », « Lancer » désactivé",
         bm25.locator(".rag-chain-refusal").inner_text(),
     )
     _add_stage(r, "Reranking")
-    _add_stage(r, "Fusion")
+    _add_stage(r, "Fusion (RRF)")
     before = _chain_kinds(r)
     after_button = _stage_button(r, "rerank", "Déplacer après")
     after_button.focus()
     page.keyboard.press("Enter")  # by the keyboard, never by drag and drop
     time.sleep(0.8)
     kinds = _chain_kinds(r)
+    names = page.locator("#rag-seq-run .rag-seq-name").all_inner_texts()
     r.check(
         before[3:7] == ["vector_search", "lexical_search", "rerank", "fusion"]
         and kinds[3:7] == ["vector_search", "lexical_search", "fusion", "rerank"]
+        and names[2:6] == ["Dense retrieval", "BM25", "Fusion (RRF)", "Reranking"]
         and _stage_button(r, "rerank", "Déplacer après").is_disabled()
-        and not page.locator("#rag-chain .rag-chain-refusal").count(),
-        "Reranking déplacé après la Fusion au clavier (« Déplacer après ») : chaîne valide",
-        f"{before} → {kinds}",
+        and not page.locator("#rag-seq .rag-chain-refusal").count(),
+        "Reranking déplacé après la Fusion au clavier (« Déplacer après ») : chaîne valide, la "
+        "séquence suit l'ordre de la chaîne",
+        f"{before} → {kinds} · {names}",
     )
     expect(run).to_be_enabled(timeout=5000)
     ended, seq = _rag_lab_run(r)
+    _open_details(r)
     fusion = _stage_ended(r, seq, "fusion")
     items = fusion.get("items", [])
     ranks_ok = all(
@@ -12845,86 +13346,260 @@ def _rag_lab_hybrid(r: Run) -> None:
         ended["payload"]["status"] == "ok"
         and items
         and ranks_ok
-        and "Recherche :" in first_row
-        and "Recherche lexicale BM25 :" in first_row
+        and "Dense retrieval :" in first_row
+        and "BM25 :" in first_row
         and re.search(r"0,0\d{3}", first_row) is not None,
         "Fusion : le rang de chaque extrait dans les deux recherches et son score RRF",
         first_row.replace("\n", " | ")[:240],
     )
     r.shot("58-atelier-rag-hybride", full_page=True)
-    # The Fusion moved before a search: its card says why, and a POST anyway is refused.
+    _rag_mode(r, "compose")
+    # The Fusion moved before a search: its line says why, and a POST anyway is refused.
     _stage_button(r, "fusion", "Déplacer avant").click()
     time.sleep(0.4)
-    fusion_card = page.locator('#rag-chain .rag-chain-card[data-kind="fusion"]')
-    expect(fusion_card.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
+    fusion_row = _seq_row(r, "fusion")
+    expect(fusion_row.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
     chain = page.evaluate("() => JSON.parse(localStorage.getItem('wavestack.ragLab')).pipelines")
     refused = r.api(
         "POST", "/api/intentions/rag_lab_run", {"question": RAG_LAB_QUESTION, "pipelines": chain}
     )
     r.check(
-        "Fusion" in fusion_card.locator(".rag-chain-refusal").inner_text()
+        "Fusion" in fusion_row.locator(".rag-chain-refusal").inner_text()
         and run.is_disabled()
         and refused.status_code == 409
-        and "« Fusion »" in refused.json().get("detail", ""),
+        and "« Fusion (RRF) »" in refused.json().get("detail", ""),
         "Fusion déplacée avant une recherche : la raison nomme la Fusion, 409 si l'on poste",
         f"{refused.status_code} {refused.text[:160]}",
     )
     page.locator("#rag-reset-chain").click()
 
 
+def _rag_presets(r: Run) -> dict[str, dict[str, Any]]:
+    """The ready-made architectures' row (Composer): each button's text, pressed, marked."""
+    return r.page.eval_on_selector_all(
+        "#rag-presets .rag-preset",
+        "bs => Object.fromEntries(bs.map(b => [b.dataset.preset, { text: b.textContent,"
+        " pressed: b.getAttribute('aria-pressed'), title: b.title,"
+        " unavailable: b.classList.contains('is-unavailable') }]))",
+    )
+
+
+def _pressed_preset(r: Run) -> list[str]:
+    return [k for k, v in _rag_presets(r).items() if v["pressed"] == "true"]
+
+
+def _rag_lab_presets(r: Run) -> None:
+    """Lot 5b: the ready-made architectures, in Composer only. The shipped chain is « RAG +
+    reranking » (pressed); « RAG hybride » replaces the retrieval segment only (Dense
+    retrieval, BM25, Fusion (RRF)), the chunk size and the `top_k` edited kept, the chain valid;
+    reloaded, the chain kept and « RAG hybride » still pressed; a run: the Fusion shows both
+    searches' ranks, `ok`. A segment composed by hand: none pressed. A preset that would not
+    run (served unavailable by `page.route`): marked, still clickable."""
+    page = r.page
+    _rag_mode(r, "compose")
+    page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
+    catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
+    served = {p["id"]: p for p in catalog.get("presets", [])}
+    shown = _rag_presets(r)
+    r.check(
+        list(served) == ["dense", "hybrid", "rerank"]
+        and all(p["available"] for p in served.values())
+        and [s["kind"] for s in served["hybrid"]["segment"]]
+        == ["vector_search", "lexical_search", "fusion"]
+        and list(shown) == list(served)
+        and all(shown[k]["text"] == served[k]["label_text"] for k in served)
+        and all(served[k]["explain_text"] in shown[k]["title"] for k in served)
+        and _pressed_preset(r) == ["rerank"]
+        and page.locator("#rag-presets").is_visible(),
+        "Composer : trois architectures toutes faites (catalog.presets), « RAG + reranking » "
+        "pressé sur la chaîne livrée, l'explication en infobulle",
+        f"{list(served)} · {shown}",
+    )
+    _set_stage(r, "chunking", chunk_max_chars=300)
+    _set_stage(r, "context", top_k=2)
+    _set_stage(r, "vector_search", candidates=5)  # back to its served value by the preset
+    time.sleep(0.4)
+    dense_id = _seq_row(r, "vector_search").get_attribute("data-stage-id")
+    page.locator('#rag-presets .rag-preset[data-preset="hybrid"]').click()
+    time.sleep(0.8)  # the session's verdict
+    kinds = _chain_kinds(r)
+    served_candidates = str(served["hybrid"]["segment"][0]["params"]["candidates"])
+    candidates = (
+        _seq_row(r, "vector_search").locator('input[data-param="candidates"]').input_value()
+    )
+    kept_id = _seq_row(r, "vector_search").get_attribute("data-stage-id")
+    names = page.locator("#rag-seq-run .rag-seq-name").all_inner_texts()
+    chunk = _seq_row(r, "chunking").locator('input[data-param="chunk_max_chars"]').input_value()
+    top_k = _seq_row(r, "context").locator('input[data-param="top_k"]').input_value()
+    r.check(
+        kinds
+        == [
+            "chunking",
+            "embedding",
+            "vector_store",
+            "vector_search",
+            "lexical_search",
+            "fusion",
+            "context",
+            "generation",
+        ]
+        and names[2:5] == ["Dense retrieval", "BM25", "Fusion (RRF)"]
+        and (chunk, top_k) == ("300", "2")
+        and candidates == served_candidates != "5"
+        and kept_id == dense_id
+        and _pressed_preset(r) == ["hybrid"]
+        and not page.locator("#rag-seq .rag-chain-refusal").count()
+        and page.locator("#rag-run").is_enabled(),
+        "« RAG hybride » : le segment devient Dense retrieval, BM25, Fusion (RRF), le reste "
+        "inchangé (300 caractères, top_k 2 gardés), les candidats du Dense retrieval à la "
+        "valeur servie, son id gardé, le bouton pressé, la chaîne valide",
+        f"{kinds} · {names} · {chunk}/{top_k} · {candidates}/{served_candidates} · "
+        f"{dense_id}/{kept_id} · {_pressed_preset(r)}",
+    )
+    page.reload()
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    time.sleep(0.4)
+    r.check(
+        _chain_kinds(r)[3:6] == ["vector_search", "lexical_search", "fusion"]
+        and _pressed_preset(r) == ["hybrid"],
+        "après rechargement, la chaîne hybride est gardée, « RAG hybride » reste pressé",
+        f"{_chain_kinds(r)} · {_pressed_preset(r)}",
+    )
+    r.shot("59-atelier-rag-architectures")
+    ended, seq = _rag_lab_run(r, compose=True)
+    fusion = _stage_ended(r, seq, "fusion").get("items", [])
+    r.check(
+        ended["payload"]["status"] == "ok"
+        and fusion
+        and all(
+            {s["kind"] for s in i["sources"]} == {"vector_search", "lexical_search"} for i in fusion
+        )
+        and len(_stage_ended(r, seq, "context").get("items", [])) == 2,
+        "« RAG hybride » exécuté : la Fusion donne les rangs des deux recherches, run `ok`",
+        f"{ended['payload'].get('status')} · {len(fusion)} extraits",
+    )
+    _add_stage(r, "Reranking")
+    r.check(
+        _chain_kinds(r)[3:7] == ["vector_search", "lexical_search", "fusion", "rerank"]
+        and _pressed_preset(r) == [],
+        "segment composé à la main (hybride + reranking) : aucun bouton pressé",
+        f"{_chain_kinds(r)} · {_pressed_preset(r)}",
+    )
+    page.locator('#rag-presets .rag-preset[data-preset="dense"]').click()
+    time.sleep(0.8)
+    dense = (_chain_kinds(r), _pressed_preset(r))
+    page.locator('#rag-presets .rag-preset[data-preset="rerank"]').click()
+    time.sleep(0.8)
+    r.check(
+        dense[0][3:5] == ["vector_search", "context"]
+        and dense[1] == ["dense"]
+        and _chain_kinds(r)[3:6] == ["vector_search", "rerank", "context"]
+        and _pressed_preset(r) == ["rerank"],
+        "« RAG dense » puis « RAG + reranking » : chaque fois le segment remplacé, le bouton "
+        "pressé",
+        f"{dense} · {_chain_kinds(r)} · {_pressed_preset(r)}",
+    )
+    _rag_mode(r, "play")
+    r.check(
+        page.locator("#rag-presets").is_hidden(), "Dérouler : pas d'architectures toutes faites"
+    )
+    _rag_mode(r, "compose")
+
+    # A preset the session says would not run (the reranker absent, served by `page.route`):
+    # marked « indisponible », still clickable.
+    def unavailable(route) -> None:  # noqa: ANN001
+        response = route.fetch()
+        body = response.json()
+        for preset in (body.get("catalog") or {}).get("presets", []):
+            if preset["id"] == "rerank":
+                preset["available"], preset["reason_text"] = False, "Reranker absent (e2e)."
+        route.fulfill(response=response, json=body)
+
+    page.locator('#rag-presets .rag-preset[data-preset="dense"]').click()
+    time.sleep(0.8)
+    page.route("**/api/rag_lab", unavailable)
+    try:
+        page.reload()
+        expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+        marked = _rag_presets(r).get("rerank", {})
+        sweep = _contrast_sweep(r, ["#rag-presets"])
+        page.locator('#rag-presets .rag-preset[data-preset="rerank"]').click()
+        time.sleep(0.8)
+        r.check(
+            marked.get("unavailable")
+            and "indisponible" in marked.get("text", "")
+            and "Reranker absent (e2e)." in marked.get("title", "")
+            and _chain_kinds(r)[3:5] == ["vector_search", "rerank"]
+            and not sweep,
+            "préréglage indisponible : marqué « indisponible », la raison en infobulle, "
+            "cliquable (il s'applique), contrastes AA",
+            f"{marked} · {_chain_kinds(r)} · {sweep}",
+        )
+    finally:
+        page.unroute("**/api/rag_lab", unavailable)
+    page.reload()  # the real catalog again, not the faked one
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
+
+
 def _rag_lab_alt(r: Run) -> None:
     """Increment 3: the scenario follows the catalog. Without the `rag-alt` extra, FAISS and
-    LanceDB are greyed with the command that installs them; with it, A = sqlite-vec and B =
-    FAISS give the same context, B's index built then read, its import's memory said."""
+    LanceDB are greyed with the command that installs them; with it, the chain on FAISS gives
+    the context of the shipped chain (sqlite-vec), its index built then read, its import's
+    memory said. Lot 5a: one chain, FAISS on it."""
     page = r.page
     state = r.api("GET", "/api/rag_lab").json()
     stores = next(s for s in state["catalog"]["stages"] if s["kind"] == "vector_store")
     faiss = next(o for o in stores["options"] if o["id"] == "faiss")
     page.locator("#rag-reset-chain").click()
-    page.locator("#rag-compare").check()
-    select = page.locator('#rag-chain-b [data-kind="vector_store"] select.rag-option')
+    select = _seq_row(r, "vector_store").locator("select.rag-option")
     expect(select).to_be_visible(timeout=5000)
     if not faiss["available"]:
         print("  (branche : sans l'extra rag-alt)")
         disabled = select.locator("option:disabled").all_inner_texts()
-        reasons = page.locator(
-            '#rag-chain-b [data-kind="vector_store"] .rag-chain-unavailable'
-        ).all_inner_texts()
+        reasons = _seq_row(r, "vector_store").locator(".rag-chain-unavailable")
+        hidden = reasons.first.is_hidden()  # shown on the line selected only
+        _focus_of(r, "vector_store")
+        reasons = reasons.all_inner_texts()
         r.check(
             any(t.startswith("FAISS") for t in disabled)
             and any(t.startswith("LanceDB") for t in disabled)
+            and hidden
             and len(reasons) == 2
             and all("uv sync --extra compression --extra rag-alt" in t for t in reasons),
-            "sans l'extra : FAISS et LanceDB désactivés, la raison donne la commande",
+            "sans l'extra : FAISS et LanceDB désactivés ; la ligne sélectionnée donne la raison "
+            "et la commande",
             str(reasons)[:300],
         )
         page.locator("#rag-reset-chain").click()
         return
     print("  (branche : avec l'extra rag-alt)")
-    _set_stage(r, "b", "vector_store", "faiss")
+    _, seq = _rag_lab_run(r, compose=True)
+    shipped = [(i["rank"], i["chunk_id"]) for i in _stage_ended(r, seq, "context")["items"]]
+    _set_stage(r, "vector_store", "faiss")
     figures = []
     for _ in range(2):
-        ended, seq = _rag_lab_run(r)
-        store = _stage_ended(r, seq, "vector_store", "b")
-        contexts = [_stage_ended(r, seq, "context", lane).get("items", []) for lane in "ab"]
-        figures.append((ended["payload"]["status"], store, contexts))
-    (status, first, contexts), (_, second, _) = figures
-    same = [(i["rank"], i["chunk_id"]) for i in contexts[0]] == [
-        (i["rank"], i["chunk_id"]) for i in contexts[1]
-    ]
+        ended, seq = _rag_lab_run(r, compose=True)
+        store = _stage_ended(r, seq, "vector_store")
+        context = _stage_ended(r, seq, "context").get("items", [])
+        figures.append((ended["payload"]["status"], store, context))
+    (status, first, context), (_, second, _) = figures
     facts = {f["label_text"]: f["value_text"] for f in first.get("facts", [])}
-    card = _result_card(r, "vector_store", "b").inner_text()
+    _open_details(r)
+    card = _result_card(r, "vector_store").inner_text()
     r.check(
-        status == "ok" and same and len(contexts[0]) == 3,
-        "avec l'extra : A = sqlite-vec et B = FAISS, mêmes extraits et mêmes rangs au Contexte",
-        str([(i["rank"], i["doc_id"]) for i in contexts[1]]),
+        status == "ok" and [(i["rank"], i["chunk_id"]) for i in context] == shipped,
+        "avec l'extra : la chaîne sur FAISS garde les extraits et les rangs de sqlite-vec",
+        str([(i["rank"], i["doc_id"]) for i in context]),
     )
     r.check(
         "construit (29 vecteurs)" in first.get("output_text", "")
         and "relu (29 vecteurs)" in second.get("output_text", "")
         and facts.get("Import", "").startswith(("premier import : +", "déjà fait"))
-        and "premier import" in card.lower(),
-        "Base vectorielle de B : « construit », puis « relu », et la mémoire ajoutée à l'import",
+        and ("premier import" in card.lower() or "déjà fait" in card.lower()),
+        "Vector store sur FAISS : « construit », puis « relu », et la mémoire ajoutée à l'import",
         f"{first.get('output_text', '')[:80]} · {second.get('output_text', '')[:60]} · {facts}",
     )
     page.locator("#rag-reset-chain").click()
@@ -12942,59 +13617,48 @@ def _git_status() -> str:
     ).stdout
 
 
-def _set_stage(r: Run, lane: str, kind: str, option: str | None = None, **params: int) -> None:
-    card = r.page.locator(f'.rag-chain[data-lane="{lane}"] .rag-chain-card[data-kind="{kind}"]')
+def _set_stage(r: Run, kind: str, option: str | None = None, **params: int) -> None:
     if option is not None:
-        card.locator("select.rag-option").select_option(option)
-        card = r.page.locator(f'.rag-chain[data-lane="{lane}"] .rag-chain-card[data-kind="{kind}"]')
+        _seq_row(r, kind).locator("select.rag-option").select_option(option)
     for name, value in params.items():
-        field = card.locator(f'input[data-param="{name}"]')
+        field = _seq_row(r, kind).locator(f'input[data-param="{name}"]')
         field.fill(str(value))
         field.dispatch_event("change")
 
 
 def _rag_lab_compare(r: Run) -> None:
-    """Increment 2: A = the shipped chain (sqlite-vec, 700 characters), B = the exhaustive
-    search in memory, 300 characters, `top_k` 2; two runs (computed, then read from the
-    cache); a chain with fewer candidates than excerpts is refused with its reason."""
+    """Increment 2, one chain since lot 5a (the A/B comparison is gone from the page): the
+    exhaustive search in memory, 300 characters, `top_k` 2; two runs (computed, then read from
+    the cache); a chain saved by a page of before (A and B, labels `label_fr`) read again with
+    A only; a chain with fewer candidates than excerpts refused with its reason."""
     page = r.page
     status_before = _git_status()
     lab_dir = r.stack.data_dir / "rag_lab"
     folders_before = set(lab_dir.iterdir()) if lab_dir.is_dir() else set()
     page.locator("#rag-reset-chain").click()
-    page.locator("#rag-compare").check()
-    expect(page.locator("#rag-chain-b .rag-chain-card")).to_have_count(7, timeout=5000)
-    store = page.locator('#rag-chain-b [data-kind="vector_store"] select.rag-option')
+    expect(page.locator("#rag-seq li.rag-chain-card")).to_have_count(7, timeout=5000)
+    store = _seq_row(r, "vector_store").locator("select.rag-option")
     labels = store.locator("option").all_inner_texts()
     r.check(
         "Recherche exhaustive en mémoire" in labels and "sqlite-vec" in labels,
-        "chaîne B : la base vectorielle propose sqlite-vec et la recherche en mémoire",
+        "Vector store : sqlite-vec et la recherche exhaustive en mémoire proposés",
         str(labels),
     )
-    _set_stage(r, "b", "vector_store", "memory")
-    _set_stage(r, "b", "chunking", chunk_max_chars=300)
-    _set_stage(r, "b", "context", top_k=2)
-    ended, seq = _rag_lab_run(r)
-    lanes = page.locator(".rag-lane")
-    embedding_b = _result_card(r, "embedding", "b").inner_text()
-    context_b = _stage_ended(r, seq, "context", "b")
+    _set_stage(r, "vector_store", "memory")
+    _set_stage(r, "chunking", chunk_max_chars=300)
+    _set_stage(r, "context", top_k=2)
+    ended, seq = _rag_lab_run(r, compose=True)
+    _open_details(r)
+    embedding = _result_card(r, "embedding").inner_text()
+    context = _stage_ended(r, seq, "context")
     r.check(
         ended["payload"]["status"] == "ok"
-        and lanes.count() == 2
-        and "calculés (77 passages)" in embedding_b
-        and len(context_b.get("items", [])) == 2
-        and _result_card(r, "context", "b").locator("tbody tr").count() == 2,
-        "comparaison : deux colonnes, B calcule ses 77 passages et garde 2 extraits",
-        embedding_b[:240],
-    )
-    summary = page.inner_text("#rag-comparison")
-    comparison = ended["payload"]["comparison"] or {}
-    r.check(
-        "En commun" in summary
-        and ("Écarts de rang" in summary or "Aucun écart de rang" in summary)
-        and comparison.get("summary_text", "")[:40] in summary,
-        "la synthèse nomme les extraits communs et les écarts de rang",
-        summary[:300],
+        and page.locator("#rag-details .rag-lane").count() == 1
+        and "calculés (77 passages)" in embedding
+        and len(context.get("items", [])) == 2
+        and _result_card(r, "context").locator("tbody tr").count() == 2,
+        "une seule chaîne : l'Embedding calcule ses 77 passages, le prompt garde 2 extraits",
+        embedding[:240],
     )
     folders = set(lab_dir.iterdir()) if lab_dir.is_dir() else set()
     r.check(
@@ -13002,59 +13666,67 @@ def _rag_lab_compare(r: Run) -> None:
         "un dossier nouveau sous rag_lab_dir(), aucun fichier créé dans le dépôt",
         f"{sorted(p.name for p in folders)} · git « {_git_status()[:120]} »",
     )
-    r.shot("57-atelier-rag-comparaison", full_page=True)
-    ended, seq = _rag_lab_run(r)
+    r.shot("57-atelier-rag-composer", full_page=True)
+    ended, seq = _rag_lab_run(r, compose=True)
     r.check(
-        "relus du cache" in _result_card(r, "embedding", "b").inner_text(),
-        "second run : l'Embedding de B dit « relus du cache »",
+        "relus du cache" in _result_card(r, "embedding").inner_text(),
+        "second run : l'Embedding dit « relus du cache »",
     )
-    # The chains are remembered by the browser, the comparison too. Languages (2/5): saved in
-    # the former format, each chain's label named `label_fr`, they are read again.
+    # A page of before lot 5a saved two chains (A and B), each label named `label_fr`
+    # (languages 2/5): A is read again, B is dropped.
     page.evaluate(
         "() => { const key = 'wavestack.ragLab';"
         " const saved = JSON.parse(localStorage.getItem(key));"
-        " saved.pipelines = saved.pipelines.map((p, i) => {"
-        " const { label_text: _, ...rest } = p;"
-        " return { label_fr: `Chaîne ${'AB'[i]}`, ...rest }; });"
+        " const [a] = saved.pipelines.map(({ label_text: _, ...rest }) => rest);"
+        " const b = JSON.parse(JSON.stringify(a));"
+        " b.stages.find(s => s.kind === 'chunking').params.chunk_max_chars = 900;"
+        " saved.pipelines = [{ label_fr: 'Chaîne A', ...a }, { label_fr: 'Chaîne B', ...b }];"
         " localStorage.setItem(key, JSON.stringify(saved)); }"
     )
     page.reload()
     expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
-    kept = page.locator('#rag-chain-b [data-kind="chunking"] input[data-param="chunk_max_chars"]')
-    lanes = [page.locator(f"{q} .rag-chain-card").count() for q in ("#rag-chain", "#rag-chain-b")]
+    pressed = page.locator('#rag-modes [data-mode="compose"]').get_attribute("aria-pressed")
+    r.check(pressed == "true", "rechargé en Composer : Composer reste choisi", str(pressed))
+    _rag_mode(r, "compose")
+    kept = _seq_row(r, "chunking").locator('input[data-param="chunk_max_chars"]')
     r.check(
-        page.locator("#rag-compare").is_checked() and kept.input_value() == "300" and all(lanes),
-        "après rechargement, les chaînes A et B sont gardées (localStorage), relues depuis "
-        "l'ancien format (label_fr)",
-        f"cartes {lanes}",
+        kept.input_value() == "300"
+        and page.locator("#rag-seq li.rag-chain-card").count() == 7
+        and not page.locator("#rag-compare, #rag-chain-b").count(),
+        "après rechargement, une chaîne enregistrée A + B (ancien format, label_fr) : seule A "
+        "est gardée",
+        kept.input_value(),
     )
-    # Fewer candidates than excerpts kept: the session's reason on the card (increment 4
+    # Fewer candidates than excerpts kept: the session's reason on the line (increment 4
     # validates each change), « Lancer » greyed; posted anyway, the 409's reason.
-    _set_stage(r, "b", "vector_search", candidates=1)
+    _set_stage(r, "vector_search", candidates=1)
     seq = r.ev.mark()
-    card = page.locator('#rag-chain-b .rag-chain-card[data-kind="vector_search"]')
-    expect(card.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
-    said = card.locator(".rag-chain-refusal").inner_text()
+    row = _seq_row(r, "vector_search")
+    expect(row.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
+    said = row.locator(".rag-chain-refusal").inner_text()
     chain = page.evaluate("() => JSON.parse(localStorage.getItem('wavestack.ragLab')).pipelines")
     refused = r.api(
         "POST", "/api/intentions/rag_lab_run", {"question": RAG_LAB_QUESTION, "pipelines": chain}
     )
     time.sleep(0.3)
     r.check(
-        "Recherche" in said
+        len(chain) == 1
+        and "Dense retrieval" in said
         and "candidat" in said
         and page.locator("#rag-run").is_disabled()
         and refused.status_code == 409
         and said in refused.json().get("detail", "")
         and not r.ev.since(seq, "rag_lab_run_started"),
-        "candidats < top_k : la page affiche la raison du 409, « Lancer » grisé, rien ne s'exécute",
+        "candidats < top_k : la ligne affiche la raison du 409, « Lancer » grisé, rien ne "
+        "s'exécute",
         f"{said} · {refused.status_code}",
     )
     page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
     r.check(
-        not page.locator("#rag-compare").is_checked()
-        and page.locator("#rag-chain-b .rag-chain-card").count() == 0,
-        "« Revenir à la chaîne livrée » : une seule chaîne, la livrée",
+        _chain_kinds(r) == RAG_LAB_STAGES_KINDS
+        and not page.locator("#rag-seq .rag-chain-refusal").count(),
+        "« Revenir à la chaîne livrée » : la chaîne livrée, valide",
     )
 
 
