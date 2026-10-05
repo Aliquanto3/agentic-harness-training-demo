@@ -14513,6 +14513,22 @@ def _rag_lab_presets(r: Run) -> None:
         f"{kinds} · {names} · {chunk}/{top_k} · {candidates}/{served_candidates} · "
         f"{dense_id}/{kept_id} · {_pressed_preset(r)}",
     )
+    # B2 (2026-10-05): BM25's index, built at BUILD: its line after « Indexing », its tile
+    # « Index lexical (BM25) » in Données, read by BM25.
+    build_names = page.locator("#rag-seq-build .rag-seq-name").all_inner_texts()
+    data_tiles = page.eval_on_selector_all(
+        '#rag-arch .rag-arch-group[data-group="data"] .rag-arch-tile',
+        "ts => ts.map(t => [t.dataset.component, t.querySelector('.rag-arch-name').textContent])",
+    )
+    bm25_uses = _focus_of(r, "lexical_search")["uses"]
+    r.check(
+        build_names == ["Documents", "Chunking", "Embedding", "Indexing", "Lexical indexing"]
+        and ["lexical_index", "Index lexical (BM25)"] in data_tiles
+        and bm25_uses == ["lexical_index", "question"],
+        "B2 : « RAG hybride » : la ligne BUILD « Lexical indexing » après « Indexing », la tuile "
+        "« Index lexical (BM25) » dans Données, BM25 lit l'index lexical et la question",
+        f"{build_names} · {data_tiles} · {bm25_uses}",
+    )
     page.reload()
     expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
     time.sleep(0.4)
@@ -14523,7 +14539,26 @@ def _rag_lab_presets(r: Run) -> None:
         f"{_chain_kinds(r)} · {_pressed_preset(r)}",
     )
     r.shot("59-atelier-rag-architectures")
-    ended, seq = _rag_lab_run(r, compose=True)
+    ended, seq = _rag_lab_run(r)
+    # B2: in « Dérouler », the line « Lexical indexing »: its own pill (duration) and, in its
+    # focus, the index's figures, « aucun modèle », its duration.
+    indexed = _stage_ended(r, seq, "lexical_index")
+    _focus_of(r, "lexical_index")
+    focus = page.inner_text("#rag-focus")
+    pill = page.inner_text('#rag-seq .rag-seq-step[data-step="lexical_index"] .rag-seq-status')
+    r.check(
+        indexed.get("status") == "ok"
+        and indexed.get("part") == "index"
+        and "Termes distincts" in focus
+        and "Chunks indexés" in focus
+        and "aucun (algorithme statistique)" in focus
+        and "Durée" in focus
+        and "ms" in pill,
+        "B2 : en Dérouler après le run hybride, le focus de « Lexical indexing » montre les "
+        "chiffres de l'index (chunks, termes distincts), « aucun modèle » et sa durée",
+        f"{indexed.get('status')} · {pill} · {focus[:300]}",
+    )
+    _rag_mode(r, "compose")
     fusion = _stage_ended(r, seq, "fusion").get("items", [])
     r.check(
         ended["payload"]["status"] == "ok"

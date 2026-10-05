@@ -1018,3 +1018,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-b1-atelier-rag-telecharger-visible.md`
   summary: E2E de l'Atelier RAG — cliquer la mention « N modèles à télécharger » d'une tuile pendant un téléchargement (boutons désactivés) et vérifier que le focus va au choix d'option de la ligne.
   evidence: medium ; revue B1 (verification-gap) : seul le chemin au repos est joué ; il faut un téléchargement tenu ouvert, ce que la pile E2E hors ligne ne fait pas de façon fiable.
+- source_spec: `_bmad-output/implementation-artifacts/spec-b2-atelier-rag-index-lexical-bm25.md`
+  summary: Journal de la page principale (`app.js`, `ragLabStage`) — nommer « Lexical indexing » les événements à `part: "index"` (ils reprennent l'id de l'étape BM25 et s'affichent « BM25 · … », deux lignes par run hybride).
+  evidence: low ; revue B2 (edge, verif, blind). `app.js` est modifié en parallèle par un autre lot ce jour-là : laissé de côté pour éviter un conflit. Correctif d'une ligne : `if (p.part) return` le libellé de l'étape du catalogue (`phase_label` porte déjà « Lexical indexing »).

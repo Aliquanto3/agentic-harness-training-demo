@@ -274,7 +274,8 @@ RAG, dessinée pièce par pièce, puis exécutée sur une question, étape par �
 sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne change pas.
 
 - **Trois vues.** À gauche la **séquence** des étapes, en deux temps : « BUILD · Indexing »
-  (Documents, Chunking, Embedding des chunks, Indexing dans le vector store), fait une fois pour
+  (Documents, Chunking, Embedding des chunks, Indexing dans le vector store, puis Lexical
+  indexing quand la chaîne a BM25), fait une fois pour
   toutes, puis « RUN · Retrieval » (Question, Embedding de la question, recherches, Reranking,
   Prompt augmentation, Generation), à chaque question. Au milieu, l'**architecture** : les
   composants que ces étapes sollicitent, en trois groupes (Données, Modèles, Échange avec
@@ -375,7 +376,11 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   aussi) et se retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le
   Prompt augmentation : la **recherche par mots-clés BM25** (par mots, sans embedding, k1 = 1,5 et b = 0,75 ; accents et petits
   mots ignorés, sigles et nombres gardés, comme « RH » ou « 35 ») et la **fusion**
-  des rangs réciproques (k = 60), qui combine deux recherches en une recherche hybride. Les
+  des rangs réciproques (k = 60), qui combine deux recherches en une recherche hybride. BM25
+  est un algorithme statistique, sans modèle appris : avec lui, le BUILD gagne la ligne
+  « Lexical indexing », qui construit l'index inversé des chunks (termes, fréquences
+  documentaires, longueurs ; tuile « Index lexical (BM25) » du groupe Données, chiffres et
+  durée dans son focus), et l'étape BM25 lit cet index à chaque question. Les
   autres étapes sont fixes. WaveStack vérifie la chaîne à chaque modification : une chaîne
   invalide (deux recherches sans fusion après elles, une fusion sans deux recherches avant elle,
   un reranking avant toute recherche…) affiche sa raison sur l'étape fautive, et « Lancer » est

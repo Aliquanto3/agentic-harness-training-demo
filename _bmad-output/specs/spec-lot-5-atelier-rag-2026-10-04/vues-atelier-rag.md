@@ -29,6 +29,7 @@ langue de la page.
 | `chunking` | Chunking | Découper les documents en chunks | `chunking` |
 | `embed_passages` | Embedding | Vectoriser chaque chunk | `embedding` |
 | `vector_store` | Indexing | Ranger les vecteurs dans le vector store | `vector_store` |
+| `lexical_index` | Lexical indexing | Construire l'index lexical (BM25) des chunks | première partie de `lexical_search` (B2) |
 | `question` | Question | Recevoir la question | (run) |
 | `embed_query` | Embedding | Vectoriser la question | `embedding` |
 | `vector_search` | Dense retrieval | Chercher les chunks les plus proches | `vector_search` |
@@ -41,17 +42,27 @@ langue de la page.
 `stages.*.label_text` (catalogue, refus de la session, cartes de détail) : Chunking, Embedding,
 Vector store, Dense retrieval, BM25, Fusion (RRF), Reranking, Prompt augmentation, Generation.
 
-Composants : Documents, Chunks, Vector store (groupe Données) ; Embedding model, Reranker, LLM
-(Modèles) ; Question, Augmented prompt, Réponse (Échange avec l'utilisateur). Sous-titre d'un
-composant : le libellé de l'option de son étape (modèle d'embedding, reranker, base), sinon son
+Composants : Documents, Chunks, Vector store, Index lexical (BM25) (groupe Données) ;
+Embedding model, Reranker, LLM (Modèles) ; Question, Augmented prompt, Réponse (Échange avec
+l'utilisateur). Sous-titre d'un composant : le libellé de l'option de son étape (modèle d'embedding, reranker, base), sinon son
 `note_text`.
+
+B2 (2026-10-05) : BM25 est un algorithme statistique, sans modèle appris. Son index inversé
+(termes par chunk, fréquences documentaires, longueurs, longueur moyenne) est construit au
+BUILD par la ligne `lexical_index`, présente seulement quand la chaîne a `lexical_search` ;
+ce n'est pas une étape de la chaîne mais la première partie de l'étape BM25, exécutée par la
+session après le vector store. Ses événements `rag_lab_stage_started/ended` portent l'id de
+l'étape BM25, `kind: "lexical_index"` et `part: "index"` (composant
+`rag_lab.lexical_index`) : la ligne a sa pastille, ses chiffres et sa durée (catalogue :
+`part` de la ligne). L'étape BM25 (RUN) lit l'index et la question.
 
 Bandeaux de phase : « BUILD · Indexing » + « une fois pour toutes, avant les questions » ;
 « RUN · Retrieval » + « à chaque question ».
 
 ## 3. Séquence (colonne 1)
 
-- Deux listes sous leur bandeau : BUILD (documents → vector_store), RUN (question → generation).
+- Deux listes sous leur bandeau : BUILD (documents → vector_store, puis lexical_index avec
+  BM25), RUN (question → generation).
   Le segment de récupération suit l'ordre de la chaîne.
 - Une ligne par étape : numéro, nom, action (texte doux), pastille d'état à droite (Dérouler
   avec run : statut et durée de l'étape de la chaîne ; `embed_query` et `documents` reprennent
@@ -80,10 +91,11 @@ Bandeaux de phase : « BUILD · Indexing » + « une fois pour toutes, avant les
 | chunking | Documents | Chunks | |
 | embed_passages | Chunks | | Embedding model |
 | vector_store | Embedding model | Vector store | |
+| lexical_index | Chunks | Index lexical (BM25) | |
 | question | Question | | |
 | embed_query | Question | | Embedding model |
 | vector_search | Vector store | | |
-| lexical_search | Chunks, Question | | |
+| lexical_search | Index lexical (BM25), Question | | |
 | fusion | | | |
 | rerank | Question | | Reranker |
 | context | Chunks, Question | Augmented prompt | |
