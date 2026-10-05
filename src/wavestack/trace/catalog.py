@@ -1088,6 +1088,24 @@ class LlmToken(BaseModel):
     special: bool = False
 
 
+class LlmArchitecture(BaseModel):
+    """Lot 6 of 2026-10-04 (D4): the family the GGUF header says the model belongs to, for
+    the TRANSFORMATION's banner: `dense` (the decoder transformer the diagram draws),
+    `hybrid` (recurrent layers among the attention ones, `attention_interval` the period of
+    the full-attention layers when the header says it; experts noted besides), `moe` (a
+    mixture of experts in place of the MLP), `unknown` (no header read: a server, a cloud
+    model). The figures in the session's language; `None` for what is not read."""
+
+    name: str | None = None  # `general.architecture`
+    family: Literal["dense", "hybrid", "moe", "unknown"] = "unknown"
+    attention_interval: int | None = None
+    kv_head_count: int | None = None
+    feed_forward_length: int | None = None  # an expert's own for a mixture of experts
+    expert_count: int | None = None
+    expert_used_count: int | None = None
+    figures_text: dict[str, str | None] = {}
+
+
 class LlmDimensions(BaseModel):
     """The model's sizes (`None`: unknown), the embedding table's (vocabulary × dimension),
     their French figures and where they were read."""
@@ -1100,6 +1118,7 @@ class LlmDimensions(BaseModel):
     embedding_params: int | None = None
     figures_text: dict[str, str | None] = {}
     source_text: str
+    architecture: LlmArchitecture | None = None  # lot 6 of 2026-10-04
 
 
 class LlmTokenizedPayload(BaseModel):
@@ -1124,6 +1143,9 @@ class LlmTokenizedPayload(BaseModel):
     dimensions_text: str
     # The counts in French (« 1 004 »), written by the session: the page places them.
     figures_text: dict[str, str] = {}
+    # Lot 6 of 2026-10-04: the begin-of-text token the OUTPUT's step reads before `tokens`
+    # when the model asks one (Gemma, Llama), else `None` (Qwen, a server, a cloud model).
+    bos_token: str | None = None
 
 
 class LlmGenerationStartedPayload(BaseModel):

@@ -21,7 +21,7 @@ import math
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field, replace
 from itertools import accumulate
@@ -124,7 +124,7 @@ from wavestack.models import embedding as embedding_module
 from wavestack.models import gguf_meta
 from wavestack.models import probe as probe_module
 from wavestack.models import reranker as reranker_module
-from wavestack.models.candidates import distribution
+from wavestack.models.candidates import distribution, dropped_by
 from wavestack.models.capabilities import (
     NO_TOOL_PARSER_FR,
     TOOL_CALL_TAGS,
@@ -8387,7 +8387,33 @@ class AppSession:
             },
             "dimensions": dimensions,
             "dimensions_text": llm_lab.dimensions_fr(dimensions, lang=self._language),
+            "bos_token": self._step_bos_text(engine, self._step_bos(engine)),
         }
+
+    @staticmethod
+    def _step_bos(engine: Any) -> int | None:
+        """Lot 6 of 2026-10-04: the begin-of-text token the OUTPUT's step reads before the
+        INPUT's ids when the model asks one (the engine's `adds_bos`: Gemma, Llama), else
+        `None` (Qwen, an engine without `adds_bos`: a server, the tests). Never a failure."""
+        read = getattr(engine, "adds_bos", None)
+        try:
+            token = read() if read is not None else None
+        except Exception:  # noqa: BLE001 - unknown, no BOS
+            token = None
+        return None if token is None else int(token)
+
+    @staticmethod
+    def _step_bos_text(engine: Any, bos: int | None) -> str | None:
+        """The text of `bos` (`metadata().bos_token`, else its piece), `None` without one."""
+        if bos is None:
+            return None
+        try:
+            text = engine.metadata().bos_token
+        except Exception:  # noqa: BLE001 - its piece then
+            text = ""
+        if not text:
+            text = b"".join(engine.token_pieces([bos])).decode("utf-8", "replace")
+        return text or None
 
     def _lab_dimensions(self, engine: Any) -> dict[str, Any]:
         """The model's sizes (story 29): the engine's own answer when it has `dimensions`,
@@ -8400,17 +8426,22 @@ class AppSession:
                 dims = read()
             except Exception:  # noqa: BLE001 - unknown sizes, never a failure
                 dims = None
+        with self._lock:
+            active = self._active
         if dims:
             source_text = str(dims.get("source_text") or source_text)
-        else:
-            with self._lock:
-                active = self._active
-            if active is not None and active.kind == "file":
-                header = gguf_meta.try_read_metadata(active.ref)
-                if header:
-                    dims = gguf_meta.dimensions_from_header(header)
-                    source_text = self._t("session.llm_lab.dimensions_gguf")
-        return llm_lab.dimensions_payload(dims, source_text, lang=self._language)
+        elif active is not None and active.kind == "file":
+            header = gguf_meta.try_read_metadata(active.ref)
+            if header:
+                dims = gguf_meta.dimensions_from_header(header)
+                source_text = self._t("session.llm_lab.dimensions_gguf")
+        # Lot 6 of 2026-10-04 (D4): the family the file's header says, `unknown` for a
+        # served model (its file is the server's) or a header unread.
+        file = active.ref if active is not None and active.kind == "file" else None
+        architecture = llm_lab.read_architecture(file, lang=self._language)
+        return llm_lab.dimensions_payload(
+            dims, source_text, lang=self._language, architecture=architecture
+        )
 
     # ---------- story 29, increment 2: sampling, prompt reading, token by token ----------
 
@@ -8666,6 +8697,80 @@ class AppSession:
         finally:
             self._lab_release(request_id)
 
+    def llm_step(self, prompt: str, continuation: Sequence[int], sampling: Sampling) -> str:
+        """Intention `llm_step` (lot 6 of 2026-10-04, class b): the OUTPUT's « Tirer le token
+        suivant ». The engine reads `prompt` without the chat template (the INPUT's very ids,
+        its BOS first when the model asks one: unlike « Générer », it extends the text), then
+        the ids the page already added (`continuation`, the `llm_token.token_id` of earlier
+        steps: no state kept here), draws one token with `sampling`, never reasoning, and
+        reads its candidates (`llm_distribution(0, …)` draws them again). Accepted in `idle`
+        with the engine in process only (`SendRefused` otherwise, as `llm_generate` with the
+        candidates), with at most `llm_lab.STEP_LIMIT` ids, each in the vocabulary. Returns
+        `llm{n}.step`."""
+        ids = [int(token) for token in continuation]
+        if len(ids) > llm_lab.STEP_LIMIT:
+            raise SendRefused(
+                Message("session.llm_lab.step.too_many", limit=self._n(llm_lab.STEP_LIMIT))
+            )
+        with self._memory_lock, self._lock:
+            if self.state == "idle" and self._engine is not None and not self.reason_text:
+                offer = self._candidates_info(self._active, self._cloud, self._engine)
+                if not offer["available"]:
+                    raise SendRefused(offer["reason_text"])
+                vocab = self._engine_vocab(self._engine)
+                wrong = next((t for t in ids if t < 0 or (vocab and t >= vocab)), None)
+                if wrong is not None:
+                    raise SendRefused(
+                        Message(
+                            "session.llm_lab.step.out_of_vocabulary",
+                            id=str(wrong),
+                            count=self._n(vocab or 0),
+                        )
+                    )
+            base, cancel, memory = self._lab_begin(False, True)
+        request_id = f"{base}.step"
+        self._emit_state()
+        self._executor.submit(
+            self._run_lab,
+            request_id,
+            prompt,
+            sampling,
+            False,
+            cancel,
+            True,
+            memory,
+            continuation=ids,
+            max_tokens=1,
+            raw=True,
+        )
+        return request_id
+
+    @staticmethod
+    def _engine_vocab(engine: Any) -> int | None:
+        """The vocabulary's size the engine in process says (`dimensions`), else `None`."""
+        read = getattr(engine, "dimensions", None)
+        try:
+            dims = read() if read is not None else None
+        except Exception:  # noqa: BLE001 - unknown, never a failure
+            dims = None
+        return gguf_meta.positive_size((dims or {}).get("vocab_size"))
+
+    def _step_context(
+        self, engine: Any, request_id: str, prompt: str, continuation: Sequence[int]
+    ) -> RenderedContext:
+        """Lot 6 of 2026-10-04, the OUTPUT's step: the very ids of the INPUT (`tokenize`,
+        as `llm_tokenize`), the BOS first when the model asks one (`_step_bos`), then the
+        tokens already added; no chat template, so the token drawn extends the text."""
+        bos = self._step_bos(engine)
+        added = [int(t) for t in continuation]
+        ids = ([] if bos is None else [bos]) + list(engine.tokenize(prompt)) + added
+        tail = b"".join(engine.token_pieces(added)) if added else b""
+        shown = (self._step_bos_text(engine, bos) or "") + prompt + tail.decode("utf-8", "replace")
+        segment = Segment(
+            id=f"{request_id}.1", kind=SegmentKind.USER_MESSAGE, text=shown, tokens=len(ids)
+        )
+        return RenderedContext(prompt=shown, ids=ids, segments=[segment])
+
     def _lab_release(self, request_id: str) -> None:
         """The screen's request is over: no `CancelToken`, the session back to `idle`."""
         with self._lock:
@@ -8713,6 +8818,9 @@ class AppSession:
             "sampling": asdict(sampling),
             "kept_count": sum(1 for row in rows if row["kept"]),
             "tokens": count,
+            # Lot 6 of 2026-10-04: the setting that leaves each candidate out (`None`: kept),
+            # in the candidates' order, for the OUTPUT's « écarté (top-p) ».
+            "dropped_by": dropped_by(entry["p"], entry["tail"], sampling),
         }
 
     def _lab_candidates(self) -> dict[str, Any]:
@@ -8745,6 +8853,9 @@ class AppSession:
         candidates: bool = False,
         memory: dict[int, dict[str, Any]] | None = None,
         release: bool = True,
+        continuation: Sequence[int] = (),
+        max_tokens: int | None = None,
+        raw: bool = False,
     ) -> None:
         """One user message rendered by the model's template (AD-4), no brick, no history;
         the local call through `_call_model` (one `llm_token` per token), the cloud call
@@ -8752,7 +8863,11 @@ class AppSession:
         context's engine state is saved around it, else the next turn says why it reads
         again (`llm`). The workshop's conversation is never touched. Story 5 of 2026-09-30:
         `memory` receives each token's most probable tokens (the live distribution);
-        `release=False` leaves the session in `llm_lab` (A and B of a comparison)."""
+        `release=False` leaves the session in `llm_lab` (A and B of a comparison). Lot 6 of
+        2026-10-04 (the OUTPUT's step): `raw`, the local engine reads `prompt` without the
+        template (its BOS first when the model asks one, `_step_bos`), then `continuation`,
+        the ids already added, and never reasons; `max_tokens`, the output tokens asked of
+        the engine in place of the reserve (1: one token drawn)."""
         started = time.monotonic()
         journal = self._journal()
         ended: dict[str, Any] = {"request_id": request_id, "status": "error"}
@@ -8800,27 +8915,32 @@ class AppSession:
                     engine, caps, cloud = self._engine, self._caps, self._cloud
                     window = self._window
                 assert engine is not None and caps is not None
-                reasons = reasoning or caps.reasoning_always
+                # The OUTPUT's step (`raw`) reads a text, not a message: no reasoning.
+                reasons = (reasoning or caps.reasoning_always) and not raw
                 reserve = output_reserve(reasons)
                 trace = self._sampling_trace(sampling, reasons)
                 message = [{"role": "user", "content": Part(SegmentKind.USER_MESSAGE, prompt)}]
+                rendered: RenderedContext | RenderedChat
                 if cloud is None:
-                    meta = engine.metadata()
-                    template_vars: dict[str, Any] = {}
-                    if caps.reasoning_variable:
-                        template_vars[caps.reasoning_variable] = reasons
-                    rendered: RenderedContext | RenderedChat = render_context(
-                        engine,
-                        caps.chat_template or "",
-                        message,
-                        call_id=request_id,
-                        special_tokens=meta.special_tokens,
-                        bos_token=meta.bos_token,
-                        eos_token=meta.eos_token,
-                        add_generation_prompt=True,
-                        **template_vars,
-                        lang=self._language,
-                    )
+                    if raw:  # lot 6: the OUTPUT's step reads the INPUT's ids, no template
+                        rendered = self._step_context(engine, request_id, prompt, continuation)
+                    else:
+                        meta = engine.metadata()
+                        template_vars: dict[str, Any] = {}
+                        if caps.reasoning_variable:
+                            template_vars[caps.reasoning_variable] = reasons
+                        rendered = render_context(
+                            engine,
+                            caps.chat_template or "",
+                            message,
+                            call_id=request_id,
+                            special_tokens=meta.special_tokens,
+                            bos_token=meta.bos_token,
+                            eos_token=meta.eos_token,
+                            add_generation_prompt=True,
+                            **template_vars,
+                            lang=self._language,
+                        )
                     text, tokens, exact = rendered.prompt, len(rendered.ids), True
                     phase = self._t("session.llm_lab.reading", tokens=self._n(tokens))
                     with self._lock:
@@ -8882,7 +9002,7 @@ class AppSession:
                         rendered,
                         cancel,
                         (),
-                        reserve,
+                        max_tokens or reserve,
                         reasons=reasons,
                         sampling=sampling,
                         on_token=local_token,

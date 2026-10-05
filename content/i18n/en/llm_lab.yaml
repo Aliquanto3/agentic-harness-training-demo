@@ -73,6 +73,220 @@ sections:
       - "Does the thinking cost tokens, like the answer?"
       - "Why can the harness cut the thinking short?"
 
+# Lot 6 of 2026-10-04: the model's loop in three stacked stages, in place of sections 1 and
+# 2. INPUT and OUTPUT are real (read in the engine), the TRANSFORMATION is illustrative: only
+# its dimensions are read.
+stages:
+  show_all_text: "Show all"
+  input:
+    title_text: "INPUT"
+    subtitle_text: "the text becomes numbers"
+    tag_text: "Real · the model's tokenizer"
+    link_text: "the identifiers go into the model"
+    rows:
+      text_text: "Text"
+      tokens_text: "Tokens"
+      ids_text: "Identifiers"
+    steps:
+      text:
+        title_text: "Text."
+        text_text: "The text as typed. The model will never read it as letters."
+      tokens:
+        title_text: "Tokens."
+        text_text: >-
+          The tokenizer splits the text into pieces taken from a fixed vocabulary: often a
+          word with the space before it (␣), sometimes part of a word.
+      ids:
+        title_text: "Identifiers."
+        text_text: >-
+          Each token is replaced by its number in the vocabulary. From here on, the model only
+          sees these numbers.
+    ids_count_text:
+      one: "{n} number between 0 and {max}"
+      other: "{n} numbers between 0 and {max}"
+    ids_unknown_text:
+      one: "{n} number: its number in the vocabulary"
+      other: "{n} numbers: their numbers in the vocabulary"
+    added_text:
+      one: "including {n} added by the OUTPUT"
+      other: "including {n} added by the OUTPUT"
+    column_label_text: "{texte} → token {token} → identifier {id}"
+    produced_label_text: "{texte} → token {token} → identifier {id}, drawn by the engine and added at the end"
+    bos_text: "Before these tokens, the engine also reads {bos}: the begin-of-text token this model asks for."
+  transfo:
+    title_text: "TRANSFORMATION"
+    subtitle_text: "the numbers go through the model's layers"
+    tag_text: "Illustrative · real dimensions"
+    link_text: "the last token's vector is compared with the whole vocabulary"
+    steps:
+      embed:
+        title_text: "Embeddings: each identifier fetches its row"
+        text_text: >-
+          The embedding table has one row per token of the vocabulary. The identifier picks its
+          row: a vector of numbers learned in training, which encodes what the model “knows”
+          of the token, alone, without context. A given token has the same vector in every
+          sentence.
+      attention:
+        title_text: "Layer 1 · attention: the tokens look at each other"
+        text_text: >-
+          Each token looks at the tokens before it and takes what concerns it. Here, {dernier}
+          (the last one) looks mostly at {cible}: the thickest line. Its vector changes: it
+          now knows what the text is about.
+      mlp:
+        title_text: "Layer 1 · MLP: each token, alone, goes through a wider network"
+        text_text: >-
+          The vector goes through a small neural network: it widens (more neurons), a few
+          neurons light up, then it comes back to its size. This is where the model adds
+          learned knowledge. The same network applies to each token, separately.
+      attention_2:
+        title_text: "Layer 2 · attention"
+        text_text: >-
+          The same operation, with other weights: each layer learns to look for something
+          else (grammar, meaning, what was just said…).
+      mlp_2:
+        title_text: "Layer 2 · MLP"
+        text_text: "The same operation, with another network."
+      skip:
+        title_text: "… and so on, layer after layer"
+        text_text: >-
+          The vectors go through the model's {couches} layers, each doing attention then MLP.
+          Each layer adds a little to the vector without erasing what it carried.
+      final:
+        title_text: "The last token's vector leaves for the OUTPUT"
+        text_text: >-
+          Only the last token's vector is used to predict what comes next: it sums up
+          everything before it. It is compared with each token of the vocabulary (stage 3).
+    attention_alone_text: >-
+      Each token looks at the tokens before it and takes what concerns it. Here, {dernier} is
+      alone: it can only look at itself.
+    skip_unknown_text: >-
+      The vectors go through all the model's layers, each doing attention then MLP. Each layer
+      adds a little to the vector without erasing what it carried.
+    moe_mlp_text: >-
+      Here, the MLP is a mixture of experts: a router picks a few small networks (the experts)
+      among many, and only those compute.
+    example_text: "example: split a text, its real tokens will replace these"
+    example_tokens: ["Hello", ",", " how", " are", " you"]
+    labels:
+      tokens_text: "Tokens"
+      ids_text: "Identifiers"
+      vectors_text: "Vectors"
+      drawn_text: "{n} numbers drawn"
+      of_text: "out of {dimension}"
+      table_text: "Embedding table"
+      table_rows_text: "{vocabulaire} rows × {dimension}"
+      attention_text: >-
+        Drawn: what {dernier} looks at, for one attention head (in reality: {tetes}, every
+        token does the same).
+      self_text: "{p} itself"
+      mlp_title_text: "MLP · {entree} → {cachee} → {entree} neurons"
+      mlp_real_text: "in reality: {mlp}"
+      input_text: "input"
+      output_text: "output"
+      mlp_note_text: "Drawn for the last token; every other token goes, alone, through the same network."
+      moe_title_text: "Router → 2 active experts"
+      moe_drawn_text: "6 drawn; in reality {actifs} out of {experts}"
+      moe_drawn_any_text: "6 drawn; in reality {experts} experts"
+      expert_text: "expert {n}"
+      expert_active_text: "expert {n} · active"
+      moe_note_text: >-
+        Drawn for the last token; for every other token, the router picks other experts.
+      layers_text: "layer 3 … layer {couches}: attention then MLP, every time"
+      layers_unknown_text: "layer 3 … last layer: attention then MLP, every time"
+      final_text: "to the OUTPUT: compared with the vocabulary's {vocabulaire} tokens"
+    panel:
+      facts_title_text: "In reality, for {modele}"
+      width_text: "vectors of {dimension} numbers"
+      table_text: "embedding table: {vocabulaire} × {dimension}, that is {parametres} learned numbers"
+      table_only_text: "embedding table: {vocabulaire} × {dimension}"
+      layers_text: "{couches} layers, each: attention ({tetes}) then MLP ({mlp})"
+      layers_unknown_text: "each layer: attention ({tetes}) then MLP ({mlp})"
+      heads_text: "{tetes} attention heads"
+      heads_kv_text: "{tetes} attention heads, {kv} K/V"
+      mlp_text: "{dimension} → {largeur} → {dimension}"
+      moe_text: "{experts} experts of {dimension} → {largeur} → {dimension}, {actifs} active per token"
+      moe_any_text: "{experts} experts of {dimension} → {largeur} → {dimension}"
+      stack_title_text: "The model's layers"
+      stack_none_text: "no layer crossed yet"
+      stack_now_text: "layer {n} of {couches}"
+      stack_hybrid_text: "layer {n} of {couches} · solid: full attention, dashed: recurrent"
+      stack_done_text: "{couches} layers crossed"
+      stack_unknown_text: "number of layers unknown for this model"
+      unknown_text: "Dimensions unknown for this model: WaveStack cannot read them."
+    note_text:
+      one: >-
+        The engine exposes neither the attention weights nor the hidden states: {n} token, 8
+        numbers per vector and a handful of neurons show the shape of the computation; the
+        colours are made up, the panel's figures are the model's.
+      other: >-
+        The engine exposes neither the attention weights nor the hidden states: {n} tokens, 8
+        numbers per vector and a handful of neurons show the shape of the computation; the
+        colours are made up, the panel's figures are the model's.
+    banner_title_text: "⚠ Simplified diagram, inaccurate for this architecture."
+    banner_hybrid_text: >-
+      {modele} is hybrid: only one layer in {intervalle} does full attention; the others are
+      recurrent layers (a state of fixed size), drawn here as attention layers.
+    banner_hybrid_any_text: >-
+      {modele} is hybrid: some or all of its layers are recurrent layers (a state of fixed
+      size), drawn here as attention layers.
+    banner_moe_text: >-
+      The MLP of {modele} is a mixture of experts: for each token, a router picks {actifs}
+      experts out of {experts}. The diagram draws 6 of them, 2 active.
+    banner_moe_any_text: >-
+      The MLP of {modele} is a mixture of {experts} experts: for each token, a router picks a
+      few. The diagram draws 6 of them, 2 active.
+    unknown_architecture_text: >-
+      Architecture not read for this model: the dense decoder transformer's diagram by
+      default.
+  output:
+    title_text: "OUTPUT"
+    subtitle_text: "from the vector to the next token"
+    tag_text: "Real · probabilities and draw"
+    steps:
+      logits:
+        title_text: "Logits."
+        text_text: >-
+          The last token's vector is compared with each token of the vocabulary: one score
+          each, turned into a probability. The model has chosen nothing yet.
+      draw:
+        title_text: "Draw."
+        text_text: >-
+          The settings leave candidates out, then the chance of being drawn is shared among
+          those left. The model's probability does not move.
+      token:
+        title_text: "Token drawn."
+        text_text: >-
+          The engine draws a token by these chances. Added at the end, it is read again with
+          everything else to draw the next one: that is the whole generation.
+    logits_title_text: "Logits"
+    logits_text: "one score per token of the vocabulary, turned into a probability: the 6 most probable after “{fin}”"
+    logits_start_text: "one score per token of the vocabulary, turned into a probability: the 6 most probable at the start of the answer"
+    arrow_logits_text: "the settings decide which stay in the running"
+    draw_title_text: "Draw"
+    draw_text: "move a setting: each word's chance changes, the model's probability (above) does not move"
+    dropped_text: "left out ({reglage})"
+    kept_text:
+      one: >-
+        {gardes} kept out of {lus} · it is drawn for sure (the rest of the vocabulary,
+        {reste}, is not drawn here).
+      other: >-
+        {gardes} kept out of {lus} · the chance is shared among them only (the rest of the
+        vocabulary, {reste}, is not drawn here).
+    arrow_draw_text: "a token is drawn at random by these chances"
+    token_title_text: "Token drawn"
+    draw_button_text: "🎲 Draw the next token"
+    append_text: "↺ Add at the end"
+    undo_text: "Remove the last one"
+    none_text: "no token drawn yet"
+    history_text: "last draws: {tirages}"
+    running_text: "The engine is drawing a token…"
+    end_text: "The engine drew its end token: for it, the text stops here. Nothing to add."
+    raw_text: "Here, the engine reads the text as is, without the chat template: it continues it. “Generate” (section 6) reads it as a message and answers it."
+    limit_text: "64 tokens added at most: remove one, or change the text."
+    step_token_text: "Candidates of the token the engine drew: {texte}."
+    help_text: "What this setting does"
+    tokenize_first_text: "First split this text into tokens (stage 1)."
+
 tokenization:
   prompt_label_text: "Text to split"
   placeholder_text: "Write a text, for example: Hello, how are you?"
@@ -225,8 +439,8 @@ candidates:
     top-k, top-p and min-p discard candidates, then the temperature redistributes the chance
     of being drawn among those that remain.
 
-# Story 5 of 2026-09-30: the live distribution (section 2), the A/B comparison (section 5),
-# the diagram of the window (section 4).
+# Story 5 of 2026-09-30: the live distribution (stage 3 since lot 6), the A/B comparison
+# (section 6), the diagram of the window (section 5).
 distribution:
   title_text: "What the settings do to the candidates"
   intro_text: >-
@@ -234,9 +448,9 @@ distribution:
     WaveStack works out again which ones stay in the running and each one's chance of being
     drawn, without a new generation. The model probability does not move.
   empty_text: >-
-    Generate an answer with “Show the candidate tokens” ticked (section 5): the candidates
-    of its first token will appear here.
-  token_text: "Token {index} of the last generation (A for a comparison): {texte}. Click another chip in section 5 to choose it."
+    Draw the next token, below. Generate an answer with “Show the candidate tokens” ticked
+    (section 6): the candidates of its first token will appear here too.
+  token_text: "Token {index} of the last generation (A for a comparison): {texte}. Click another chip in section 6 to choose it."
   probability_text: "Model probability"
   chance_text: "Chance of being drawn"
   dropped_text: "discarded"
@@ -251,7 +465,7 @@ distribution:
 compare:
   title_text: "Compare two settings"
   intro_text: >-
-    The same prompt, generated twice: A with the settings of section 2, B with those below.
+    The same prompt, generated twice: A with the settings of stage 3, B with those below.
     A single model runs on the processor: B starts once A has finished. “Stop” stops both.
   b_settings_text: "Settings B"
   button_text: "Compare"

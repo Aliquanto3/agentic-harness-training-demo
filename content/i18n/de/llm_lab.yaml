@@ -74,6 +74,221 @@ sections:
       - "Kostet die Überlegung Tokens, wie die Antwort?"
       - "Warum kann das Harness die Überlegung abschneiden?"
 
+# Lot 6 vom 2026-10-04: die Schleife des Modells in drei gestapelten Stufen, anstelle der
+# Abschnitte 1 und 2. INPUT und OUTPUT sind echt (aus der Engine gelesen), die TRANSFORMATION
+# ist illustrativ: nur ihre Dimensionen sind gelesen.
+stages:
+  show_all_text: "Alles zeigen"
+  input:
+    title_text: "INPUT"
+    subtitle_text: "der Text wird zu Zahlen"
+    tag_text: "Echt · Tokenizer des Modells"
+    link_text: "die Kennungen gehen in das Modell"
+    rows:
+      text_text: "Text"
+      tokens_text: "Tokens"
+      ids_text: "Kennungen"
+    steps:
+      text:
+        title_text: "Text."
+        text_text: "Der eingegebene Text, wie er ist. Das Modell liest ihn nie als Buchstaben."
+      tokens:
+        title_text: "Tokens."
+        text_text: >-
+          Der Tokenizer zerlegt den Text in Stücke aus einem festen Vokabular: oft ein Wort mit
+          dem Leerzeichen davor (␣), manchmal ein Wortteil.
+      ids:
+        title_text: "Kennungen."
+        text_text: >-
+          Jedes Token wird durch seine Nummer im Vokabular ersetzt. Ab hier sieht das Modell
+          nur noch diese Zahlen.
+    ids_count_text:
+      one: "{n} Zahl zwischen 0 und {max}"
+      other: "{n} Zahlen zwischen 0 und {max}"
+    ids_unknown_text:
+      one: "{n} Zahl: ihre Nummer im Vokabular"
+      other: "{n} Zahlen: ihre Nummern im Vokabular"
+    added_text:
+      one: "davon {n} vom OUTPUT angehängt"
+      other: "davon {n} vom OUTPUT angehängt"
+    column_label_text: "{texte} → Token {token} → Kennung {id}"
+    produced_label_text: "{texte} → Token {token} → Kennung {id}, von der Engine gezogen und angehängt"
+    bos_text: "Vor diesen Tokens liest die Engine auch {bos}: das Textanfangs-Token, das dieses Modell verlangt."
+  transfo:
+    title_text: "TRANSFORMATION"
+    subtitle_text: "die Zahlen durchlaufen die Schichten des Modells"
+    tag_text: "Illustrativ · echte Dimensionen"
+    link_text: "der Vektor des letzten Tokens wird mit dem ganzen Vokabular verglichen"
+    steps:
+      embed:
+        title_text: "Embeddings: jede Kennung holt ihre Zeile"
+        text_text: >-
+          Die Embedding-Tabelle hat eine Zeile pro Token des Vokabulars. Die Kennung wählt ihre
+          Zeile: einen im Training gelernten Zahlenvektor, der kodiert, was das Modell über das
+          Token „weiß“, allein, ohne Kontext. Ein Token hat in jedem Satz denselben Vektor.
+      attention:
+        title_text: "Schicht 1 · Attention: die Tokens schauen einander an"
+        text_text: >-
+          Jedes Token schaut die Tokens vor ihm an und nimmt, was es betrifft. Hier schaut
+          {dernier} (das letzte) vor allem auf {cible}: der dickste Strich. Sein Vektor ändert
+          sich: es weiß jetzt, worum es geht.
+      mlp:
+        title_text: "Schicht 1 · MLP: jedes Token durchläuft allein ein breiteres Netz"
+        text_text: >-
+          Der Vektor durchläuft ein kleines neuronales Netz: er wird breiter (mehr Neuronen),
+          einige Neuronen leuchten auf, dann kehrt er zu seiner Größe zurück. Hier fügt das
+          Modell gelerntes Wissen hinzu. Dasselbe Netz gilt für jedes Token, einzeln.
+      attention_2:
+        title_text: "Schicht 2 · Attention"
+        text_text: >-
+          Dieselbe Operation, mit anderen Gewichten: jede Schicht lernt, nach etwas anderem zu
+          suchen (Grammatik, Bedeutung, das gerade Gesagte…).
+      mlp_2:
+        title_text: "Schicht 2 · MLP"
+        text_text: "Dieselbe Operation, mit einem anderen Netz."
+      skip:
+        title_text: "… und so weiter, Schicht für Schicht"
+        text_text: >-
+          Die Vektoren durchlaufen die {couches} Schichten des Modells, jede mit Attention und
+          danach MLP. Jede Schicht fügt dem Vektor etwas hinzu, ohne zu löschen, was er trug.
+      final:
+        title_text: "Der Vektor des letzten Tokens geht zum OUTPUT"
+        text_text: >-
+          Nur der Vektor des letzten Tokens dient der Vorhersage: er fasst alles Vorherige
+          zusammen. Er wird mit jedem Token des Vokabulars verglichen (Stufe 3).
+    attention_alone_text: >-
+      Jedes Token schaut die Tokens vor ihm an und nimmt, was es betrifft. Hier ist {dernier}
+      allein: es kann nur sich selbst anschauen.
+    skip_unknown_text: >-
+      Die Vektoren durchlaufen alle Schichten des Modells, jede mit Attention und danach MLP.
+      Jede Schicht fügt dem Vektor etwas hinzu, ohne zu löschen, was er trug.
+    moe_mlp_text: >-
+      Hier ist das MLP eine Mischung von Experten: ein Router wählt einige kleine Netze (die
+      Experten) unter vielen, und nur diese rechnen.
+    example_text: "Beispiel: zerlegen Sie einen Text, seine echten Tokens ersetzen diese"
+    example_tokens: ["Guten", " Tag", ",", " wie", " geht"]
+    labels:
+      tokens_text: "Tokens"
+      ids_text: "Kennungen"
+      vectors_text: "Vektoren"
+      drawn_text: "{n} Zahlen gezeichnet"
+      of_text: "von {dimension}"
+      table_text: "Embedding-Tabelle"
+      table_rows_text: "{vocabulaire} Zeilen × {dimension}"
+      attention_text: >-
+        Gezeichnet: worauf {dernier} schaut, für einen Attention-Kopf (in Wirklichkeit:
+        {tetes}, jedes Token tut dasselbe).
+      self_text: "{p} sich selbst"
+      mlp_title_text: "MLP · {entree} → {cachee} → {entree} Neuronen"
+      mlp_real_text: "in Wirklichkeit: {mlp}"
+      input_text: "Eingang"
+      output_text: "Ausgang"
+      mlp_note_text: "Für das letzte Token gezeichnet; jedes andere Token durchläuft allein dasselbe Netz."
+      moe_title_text: "Router → 2 aktive Experten"
+      moe_drawn_text: "6 gezeichnet; in Wirklichkeit {actifs} von {experts}"
+      moe_drawn_any_text: "6 gezeichnet; in Wirklichkeit {experts} Experten"
+      expert_text: "Experte {n}"
+      expert_active_text: "Experte {n} · aktiv"
+      moe_note_text: >-
+        Für das letzte Token gezeichnet; für jedes andere Token wählt der Router andere
+        Experten.
+      layers_text: "Schicht 3 … Schicht {couches}: Attention, dann MLP, jedes Mal"
+      layers_unknown_text: "Schicht 3 … letzte Schicht: Attention, dann MLP, jedes Mal"
+      final_text: "zum OUTPUT: mit den {vocabulaire} Tokens des Vokabulars verglichen"
+    panel:
+      facts_title_text: "In Wirklichkeit, für {modele}"
+      width_text: "Vektoren aus {dimension} Zahlen"
+      table_text: "Embedding-Tabelle: {vocabulaire} × {dimension}, also {parametres} gelernte Zahlen"
+      table_only_text: "Embedding-Tabelle: {vocabulaire} × {dimension}"
+      layers_text: "{couches} Schichten, jede: Attention ({tetes}), dann MLP ({mlp})"
+      layers_unknown_text: "jede Schicht: Attention ({tetes}), dann MLP ({mlp})"
+      heads_text: "{tetes} Attention-Köpfe"
+      heads_kv_text: "{tetes} Attention-Köpfe, {kv} K/V"
+      mlp_text: "{dimension} → {largeur} → {dimension}"
+      moe_text: "{experts} Experten zu {dimension} → {largeur} → {dimension}, {actifs} aktiv pro Token"
+      moe_any_text: "{experts} Experten zu {dimension} → {largeur} → {dimension}"
+      stack_title_text: "Schichten des Modells"
+      stack_none_text: "noch keine Schicht durchlaufen"
+      stack_now_text: "Schicht {n} von {couches}"
+      stack_hybrid_text: "Schicht {n} von {couches} · voll: volle Attention, gestrichelt: rekurrent"
+      stack_done_text: "{couches} Schichten durchlaufen"
+      stack_unknown_text: "Zahl der Schichten für dieses Modell unbekannt"
+      unknown_text: "Dimensionen für dieses Modell unbekannt: WaveStack kann sie nicht lesen."
+    note_text:
+      one: >-
+        Die Engine legt weder die Attention-Gewichte noch die verborgenen Zustände offen:
+        {n} Token, 8 Zahlen pro Vektor und eine Handvoll Neuronen zeigen die Form der
+        Rechnung; die Farben sind erfunden, die Zahlen im Feld sind die des Modells.
+      other: >-
+        Die Engine legt weder die Attention-Gewichte noch die verborgenen Zustände offen:
+        {n} Tokens, 8 Zahlen pro Vektor und eine Handvoll Neuronen zeigen die Form der
+        Rechnung; die Farben sind erfunden, die Zahlen im Feld sind die des Modells.
+    banner_title_text: "⚠ Vereinfachtes Schema, ungenau für diese Architektur."
+    banner_hybrid_text: >-
+      {modele} ist hybrid: nur eine von {intervalle} Schichten macht volle Attention; die
+      anderen sind rekurrente Schichten (ein Zustand fester Größe), hier als Attention-Schichten
+      gezeichnet.
+    banner_hybrid_any_text: >-
+      {modele} ist hybrid: einige oder alle seiner Schichten sind rekurrente Schichten (ein
+      Zustand fester Größe), hier als Attention-Schichten gezeichnet.
+    banner_moe_text: >-
+      Das MLP von {modele} ist eine Mischung von Experten: für jedes Token wählt ein Router
+      {actifs} von {experts} Experten. Das Schema zeichnet 6 davon, 2 aktiv.
+    banner_moe_any_text: >-
+      Das MLP von {modele} ist eine Mischung von {experts} Experten: für jedes Token wählt ein
+      Router einige davon. Das Schema zeichnet 6 davon, 2 aktiv.
+    unknown_architecture_text: >-
+      Architektur für dieses Modell nicht gelesen: standardmäßig das Schema des dichten
+      Decoder-Transformers.
+  output:
+    title_text: "OUTPUT"
+    subtitle_text: "vom Vektor zum nächsten Token"
+    tag_text: "Echt · Wahrscheinlichkeiten und Ziehung"
+    steps:
+      logits:
+        title_text: "Logits."
+        text_text: >-
+          Der Vektor des letzten Tokens wird mit jedem Token des Vokabulars verglichen: je ein
+          Wert, in eine Wahrscheinlichkeit umgerechnet. Das Modell hat noch nichts gewählt.
+      draw:
+        title_text: "Ziehung."
+        text_text: >-
+          Die Einstellungen schließen Kandidaten aus, dann verteilt sich die Ziehungschance
+          auf die verbleibenden. Die Wahrscheinlichkeit des Modells bleibt unverändert.
+      token:
+        title_text: "Gezogenes Token."
+        text_text: >-
+          Die Engine zieht ein Token nach diesen Chancen. Angehängt, wird es mit allem anderen
+          erneut gelesen, um das nächste zu ziehen: das ist die ganze Generierung.
+    logits_title_text: "Logits"
+    logits_text: "ein Wert pro Token des Vokabulars, in eine Wahrscheinlichkeit umgerechnet: die 6 wahrscheinlichsten nach „{fin}“"
+    logits_start_text: "ein Wert pro Token des Vokabulars, in eine Wahrscheinlichkeit umgerechnet: die 6 wahrscheinlichsten am Anfang der Antwort"
+    arrow_logits_text: "die Einstellungen entscheiden, welche im Rennen bleiben"
+    draw_title_text: "Ziehung"
+    draw_text: "bewegen Sie eine Einstellung: die Chance jedes Wortes ändert sich, die Wahrscheinlichkeit des Modells (oben) bleibt"
+    dropped_text: "ausgeschlossen ({reglage})"
+    kept_text:
+      one: >-
+        {gardes} von {lus} behalten · es wird sicher gezogen (der Rest des Vokabulars,
+        {reste}, wird hier nicht gezogen).
+      other: >-
+        {gardes} von {lus} behalten · die Chance wird nur unter ihnen geteilt (der Rest des
+        Vokabulars, {reste}, wird hier nicht gezogen).
+    arrow_draw_text: "ein Token wird nach diesen Chancen ausgelost"
+    token_title_text: "Gezogenes Token"
+    draw_button_text: "🎲 Nächstes Token ziehen"
+    append_text: "↺ Anhängen"
+    undo_text: "Letztes entfernen"
+    none_text: "noch kein Token gezogen"
+    history_text: "letzte Ziehungen: {tirages}"
+    running_text: "Die Engine zieht ein Token…"
+    end_text: "Die Engine hat ihr End-Token gezogen: für sie endet der Text hier. Nichts anzuhängen."
+    raw_text: "Hier liest die Engine den Text so, wie er ist, ohne Chat-Vorlage: sie setzt ihn fort. „Generieren“ (Abschnitt 6) liest ihn als Nachricht und antwortet darauf."
+    limit_text: "Höchstens 64 angehängte Tokens: entfernen Sie eines oder ändern Sie den Text."
+    step_token_text: "Kandidaten des von der Engine gezogenen Tokens: {texte}."
+    help_text: "Was diese Einstellung tut"
+    tokenize_first_text: "Zerlegen Sie diesen Text zuerst in Tokens (Stufe 1)."
+
 tokenization:
   prompt_label_text: "Zu zerlegender Text"
   placeholder_text: "Schreiben Sie einen Text, zum Beispiel: Guten Tag, wie geht es Ihnen?"
@@ -228,8 +443,8 @@ candidates:
     Reihenfolge von llama.cpp verwerfen Top-k, Top-p und Min-p Kandidaten, dann verteilt die
     Temperatur die Chance, gezogen zu werden, unter den verbleibenden neu.
 
-# Story 5 vom 2026-09-30: die lebendige Verteilung (Abschnitt 2), der A/B-Vergleich
-# (Abschnitt 5), das Schema des Fensters (Abschnitt 4).
+# Story 5 vom 2026-09-30: die lebendige Verteilung (Stufe 3 seit Lot 6), der A/B-Vergleich
+# (Abschnitt 6), das Schema des Fensters (Abschnitt 5).
 distribution:
   title_text: "Was die Einstellungen mit den Kandidaten machen"
   intro_text: >-
@@ -238,9 +453,10 @@ distribution:
     Chance jeder hat, gezogen zu werden, ohne neue Generierung. Die Wahrscheinlichkeit des
     Modells bewegt sich nicht.
   empty_text: >-
-    Erzeugen Sie eine Antwort mit aktiviertem „Kandidaten-Tokens zeigen“ (Abschnitt 5):
-    Die Kandidaten ihres ersten Tokens erscheinen hier.
-  token_text: "Token {index} der letzten Generierung (A bei einem Vergleich): {texte}. Klicken Sie auf einen anderen Chip in Abschnitt 5, um ihn zu wählen."
+    Ziehen Sie das nächste Token, unten. Erzeugen Sie eine Antwort mit aktiviertem
+    „Kandidaten-Tokens zeigen“ (Abschnitt 6): Die Kandidaten ihres ersten Tokens erscheinen
+    auch hier.
+  token_text: "Token {index} der letzten Generierung (A bei einem Vergleich): {texte}. Klicken Sie auf einen anderen Chip in Abschnitt 6, um ihn zu wählen."
   probability_text: "Wahrscheinlichkeit des Modells"
   chance_text: "Chance, gezogen zu werden"
   dropped_text: "verworfen"
@@ -256,7 +472,7 @@ distribution:
 compare:
   title_text: "Zwei Einstellungen vergleichen"
   intro_text: >-
-    Derselbe Prompt, zweimal erzeugt: A mit den Einstellungen aus Abschnitt 2, B mit den
+    Derselbe Prompt, zweimal erzeugt: A mit den Einstellungen aus Stufe 3, B mit den
     folgenden. Ein einziges Modell läuft auf dem Prozessor: B beginnt, wenn A fertig ist.
     „Stoppen“ stoppt beide.
   b_settings_text: "Einstellungen B"

@@ -996,3 +996,9 @@
 - source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/SPEC.md`
   summary: E2E `mcp_full`, « mode cloud : les descriptions d'outils, MCP compris, en arbres JSON » échoue (arbres vides).
   evidence: Reproduit au commit de base 370bb36 (`--only mcp_full`), antérieur au lot 5 ; relève du Contexte LLM (app.js) ou du lot 4.
+- source_spec: `_bmad-output/implementation-artifacts/spec-lot-6-atelier-llm-boucle-du-modele.md`
+  summary: Brancher `read_architecture` sur le chemin du GGUF d'un modèle servi (llama-server, Ollama) dans `_lab_dimensions`, pour que le bandeau D4 de l'Atelier LLM ne dise plus `unknown` quand le fichier est connu.
+  evidence: Notes de fusion du lot 6 (« Conflits probables », lot 3) ; le lot 3 est fusionné dans main (8270535), ses modèles servis exposent maintenant le chemin du fichier.
+- source_spec: `_bmad-output/implementation-artifacts/spec-lot-6-atelier-llm-boucle-du-modele.md`
+  summary: Reverser les sections UX du lot 6 (composants `llm-*`, règle 1366 × 768, arborescence de `/llm`, INPUT / TRANSFORMATION / OUTPUT, intention `llm_step`, bandeau D4) de `ux-lot-6-atelier-llm-2026-10-04/` dans le DESIGN.md et l'EXPERIENCE.md principaux.
+  evidence: Notes de fusion du lot 6, « Sections UX à reverser après la fusion du lot 3 » ; les documents UX partagés étaient interdits pendant le parallélisme des lots 3 à 6.

@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Boucle du modèle</title>
+<!-- Maquette interactive du lot 6 (2026-10-05, v2) : la figure « La boucle du modèle »
+     (section 1 de /llm) et la distribution de la section 2 sur le schéma commun.
+     Disposition en deux rangées qui ferment la boucle : en haut, de gauche à droite, le
+     tokenizer puis les embeddings ; à droite, on descend dans les blocs ; en bas, de droite
+     à gauche, logits, tirage, token tiré ; le token tiré remonte rejoindre les tokens.
+     Jetons recopiés de tokens.css (clair, sombre). DESIGN.md et EXPERIENCE.md l'emportent. -->
+<style>
+:root {
+  --color-primary: #451DC7; --color-primary-deep: #250F6B; --color-primary-soft: #EDE7FE;
+  --color-accent-soft: #CAFEE0; --color-ink: #0A0A14; --color-ink-soft: #4A4A5E;
+  --color-muted: #8A8A9E; --color-line: #E6E6EC; --color-surface: #F6F5FA;
+  --color-surface-raised: #FFFFFF; --color-warning: #FFCA4A; --color-warning-soft: #FFF4D6;
+  --color-state-active: #04F06A; --color-state-blocked: #FF2A49; --color-relief: #D9D0F6;
+  --color-discipline-context: #0F7B6C; --color-discipline-neutral-soft: #EFEFF4;
+  --color-ink-fill: #0A0A14; --color-on-ink: #FFFFFF; --color-on-vivid: #0A0A14;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-primary: #9C86FF; --color-primary-deep: #C9BDFF; --color-primary-soft: #2A2350;
+    --color-accent-soft: #0F3A24; --color-ink: #ECEBF5; --color-ink-soft: #B4B3C7;
+    --color-line: #3A394F; --color-surface: #12121C; --color-surface-raised: #1E1D2C;
+    --color-warning-soft: #3A3010; --color-state-blocked: #FF6B7F; --color-relief: #2A2156;
+    --color-discipline-context: #2FB8A3; --color-discipline-neutral-soft: #26252F;
+    --color-ink-fill: #33257A; --color-on-ink: #FFFFFF; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --color-primary: #9C86FF; --color-primary-deep: #C9BDFF; --color-primary-soft: #2A2350;
+  --color-accent-soft: #0F3A24; --color-ink: #ECEBF5; --color-ink-soft: #B4B3C7;
+  --color-line: #3A394F; --color-surface: #12121C; --color-surface-raised: #1E1D2C;
+  --color-warning-soft: #3A3010; --color-state-blocked: #FF6B7F; --color-relief: #2A2156;
+  --color-discipline-context: #2FB8A3; --color-discipline-neutral-soft: #26252F;
+  --color-ink-fill: #33257A; --color-on-ink: #FFFFFF; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 16px; background: var(--color-surface); color: var(--color-ink);
+  font: 14px/1.5 "Atkinson Hyperlegible", system-ui, sans-serif; }
+h1 { font: 600 24px/1.2 Fredoka, system-ui, sans-serif; margin: 0 0 4px; }
+.lede { color: var(--color-ink-soft); margin: 0 0 12px; max-width: 80ch; }
+.label { font: 500 12px/1.2 Fredoka, system-ui, sans-serif; text-transform: uppercase; letter-spacing: .04em; }
+.mock-bar { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; margin: 0 auto 20px; max-width: 1400px; }
+.mock-bar fieldset { border: 1px dashed var(--color-ink-soft); border-radius: 12px; padding: 4px 10px; margin: 0;
+  display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.mock-bar legend { font-size: 12px; color: var(--color-ink-soft); padding: 0 4px; }
+.card { background: var(--color-surface-raised); border: 1px solid var(--color-line); border-radius: 26px;
+  box-shadow: 0 4px 0 var(--color-relief); padding: 20px; margin: 0 auto 32px; max-width: 1400px; }
+.card h2 { font: 600 18px/1.15 Fredoka, system-ui, sans-serif; margin: 0 0 12px; }
+
+/* ---------- llm-loop ---------- */
+.loop { position: relative; container-type: inline-size; background: var(--color-surface);
+  border: 1px solid var(--color-line); border-radius: 18px; padding: 12px; margin: 0; }
+.loop-title { font: 600 18px/1.3 Fredoka, system-ui, sans-serif; margin: 0 0 8px; }
+.loop-banner { margin: 0 0 18px; padding: 8px 12px; border: 2px solid var(--color-warning);
+  background: var(--color-warning-soft); border-radius: 12px; font-size: 13px; line-height: 1.4; }
+.loop-banner[hidden] { display: none; }
+.loop-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr);
+  grid-template-areas: "tok model" "draw model"; column-gap: 40px; row-gap: 56px; align-items: start; }
+.loop-zone { position: relative; border: 2px solid var(--color-ink-soft); border-radius: 18px; padding: 24px 12px 12px; }
+.loop-zone.is-tokenizer { grid-area: tok; }
+.loop-zone.is-model { grid-area: model; border-style: dashed; background: var(--color-discipline-neutral-soft);
+  display: flex; flex-direction: column; gap: 32px; }
+.loop-zone.is-draw { grid-area: draw; }
+.loop-zone-label { position: absolute; z-index: 3; top: -12px; left: 12px; padding: 2px 10px; border-radius: 9999px;
+  background: var(--color-ink-fill); color: var(--color-on-ink); }
+.loop-zone.is-model .loop-zone-label { background: var(--color-surface-raised); color: var(--color-ink); border: 2px solid var(--color-ink-soft); top: -13px; }
+.loop-row { display: flex; gap: 40px; align-items: stretch; }
+.loop-zone.is-draw .loop-row { flex-direction: row-reverse; } /* DOM order = loop order, drawn right to left */
+.loop-row > .loop-block { flex: 1 1 0; }
+.loop-note { margin: 0; font-size: 13px; line-height: 1.4; color: var(--color-ink-soft); }
+.loop-return { position: absolute; z-index: 3; padding: 0 6px; background: var(--color-surface); color: var(--color-ink-soft); white-space: nowrap; }
+@container (max-width: 760px) {
+  .loop-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "tok" "model" "draw"; row-gap: 40px; padding-left: 28px; }
+  .loop-row, .loop-zone.is-draw .loop-row { flex-direction: column; gap: 28px; }
+  .loop-zone.is-model .loop-note { padding-left: 40px; } /* clear of the wire dropping at the left */
+  .loop-return { position: static; display: block; margin-top: 10px; padding: 0; background: none; white-space: normal; }
+  .loop-return::before { content: "↺ "; }
+}
+
+.loop-block { all: unset; box-sizing: border-box; position: relative; display: flex; flex-direction: column; gap: 4px;
+  min-width: 0; padding: 8px 10px; background: var(--color-surface-raised); border: 1px solid var(--color-ink-soft);
+  border-radius: 12px; cursor: pointer; color: var(--color-ink); anchor-name: --b; }
+.loop-block:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.loop-block.is-active { box-shadow: 0 0 0 4px var(--color-state-active); }
+.loop-block .label { color: var(--color-ink-soft); }
+.loop-value { font: 600 20px/1.1 Fredoka, system-ui, sans-serif; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.loop-value.is-code { font: 13px/1.4 "JetBrains Mono", Consolas, monospace; font-variant-ligatures: none; }
+.loop-value.is-wait { font: italic 400 13px/1.4 "Atkinson Hyperlegible", system-ui, sans-serif; color: var(--color-ink-soft); }
+.loop-caption { font-size: 13px; line-height: 1.4; color: var(--color-ink-soft); }
+.mini-chips { display: flex; gap: 3px; flex-wrap: wrap; }
+.mini-chips span { font: 12px/1.3 "JetBrains Mono", Consolas, monospace; padding: 1px 4px; border-radius: 6px;
+  border: 1px solid var(--color-line); background: var(--color-primary-soft); }
+.mini-chips span:nth-child(even) { background: var(--color-accent-soft); }
+.mini-chips span.is-drawn { border: 2px solid var(--color-ink); }
+.vectors { display: flex; gap: 6px; }
+.vectors span { display: grid; grid-template-rows: repeat(8, 10px); gap: 2px; }
+.vectors i { width: 10px; height: 10px; border-radius: 2px; background: var(--color-line); }
+.vectors i.a { background: var(--color-primary); } .vectors i.b { background: var(--color-primary-soft); outline: 1px solid var(--color-primary); outline-offset: -1px; }
+.vectors i.c { background: var(--color-accent-soft); outline: 1px solid var(--color-discipline-context); outline-offset: -1px; }
+.loop-block.is-layers { box-shadow: 3px 3px 0 var(--color-relief), 6px 6px 0 var(--color-relief); }
+.loop-block.is-layers.is-active { box-shadow: 0 0 0 4px var(--color-state-active); }
+.layer-part { border: 1px solid var(--color-line); border-left: 4px solid var(--color-primary); border-radius: 6px; padding: 3px 6px; background: var(--color-surface); }
+.layer-part.is-mlp { border-left-color: var(--color-discipline-context); }
+.layer-part .label { display: block; color: var(--color-ink); }
+.mlp-bars { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 3px 0; }
+.mlp-bars i { height: 4px; border-radius: 2px; background: var(--color-discipline-context); }
+.logit-bars { display: flex; align-items: flex-end; gap: 3px; height: 34px; }
+.logit-bars i { width: 10px; background: var(--color-primary); border-radius: 2px 2px 0 0; }
+.logit-bars b { flex: 1; height: 2px; background: var(--color-line); min-width: 30px; }
+.loop-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 16px; }
+.stepper { display: inline-flex; gap: 8px; align-items: center; font: 500 12px/1.2 Fredoka, system-ui, sans-serif; }
+.stepper button { min-width: 32px; min-height: 32px; border-radius: 9999px; border: 1px solid var(--color-primary);
+  background: var(--color-surface-raised); color: var(--color-primary); font: inherit; padding: 0 8px; cursor: pointer; }
+.stepper button:disabled { color: var(--color-ink-soft); border-color: var(--color-line); background: var(--color-surface); cursor: not-allowed; }
+.stepper button[aria-pressed="true"] { background: var(--color-primary-soft); color: var(--color-primary-deep); }
+.stepper span { min-width: 4em; text-align: center; font-variant-numeric: tabular-nums; }
+.step-caption { flex: 1 1 320px; margin: 0; }
+.loop-source { margin: 8px 0 0; font-size: 13px; color: var(--color-ink-soft); }
+.explain { position: fixed; position-area: block-end span-inline-end; position-try-fallbacks: flip-block, flip-inline;
+  margin: 4px 0 0; max-width: min(320px, calc(100vw - 16px)); padding: 12px; border: 1px solid var(--color-line);
+  border-radius: 18px; background: var(--color-surface-raised); color: var(--color-ink); box-shadow: 0 4px 0 var(--color-relief); font-size: 13px; line-height: 1.4; }
+svg.wires { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 2; }
+.wire { fill: none; stroke: var(--color-ink-soft); stroke-width: 2px; }
+.wire.is-dashed { stroke-dasharray: 6 5; }
+.path { fill: none; stroke: var(--color-state-active); stroke-width: 7px; stroke-linecap: round; stroke-linejoin: round; }
+.path-core { fill: none; stroke: var(--color-ink); stroke-width: 2px; stroke-linejoin: round; }
+.path-core.is-flow { stroke-dasharray: 7 6; animation: flow .6s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -13; } }
+@media (prefers-reduced-motion: reduce) { .path-core.is-flow { animation: none; } }
+.arrow-head { fill: var(--color-ink-soft); }
+
+/* ---------- distribution-flow ---------- */
+.flow { position: relative; }
+.flow-head { display: flex; flex-wrap: wrap; gap: 16px 40px; margin: 0 0 16px; }
+.flow-head .loop-block { flex: 0 1 220px; }
+.dist-row { display: grid; grid-template-columns: minmax(6em, 9em) 1fr 28px 1fr; gap: 6px; align-items: center; margin: 4px 0; }
+.dist-text { all: unset; cursor: pointer; font: 13px/1.4 "JetBrains Mono", Consolas, monospace; padding: 2px 6px;
+  border: 1px solid var(--color-ink-soft); border-radius: 12px; background: var(--color-surface-raised); }
+.dist-text:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.bar { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.bar span { flex: 1; height: 10px; background: var(--color-line); border-radius: 9999px; overflow: hidden; }
+.bar span i { display: block; height: 100%; background: var(--color-primary); }
+.bar.is-model span i { background: var(--color-primary-soft); box-shadow: inset 0 0 0 1px var(--color-primary); }
+.bar b { font: 600 14px/1.2 Fredoka, system-ui, sans-serif; min-width: 3.5em; text-align: right; }
+.joint { height: 2px; background: var(--color-ink-soft); }
+.joint.is-x { height: 22px; width: 22px; justify-self: center; border-radius: 50%; background: var(--color-state-blocked);
+  color: var(--color-on-vivid); font-size: 12px; text-align: center; line-height: 22px; }
+.joint.is-x::before { content: "✖"; }
+.dist-row.is-dropped .dist-text { color: var(--color-ink-soft); }
+.dist-row.is-dropped .bar span i { background: var(--color-muted); box-shadow: none; }
+</style>
+</head>
+<body>
+<h1>Atelier LLM : la boucle du modèle</h1>
+<p class="lede">Maquette interactive du lot 6 (v2). Changez l'architecture et l'état, avancez avec ◀ ▶,
+cliquez sur un bloc pour son explication. Les chiffres sont ceux des vrais GGUF (Qwen3.5-2B lu sur ce poste ;
+Qwen3-0,6B et Qwen3-30B-A3B d'après leurs fiches).</p>
+<div class="mock-bar">
+  <fieldset><legend>Architecture du modèle actif</legend>
+    <label><input type="radio" name="arch" value="dense"> Dense (Qwen3-0,6B)</label>
+    <label><input type="radio" name="arch" value="hybrid" checked> Hybride (Qwen3.5-2B)</label>
+    <label><input type="radio" name="arch" value="moe"> MoE (Qwen3-30B-A3B)</label>
+    <label><input type="radio" name="arch" value="unknown"> Non lue (llama-server)</label>
+  </fieldset>
+  <fieldset><legend>État</legend>
+    <label><input type="radio" name="state" value="tokenized"> Après « Découper en tokens »</label>
+    <label><input type="radio" name="state" value="live" checked> Génération en direct</label>
+  </fieldset>
+  <fieldset><legend>Thème</legend>
+    <label><input type="radio" name="theme" value="" checked> Système</label>
+    <label><input type="radio" name="theme" value="light"> Clair</label>
+    <label><input type="radio" name="theme" value="dark"> Sombre</label>
+  </fieldset>
+</div>
+
+<section class="card">
+  <h2>1 · Tokenisation et vectorisation</h2>
+  <figure class="loop" id="loop">
+    <figcaption class="loop-title">La boucle du modèle</figcaption>
+    <p class="loop-banner" id="banner"></p>
+    <div class="loop-grid">
+      <div class="loop-zone is-tokenizer">
+        <span class="loop-zone-label label">Réel · tokenizer</span>
+        <div class="loop-row">
+          <button class="loop-block" data-stage="text"><span class="label">Texte</span>
+            <span class="loop-value is-code">« Le chat dort sur le »</span></button>
+          <button class="loop-block" data-stage="tokens"><span class="label">Tokens</span><span class="loop-value" data-v="ntok">6</span>
+            <span class="mini-chips" aria-hidden="true"><span>Le</span><span>␣chat</span><span>␣dort</span><span>␣sur</span></span></button>
+          <button class="loop-block" data-stage="ids"><span class="label">Identifiants</span>
+            <span class="loop-value is-code" data-v="ids">2304, 9558, 87461, 1847, …</span></button>
+        </div>
+      </div>
+      <div class="loop-zone is-model">
+        <span class="loop-zone-label label">Illustratif · vraies dimensions</span>
+        <button class="loop-block" data-stage="embed"><span class="label">Embeddings</span><span class="loop-value" data-v="table"></span>
+          <span class="vectors" aria-hidden="true">
+            <span><i class="a"></i><i class="b"></i><i></i><i class="c"></i><i class="a"></i><i></i><i class="b"></i><i class="c"></i></span>
+            <span><i class="b"></i><i class="c"></i><i class="a"></i><i></i><i class="b"></i><i class="a"></i><i></i><i class="c"></i></span>
+            <span><i class="c"></i><i></i><i class="b"></i><i class="a"></i><i></i><i class="c"></i><i class="a"></i><i class="b"></i></span>
+            <span><i></i><i class="a"></i><i class="c"></i><i class="b"></i><i class="c"></i><i></i><i class="b"></i><i class="a"></i></span>
+          </span>
+          <span class="loop-caption" data-v="embedcap"></span></button>
+        <button class="loop-block is-layers" data-stage="blocks"><span class="label">Blocs</span><span class="loop-value" data-v="layers"></span>
+          <span class="layer-part"><span class="label">Attention</span><span class="loop-caption" data-v="heads"></span></span>
+          <span class="layer-part is-mlp"><span class="label" data-v="mlpname">MLP</span>
+            <span class="mlp-bars" aria-hidden="true"><i style="width:34%"></i><i style="width:100%"></i><i style="width:34%"></i></span>
+            <span class="loop-caption" data-v="mlp"></span></span></button>
+        <p class="loop-note">Le moteur n'expose ni les poids d'attention ni les états cachés : ces cases montrent la forme du calcul,
+          avec les vraies dimensions du modèle, pas ses valeurs.</p>
+      </div>
+      <div class="loop-zone is-draw">
+        <span class="loop-zone-label label">Réel · tirage</span>
+        <div class="loop-row">
+          <button class="loop-block" data-stage="logits"><span class="label">Logits</span><span class="loop-value" data-v="scores"></span>
+            <span class="logit-bars" aria-hidden="true" data-live><i style="height:100%"></i><i style="height:50%"></i><i style="height:24%"></i><i style="height:12%"></i><i style="height:6%"></i><b></b></span>
+            <span class="loop-caption" data-v="logitcap"></span></button>
+          <button class="loop-block" data-stage="sampling"><span class="label">Tirage</span>
+            <span class="loop-value is-code" data-v="sampling"></span>
+            <span class="loop-caption" data-v="kept"></span></button>
+          <button class="loop-block" data-stage="token"><span class="label">Token tiré</span>
+            <span data-v="drawn"></span>
+            <span class="loop-caption" data-v="drawncap"></span></button>
+        </div>
+      </div>
+    </div>
+    <span class="loop-return label" id="return-label">+ 1 token, ajouté à la suite</span>
+    <div class="loop-foot">
+      <div class="stepper" role="group" aria-label="Étapes du schéma">
+        <button id="prev" aria-label="Étape précédente">◀</button><span id="pos"></span>
+        <button id="next" aria-label="Étape suivante">▶</button><button id="live" aria-pressed="true">Suivre le direct</button></div>
+      <p class="step-caption" id="caption" aria-live="polite"></p>
+    </div>
+    <p class="loop-source" id="source"></p>
+    <svg class="wires" id="wires" aria-hidden="true"></svg>
+  </figure>
+</section>
+
+<section class="card">
+  <h2>2 · Ce que les réglages font aux candidats</h2>
+  <div class="flow" id="flow">
+    <div class="flow-head">
+      <button class="loop-block" data-explain="La probabilité de chaque candidat, tirée des logits du modèle à température 1. Elle ne bouge pas quand vous changez un réglage."><span class="label">Probabilités du modèle</span><span class="loop-caption">logits à température 1</span></button>
+      <button class="loop-block" data-explain="Dans l'ordre de llama.cpp : top-k garde les k premiers, top-p garde les premiers jusqu'à p cumulé, min-p écarte ce qui pèse moins que min-p fois le premier."><span class="label">Filtres</span><span class="loop-caption">top-k · top-p · min-p écartent</span></button>
+      <button class="loop-block" data-explain="Entre les candidats gardés, la température creuse (en dessous de 1) ou aplatit (au-dessus de 1) la chance d'être tiré."><span class="label">Température</span><span class="loop-caption">redistribue la chance</span></button>
+    </div>
+    <div class="dist-row"><button class="dist-text" data-explain="Probabilité du modèle 50 % · chance d'être tiré 62 %">« ␣canapé »</button><span class="bar is-model"><span><i style="width:50%"></i></span><b>50 %</b></span><span class="joint"></span><span class="bar"><span><i style="width:62%"></i></span><b>62 %</b></span></div>
+    <div class="dist-row"><button class="dist-text" data-explain="Probabilité du modèle 25 % · chance d'être tiré 28 %">« ␣lit »</button><span class="bar is-model"><span><i style="width:25%"></i></span><b>25 %</b></span><span class="joint"></span><span class="bar"><span><i style="width:28%"></i></span><b>28 %</b></span></div>
+    <div class="dist-row"><button class="dist-text" data-explain="Probabilité du modèle 12 % · chance d'être tiré 10 %">« ␣tapis »</button><span class="bar is-model"><span><i style="width:12%"></i></span><b>12 %</b></span><span class="joint"></span><span class="bar"><span><i style="width:10%"></i></span><b>10 %</b></span></div>
+    <div class="dist-row is-dropped"><button class="dist-text" data-explain="Probabilité du modèle 6 % · écarté par top-k, top-p ou min-p">« ␣toit »</button><span class="bar is-model"><span><i style="width:6%"></i></span><b>6 %</b></span><span class="joint is-x" aria-label="écarté"></span><span class="bar"><span><i style="width:0"></i></span><b>écarté</b></span></div>
+    <div class="dist-row is-dropped"><button class="dist-text" data-explain="Probabilité du modèle 3 % · écarté par top-k, top-p ou min-p">« , »</button><span class="bar is-model"><span><i style="width:3%"></i></span><b>3 %</b></span><span class="joint is-x" aria-label="écarté"></span><span class="bar"><span><i style="width:0"></i></span><b>écarté</b></span></div>
+    <svg class="wires" id="flow-wires" aria-hidden="true"></svg>
+  </div>
+</section>
+
+<script>
+const ARCH = {
+  dense:   { name: "Qwen3-0,6B", table: "151 936 × 1 024", embedcap: "1 024 nombres par token · 156 millions de nombres appris", layers: "× 28",
+             heads: "16 têtes · 8 K/V", mlpname: "MLP", mlp: "1 024 → 3 072 → 1 024", scores: "151 936 scores", banner: null,
+             source: "Dimensions lues par llama.cpp dans le modèle chargé." },
+  hybrid:  { name: "Qwen3.5-2B", table: "248 320 × 2 048", embedcap: "2 048 nombres par token · 509 millions de nombres appris", layers: "× 24",
+             heads: "8 têtes · 2 K/V", mlpname: "MLP", mlp: "2 048 → 6 144 → 2 048", scores: "248 320 scores",
+             banner: "Qwen3.5-2B est hybride. Seule une couche sur 4 fait de l'attention complète ; les autres sont des couches récurrentes (état de taille fixe), absentes de ce schéma.",
+             source: "Dimensions lues par llama.cpp dans le modèle chargé." },
+  moe:     { name: "Qwen3-30B-A3B", table: "151 936 × 2 048", embedcap: "2 048 nombres par token · 311 millions de nombres appris", layers: "× 48",
+             heads: "32 têtes · 4 K/V", mlpname: "MLP · 128 experts, 8 actifs", mlp: "2 048 → 768 → 2 048 par expert", scores: "151 936 scores",
+             banner: "le MLP de Qwen3-30B-A3B est un mélange d'experts. Pour chaque token, un routeur choisit 8 experts sur 128.",
+             source: "Dimensions lues par llama.cpp dans le modèle chargé." },
+  unknown: { name: "faux-llama-server", table: "151 936 × 1 024", embedcap: "1 024 nombres par token · 156 millions de nombres appris", layers: "× 28",
+             heads: "16 têtes", mlpname: "MLP", mlp: "largeur inconnue", scores: "151 936 scores", banner: null,
+             source: "Vocabulaire et dimension lus auprès de llama-server, couches et têtes dans l'en-tête du fichier. Architecture non lue pour ce modèle : schéma du transformeur décodeur dense par défaut." },
+};
+const STAGES = [
+  ["text", "Texte", "Le texte tapé, tel quel. Le modèle ne le lira jamais en lettres."],
+  ["tokens", "Tokens", "Le tokenizer le découpe en 6 tokens, des morceaux pris dans un vocabulaire fixe."],
+  ["ids", "Identifiants", "Chaque token devient un numéro : sa ligne dans la table d'embedding."],
+  ["embed", "Embeddings", "Chaque numéro choisit une ligne de la table : un vecteur de nombres appris."],
+  ["blocks", "Blocs", "Les vecteurs traversent les blocs un par un : l'attention mélange les tokens entre eux, le MLP transforme chacun."],
+  ["logits", "Logits", "Le dernier vecteur donne un score à chaque token du vocabulaire, ramené en probabilité."],
+  ["sampling", "Tirage", "Les réglages écartent des candidats et redistribuent la chance entre ceux qui restent."],
+  ["token", "Token tiré", "Un token est tiré au sort parmi les candidats gardés."],
+];
+const TOKENS = ["␣canapé", "␣en", "␣velours"];
+const EXPLAIN = {
+  text: "Le texte de la section 1, tel que vous l'avez tapé. Réel.",
+  tokens: "Le tokenizer du modèle actif découpe le texte en tokens, des morceaux de mots pris dans un vocabulaire fixe. Réel : c'est le découpage exact.",
+  ids: "Chaque token a un identifiant, un simple numéro de ligne dans la table d'embedding. Réel.",
+  embed: "Chaque identifiant choisit une ligne de la table d'embedding : un vecteur de nombres appris à l'entraînement. Les dimensions sont réelles ; les couleurs des cellules sont illustratives.",
+  blocks: "Chaque bloc fait deux choses : l'attention, où chaque token regarde les tokens précédents et y puise de l'information, puis le MLP, qui transforme chaque token seul en passant par une couche plus large. Le moteur n'expose pas ces calculs : la forme est juste, les valeurs ne sont pas montrées.",
+  logits: "Le dernier vecteur est comparé à tout le vocabulaire : un score par token, ramené en probabilité. Réel : les barres sont les probabilités des 5 candidats les plus probables, lues dans le moteur.",
+  sampling: "Les réglages de la section 2, appliqués dans l'ordre de llama.cpp : top-k, top-p, min-p, puis la température. Réel : WaveStack recalcule qui reste en lice.",
+  token: "Le token tiré s'ajoute à la suite des tokens, sans repasser par le tokenizer. Le modèle relit la fenêtre (le cache lui évite de tout recalculer) et la boucle recommence.",
+};
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const fig = $("#loop"), svg = $("#wires");
+let frames = [], index = 0, live = true, arch = "hybrid", state = "live";
+const block = (stage) => $(`.loop-block[data-stage="${stage}"]`);
+
+function fill() {
+  const a = ARCH[arch];
+  for (const key of ["table", "embedcap", "layers", "heads", "mlpname", "mlp", "scores"]) $(`[data-v="${key}"]`).textContent = a[key];
+  const banner = $("#banner");
+  banner.hidden = !a.banner;
+  banner.innerHTML = a.banner ? `<strong>⚠ Schéma simplifié, inexact pour cette architecture :</strong> ${a.banner}` : "";
+  $("#source").textContent = a.source;
+  const tokenized = state === "tokenized", noCand = arch === "unknown";
+  const wait = "après « Générer » avec les tokens candidats";
+  const why = "Candidats indisponibles : WaveStack ne lit les probabilités qu'avec un modèle chargé en processus (fichier GGUF), pas auprès de llama-server.";
+  $$("[data-live]").forEach((n) => (n.hidden = tokenized || noCand));
+  $('[data-v="logitcap"]').textContent = noCand ? why : tokenized ? wait : "un score par token du vocabulaire, ramené en probabilité";
+  $('[data-v="sampling"]').textContent = "T 0,7 · top-k 20 · top-p 0,9 · min-p 0,05";
+  $('[data-v="kept"]').textContent = tokenized || noCand ? "réglages de la section 2" : "3 gardés sur 5 lus";
+  const t = Math.max(0, Math.min(TOKENS.length - 1, (frames[index]?.token ?? TOKENS.length) - 1));
+  const drawn = $('[data-v="drawn"]');
+  drawn.className = tokenized || noCand ? "loop-value is-wait" : "mini-chips";
+  drawn.innerHTML = tokenized || noCand ? "—" : `<span class="is-drawn">${TOKENS[t]}</span>`;
+  $('[data-v="drawncap"]').textContent = tokenized ? wait : noCand ? "le token du flux du serveur" : `token ${t + 1} de la dernière génération`;
+}
+
+function build() {
+  frames = STAGES.map(([stage, title, text]) => ({ stage, title, text }));
+  if (state === "live") TOKENS.forEach((tok, i) => frames.push({ stage: "token", token: i + 1, title: `Token ${i + 1} tiré : « ${tok} ».`, text: "Il s'ajoute à la suite ; le modèle relit la fenêtre et calcule le suivant." }));
+  live = state === "live";
+  index = live ? frames.length - 1 : 0;
+  show();
+}
+
+function show() {
+  const f = frames[index];
+  const lit = f.token ? ["logits", "sampling", "token"] : [f.stage];
+  $$(".loop-block[data-stage]").forEach((b) => b.classList.toggle("is-active", lit.includes(b.dataset.stage)));
+  $("#pos").textContent = `${index + 1} / ${frames.length}`;
+  $("#prev").disabled = index <= 0;
+  $("#next").disabled = index >= frames.length - 1;
+  $("#live").setAttribute("aria-pressed", String(live));
+  $("#caption").setAttribute("aria-live", live ? "off" : "polite");
+  $("#caption").replaceChildren(Object.assign(document.createElement("strong"), { textContent: f.title }), ` ${f.text}`);
+  fill();
+  draw();
+}
+
+// ---- wires (the rules diagram.js's `elbow` will follow) ----
+const NS = "http://www.w3.org/2000/svg";
+function box(el, host) { const o = host.getBoundingClientRect(), r = el.getBoundingClientRect();
+  return { l: r.left - o.left, r: r.right - o.left, t: r.top - o.top, b: r.bottom - o.top, cx: (r.left + r.right) / 2 - o.left, cy: (r.top + r.bottom) / 2 - o.top }; }
+// From box a to box b: side by side → horizontal, with a step halfway; stacked → vertical, step halfway.
+function elbow(a, b, gap = 7) {
+  if (b.l >= a.r) { const x = (a.r + b.l) / 2; return `M${a.r},${a.cy} H${x} V${b.cy} H${b.l - gap}`; }
+  if (b.r <= a.l) { const x = (a.l + b.r) / 2; return `M${a.l},${a.cy} H${x} V${b.cy} H${b.r + gap}`; }
+  // Stacked and overlapping: one straight drop near the left edge (a column's centre stays free
+  // for the text placed between two blocks).
+  const x = Math.max(a.l, b.l) + 28;
+  if (x < Math.min(a.r, b.r) - 8) return b.t >= a.b ? `M${x},${a.b} V${b.t - gap}` : `M${x},${a.t} V${b.b + gap}`;
+  if (b.t >= a.b) { const y = (a.b + b.t) / 2; return `M${a.cx},${a.b} V${y} H${b.cx} V${b.t - gap}`; }
+  const y = (a.t + b.b) / 2; return `M${a.cx},${a.t} V${y} H${b.cx} V${b.b + gap}`;
+}
+function defs() { const d = document.createElementNS(NS, "defs");
+  d.innerHTML = `<marker id="arrow" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="arrow-head" d="M0,0 L10,5 L0,10 z"/></marker>`; return d; }
+function path(d, cls, arrow) { const p = document.createElementNS(NS, "path"); p.setAttribute("d", d); p.setAttribute("class", cls);
+  if (arrow) p.setAttribute("marker-end", "url(#arrow)"); return p; }
+function sizeLayer(layer, host) { const o = host.getBoundingClientRect();
+  layer.setAttribute("width", o.width); layer.setAttribute("height", o.height); layer.setAttribute("viewBox", `0 0 ${o.width} ${o.height}`); }
+
+function draw() {
+  sizeLayer(svg, fig);
+  const parts = [defs()], f = frames[index];
+  const lit = new Set(f.token ? ["logits", "sampling", "token", "return"] : [f.stage]);
+  const order = STAGES.map(([s]) => s);
+  for (let i = 0; i < order.length - 1; i++) {
+    const d = elbow(box(block(order[i]), fig), box(block(order[i + 1]), fig));
+    if (lit.has(order[i + 1])) parts.push(path(d, "path"), path(d, `path-core${live ? " is-flow" : ""}`, true));
+    else parts.push(path(d, "wire", true));
+  }
+  // The way back: from the token drawn up to the tokens, through the gap between the rows (or
+  // along the left gutter when the figure is one column).
+  const t = box(block("token"), fig), k = box(block("tokens"), fig), label = $("#return-label");
+  const narrow = fig.clientWidth < 790;
+  let back;
+  if (!narrow) {
+    const gapY = (box(block("ids").closest(".loop-zone"), fig).b + box(block("token").closest(".loop-zone"), fig).t) / 2;
+    const x0 = t.l + (t.r - t.l) * 0.7; // clear of the zone's label, top left
+    back = `M${x0},${t.t} V${gapY} H${k.cx} V${k.b + 7}`;
+    label.style.left = `${Math.min(x0, k.cx) + 16}px`; label.style.top = `${gapY - 9}px`;
+  } else {
+    const x = 14;
+    back = `M${t.l},${t.cy} H${x} V${k.cy} H${k.l - 7}`;
+    label.style.left = label.style.top = "";
+  }
+  if (lit.has("return")) parts.push(path(back, "path"), path(back, `path-core${live ? " is-flow" : ""}`, true));
+  else parts.push(path(back, "wire is-dashed", true));
+  svg.replaceChildren(...parts);
+  drawFlow();
+}
+
+function drawFlow() {
+  const host = $("#flow"), layer = $("#flow-wires");
+  sizeLayer(layer, host);
+  const heads = $$(".flow-head .loop-block", host), parts = [defs()];
+  for (let i = 0; i < heads.length - 1; i++) parts.push(path(elbow(box(heads[i], host), box(heads[i + 1], host)), "wire", true));
+  layer.replaceChildren(...parts);
+}
+
+// ---- explanations on a click (the popover diagram.js's `explain` opens) ----
+let anchors = 0;
+for (const node of $$(".loop-block, .dist-text")) {
+  const text = EXPLAIN[node.dataset.stage] || node.dataset.explain;
+  if (!text) continue;
+  const pop = document.createElement("div"), name = `--a${++anchors}`;
+  pop.className = "explain"; pop.popover = "auto"; pop.textContent = text; pop.style.positionAnchor = name;
+  node.style.anchorName = name; node.after(pop); node.popoverTargetElement = pop;
+}
+
+$("#prev").onclick = () => { live = false; index = Math.max(0, index - 1); show(); };
+$("#next").onclick = () => { live = false; index = Math.min(frames.length - 1, index + 1); show(); };
+$("#live").onclick = () => { live = true; index = frames.length - 1; show(); };
+for (const r of $$('input[name="arch"]')) r.onchange = () => { arch = r.value; build(); };
+for (const r of $$('input[name="state"]')) r.onchange = () => { state = r.value; build(); };
+for (const r of $$('input[name="theme"]')) r.onchange = () => { if (r.value) document.documentElement.dataset.theme = r.value; else delete document.documentElement.dataset.theme; };
+new ResizeObserver(draw).observe(fig);
+document.fonts?.ready.then(draw);
+build();
+</script>
+</body>
+</html>

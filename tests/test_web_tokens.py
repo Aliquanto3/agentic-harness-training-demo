@@ -13,9 +13,15 @@ import yaml
 
 from wavestack import config
 
-_DESIGN_MD_MATCHES = list(
-    (config.repo_root() / "_bmad-output" / "planning-artifacts" / "ux-designs").glob("*/DESIGN.md")
-)
+# The DESIGN.md that declares the tokens; a lot's delta (lot 6 of 2026-10-04, its own
+# DESIGN.md) inherits them and declares no `colors:` of its own.
+_DESIGN_MD_MATCHES = [
+    path
+    for path in (config.repo_root() / "_bmad-output" / "planning-artifacts" / "ux-designs").glob(
+        "*/DESIGN.md"
+    )
+    if re.search(r"^colors:", path.read_text(encoding="utf-8"), re.M)
+]
 assert len(_DESIGN_MD_MATCHES) == 1, f"expected exactly one DESIGN.md, found {_DESIGN_MD_MATCHES}"
 DESIGN_MD = _DESIGN_MD_MATCHES[0]
 STATIC_DIR = Path(__file__).resolve().parents[1] / "src" / "wavestack" / "web" / "static"

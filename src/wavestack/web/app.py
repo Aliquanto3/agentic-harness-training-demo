@@ -15,7 +15,7 @@ import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -210,6 +210,17 @@ class LlmCompareIntention(BaseModel):
     sampling_b: SamplingIntention
     reasoning: bool = False
     candidates: bool = False  # A's live distribution; the in-process engine only, else 409
+
+
+class LlmStepIntention(BaseModel):
+    """Lot 6 of 2026-10-04: the OUTPUT's step, the INPUT's text (2 000 characters at most),
+    the ids already added after it and the sampling to draw one token with. More than
+    `llm_lab.STEP_LIMIT` ids is the session's refusal (409, with why); the bound here only
+    caps the request's size."""
+
+    prompt: str = Field(min_length=1, max_length=2000)
+    continuation: list[Annotated[int, Field(ge=0)]] = Field(default=[], max_length=1024)
+    sampling: SamplingIntention
 
 
 class LlmDistributionRequest(BaseModel):
@@ -491,6 +502,22 @@ def create_app(
                 status_code=409, detail=t("web.refused_now", reason=refused.reason_text)
             ) from None
         return {"request_id": request_id, "request_ids": [f"{request_id}.a", f"{request_id}.b"]}
+
+    @app.post("/api/intentions/llm_step")
+    def llm_step(intention: LlmStepIntention) -> dict[str, str]:
+        """Lot 6 of 2026-10-04, class (b): accepted in `idle` with the engine in process
+        only; one token drawn, `llm_token` then `llm_generation_ended` (`llm{n}.step`)."""
+        try:
+            request_id = app_session.llm_step(
+                intention.prompt,
+                intention.continuation,
+                Sampling(**intention.sampling.model_dump()),
+            )
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=t("web.refused_now", reason=refused.reason_text)
+            ) from None
+        return {"request_id": request_id}
 
     @app.post("/api/llm_lab/distribution")
     def llm_lab_distribution(request: LlmDistributionRequest) -> dict[str, object]:

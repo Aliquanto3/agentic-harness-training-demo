@@ -202,7 +202,10 @@ export function explain(node, text) {
 //   the last frame (`onShow(null, -1)` for none); `refresh()` draws the current step again
 //   without touching the live mode.
 // The frames stay opaque to the module: the page decides what a step is (AD-27).
-export function createStepper(host, { onShow, describe, onLive } = {}) {
+// Lot 6 (2026-10-04): `liveText`, the right button's text for a stepper over fixed steps
+// (« Tout montrer », the last one), `common.diagram.live` by default; such a stepper has no
+// live stream, so its button shows no ● dot.
+export function createStepper(host, { onShow, describe, onLive, liveText } = {}) {
   const frames = [];
   let index = -1;
   let live = true;
@@ -228,7 +231,7 @@ export function createStepper(host, { onShow, describe, onLive } = {}) {
   dot.className = "diagram-step-live-dot";
   dot.setAttribute("aria-hidden", "true");
   dot.textContent = "● ";
-  follow.append(dot, t("common.diagram.live"));
+  follow.append(dot, liveText || t("common.diagram.live"));
   const position = document.createElement("span");
   position.className = "diagram-step-position";
   // Reserved to the stepper (AD-28): the page's own `status` region says its summaries only.
@@ -257,7 +260,7 @@ export function createStepper(host, { onShow, describe, onLive } = {}) {
     position.hidden = total === 0;
     position.textContent = total ? t("common.diagram.position", { n: index + 1, total }) : "";
     follow.setAttribute("aria-pressed", String(live));
-    dot.hidden = !live;
+    dot.hidden = !live || Boolean(liveText);
     bar.classList.toggle("is-live", live);
   };
   const setLive = (value) => {

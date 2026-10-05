@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Boucle du modèle</title>
+<!-- Maquette interactive du lot 6 (2026-10-05, v3, retours d'Anaël sur la v2) : la boucle du
+     modèle en trois étapes empilées, chacune entière dans l'écran.
+     1. INPUT : texte → tokens → identifiants, en colonnes alignées : on voit le texte se découper.
+     2. TRANSFORMATION : embeddings puis couches (attention, MLP) sur 5 tokens × 8 nombres, pas à pas.
+     3. OUTPUT : logits (mots et probabilités) → tirage réglable (second graphique) → token tiré,
+        qui remonte en INPUT.
+     Jetons recopiés de tokens.css (clair, sombre). Valeurs d'exemple : dans l'appli, les tokens,
+     identifiants, probabilités et dimensions viennent du moteur. DESIGN.md et EXPERIENCE.md
+     l'emportent. -->
+<style>
+:root {
+  --color-primary: #451DC7; --color-primary-deep: #250F6B; --color-primary-soft: #EDE7FE;
+  --color-accent-soft: #CAFEE0; --color-ink: #0A0A14; --color-ink-soft: #4A4A5E;
+  --color-muted: #8A8A9E; --color-line: #E6E6EC; --color-surface: #F6F5FA;
+  --color-surface-raised: #FFFFFF; --color-warning: #FFCA4A; --color-warning-soft: #FFF4D6;
+  --color-state-active: #04F06A; --color-state-blocked: #FF2A49; --color-relief: #D9D0F6;
+  --color-discipline-context: #0F7B6C; --color-discipline-neutral-soft: #EFEFF4;
+  --color-produced-soft: #E8EEF7; --color-ink-fill: #0A0A14; --color-on-ink: #FFFFFF;
+  --color-on-vivid: #0A0A14; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-primary: #9C86FF; --color-primary-deep: #C9BDFF; --color-primary-soft: #2A2350;
+    --color-accent-soft: #0F3A24; --color-ink: #ECEBF5; --color-ink-soft: #B4B3C7;
+    --color-line: #3A394F; --color-surface: #12121C; --color-surface-raised: #1E1D2C;
+    --color-warning-soft: #3A3010; --color-state-blocked: #FF6B7F; --color-relief: #2A2156;
+    --color-discipline-context: #2FB8A3; --color-discipline-neutral-soft: #26252F;
+    --color-produced-soft: #1A2335; --color-ink-fill: #33257A; --color-on-ink: #FFFFFF; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --color-primary: #9C86FF; --color-primary-deep: #C9BDFF; --color-primary-soft: #2A2350;
+  --color-accent-soft: #0F3A24; --color-ink: #ECEBF5; --color-ink-soft: #B4B3C7;
+  --color-line: #3A394F; --color-surface: #12121C; --color-surface-raised: #1E1D2C;
+  --color-warning-soft: #3A3010; --color-state-blocked: #FF6B7F; --color-relief: #2A2156;
+  --color-discipline-context: #2FB8A3; --color-discipline-neutral-soft: #26252F;
+  --color-produced-soft: #1A2335; --color-ink-fill: #33257A; --color-on-ink: #FFFFFF; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 20px 16px 40px; background: var(--color-surface); color: var(--color-ink);
+  font: 14px/1.5 "Atkinson Hyperlegible", system-ui, sans-serif; }
+h1 { font: 600 24px/1.2 Fredoka, system-ui, sans-serif; margin: 0 0 4px; }
+.lede { color: var(--color-ink-soft); margin: 0 0 10px; max-width: 90ch; }
+.label { font: 500 12px/1.2 Fredoka, system-ui, sans-serif; text-transform: uppercase; letter-spacing: .04em; }
+.num { font: 600 14px/1.2 Fredoka, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.wrap { max-width: 1400px; margin: 0 auto; }
+.mock-bar { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; margin: 0 0 16px; }
+.mock-bar fieldset { border: 1px dashed var(--color-ink-soft); border-radius: 12px; padding: 4px 10px; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.mock-bar legend { font-size: 12px; color: var(--color-ink-soft); padding: 0 4px; }
+
+/* ---------- a stage: INPUT, TRANSFORMATION, OUTPUT (each fits the screen) ---------- */
+.stage { background: var(--color-surface-raised); border: 1px solid var(--color-line); border-radius: 26px;
+  box-shadow: 0 4px 0 var(--color-relief); padding: 14px 20px 16px; scroll-margin-top: 12px; }
+.stage-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 10px; }
+.stage-num { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--color-ink-fill); color: var(--color-on-ink); font: 600 15px/1 Fredoka, system-ui, sans-serif; }
+.stage-head h2 { margin: 0; font: 600 20px/1.2 Fredoka, system-ui, sans-serif; }
+.stage-head h2 small { font: 400 14px/1.2 "Atkinson Hyperlegible", system-ui, sans-serif; color: var(--color-ink-soft); margin-left: 6px; }
+.tag { padding: 2px 10px; border-radius: 9999px; background: var(--color-ink-fill); color: var(--color-on-ink); }
+.tag.is-illustrative { background: var(--color-surface-raised); color: var(--color-ink); border: 2px dashed var(--color-ink-soft); }
+.stage-head .stepper { margin-left: auto; }
+.caption { margin: 12px 0 0; padding: 8px 12px; border-left: 4px solid var(--color-primary); background: var(--color-surface);
+  border-radius: 0 12px 12px 0; min-height: 3em; }
+.caption strong { font-family: Fredoka, system-ui, sans-serif; font-weight: 600; }
+.caption.is-note { border-left-style: dashed; border-left-color: var(--color-ink-soft); }
+.link { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 56px; color: var(--color-ink-soft); font-size: 13px; }
+.link::before { content: ""; width: 2px; height: 18px; background: var(--color-ink-soft); }
+.link::after { content: "▼"; font-size: 11px; line-height: 1; }
+.banner { margin: 0 0 10px; padding: 6px 12px; border: 2px solid var(--color-warning); background: var(--color-warning-soft);
+  border-radius: 12px; font-size: 13px; line-height: 1.4; }
+.banner[hidden] { display: none; }
+.stepper { display: inline-flex; gap: 8px; align-items: center; font: 500 12px/1.2 Fredoka, system-ui, sans-serif; }
+.stepper button { min-width: 32px; min-height: 32px; border-radius: 9999px; border: 1px solid var(--color-primary);
+  background: var(--color-surface-raised); color: var(--color-primary); font: inherit; padding: 0 10px; cursor: pointer; }
+.stepper button:disabled { color: var(--color-ink-soft); border-color: var(--color-line); background: var(--color-surface); cursor: not-allowed; }
+.stepper button[aria-pressed="true"] { background: var(--color-primary-soft); color: var(--color-primary-deep); }
+.stepper .pos { min-width: 4em; text-align: center; font-variant-numeric: tabular-nums; }
+button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.chip { display: inline-block; font: 15px/1.3 "JetBrains Mono", Consolas, monospace; font-variant-ligatures: none; padding: 3px 8px;
+  border-radius: 10px; border: 1px solid var(--color-line); background: var(--color-primary-soft); white-space: pre; color: var(--color-ink); }
+.chip.alt { background: var(--color-accent-soft); }
+.chip.is-produced { background: var(--color-produced-soft); border: 2px dashed var(--color-ink-soft); }
+.chip.is-drawn { border: 2px solid var(--color-ink); font-size: 20px; padding: 4px 12px; }
+
+/* ---------- 1. INPUT: one column per token, text → token → id read downwards ---------- */
+.input { display: grid; grid-template-columns: 8.5em minmax(0, 1fr) auto; gap: 0 24px; align-items: start; }
+.rowlabels { display: grid; grid-template-rows: 34px 36px 36px 36px 30px; }
+.rowlabels span { align-self: center; color: var(--color-ink-soft); transition: opacity .3s; }
+.rowlabels span.is-dim { opacity: .3; }
+.cols { display: flex; flex-wrap: wrap; column-gap: 0; row-gap: 14px; transition: column-gap .45s ease; }
+.input.is-cut .cols { column-gap: 26px; }
+.col { display: grid; grid-template-rows: 34px 36px 36px 36px 30px; justify-items: center; }
+.seg { align-self: center; font: 22px/1.3 "Atkinson Hyperlegible", system-ui, sans-serif; white-space: pre; padding: 0 1px;
+  border-bottom: 3px solid transparent; transition: border-color .3s; }
+.input.is-cut .seg { border-bottom-color: var(--color-primary); }
+.col .seg.is-produced { color: var(--color-ink-soft); font-style: italic; }
+.down { width: 2px; height: 26px; align-self: center; background: var(--color-ink-soft); position: relative; }
+.down::after { content: ""; position: absolute; left: -4px; bottom: -2px; border: 5px solid transparent; border-top: 7px solid var(--color-ink-soft); border-bottom: 0; }
+.col .chip, .col .id { align-self: center; }
+.id { font: 600 16px/1.2 Fredoka, system-ui, sans-serif; font-variant-numeric: tabular-nums; color: var(--color-ink); }
+.input:not(.show-tokens) .col > :nth-child(n+2) { visibility: hidden; }
+.input:not(.show-ids) .col > :nth-child(n+4) { visibility: hidden; }
+.counts { display: grid; gap: 6px; text-align: right; min-width: 12em; }
+.counts div { color: var(--color-ink-soft); transition: opacity .3s; }
+.counts b { font: 600 20px/1.1 Fredoka, system-ui, sans-serif; color: var(--color-ink); display: block; }
+.counts .is-dim { opacity: .3; }
+
+/* ---------- 2. TRANSFORMATION: the canvas (SVG) and the panel ---------- */
+.transfo { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 20px; align-items: start; }
+.canvas { background: var(--color-discipline-neutral-soft); border: 2px dashed var(--color-ink-soft); border-radius: 18px; padding: 6px; }
+.canvas svg { display: block; width: 100%; height: auto; max-height: 60vh; }
+.panel h3 { margin: 0 0 6px; font: 600 17px/1.25 Fredoka, system-ui, sans-serif; }
+.panel p { margin: 0 0 10px; }
+.facts { margin: 0 0 12px; padding: 8px 12px; background: var(--color-surface); border-radius: 12px; font-size: 13px; line-height: 1.45; }
+.facts dt { color: var(--color-ink-soft); }
+.facts dd { margin: 0 0 3px; font-weight: 600; }
+.stack { display: flex; flex-wrap: wrap; gap: 3px; margin: 4px 0 4px; }
+.stack i { width: 9px; height: 22px; border-radius: 3px; border: 1px solid var(--color-primary); background: var(--color-primary-soft); }
+.stack i.is-rec { border: 1px dashed var(--color-ink-soft); background: var(--color-surface); }
+.stack i.is-done { background: var(--color-primary); }
+.stack i.is-rec.is-done { background: var(--color-muted); }
+.stack i.is-now { box-shadow: 0 0 0 3px var(--color-state-active); }
+.legend { font-size: 12px; color: var(--color-ink-soft); }
+svg text { fill: var(--color-ink); font: 12px "Atkinson Hyperlegible", system-ui, sans-serif; }
+svg .t-soft { fill: var(--color-ink-soft); }
+svg .t-label { font: 500 11px Fredoka, system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; fill: var(--color-ink-soft); }
+svg .t-code { font: 13px "JetBrains Mono", Consolas, monospace; }
+svg .t-num { font: 600 12px Fredoka, system-ui, sans-serif; }
+svg .chiprect { fill: var(--color-primary-soft); stroke: var(--color-line); }
+svg .chiprect.alt { fill: var(--color-accent-soft); }
+svg .cell { stroke: var(--color-line); stroke-width: 1; transition: fill .5s ease, fill-opacity .5s ease; }
+svg .cell.pos { fill: var(--color-primary); }
+svg .cell.neg { fill: var(--color-discipline-context); }
+svg .vec-frame { fill: none; stroke: var(--color-ink-soft); stroke-width: 1.5; }
+svg .vec-frame.is-focus { stroke: var(--color-state-active); stroke-width: 4; }
+svg .faded { opacity: .3; }
+svg .wire { fill: none; stroke: var(--color-ink-soft); stroke-width: 1.5; }
+svg .wire.dash { stroke-dasharray: 5 4; }
+svg .arc { fill: none; stroke: var(--color-primary); stroke-linecap: round; opacity: .85; }
+svg .neuron { fill: var(--color-surface-raised); stroke: var(--color-discipline-context); stroke-width: 1.5; }
+svg .neuron.on { fill: var(--color-discipline-context); }
+svg .syn { stroke: var(--color-discipline-context); stroke-width: .6; opacity: .35; }
+svg .table { fill: var(--color-surface-raised); stroke: var(--color-ink-soft); }
+svg .row-hit { fill: var(--color-primary); opacity: .8; }
+svg .expert { fill: var(--color-surface-raised); stroke: var(--color-discipline-context); stroke-width: 1.5; }
+svg .expert.on { fill: var(--color-accent-soft); stroke-width: 3; }
+svg .layer-ghost { fill: var(--color-surface-raised); stroke: var(--color-ink-soft); }
+svg .arrowhead { fill: var(--color-ink-soft); }
+@media (prefers-reduced-motion: reduce) { svg .cell, .cols, .bars i { transition: none !important; } }
+
+/* ---------- 3. OUTPUT: logits, tirage, token tiré, read downwards ---------- */
+.out-part { border: 1px solid var(--color-line); border-radius: 18px; padding: 10px 14px; background: var(--color-surface); }
+.out-part.is-active { box-shadow: 0 0 0 4px var(--color-state-active); }
+.out-part h3 { margin: 0 0 6px; font: 600 15px/1.2 Fredoka, system-ui, sans-serif; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.out-part h3 span { font: 400 13px/1.3 "Atkinson Hyperlegible", system-ui, sans-serif; color: var(--color-ink-soft); }
+.out-arrow { display: flex; align-items: center; gap: 10px; height: 30px; padding-left: 60px; color: var(--color-ink-soft); font-size: 13px; }
+.out-arrow::before { content: "▼"; font-size: 12px; }
+.bars { display: grid; grid-template-columns: 9.5em minmax(0, 1fr) 7.5em; gap: 4px 10px; align-items: center; }
+.bars .w { justify-self: start; font: 14px/1.2 "JetBrains Mono", Consolas, monospace; font-variant-ligatures: none; padding: 1px 6px;
+  border-radius: 8px; border: 1px solid var(--color-ink-soft); background: var(--color-surface-raised); white-space: pre; }
+.bars .track { height: 14px; border-radius: 9999px; background: var(--color-line); overflow: hidden; }
+.bars i { display: block; height: 100%; background: var(--color-primary); border-radius: 9999px; transition: width .25s ease; }
+.bars.is-model i { background: var(--color-primary-soft); box-shadow: inset 0 0 0 1.5px var(--color-primary); }
+.bars .v { font: 600 14px/1.2 Fredoka, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.bars .is-dropped { opacity: .45; }
+.bars .v.is-dropped { font: italic 400 13px/1.2 "Atkinson Hyperlegible", system-ui, sans-serif; opacity: 1; color: var(--color-ink-soft); }
+.bars .w.is-tail { color: var(--color-ink-soft); font: italic 400 13px/1.2 "Atkinson Hyperlegible", system-ui, sans-serif; border: 0; background: none; padding: 0; }
+.bars .is-chosen { outline: 2px solid var(--color-ink); }
+.tirage { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 16px; align-items: start; }
+.knobs { display: grid; gap: 6px; }
+.knob { display: grid; grid-template-columns: 8.2em minmax(0, 1fr) 3.2em; gap: 8px; align-items: center; font-size: 13px; }
+.knob input[type=range] { accent-color: var(--color-primary); width: 100%; }
+.knob output { text-align: right; }
+.knob-name { all: unset; cursor: help; justify-self: start; border-bottom: 1px dotted var(--color-ink-soft); }
+.knob-name span { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; margin-left: 2px;
+  border: 1px solid var(--color-primary); color: var(--color-primary); font: 600 11px/1 Fredoka, system-ui, sans-serif; }
+.knob-name:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.knob-help { position: fixed; position-area: block-end span-inline-end; position-try-fallbacks: flip-block, flip-inline; margin: 4px 0 0;
+  max-width: min(320px, calc(100vw - 16px)); padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 12px;
+  background: var(--color-surface-raised); color: var(--color-ink); box-shadow: 0 4px 0 var(--color-relief); font-size: 13px; line-height: 1.4; }
+.kept { margin: 6px 0 0; font-size: 13px; color: var(--color-ink-soft); }
+.drawrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.btn { min-height: 34px; padding: 0 14px; border-radius: 9999px; font: 600 14px/1 Fredoka, system-ui, sans-serif; cursor: pointer;
+  background: var(--color-primary); color: var(--color-surface-raised); border: 1px solid var(--color-primary); }
+.btn.secondary { background: var(--color-surface-raised); color: var(--color-primary); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.history { font-size: 13px; color: var(--color-ink-soft); }
+
+@media (max-width: 900px) {
+  .input { grid-template-columns: minmax(0, 1fr); } .rowlabels { display: none; } .counts { text-align: left; grid-auto-flow: column; }
+  .transfo, .tirage { grid-template-columns: minmax(0, 1fr); }
+  .bars { grid-template-columns: 7em minmax(0, 1fr) 5.5em; }
+  .stage-head .stepper { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Atelier LLM : la boucle du modèle</h1>
+<p class="lede">Maquette v3 : trois étapes l'une sous l'autre, chacune entière à l'écran. Avancez dans chaque étape avec ◀ ▶,
+jouez avec les réglages de l'OUTPUT, tirez un token et ajoutez-le à la suite : il revient dans l'INPUT. Valeurs d'exemple
+(dans l'appli : tokens, identifiants, probabilités et dimensions lus dans le moteur).</p>
+<div class="mock-bar">
+  <fieldset><legend>Architecture du modèle actif</legend>
+    <label><input type="radio" name="arch" value="dense"> Dense (Qwen3-0,6B)</label>
+    <label><input type="radio" name="arch" value="hybrid" checked> Hybride (Qwen3.5-2B)</label>
+    <label><input type="radio" name="arch" value="moe"> MoE (Qwen3-30B-A3B)</label>
+  </fieldset>
+  <fieldset><legend>Thème</legend>
+    <label><input type="radio" name="theme" value="" checked> Système</label>
+    <label><input type="radio" name="theme" value="light"> Clair</label>
+    <label><input type="radio" name="theme" value="dark"> Sombre</label>
+  </fieldset>
+</div>
+
+<!-- ======================= 1. INPUT ======================= -->
+<section class="stage" id="stage-input" aria-labelledby="input-title">
+  <header class="stage-head">
+    <span class="stage-num">1</span><h2 id="input-title">INPUT <small>le texte devient des nombres</small></h2>
+    <span class="tag label">Réel · tokenizer du modèle</span>
+    <div class="stepper" data-stepper="input"></div>
+  </header>
+  <div class="input" id="input">
+    <div class="rowlabels" id="rowlabels" aria-hidden="true"><span class="label">Texte</span><span></span><span class="label">Tokens</span><span></span><span class="label">Identifiants</span></div>
+    <div class="cols" id="cols"></div>
+    <div class="counts" id="counts"></div>
+  </div>
+  <p class="caption" id="input-caption" aria-live="polite"></p>
+</section>
+<div class="link">les identifiants entrent dans le modèle</div>
+
+<!-- ======================= 2. TRANSFORMATION ======================= -->
+<section class="stage" id="stage-transfo" aria-labelledby="transfo-title">
+  <header class="stage-head">
+    <span class="stage-num">2</span><h2 id="transfo-title">TRANSFORMATION <small>les nombres traversent les couches du modèle</small></h2>
+    <span class="tag is-illustrative label">Illustratif · vraies dimensions</span>
+    <div class="stepper" data-stepper="transfo"></div>
+  </header>
+  <p class="banner" id="banner"></p>
+  <div class="transfo">
+    <div class="canvas"><svg id="net" viewBox="0 0 820 420" role="img" aria-labelledby="transfo-step-title"></svg></div>
+    <div class="panel">
+      <h3 id="transfo-step-title"></h3>
+      <p id="transfo-step-text" aria-live="polite"></p>
+      <dl class="facts" id="facts"></dl>
+      <div class="label" style="color:var(--color-ink-soft)">Couches du modèle</div>
+      <div class="stack" id="stack" aria-hidden="true"></div>
+      <div class="legend" id="stack-legend"></div>
+    </div>
+  </div>
+  <p class="caption is-note">Le moteur n'expose ni les poids d'attention ni les états cachés : 5 tokens, 8 nombres par vecteur et une
+    poignée de neurones montrent la <strong>forme</strong> du calcul ; les couleurs sont inventées, les chiffres du panneau sont ceux du modèle.</p>
+</section>
+<div class="link">le vecteur du dernier token est comparé à tout le vocabulaire</div>
+
+<!-- ======================= 3. OUTPUT ======================= -->
+<section class="stage" id="stage-output" aria-labelledby="output-title">
+  <header class="stage-head">
+    <span class="stage-num">3</span><h2 id="output-title">OUTPUT <small>du vecteur au token suivant</small></h2>
+    <span class="tag label">Réel · probabilités et tirage</span>
+    <div class="stepper" data-stepper="output"></div>
+  </header>
+  <div class="out-part" id="part-logits">
+    <h3>Logits <span>un score par token du vocabulaire, ramené en probabilité : les 6 plus probables après « <b id="context-tail"></b> »</span></h3>
+    <div class="bars is-model" id="logits"></div>
+  </div>
+  <div class="out-arrow">les réglages décident lesquels restent en lice</div>
+  <div class="out-part" id="part-tirage">
+    <h3>Tirage <span>bougez un réglage : la chance de chaque mot change, la probabilité du modèle (au-dessus) ne bouge pas</span></h3>
+    <div class="tirage">
+      <div class="knobs" id="knobs"></div>
+      <div><div class="bars" id="chances"></div><p class="kept" id="kept"></p></div>
+    </div>
+  </div>
+  <div class="out-arrow">un token est tiré au sort selon ces chances</div>
+  <div class="out-part" id="part-token">
+    <h3>Token tiré</h3>
+    <div class="drawrow">
+      <button class="btn" id="draw">🎲 Tirer le token suivant</button>
+      <span id="drawn"></span>
+      <button class="btn secondary" id="append" disabled>↺ Ajouter à la suite</button>
+      <button class="btn secondary" id="undo" disabled>Retirer le dernier</button>
+      <span class="history" id="history"></span>
+    </div>
+  </div>
+</section>
+</div>
+
+<script>
+// ---------- data (example values; the app reads them from the engine and the session) ----------
+const ARCH = {
+  dense:  { name: "Qwen3-0,6B", vocab: 151936, width: "1 024", layers: 28, heads: "16 têtes d'attention (8 K/V)", mlp: "1 024 → 3 072 → 1 024", table: "156 millions", banner: null, kinds: () => "att" },
+  hybrid: { name: "Qwen3.5-2B", vocab: 248320, width: "2 048", layers: 24, heads: "8 têtes d'attention (2 K/V)", mlp: "2 048 → 6 144 → 2 048", table: "509 millions",
+            banner: "Qwen3.5-2B est hybride : seule une couche sur 4 fait de l'attention complète ; les autres sont des couches récurrentes (un état de taille fixe), dessinées ici comme des couches d'attention.",
+            kinds: (i) => ((i + 1) % 4 === 0 ? "att" : "rec") },
+  moe:    { name: "Qwen3-30B-A3B", vocab: 151936, width: "2 048", layers: 48, heads: "32 têtes d'attention (4 K/V)", mlp: "128 experts de 2 048 → 768 → 2 048, 8 actifs par token", table: "311 millions",
+            banner: "Le MLP de Qwen3-30B-A3B est un mélange d'experts : pour chaque token, un routeur choisit 8 experts sur 128. Le schéma en dessine 6, dont 2 actifs.",
+            kinds: () => "att", moe: true },
+};
+let arch = "hybrid";
+const fr = (n) => n.toLocaleString("fr-FR");
+const tokens = [
+  { text: "Le", id: 2304 }, { text: " chat", id: 9558 }, { text: " dort", id: 87461 }, { text: " sur", id: 1847 }, { text: " le", id: 512 },
+];
+const CANDIDATES = { // next-token candidates after the last token (p at temperature 1), and the rest's mass
+  default: { words: [[" canapé", .38], [" lit", .22], [" tapis", .12], [" toit", .07], [" rebord", .05], [" sol", .04]], tail: .12 },
+  " canapé": { words: [[".", .41], [" du", .19], [" en", .14], [",", .09], [" rouge", .04], [" depuis", .03]], tail: .10 },
+  " lit": { words: [[".", .45], [" de", .18], [",", .11], [" en", .08], [" depuis", .04], [" défait", .02]], tail: .12 },
+};
+const IDS = { " canapé": 107233, " lit": 7029, " tapis": 52981, " toit": 39114, " rebord": 140862, " sol": 11833, ".": 13, " du": 3845, " en": 662, ",": 11, " rouge": 30121, " depuis": 15412, " de": 409, " défait": 201447 };
+const blanks = (s) => s.replace(/ /g, "␣");
+const pct = (v) => `${(v * 100).toLocaleString("fr-FR", { maximumFractionDigits: v < 0.1 ? 1 : 0 })} %`;
+const $ = (s) => document.querySelector(s);
+
+// ---------- a small stepper (the app uses diagram.js's createStepper) ----------
+function stepper(host, frames, onShow, { allText = "Tout montrer" } = {}) {
+  host.innerHTML = `<button aria-label="Étape précédente">◀</button><span class="pos"></span><button aria-label="Étape suivante">▶</button><button aria-pressed="false">${allText}</button>`;
+  const [prev, pos, next, all] = host.children;
+  let i = 0;
+  const go = (n) => { i = Math.max(0, Math.min(frames.length - 1, n)); prev.disabled = i === 0; next.disabled = i === frames.length - 1;
+    pos.textContent = `${i + 1} / ${frames.length}`; all.setAttribute("aria-pressed", String(i === frames.length - 1)); onShow(frames[i], i); };
+  prev.onclick = () => go(i - 1); next.onclick = () => go(i + 1); all.onclick = () => go(frames.length - 1);
+  return { go, get index() { return i; } };
+}
+
+// ======================= 1. INPUT =======================
+const INPUT_FRAMES = [
+  { cls: [], title: "Texte.", text: "Le texte tapé, tel quel. Le modèle ne le lira jamais en lettres." },
+  { cls: ["is-cut", "show-tokens"], title: "Tokens.", text: "Le tokenizer découpe le texte en morceaux pris dans un vocabulaire fixe : souvent un mot avec l'espace qui le précède (␣), parfois un bout de mot." },
+  { cls: ["is-cut", "show-tokens", "show-ids"], title: "Identifiants.", text: "Chaque token est remplacé par son numéro dans le vocabulaire. À partir d'ici, le modèle ne voit plus que ces nombres." },
+];
+function renderInput() {
+  const cols = $("#cols"), n = tokens.length, chars = tokens.map((t) => t.text).join("").length, a = ARCH[arch];
+  cols.replaceChildren(...tokens.map((t, i) => {
+    const col = document.createElement("div"); col.className = "col";
+    col.innerHTML = `<span class="seg${t.produced ? " is-produced" : ""}"></span><span class="down"></span>
+      <span class="chip${i % 2 ? " alt" : ""}${t.produced ? " is-produced" : ""}"></span><span class="down"></span><span class="id">${fr(t.id)}</span>`;
+    col.children[0].textContent = t.text; col.children[2].textContent = blanks(t.text);
+    col.setAttribute("aria-label", `« ${t.text} » → token ${blanks(t.text)} → identifiant ${t.id}`);
+    return col;
+  }));
+  $("#counts").innerHTML = `<div><b>${chars}</b>caractères</div><div data-c="tokens"><b>${n}</b>tokens</div><div data-c="ids"><b>${n}</b>nombres entre 0 et ${fr(a.vocab - 1)}</div>`;
+  showInput(INPUT_FRAMES[inputStep.index], inputStep.index);
+}
+function showInput(f, i) {
+  $("#input").className = ["input", ...f.cls].join(" ");
+  $("#counts [data-c=tokens]")?.classList.toggle("is-dim", i < 1); $("#counts [data-c=ids]")?.classList.toggle("is-dim", i < 2);
+  [...$("#rowlabels").children].forEach((s, k) => s.classList.toggle("is-dim", (k >= 1 && i < 1) || (k >= 3 && i < 2)));
+  $("#input-caption").innerHTML = `<strong>${f.title}</strong> ${f.text}`;
+}
+const inputStep = stepper(document.querySelector("[data-stepper=input]"), INPUT_FRAMES, (f, i) => showInput(f, i));
+
+// ======================= 2. TRANSFORMATION =======================
+// Vectors: n tokens × 8 numbers in [-1, 1], one state per step (seeded, so the drawing is stable).
+const DIMS = 8, ATT = [0.06, 0.44, 0.14, 0.24, 0.12]; // the last token's attention over the tokens (itself included)
+function rng(seed) { return () => ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296); }
+function states(count) {
+  const r = rng(7), out = [Array.from({ length: count }, () => Array.from({ length: DIMS }, () => r() * 2 - 1))];
+  for (let s = 1; s <= 5; s++) out.push(out[s - 1].map((v) => v.map((x) => Math.max(-1, Math.min(1, 0.55 * x + 0.45 * (r() * 2 - 1))))));
+  return out;
+}
+const TRANSFO_FRAMES = [
+  { key: "embed", state: 0, layer: -1, title: "Embeddings : chaque identifiant va chercher sa ligne",
+    text: "La table d'embedding a une ligne par token du vocabulaire. L'identifiant choisit sa ligne : un vecteur de nombres appris à l'entraînement, qui code ce que le modèle « sait » du token, seul, sans contexte. « le » a le même vecteur dans toutes les phrases." },
+  { key: "att", state: 1, layer: 0, title: "Couche 1 · attention : les tokens se regardent",
+    text: "Chaque token regarde les tokens qui le précèdent et y prend ce qui le concerne. Ici, « le » (le dernier) regarde surtout « chat » et « sur » : les traits épais. Son vecteur change : il sait maintenant de quoi on parle." },
+  { key: "mlp", state: 2, layer: 0, title: "Couche 1 · MLP : chaque token, seul, passe dans un réseau plus large",
+    text: "Le vecteur passe dans un petit réseau de neurones : il s'élargit (plus de neurones), quelques neurones s'allument, puis il revient à sa taille. C'est là que le modèle ajoute des connaissances apprises. Le même réseau s'applique à chaque token, séparément." },
+  { key: "att", state: 3, layer: 1, title: "Couche 2 · attention",
+    text: "Même opération, avec d'autres poids : chaque couche apprend à chercher autre chose (la grammaire, le sens, ce qui vient d'être dit…)." },
+  { key: "mlp", state: 4, layer: 1, title: "Couche 2 · MLP", text: "Même opération, avec un autre réseau." },
+  { key: "skip", state: 5, layer: "last", title: "… et ainsi de suite, couche après couche",
+    text: "Les vecteurs traversent les {layers} couches du modèle, chacune faisant attention puis MLP. Chaque couche ajoute un peu au vecteur sans effacer ce qu'il portait." },
+  { key: "final", state: 5, layer: "end", title: "Le vecteur du dernier token part vers l'OUTPUT",
+    text: "Seul le vecteur du dernier token sert à prédire la suite : il résume tout ce qui précède. Il est comparé à chaque token du vocabulaire (étape 3)." },
+];
+let S = states(tokens.length);
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs = {}, text) { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text != null) n.textContent = text; return n; }
+function drawNet(f, prevState) {
+  const svg = $("#net"), a = ARCH[arch], n = tokens.length, parts = [];
+  const defs = el("defs"); defs.innerHTML = `<marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>`;
+  parts.push(defs);
+  const left = 160, span = Math.min(100, 400 / Math.max(n - 1, 1)), X = (i) => left + i * span, CELL = 15, VY = 262; // vectors: y 262 → 262 + 8 × 17
+  const focus = f.key === "final";
+  tokens.forEach((t, i) => { // the chips and ids, from the INPUT
+    const w = Math.max(34, blanks(t.text).length * 8.2 + 12), g = el("g", focus && i < n - 1 ? { class: "faded" } : {});
+    g.append(el("rect", { class: `chiprect${i % 2 ? " alt" : ""}`, x: X(i) + CELL / 2 - w / 2, y: 6, width: w, height: 24, rx: 8 }),
+      el("text", { class: "t-code", x: X(i) + CELL / 2, y: 23, "text-anchor": "middle" }, blanks(t.text)),
+      el("text", { class: "t-num t-soft", x: X(i) + CELL / 2, y: 46, "text-anchor": "middle" }, fr(t.id)));
+    parts.push(g);
+  });
+  parts.push(el("text", { class: "t-label", x: 8, y: 23 }, "Tokens"), el("text", { class: "t-label", x: 8, y: 46 }, "Identifiants"),
+    el("text", { class: "t-label", x: 8, y: VY + 10 }, "Vecteurs"), el("text", { class: "t-soft", x: 8, y: VY + 28 }, `${DIMS} nombres dessinés`),
+    el("text", { class: "t-soft", x: 8, y: VY + 44 }, `sur ${a.width}`));
+  if (f.key === "embed") { // the table, one row picked per token
+    parts.push(el("rect", { class: "table", x: 8, y: 66, width: 124, height: 140, rx: 6 }));
+    for (let r = 0; r < 13; r++) parts.push(el("line", { class: "wire", x1: 8, x2: 132, y1: 76 + r * 10, y2: 76 + r * 10, opacity: .3 }));
+    parts.push(el("text", { class: "t-label", x: 10, y: 222 }, "Table d'embedding"), el("text", { class: "t-soft", x: 10, y: 238 }, `${fr(a.vocab)} lignes × ${a.width}`));
+    tokens.forEach((t, i) => {
+      const ry = 78 + ((t.id * 7) % 12) * 10;
+      parts.push(el("rect", { class: "row-hit", x: 10, y: ry - 3, width: 120, height: 6, rx: 2 }));
+      parts.push(el("path", { class: "wire dash", d: `M132,${ry} C${X(i) - 20},${ry} ${X(i) + CELL / 2},${(ry + VY) / 2} ${X(i) + CELL / 2},${VY - 10}`, "marker-end": "url(#ah)" }));
+    });
+  } else if (f.key === "att") { // the last token's attention: one arc per earlier token, thickness = weight
+    const last = n - 1, w = ATT.length === n ? ATT : tokens.map((_, i) => (i === last ? 0.2 : 0.8 / last));
+    tokens.forEach((_, i) => {
+      if (i === last) return;
+      const x1 = X(i) + CELL / 2, x2 = X(last) + CELL / 2, h = 60 + (last - i) * 28;
+      parts.push(el("path", { class: "arc", d: `M${x1},${VY - 26} C${x1},${VY - 26 - h} ${x2},${VY - 26 - h} ${x2 - 6},${VY - 8}`, "stroke-width": 1 + w[i] * 18 }));
+      parts.push(el("text", { class: "t-num", x: x1, y: VY - 14, "text-anchor": "middle" }, pct(w[i])));
+    });
+    const xl = X(last) + CELL / 2; // its weight on itself: a small loop
+    parts.push(el("path", { class: "arc", d: `M${xl - 4},${VY - 8} C${xl - 22},${VY - 46} ${xl + 22},${VY - 46} ${xl + 4},${VY - 8}`, "stroke-width": 1 + w[last] * 18 }));
+    parts.push(el("text", { class: "t-num", x: xl + 22, y: VY - 30 }, `${pct(w[last])} lui-même`));
+    parts.push(el("text", { class: "t-soft", x: 8, y: 74 }, `Dessiné : ce que « ${tokens[last].text.trim()} » regarde, pour une tête d'attention (en vrai : ${a.heads.split(" (")[0]}, chaque token fait de même).`));
+  } else if (f.key === "mlp") { // the last token through a small MLP (or a router and experts)
+    const x0 = X(n - 1) + CELL + 40, xs = [x0, x0 + 95, x0 + 190], hidden = 16;
+    const ys = (k, len) => VY + 4 + (k + 0.5) * ((DIMS * 17 - 8) / len);
+    const yh = (k) => 112 + (k + 0.5) * (290 / hidden); // the hidden layer: wider than the vector
+    if (a.moe) {
+      parts.push(el("text", { class: "t-label", x: x0 - 10, y: 96 }, "Routeur → 2 experts actifs"), el("text", { class: "t-soft", x: x0 - 10, y: 110 }, "6 dessinés ; en vrai 8 sur 128"));
+      for (let e = 0; e < 6; e++) {
+        const on = e === 1 || e === 4, y = 126 + e * 46;
+        parts.push(el("path", { class: "wire" + (on ? "" : " dash"), d: `M${X(n - 1) + CELL + 4},${VY + 68} L${x0 + 60},${y + 9}`, opacity: on ? 1 : .35 }));
+        parts.push(el("rect", { class: `expert${on ? " on" : ""}`, x: x0 + 60, y, width: 120, height: 18, rx: 5 }));
+        parts.push(el("text", { class: "t-soft", x: x0 + 70, y: y + 13 }, `expert ${[3, 17, 42, 66, 90, 121][e]}${on ? " · actif" : ""}`));
+      }
+    } else {
+      const lit = new Set([2, 5, 6, 11, 13]), g = el("g");
+      for (let i = 0; i < DIMS; i++) for (let h = 0; h < hidden; h++) g.append(el("line", { class: "syn", x1: xs[0], y1: ys(i, DIMS), x2: xs[1], y2: yh(h) }));
+      for (let h = 0; h < hidden; h++) for (let o = 0; o < DIMS; o++) g.append(el("line", { class: "syn", x1: xs[1], y1: yh(h), x2: xs[2], y2: ys(o, DIMS) }));
+      for (let i = 0; i < DIMS; i++) g.append(el("circle", { class: "neuron", cx: xs[0], cy: ys(i, DIMS), r: 5 }), el("circle", { class: "neuron", cx: xs[2], cy: ys(i, DIMS), r: 5 }));
+      for (let h = 0; h < hidden; h++) g.append(el("circle", { class: `neuron${lit.has(h) ? " on" : ""}`, cx: xs[1], cy: yh(h), r: 4.5 }));
+      g.append(el("text", { class: "t-label", x: xs[0] - 6, y: 84 }, `MLP · ${DIMS} → ${hidden} → ${DIMS} neurones`), el("text", { class: "t-soft", x: xs[0] - 6, y: 100 }, `en vrai : ${a.mlp}`));
+      g.append(el("text", { class: "t-soft", x: xs[0], y: VY - 12, "text-anchor": "middle" }, "entrée"), el("text", { class: "t-soft", x: xs[2], y: VY - 12, "text-anchor": "middle" }, "sortie"));
+      g.append(el("path", { class: "wire", d: `M${X(n - 1) + CELL + 4},${VY + 68} H${xs[0] - 9}`, "marker-end": "url(#ah)" }));
+      parts.push(g);
+    }
+    parts.push(el("text", { class: "t-soft", x: 8, y: 74 }, a.moe ? "Dessiné pour le dernier token ; pour chaque autre token, le routeur choisit d'autres experts." : "Dessiné pour le dernier token ; chaque autre token passe, seul, dans le même réseau."));
+  } else if (f.key === "skip") { // the stack of layers the vectors go through
+    for (let k = 5; k >= 0; k--) parts.push(el("rect", { class: "layer-ghost", x: X(0) - 14 + k * 10, y: 96 + k * 18, width: X(n - 1) - X(0) + CELL + 28, height: 34, rx: 8, opacity: 1 - k * .12 }));
+    parts.push(el("text", { class: "t-num", x: X(0), y: 118 }, `couche 3 … couche ${a.layers} : attention puis MLP, chaque fois`));
+  } else if (f.key === "final") { // the last vector leaves for the OUTPUT
+    const x = X(n - 1) + CELL / 2;
+    parts.push(el("path", { class: "wire", d: `M${x},${VY + DIMS * 17 + 4} V${414}`, "marker-end": "url(#ah)" }));
+    parts.push(el("text", { class: "t-num", x: x - 14, y: 412, "text-anchor": "end" }, `vers l'OUTPUT : comparé aux ${fr(a.vocab)} tokens du vocabulaire`));
+  }
+  const cells = []; // the vectors: drawn with the previous state, then moved to the step's (CSS transition)
+  tokens.forEach((_, t) => {
+    const g = el("g", focus && t < n - 1 ? { class: "faded" } : {});
+    g.append(el("rect", { class: `vec-frame${focus && t === n - 1 ? " is-focus" : ""}`, x: X(t) - 3, y: VY - 3, width: CELL + 6, height: DIMS * 17 + 3, rx: 4 }));
+    for (let d = 0; d < DIMS; d++) {
+      const v = (prevState ?? S[f.state])[t][d];
+      const c = el("rect", { class: `cell ${v >= 0 ? "pos" : "neg"}`, x: X(t), y: VY + d * 17, width: CELL, height: CELL, rx: 2, "fill-opacity": (0.15 + Math.abs(v) * 0.85).toFixed(2) });
+      cells.push([c, t, d]); g.append(c);
+    }
+    parts.push(g);
+  });
+  svg.replaceChildren(...parts);
+  if (prevState) requestAnimationFrame(() => requestAnimationFrame(() => cells.forEach(([c, t, d]) => {
+    const v = S[f.state][t][d]; c.setAttribute("class", `cell ${v >= 0 ? "pos" : "neg"}`); c.setAttribute("fill-opacity", (0.15 + Math.abs(v) * 0.85).toFixed(2));
+  })));
+}
+let lastTransfo = 0;
+function showTransfo(f, i) {
+  const a = ARCH[arch], prev = TRANSFO_FRAMES[lastTransfo];
+  drawNet(f, i === lastTransfo + 1 && prev.state !== f.state ? S[prev.state] : null);
+  lastTransfo = i;
+  $("#transfo-step-title").textContent = f.title;
+  $("#transfo-step-text").textContent = f.text.replace("{layers}", a.layers)
+    + (a.moe && f.key === "mlp" ? " Ici, le MLP est un mélange d'experts : un routeur choisit quelques petits réseaux (les experts) parmi beaucoup, et seuls ceux-là calculent." : "");
+  $("#facts").innerHTML = `<dt>En vrai, pour ${a.name}</dt><dd>vecteurs de ${a.width} nombres</dd><dd>table d'embedding : ${fr(a.vocab)} × ${a.width}, soit ${a.table} de nombres appris</dd>
+    <dd>${a.layers} couches, chacune : attention (${a.heads}) puis MLP (${a.mlp})</dd>`;
+  const layer = f.layer === -1 ? -1 : f.layer === "last" || f.layer === "end" ? a.layers - 1 : f.layer;
+  $("#stack").replaceChildren(...Array.from({ length: a.layers }, (_, k) => { const b = document.createElement("i");
+    b.className = [a.kinds(k) === "rec" ? "is-rec" : "", k < layer || (k === layer && f.layer === "end") ? "is-done" : "", k === layer && f.layer !== "end" ? "is-now" : ""].join(" "); return b; }));
+  $("#stack-legend").textContent = layer < 0 ? "aucune couche traversée pour l'instant" : f.layer === "end" ? `${a.layers} couches traversées`
+    : arch === "hybrid" ? `couche ${layer + 1} sur ${a.layers} · plein : attention complète, tirets : récurrente` : `couche ${layer + 1} sur ${a.layers}`;
+  const banner = $("#banner"); banner.hidden = !a.banner; banner.innerHTML = a.banner ? `<strong>⚠ Schéma simplifié, inexact pour cette architecture.</strong> ${a.banner}` : "";
+}
+const transfoStep = stepper(document.querySelector("[data-stepper=transfo]"), TRANSFO_FRAMES, showTransfo);
+
+// ======================= 3. OUTPUT =======================
+// llama.cpp's order, as candidates.distribution (the app asks the session, POST /api/llm_lab/distribution).
+const KNOBS = [["temperature", "Température", 0, 2, 0.05, 0.7], ["top_k", "Top-k", 0, 6, 1, 0], ["top_p", "Top-p", 0.05, 1, 0.05, 0.8], ["min_p", "Min-p", 0, 0.5, 0.01, 0.15]];
+const HELP = {
+  temperature: "Aplatit ou creuse les probabilités avant le tirage. À 0, le modèle prend toujours le token le plus probable (réponse identique à chaque fois) ; au-dessus de 1, les tokens peu probables ont leur chance.",
+  top_k: "Ne garde que les k tokens les plus probables ; tous les autres sont écartés avant le tirage. À 0, top-k est désactivé : aucun token n'est écarté par lui.",
+  top_p: "Garde les tokens les plus probables jusqu'à ce que leurs probabilités cumulées atteignent p ; 1 n'écarte rien.",
+  min_p: "Écarte tout token dont la probabilité est inférieure à min-p fois celle du plus probable ; 0 n'écarte rien.",
+};
+const values = Object.fromEntries(KNOBS.map(([k, , , , , v]) => [k, v]));
+function distribution(ps, tail, s) {
+  const n = ps.length, why = Array(n).fill(null); let kept = n, base;
+  if (s.top_k > 0 && s.top_k <= n) { kept = s.top_k; base = ps.slice(0, kept).reduce((a, b) => a + b, 0); for (let i = kept; i < n; i++) why[i] = "top-k"; }
+  else base = ps.reduce((a, b) => a + b, 0) + tail;
+  if (s.top_p < 1) { let c = 0, k = 0; while (k < kept) { c += ps[k] / base; k++; if (c >= s.top_p - 1e-9) break; } for (let i = k; i < kept; i++) why[i] = "top-p"; kept = Math.min(kept, k); }
+  if (s.min_p > 0) { const floor = ps[0] * s.min_p; let k = 0; while (k < kept && ps[k] >= floor) k++; k = Math.max(1, k); for (let i = k; i < kept; i++) why[i] = "min-p"; kept = k; }
+  let w = ps.slice(0, kept).map((p, i) => (s.temperature === 0 ? (i === 0 ? 1 : 0) : Math.exp(Math.log(p) / s.temperature)));
+  const tot = w.reduce((a, b) => a + b, 0); w = w.map((x) => x / tot);
+  return ps.map((p, i) => ({ p, kept: i < kept, chance: i < kept ? w[i] : 0, why: why[i] }));
+}
+const current = () => CANDIDATES[tokens[tokens.length - 1].text] || CANDIDATES.default;
+let drawnIndex = null; const history = [];
+function bars(host, rows, model) {
+  host.replaceChildren();
+  for (const r of rows) {
+    const out = !model && !r.kept;
+    const w = document.createElement("span"); w.className = "w" + (r.tail ? " is-tail" : "") + (out ? " is-dropped" : "") + (r.chosen ? " is-chosen" : ""); w.textContent = r.tail ? r.word : blanks(r.word);
+    const track = document.createElement("span"); track.className = "track" + (out ? " is-dropped" : ""); track.innerHTML = `<i style="width:${(model ? r.p : r.chance) * 100}%"></i>`;
+    const v = document.createElement("span"); v.className = "v" + (out ? " is-dropped" : "");
+    v.textContent = model ? pct(r.p) : r.kept ? pct(r.chance) : `écarté (${r.why})`;
+    host.append(w, track, v);
+  }
+}
+function renderOutput() {
+  const c = current(), rows = distribution(c.words.map((w) => w[1]), c.tail, values);
+  const model = c.words.map(([word, p], i) => ({ word, p, chosen: i === drawnIndex }));
+  model.push({ word: "reste du vocabulaire", p: c.tail, tail: true });
+  bars($("#logits"), model, true);
+  bars($("#chances"), c.words.map(([word], i) => ({ word, ...rows[i], chosen: i === drawnIndex })), false);
+  const kept = rows.filter((r) => r.kept).length;
+  $("#kept").textContent = `${kept} gardé${kept > 1 ? "s" : ""} sur 6 · la chance est partagée entre eux seuls (le reste du vocabulaire, ${pct(c.tail)}, n'est pas tiré ici).`;
+  $("#context-tail").textContent = tokens.slice(-3).map((t) => t.text).join("").trim();
+  $("#drawn").innerHTML = drawnIndex == null ? `<span class="history">aucun token tiré pour l'instant</span>` : `<span class="chip is-drawn">${blanks(c.words[drawnIndex][0])}</span>`;
+  $("#append").disabled = drawnIndex == null;
+  $("#undo").disabled = !tokens.some((t) => t.produced);
+  $("#history").textContent = history.length ? `derniers tirages : ${history.map(blanks).join(" · ")}` : "";
+}
+function renderKnobs() {
+  // Each setting's name is a button: its explanation on hover (title) and on a click, Enter or
+  // Space (popover anchored to it; Escape or a click elsewhere closes it).
+  $("#knobs").replaceChildren(...KNOBS.map(([k, label, min, max, step]) => {
+    const row = document.createElement("div"); row.className = "knob";
+    row.innerHTML = `<button type="button" class="knob-name" aria-describedby="help-${k}">${label} <span aria-hidden="true">?</span></button>`
+      + `<input type="range" min="${min}" max="${max}" step="${step}" value="${values[k]}" aria-label="${label}"><output class="num"></output>`
+      + `<div class="knob-help" id="help-${k}" popover></div>`;
+    const [name, input, out, help] = row.children;
+    name.title = help.textContent = HELP[k];
+    name.style.anchorName = `--knob-${k}`; help.style.positionAnchor = `--knob-${k}`; name.popoverTargetElement = help;
+    const say = () => (out.textContent = k === "top_k" && values[k] === 0 ? "off" : fr(+values[k]));
+    input.oninput = () => { values[k] = +input.value; say(); drawnIndex = null; renderOutput(); };
+    say();
+    return row;
+  }));
+}
+const outputStep = stepper(document.querySelector("[data-stepper=output]"), ["part-logits", "part-tirage", "part-token"], (id) => {
+  for (const p of document.querySelectorAll(".out-part")) p.classList.toggle("is-active", p.id === id);
+}, { allText: "Suivre le direct" });
+$("#draw").onclick = () => {
+  const c = current(), rows = distribution(c.words.map((w) => w[1]), c.tail, values);
+  let r = Math.random(), i = 0; for (; i < rows.length - 1; i++) { r -= rows[i].chance; if (r <= 0) break; }
+  drawnIndex = i; history.unshift(c.words[i][0]); history.length = Math.min(history.length, 8); outputStep.go(2); renderOutput();
+};
+$("#append").onclick = () => {
+  const word = current().words[drawnIndex][0];
+  tokens.push({ text: word, id: IDS[word] ?? 4242, produced: true });
+  drawnIndex = null; history.length = 0; S = states(tokens.length);
+  renderInput(); inputStep.go(2); transfoStep.go(transfoStep.index); renderOutput(); outputStep.go(0);
+  $("#stage-input").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+};
+
+$("#undo").onclick = () => {
+  if (tokens[tokens.length - 1]?.produced) tokens.pop();
+  drawnIndex = null; history.length = 0; S = states(tokens.length);
+  renderInput(); transfoStep.go(transfoStep.index); renderOutput();
+};
+for (const r of document.querySelectorAll('input[name="arch"]')) r.onchange = () => { arch = r.value; renderInput(); transfoStep.go(transfoStep.index); };
+for (const r of document.querySelectorAll('input[name="theme"]')) r.onchange = () => { if (r.value) document.documentElement.dataset.theme = r.value; else delete document.documentElement.dataset.theme; };
+renderInput(); inputStep.go(0); transfoStep.go(0); renderKnobs(); renderOutput(); outputStep.go(0);
+</script>
+</body>
+</html>

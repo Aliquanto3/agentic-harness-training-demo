@@ -257,6 +257,16 @@ class VocabTokenizer:
     def is_eog(self, token: int) -> bool:
         return bool(self._lib.llama_vocab_is_eog(self._vocab, token))
 
+    def adds_bos(self) -> int | None:
+        """Lot 6 of 2026-10-04: the id of the begin-of-text token this vocabulary asks before
+        a text (Gemma, Llama), `None` when it asks none (Qwen) or llama.cpp cannot say."""
+        lib = self._lib
+        adds = getattr(lib, "llama_vocab_get_add_bos", None)
+        if adds is None or not adds(self._vocab):
+            return None
+        token = int(lib.llama_vocab_bos(self._vocab))
+        return None if token in (getattr(lib, "LLAMA_TOKEN_NULL", -1), -1) else token
+
     def tokenize(self, text: str) -> list[int]:
         return self._model.tokenize(text.encode("utf-8"), add_bos=False, special=True)  # type: ignore[attr-defined]
 
@@ -381,6 +391,9 @@ class LlamaCppEngine:
 
     def tokenize(self, text: str) -> list[int]:
         return self._tokenizer.tokenize(text)
+
+    def adds_bos(self) -> int | None:
+        return self._tokenizer.adds_bos()
 
     def token_pieces(self, ids: Sequence[int]) -> list[bytes]:
         return self._tokenizer.token_pieces(ids)

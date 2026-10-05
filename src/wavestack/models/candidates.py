@@ -134,6 +134,45 @@ def read_logits(
     return shown, {"p": probs, "texts": texts[len(rows) :], "tail": tail}
 
 
+def _cuts(values: list[float], tail: float, sampling: Any) -> tuple[int, int, int]:
+    """How many of `values` (non-negative, most probable first) are still in the draw after
+    top-k, then top-p, then min-p, in llama.cpp's order (`distribution`'s rules)."""
+    count = len(values)
+    k = int(sampling.top_k)
+    if 0 < k <= count:
+        kept_n, base = k, sum(values[:k])
+    else:  # top-k off (or wider than what was read): the whole vocabulary stays
+        kept_n, base = count, sum(values) + max(0.0, float(tail))
+    after_k = kept_n
+    if sampling.top_p < 1.0 and base > 0:
+        cumulated: list[float] = []
+        total = 0.0
+        for v in values[:kept_n]:
+            total += v / base
+            cumulated.append(total)
+        kept_n = min(bisect_left(cumulated, sampling.top_p) + 1, kept_n)
+    after_p = kept_n
+    if sampling.min_p > 0.0:
+        floor = values[0] * sampling.min_p  # p_i / p_max >= min_p
+        kept_n = max(1, sum(1 for v in values[:kept_n] if v >= floor))
+    return after_k, after_p, kept_n
+
+
+def dropped_by(top_p_values: Sequence[float], tail: float, sampling: Any) -> list[str | None]:
+    """Lot 6 of 2026-10-04: which setting leaves each of `distribution`'s tokens out of the
+    draw, `"top-k"`, `"top-p"` or `"min-p"` (the first of the chain), `None` when it stays;
+    the same cuts as `distribution`, so that the page writes « écarté (top-p) » without
+    computing anything (AD-1)."""
+    values = [max(0.0, float(v)) for v in top_p_values]
+    if not values:
+        return []
+    after_k, after_p, kept_n = _cuts(values, tail, sampling)
+    return [
+        None if i < kept_n else "top-k" if i >= after_k else "top-p" if i >= after_p else "min-p"
+        for i in range(len(values))
+    ]
+
+
 def distribution(top_p_values: Sequence[float], tail: float, sampling: Any) -> list[dict[str, Any]]:
     """`kept` and `p_sampled` of the most probable tokens (`top_p_values`: their `p` at
     temperature 1, most probable first; `tail`: the mass of the rest of the vocabulary) for
@@ -146,24 +185,9 @@ def distribution(top_p_values: Sequence[float], tail: float, sampling: Any) -> l
     The draw is renormalized among these tokens only, never the tail's: an approximation, the
     page says so. `{p, kept, p_sampled}` each, in the same order."""
     values = [max(0.0, float(v)) for v in top_p_values]
-    count = len(values)
-    if not count:
+    if not values:
         return []
-    k = int(sampling.top_k)
-    if 0 < k <= count:
-        kept_n, base = k, sum(values[:k])
-    else:  # top-k off (or wider than what was read): the whole vocabulary stays
-        kept_n, base = count, sum(values) + max(0.0, float(tail))
-    if sampling.top_p < 1.0 and base > 0:
-        cumulated: list[float] = []
-        total = 0.0
-        for v in values[:kept_n]:
-            total += v / base
-            cumulated.append(total)
-        kept_n = min(bisect_left(cumulated, sampling.top_p) + 1, kept_n)
-    if sampling.min_p > 0.0:
-        floor = values[0] * sampling.min_p  # p_i / p_max >= min_p
-        kept_n = max(1, sum(1 for v in values[:kept_n] if v >= floor))
+    kept_n = _cuts(values, tail, sampling)[2]
 
     sampled = [1.0] + [0.0] * (kept_n - 1)  # T = 0: greedy
     if sampling.temperature > 0.0:
