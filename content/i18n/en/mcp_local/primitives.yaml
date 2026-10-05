@@ -1,0 +1,16 @@
+# English translation of content/mcp_local/primitives.yaml (lot 4 of 2026-10-04, AD-27):
+# the local MCP server's resource and prompt.
+terms:
+  title: Glossary terms
+  description: The list of the WaveStack demonstrator's glossary terms, one per line.
+explain_term:
+  title: Explain a notion
+  description: >-
+    Prepares a request to explain a notion of the glossary, its definition already inserted.
+  term: The notion to explain, a term of the glossary.
+  text: >-
+    Explain the notion “{term}” to a consultant discovering agents, in three sentences,
+    from this definition: {definition}
+  unknown_text: >-
+    Explain the notion “{term}” to a consultant discovering agents, in three sentences.
+    It is not in WaveStack's glossary, whose terms are: {known}.

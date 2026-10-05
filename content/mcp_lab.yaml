@@ -1,69 +1,191 @@
-# Atelier MCP (corrections du 2026-09-30, story 6, AD-19) : les textes pédagogiques de la page
-# /mcp, validés par pydantic (wavestack.mcp.lab.McpLabContent). Un fichier invalide : la page
-# reste servie et dit pourquoi. Les libellés d'interface sont dans ui.yaml, section `mcp`.
-# `{…}` : une valeur que la page place.
+# Atelier MCP (story 6 du 2026-09-30, puis lot 4 du 2026-10-04 : l'Atelier MCP en séquence ;
+# AD-19, AD-27) : les textes pédagogiques de la page /mcp, validés par pydantic
+# (wavestack.mcp.lab.McpLabContent). Un fichier invalide : la page reste servie et dit pourquoi.
+# Les libellés d'interface sont dans ui.yaml, section `mcp`. `{…}` : une valeur que la page ou
+# la session place.
 
-title_text: "Atelier MCP : le protocole à manipuler"
+title_text: "Atelier MCP"
 intro_text: >-
-  Un serveur MCP est un programme à part : le harnais le lance comme processus enfant (stdio) ou
-  le joint par HTTP, puis lui parle en JSON-RPC. Connectez-vous à un serveur pour voir la
-  poignée de main, la documentation de ses outils et ce qu'elle pèse dans le contexte du
-  modèle, puis appelez un outil à la main. C'est un bac à sable : l'atelier ouvre ses propres
-  connexions, la brique MCP de l'atelier principal ne change pas, et aucun modèle ne génère ici.
+  Le protocole entre l'hôte et un serveur, message par message. Un bac à sable : la brique MCP
+  du harnais ne change pas.
 busy_text: "Indisponible pour l'instant : {reason}"
 
-servers_title_text: "Les serveurs"
 servers_help_text: >-
-  Les trois serveurs de la brique MCP. Le glossaire est un processus Python que le harnais
-  lance sur ce poste et auquel il parle par l'entrée et la sortie standard ; les deux autres
-  sont des services publics joints en HTTP, avec la garde réseau de WaveStack.
-
-handshake_title_text: "La poignée de main"
+  Les trois serveurs de la brique MCP. Le glossaire est un processus Python que l'hôte lance sur
+  ce poste et auquel il parle par l'entrée et la sortie standard ; les deux autres sont des
+  services publics joints en HTTP, avec la garde réseau de WaveStack.
 handshake_help_text: >-
-  Chaque message JSON-RPC tel qu'il passe sur le transport, avec son sens et sa durée :
-  initialize présente le harnais, le serveur répond par son nom, sa version et ses capacités,
-  puis tools/list demande la liste des outils et leur documentation.
-handshake_empty_text: "Connectez-vous à un serveur : ses messages s'afficheront ici, un par un."
-
-tools_title_text: "La documentation des outils"
+  Comme au restaurant : « Bonjour, je suis le serveur de salle de WaveStack » (initialize) ;
+  « Bonjour, voici ce que nous servons : des plats à la carte, ce que nous posons sur la table,
+  des formules » (capacités : outils, ressources, prompts) ; « Bien reçu »
+  (notifications/initialized) ; « La carte, s'il vous plaît » (tools/list, resources/list,
+  prompts/list). Ensuite seulement, on commande.
+handshake_empty_text: "Connectez-vous à un serveur : la poignée de main s'affichera ici, message par message."
 tools_help_text: >-
-  Ce que le serveur dit de chaque outil, et ce que cela coûte dans le contexte. En
-  documentation complète, chaque outil y entre en entier (nom, description, schéma) ; en lazy
-  loading, il n'y laisse qu'une ligne dans la description de load_tool_doc, et sa
-  documentation n'entre que si le modèle la demande.
-tools_empty_text: "Aucun outil listé pour l'instant : connectez-vous à un serveur."
-
-call_title_text: "L'appel"
+  Ce que le serveur dit de chaque outil, et ce que cela coûte dans le contexte. En documentation
+  complète, chaque outil y entre en entier (nom, description, schéma) ; en lazy loading, il n'y
+  laisse qu'une ligne dans la description de load_tool_doc, et sa documentation n'entre que si le
+  modèle la demande.
+tools_empty_text: "Connectez-vous à un serveur : sa documentation d'outils et son poids s'afficheront ici."
 call_help_text: >-
-  Un champ par paramètre du schéma de l'outil. Le harnais envoie tools/call ; le serveur
-  répond par un résultat JSON-RPC, dont le harnais tire le texte qu'il réinjecterait au modèle.
-call_empty_text: "Connectez-vous à un serveur pour appeler un de ses outils."
+  Un champ par paramètre du schéma de l'outil. L'hôte envoie tools/call par le client ; le
+  serveur répond par un résultat JSON-RPC, dont l'hôte tire le texte qu'il réinjecte au modèle.
+by_hand_text: "Vous jouez le modèle : vous choisissez l'outil et ses arguments."
+by_model_text: >-
+  Le modèle actif reçoit votre question et les outils, puis choisit lui-même. Lent sur CPU : 10 à
+  40 s.
 reinjected_help_text: >-
-  Le texte que le harnais remettrait au modèle : les blocs texte du résultat, borné au plafond
-  des résultats d'outils réseau et MCP.
-
-context_title_text: "Ce que le modèle voit"
+  Le texte que le harnais remet au modèle : les blocs texte du résultat, borné au plafond des
+  résultats d'outils réseau et MCP.
 context_help_text: >-
-  Le bloc « outils » du contexte avec ce serveur, dans les deux modes : les définitions JSON
-  que le harnais envoie, sans l'habillage que le gabarit du modèle y ajoute (quelques tokens de
-  plus dans la jauge de l'atelier principal). Rien n'est généré : c'est ce que le modèle
-  lirait avant de choisir un outil.
-context_empty_text: "Connectez-vous à un serveur pour voir son bloc « outils »."
+  Le bloc « outils » tel que l'hôte l'envoie au modèle : les définitions JSON, sans l'habillage
+  que le gabarit du modèle y ajoute. C'est ce que le modèle lit avant de choisir un outil.
+outside_text: "Ressources et prompts n'y entrent pas : ils attendent un choix de l'application ou de l'utilisateur."
+arch_empty_text: "Les pièces apparaîtront ici, une à une, quand elles interviendront."
+# Le message unique qui réunit une ressource et sa question, envoyé au modèle (AD-27).
+ask_resource_text: |-
+  Contenu de la ressource {uri} :
+
+  {content}
+
+  {question}
 
 transports:
   stdio:
     label_text: "stdio (processus enfant)"
     explain_text: >-
-      Le harnais lance le serveur sur ce poste et échange avec lui par l'entrée et la sortie
-      standard : une ligne JSON par message. Rien ne sort du poste.
+      L'hôte lance le serveur sur ce poste et le client échange avec lui par l'entrée et la
+      sortie standard : une ligne JSON par message. Rien ne sort du poste.
   streamable_http:
     label_text: "Streamable HTTP"
     explain_text: >-
-      Le harnais envoie chaque message en POST à l'adresse du serveur, qui répond en JSON ou
-      en flux d'événements. La requête quitte le poste : elle est tracée comme donnée sortante.
+      Le client envoie chaque message en POST à l'adresse du serveur, qui répond en JSON ou en
+      flux d'événements. La requête quitte le poste : elle est tracée comme donnée sortante.
 
 methods:
-  initialize: "Le harnais se présente : version du protocole, nom et capacités du client."
-  "notifications/initialized": "Une notification, sans réponse : le harnais confirme que la session est ouverte."
-  "tools/list": "Le harnais demande la liste des outils ; chaque outil vient avec sa description et son schéma d'arguments."
-  "tools/call": "Le harnais appelle un outil avec ses arguments ; le serveur répond par des blocs de contenu, ou par is_error."
+  initialize: "Le client se présente : version du protocole, capacités du client, nom et version. Le serveur répond par la version retenue, son nom et ses capacités : les primitives qu'il propose."
+  "notifications/initialized": "Une notification, sans réponse ni identifiant : le client confirme que la session est ouverte."
+  "tools/list": "Le client demande la liste des outils. Chaque outil vient avec son nom, sa description et le schéma de ses arguments : c'est ce que l'hôte met dans le contexte du modèle."
+  "resources/list": "Le serveur a annoncé des ressources : le client en demande la liste. Chaque ressource a une adresse (URI), un nom et un type ; rien n'entre dans le contexte."
+  "prompts/list": "Le serveur a annoncé des prompts : le client en demande la liste. Chaque prompt a un nom, une description et ses arguments ; l'hôte les propose à l'utilisateur, comme des commandes."
+  "tools/call": "Le client demande au serveur d'exécuter un outil avec ses arguments ; le serveur répond par des blocs de contenu et isError."
+  "resources/read": "Le client demande le contenu d'une ressource par son adresse ; le serveur le renvoie avec son adresse et son type."
+  "prompts/get": "Le client demande un prompt avec ses arguments ; le serveur renvoie des messages prêts à entrer dans la conversation."
+
+columns:
+  user:
+    name_text: "Utilisateur"
+    sub_text: "vous"
+    explain_text: "Vous, ou le participant. L'utilisateur parle à l'hôte, jamais au serveur MCP. Avec un prompt MCP, c'est lui qui choisit (comme une commande /)."
+  model:
+    name_text: "SLM local"
+    sub_text: ""
+    explain_text: "Le modèle ne parle jamais au serveur MCP. Il lit les outils dans son contexte et demande un appel à l'hôte, qui passe par le client."
+  host:
+    name_text: "Hôte WaveStack"
+    sub_text: "le harnais"
+    explain_text: "L'application qui héberge le modèle et les clients MCP : ici, le harnais WaveStack. Il décide quels outils montrer au modèle et exécute ses demandes."
+  client:
+    name_text: "Client MCP"
+    sub_text: "un par serveur"
+    explain_text: "Un client MCP par serveur (connexion 1 à 1). Il parle JSON-RPC au serveur et rend les réponses à l'hôte ; l'hôte, lui, ne parle pas JSON-RPC."
+  server:
+    name_text: "Serveur MCP"
+    sub_text: ""
+    explain_text: "Un programme à part, qui expose des outils, des ressources et des prompts : sur le poste (stdio) ou hors du poste (Streamable HTTP)."
+  source:
+    name_text: "Source de données"
+    sub_text: ""
+    explain_text: "Ce que le serveur lit ou appelle. L'hôte n'y accède jamais : cet échange se passe dans le serveur, l'atelier ne le voit pas."
+
+phases:
+  connect:
+    why_label_text: "Pourquoi une poignée de main ?"
+    why_text: >-
+      Comme au restaurant : « Bonjour, je suis le serveur de salle de WaveStack » (initialize) ;
+      « Bonjour, voici ce que nous servons : des plats à la carte, ce que nous posons sur la
+      table, des formules » (capacités : outils, ressources, prompts) ; « Bien reçu »
+      (notifications/initialized) ; « La carte, s'il vous plaît » (tools/list, resources/list,
+      prompts/list). Ensuite seulement, on commande.
+  call:
+    why_label_text: "Qui choisit l'outil ?"
+    why_text: >-
+      Un outil est choisi par le modèle. L'hôte lui montre les outils, le modèle demande un
+      appel, l'hôte le fait passer par le client. Le modèle ne parle jamais au serveur.
+  read:
+    why_label_text: "Qui choisit la ressource ?"
+    why_text: >-
+      Une ressource est choisie par l'application (l'hôte), pas par le modèle : elle sert à
+      donner du contexte, comme un fichier joint avec @.
+  prompt:
+    why_label_text: "Qui choisit le prompt ?"
+    why_text: >-
+      Un prompt est choisi par l'utilisateur : un modèle de demande que le serveur prépare,
+      comme une commande /.
+  ask:
+    why_label_text: "Que reçoit le modèle ?"
+    why_text: >-
+      Ce que l'application ou l'utilisateur a choisi entre dans le contexte ; le modèle répond,
+      ou demande un outil, que l'hôte exécute par le client.
+
+primitives:
+  tools:
+    note_text: "Un outil est choisi par le modèle : l'hôte le lui montre, le modèle demande l'appel."
+  resources:
+    note_text: "Vous jouez l'application : c'est elle qui choisit une ressource."
+  prompts:
+    note_text: "Un prompt est choisi par l'utilisateur, comme une commande / : ses messages entrent dans la conversation comme les vôtres."
+
+servers:
+  local:
+    source_label_text: "glossary.yaml"
+    source_action_text: "lit glossary.yaml"
+    source_explain_text: "La source du glossaire : un fichier YAML que le serveur lit. L'hôte ne le lit jamais lui-même."
+  datagouv:
+    source_label_text: "API data.gouv.fr"
+    source_action_text: "appelle l'API data.gouv.fr"
+    source_explain_text: "L'API de data.gouv.fr, appelée par le serveur. Cet échange se passe chez le serveur : le poste ne le voit pas."
+  mslearn:
+    source_label_text: "Docs Microsoft"
+    source_action_text: "lit la documentation Microsoft"
+    source_explain_text: "La documentation Microsoft Learn, lue par le serveur, hors de vue du poste."
+
+restaurant:
+  host:
+    place_text: "la salle du restaurant"
+    meaning_text: "elle reçoit, installe, sert ; elle ne cuisine pas"
+  client:
+    place_text: "un serveur de salle par cuisine"
+    meaning_text: "il porte les commandes et rapporte les plats ; un serveur par cuisine (1 client = 1 serveur)"
+  server_stdio:
+    place_text: "la cuisine de l'arrière-boutique"
+    meaning_text: "même bâtiment (le poste), mais une pièce à part (un autre processus)"
+  server_http:
+    place_text: "un traiteur extérieur"
+    meaning_text: "la commande sort dans la rue (le réseau)"
+  source:
+    place_text: "le garde-manger de la cuisine"
+    meaning_text: "la salle n'y entre jamais"
+  model:
+    place_text: "le convive"
+    meaning_text: "il lit la carte et commande ; il ne va jamais en cuisine"
+  tool:
+    place_text: "un plat à la carte"
+    meaning_text: "choisi par le convive"
+  resource:
+    place_text: "ce que la maison pose sur la table, pain ou carafe"
+    meaning_text: "choisi par la salle, sans que le convive le demande"
+  prompt:
+    place_text: "la formule du jour"
+    meaning_text: "choisie par celui qui invite (l'utilisateur)"
+
+before:
+  banner_text: "Schéma de principe : rien n'est capturé"
+  integrations:
+    local: "Code pour lire glossary.yaml"
+    datagouv: "Code pour l'API data.gouv.fr (REST, son format)"
+    mslearn: "Code pour l'API Microsoft (un autre format, une autre authentification)"
+  captions:
+    - "Une intégration à écrire et à maintenir par outil."
+    - "Une API qui change casse son intégration, jusqu'à ce que le code suive."
+  after_caption_text: "Un seul protocole : le même client pour tous les serveurs ; chaque serveur suit l'évolution de son API."

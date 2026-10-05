@@ -8,6 +8,11 @@
 // - `explain()` relies on CSS anchor positioning: Chromium only, as the bricks' « ? », accepted
 //   for the demo's target browser (Edge or Chrome on the PC).
 // - `createStepper()` reads its labels when it is built: call it after i18n.js's `ready`.
+// Lot 4 (2026-10-04, AD-28): the module's retouches, valid for every page that imports it: an
+// ink ring under the halo, the path's core at `--spacing-stroke-path`, ◀ ▶ in `aria-disabled`,
+// « Suivre le direct » pressed in solid with « ● », the stepper's own `status` node, `explain()`
+// closed when the focus leaves, `reveal()` for the progressive discovery, and the stepper's
+// options `describe` and `onLive`, its methods `load()` and `refresh()`.
 
 import { t } from "./i18n.js";
 
@@ -39,6 +44,31 @@ export function light(root, nodes) {
     if (!lit.has(node)) node.classList.remove("is-active");
   }
   for (const node of lit) node.classList.add("diagram-block", "is-active");
+}
+
+// ---------- progressive discovery (lot 4, AD-28) ----------
+
+// Shows `node` (an element of the diagram, HTML or SVG, or a list of them) or hides it:
+// `diagram-unrevealed` (pages.css) keeps its place and takes it out of the accessibility tree.
+// Appearing, it fades in briefly (`diagram-revealing`), but under `prefers-reduced-motion`.
+// What is visible at a step is the page's to decide (AD-1: formatting only).
+export function reveal(node, on) {
+  if (!node) return;
+  if (!(node instanceof Element)) {
+    for (const one of node) reveal(one, on);
+    return;
+  }
+  const hidden = node.classList.contains("diagram-unrevealed");
+  node.classList.toggle("diagram-unrevealed", !on);
+  if (!on) {
+    node.classList.remove("diagram-revealing");
+    return;
+  }
+  if (!hidden) return;
+  node.classList.remove("diagram-revealing");
+  void node.getBoundingClientRect(); // the animation starts again
+  node.classList.add("diagram-revealing");
+  node.addEventListener("animationend", () => node.classList.remove("diagram-revealing"), { once: true });
 }
 
 // ---------- wires ----------
@@ -107,8 +137,10 @@ const explanations = new WeakMap(); // block -> its popover
 let anchors = 0;
 
 // The block's click opens `text` in a popover anchored to it (CSS anchor positioning, Chromium,
-// as the bricks' « ? »); Escape or a click elsewhere closes it (native `popover`). Without a
-// text, no popover. `node` is a button (`block()`): it is the popover's invoker.
+// as the bricks' « ? »); Escape or a click elsewhere closes it (native `popover`), and so does
+// the focus leaving the block for anything but the popover (lot 4: the popover is focusable,
+// `tabindex="-1"`, and a click in it keeps it open). Without a text, no popover. `node` is a
+// button (`block()`): it is the popover's invoker.
 export function explain(node, text) {
   let popover = explanations.get(node);
   if (!text) {
@@ -126,6 +158,7 @@ export function explain(node, text) {
     popover = document.createElement("div");
     popover.className = "diagram-explain";
     popover.setAttribute("popover", "");
+    popover.tabIndex = -1;
     popover.style.setProperty("position-anchor", anchor);
     explanations.set(node, popover);
     node.popoverTargetElement = popover;
@@ -135,6 +168,16 @@ export function explain(node, text) {
       const current = explanations.get(node);
       if (current && !current.isConnected) node.after(current);
     });
+    // Lot 4 (AD-28): the focus gone elsewhere than the block or its popover closes it.
+    const leave = (event) => {
+      const current = explanations.get(node);
+      if (!current || !current.matches(":popover-open")) return;
+      const to = event.relatedTarget;
+      if (to && (node.contains(to) || current.contains(to))) return;
+      current.hidePopover();
+    };
+    node.addEventListener("focusout", leave);
+    popover.addEventListener("focusout", leave);
   }
   popover.textContent = text;
   if (node.parentNode && !popover.isConnected) node.after(popover);
@@ -147,10 +190,19 @@ export function explain(node, text) {
 // step (a real event); while live, the last one is shown and followed. ◀, ▶ or `show(i)` leave
 // the live mode (`show` does nothing with no step): the next pushes no longer move the view;
 // `follow()` (its button) goes back to the last step and follows it. `onShow(frame, index)` draws
-// the step shown. A bound greys its button; with no step, both are grey and the position hidden.
-// `clear()`: no step, live, and `onShow(null, -1)` so the page erases the step it drew. The
-// position is announced (`aria-live`) only out of live mode, not at every live push.
-export function createStepper(host, { onShow } = {}) {
+// the step shown. A bound greys its button (`aria-disabled`, never `disabled`: it keeps the
+// focus; a click on it does nothing); with no step, both are grey and the position hidden.
+// `clear()`: no step, live, and `onShow(null, -1)` so the page erases the step it drew.
+// Lot 4 (AD-28):
+// - `describe(frame, index)` names a step: out of live mode, the stepper's own `status` node
+//   (polite, visually hidden) says « Étape n sur N : {name} », else the position only; it says
+//   nothing while live, and the visible position is no longer a live region;
+// - `onLive(live)` is called at each change of the live mode (the page suspends its scrolling);
+// - `load(frames)` puts back a whole series at once (a reload), live, with a single `onShow` on
+//   the last frame (`onShow(null, -1)` for none); `refresh()` draws the current step again
+//   without touching the live mode.
+// The frames stay opaque to the module: the page decides what a step is (AD-27).
+export function createStepper(host, { onShow, describe, onLive } = {}) {
   const frames = [];
   let index = -1;
   let live = true;
@@ -171,30 +223,58 @@ export function createStepper(host, { onShow } = {}) {
   };
   const prev = button("diagram-step-prev", "◀", t("common.diagram.prev"));
   const next = button("diagram-step-next", "▶", t("common.diagram.next"));
-  const follow = button("diagram-step-live", t("common.diagram.live"));
+  const follow = button("diagram-step-live", "");
+  const dot = document.createElement("span");
+  dot.className = "diagram-step-live-dot";
+  dot.setAttribute("aria-hidden", "true");
+  dot.textContent = "● ";
+  follow.append(dot, t("common.diagram.live"));
   const position = document.createElement("span");
   position.className = "diagram-step-position";
-  bar.append(prev, position, next, follow);
+  // Reserved to the stepper (AD-28): the page's own `status` region says its summaries only.
+  const status = document.createElement("span");
+  status.className = "diagram-step-status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  bar.append(prev, position, next, follow, status);
   host.appendChild(bar);
 
+  const announce = () => {
+    if (live || index < 0) {
+      status.textContent = "";
+      return;
+    }
+    const total = frames.length;
+    const name = describe ? describe(frames[index], index) : "";
+    status.textContent = name
+      ? t("common.diagram.announce", { n: index + 1, total, name })
+      : t("common.diagram.position", { n: index + 1, total });
+  };
   const update = () => {
     const total = frames.length;
-    prev.disabled = index <= 0;
-    next.disabled = index < 0 || index >= total - 1;
+    prev.setAttribute("aria-disabled", String(index <= 0));
+    next.setAttribute("aria-disabled", String(index < 0 || index >= total - 1));
     position.hidden = total === 0;
     position.textContent = total ? t("common.diagram.position", { n: index + 1, total }) : "";
-    position.setAttribute("aria-live", live ? "off" : "polite");
     follow.setAttribute("aria-pressed", String(live));
+    dot.hidden = !live;
     bar.classList.toggle("is-live", live);
+  };
+  const setLive = (value) => {
+    if (live === value) return;
+    live = value;
+    onLive?.(live);
   };
   const go = (i) => {
     index = frames.length ? Math.max(0, Math.min(i, frames.length - 1)) : -1;
     update();
+    announce();
     if (index >= 0) onShow?.(frames[index], index);
   };
 
   const stepper = {
     element: bar,
+    status,
     get frames() {
       return [...frames];
     },
@@ -211,22 +291,39 @@ export function createStepper(host, { onShow } = {}) {
     },
     show(i) {
       if (!frames.length) return;
-      live = false;
+      setLive(false);
       go(i);
     },
     follow() {
-      live = true;
+      setLive(true);
       go(frames.length - 1);
     },
     clear() {
       frames.length = 0;
-      live = true;
+      setLive(true);
       go(-1);
       onShow?.(null, -1);
     },
+    load(list) {
+      frames.length = 0;
+      frames.push(...list);
+      setLive(true);
+      go(frames.length - 1);
+      if (!frames.length) onShow?.(null, -1);
+    },
+    refresh() {
+      update();
+      announce();
+      if (index >= 0) onShow?.(frames[index], index);
+    },
   };
-  prev.addEventListener("click", () => stepper.show(index - 1));
-  next.addEventListener("click", () => stepper.show(index + 1));
+  // A bound's button stays focusable and does nothing.
+  prev.addEventListener("click", () => {
+    if (index > 0) stepper.show(index - 1);
+  });
+  next.addEventListener("click", () => {
+    if (index >= 0 && index < frames.length - 1) stepper.show(index + 1);
+  });
   follow.addEventListener("click", () => stepper.follow());
   update();
   return stepper;

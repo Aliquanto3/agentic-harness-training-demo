@@ -1,70 +1,189 @@
-# German translation of content/mcp_lab.yaml (story 6 of 2026-09-30, AD-19): same keys, same
-# transports and methods. Formal register (Sie).
+# German translation of content/mcp_lab.yaml (story 6 of 2026-09-30, lot 4 of 2026-10-04;
+# AD-19, AD-27): the /mcp page's pedagogical texts. `{…}`: a value the page or the session
+# places.
 
-title_text: "MCP-Werkstatt: das Protokoll zum Ausprobieren"
+title_text: "MCP-Werkstatt"
 intro_text: >-
-  Ein MCP-Server ist ein eigenes Programm: Der Harness startet ihn als Kindprozess (stdio)
-  oder erreicht ihn über HTTP und spricht dann JSON-RPC mit ihm. Verbinden Sie sich mit einem
-  Server, um den Handshake, die Dokumentation seiner Tools und ihr Gewicht im Kontext des
-  Modells zu sehen, und rufen Sie dann ein Tool von Hand auf. Dies ist eine Sandbox: Die
-  Werkstatt öffnet eigene Verbindungen, der MCP-Baustein der Hauptwerkstatt bleibt unverändert, und
-  hier generiert kein Modell.
+  Das Protokoll zwischen Host und Server, Nachricht für Nachricht. Eine Sandbox: Der MCP-Baustein
+  des Harness ändert sich nicht.
 busy_text: "Derzeit nicht verfügbar: {reason}"
 
-servers_title_text: "Die Server"
 servers_help_text: >-
-  Die drei Server des MCP-Bausteins. Das Glossar ist ein Python-Prozess, den der Harness auf
-  diesem Rechner startet und über Standardein- und -ausgabe anspricht; die beiden anderen sind
-  öffentliche Dienste, die über HTTP erreicht werden, hinter dem Netzwerkschutz von WaveStack.
-
-handshake_title_text: "Der Handshake"
+  Die drei Server des MCP-Bausteins. Das Glossar ist ein Python-Prozess, den der Host auf diesem
+  Arbeitsplatz startet und über Standardein- und -ausgabe anspricht; die beiden anderen sind
+  öffentliche Dienste, über HTTP erreicht, hinter dem Netzwerkschutz von WaveStack.
 handshake_help_text: >-
-  Jede JSON-RPC-Nachricht, wie sie über den Transport läuft, mit Richtung und Dauer:
-  initialize stellt den Harness vor, der Server antwortet mit Name, Version und Fähigkeiten,
-  dann fragt tools/list nach den Tools und ihrer Dokumentation.
-handshake_empty_text: "Verbinden Sie sich mit einem Server: Seine Nachrichten erscheinen hier, eine nach der anderen."
-
-tools_title_text: "Die Dokumentation der Tools"
+  Wie im Restaurant: „Guten Tag, ich bin die Bedienung von WaveStack“ (initialize); „Guten Tag,
+  das servieren wir: Gerichte à la carte, was wir auf den Tisch stellen, Menüs“ (Fähigkeiten:
+  Tools, Ressourcen, Prompts); „Verstanden“ (notifications/initialized); „Die Karte, bitte“
+  (tools/list, resources/list, prompts/list). Erst dann wird bestellt.
+handshake_empty_text: "Verbinden Sie sich mit einem Server: Der Handshake erscheint hier, Nachricht für Nachricht."
 tools_help_text: >-
   Was der Server über jedes Tool sagt und was das im Kontext kostet. Mit vollständiger
-  Dokumentation kommt jedes Tool ganz hinein (Name, Beschreibung, Schema); mit Lazy Loading
-  hinterlässt es nur eine Zeile in der Beschreibung von load_tool_doc, und seine Dokumentation
-  kommt nur hinein, wenn das Modell sie anfordert.
-tools_empty_text: "Noch kein Tool aufgelistet: Verbinden Sie sich mit einem Server."
-
-call_title_text: "Der Aufruf"
+  Dokumentation geht jedes Tool ganz hinein (Name, Beschreibung, Schema); mit Lazy Loading bleibt
+  nur eine Zeile in der Beschreibung von load_tool_doc, und seine Dokumentation kommt nur hinein,
+  wenn das Modell sie anfordert.
+tools_empty_text: "Verbinden Sie sich mit einem Server: Seine Tool-Dokumentation und ihr Gewicht erscheinen hier."
 call_help_text: >-
-  Ein Feld pro Parameter des Tool-Schemas. Der Harness sendet tools/call; der Server
-  antwortet mit einem JSON-RPC-Ergebnis, aus dem der Harness den Text entnimmt, den er an das
-  Modell zurückgeben würde.
-call_empty_text: "Verbinden Sie sich mit einem Server, um eines seiner Tools aufzurufen."
+  Ein Feld pro Parameter des Tool-Schemas. Der Host sendet tools/call über den Client; der Server
+  antwortet mit einem JSON-RPC-Ergebnis, aus dem der Host den Text zieht, den er an das Modell
+  zurückgibt.
+by_hand_text: "Sie spielen das Modell: Sie wählen das Tool und seine Argumente."
+by_model_text: >-
+  Das aktive Modell erhält Ihre Frage und die Tools und wählt dann selbst. Langsam auf der CPU:
+  10 bis 40 s.
 reinjected_help_text: >-
-  Der Text, den der Harness dem Modell zurückgeben würde: die Textblöcke des Ergebnisses,
-  begrenzt auf die Obergrenze für Ergebnisse von Netzwerk- und MCP-Tools.
-
-context_title_text: "Was das Modell sieht"
+  Der Text, den der Harness an das Modell zurückgibt: die Textblöcke des Ergebnisses, begrenzt
+  auf die Obergrenze für Netzwerk- und MCP-Tool-Ergebnisse.
 context_help_text: >-
-  Der Block „Tools“ des Kontexts mit diesem Server, in beiden Modi: die JSON-Definitionen,
-  die der Harness sendet, ohne die Hülle, die die Vorlage des Modells hinzufügt (einige Tokens
-  mehr in der Anzeige der Hauptwerkstatt). Nichts wird generiert: Das liest das Modell, bevor
-  es ein Tool wählt.
-context_empty_text: "Verbinden Sie sich mit einem Server, um seinen Block „Tools“ zu sehen."
+  Der Block „Tools“, wie der Host ihn an das Modell sendet: die JSON-Definitionen, ohne die
+  Hülle, die die Vorlage des Modells hinzufügt. Das liest das Modell, bevor es ein Tool wählt.
+outside_text: "Ressourcen und Prompts gehören nicht dazu: Sie warten auf eine Wahl der Anwendung oder des Nutzers."
+arch_empty_text: "Die Bausteine erscheinen hier, einer nach dem anderen, sobald sie beteiligt sind."
+ask_resource_text: |-
+  Inhalt der Ressource {uri}:
+
+  {content}
+
+  {question}
 
 transports:
   stdio:
     label_text: "stdio (Kindprozess)"
     explain_text: >-
-      Der Harness startet den Server auf diesem Rechner und tauscht sich über Standardein- und
-      -ausgabe mit ihm aus: eine JSON-Zeile pro Nachricht. Nichts verlässt den Rechner.
+      Der Host startet den Server auf diesem Arbeitsplatz, und der Client tauscht sich über
+      Standardein- und -ausgabe mit ihm aus: eine JSON-Zeile pro Nachricht. Nichts verlässt den
+      Arbeitsplatz.
   streamable_http:
     label_text: "Streamable HTTP"
     explain_text: >-
-      Der Harness sendet jede Nachricht per POST an die Adresse des Servers, der in JSON oder
-      als Ereignisstrom antwortet. Die Anfrage verlässt den Rechner: Sie wird als ausgehende
+      Der Client sendet jede Nachricht per POST an die Adresse des Servers, der in JSON oder als
+      Ereignisstrom antwortet. Die Anfrage verlässt den Arbeitsplatz: Sie wird als ausgehende
       Daten protokolliert.
 
 methods:
-  initialize: "Der Harness stellt sich vor: Protokollversion, Name und Fähigkeiten des Clients."
-  "notifications/initialized": "Eine Benachrichtigung ohne Antwort: Der Harness bestätigt, dass die Sitzung offen ist."
-  "tools/list": "Der Harness fragt nach der Liste der Tools; jedes Tool kommt mit Beschreibung und Argumentschema."
-  "tools/call": "Der Harness ruft ein Tool mit seinen Argumenten auf; der Server antwortet mit Inhaltsblöcken oder mit is_error."
+  initialize: "Der Client stellt sich vor: Protokollversion, Fähigkeiten des Clients, Name und Version. Der Server antwortet mit der gewählten Version, seinem Namen und seinen Fähigkeiten: den Primitiven, die er anbietet."
+  "notifications/initialized": "Eine Benachrichtigung, ohne Antwort und ohne ID: Der Client bestätigt, dass die Sitzung offen ist."
+  "tools/list": "Der Client fragt nach der Liste der Tools. Jedes Tool kommt mit Name, Beschreibung und dem Schema seiner Argumente: Das legt der Host in den Kontext des Modells."
+  "resources/list": "Der Server hat Ressourcen angekündigt: Der Client fragt nach ihrer Liste. Jede Ressource hat eine Adresse (URI), einen Namen und einen Typ; nichts kommt in den Kontext."
+  "prompts/list": "Der Server hat Prompts angekündigt: Der Client fragt nach ihrer Liste. Jeder Prompt hat einen Namen, eine Beschreibung und seine Argumente; der Host bietet sie dem Nutzer an, wie Befehle."
+  "tools/call": "Der Client bittet den Server, ein Tool mit seinen Argumenten auszuführen; der Server antwortet mit Inhaltsblöcken und isError."
+  "resources/read": "Der Client fragt den Inhalt einer Ressource über ihre Adresse an; der Server sendet ihn mit Adresse und Typ zurück."
+  "prompts/get": "Der Client fragt einen Prompt mit seinen Argumenten an; der Server sendet Nachrichten zurück, die bereit sind, in das Gespräch einzugehen."
+
+columns:
+  user:
+    name_text: "Nutzer"
+    sub_text: "Sie"
+    explain_text: "Sie oder die teilnehmende Person. Der Nutzer spricht mit dem Host, nie mit dem MCP-Server. Bei einem MCP-Prompt wählt er selbst (wie ein /-Befehl)."
+  model:
+    name_text: "Lokales SLM"
+    sub_text: ""
+    explain_text: "Das Modell spricht nie mit dem MCP-Server. Es liest die Tools in seinem Kontext und bittet den Host um einen Aufruf, der über den Client läuft."
+  host:
+    name_text: "WaveStack-Host"
+    sub_text: "der Harness"
+    explain_text: "Die Anwendung, die das Modell und die MCP-Clients beherbergt: hier der WaveStack-Harness. Er entscheidet, welche Tools das Modell sieht, und führt seine Anfragen aus."
+  client:
+    name_text: "MCP-Client"
+    sub_text: "einer pro Server"
+    explain_text: "Ein MCP-Client pro Server (1:1-Verbindung). Er spricht JSON-RPC mit dem Server und gibt die Antworten an den Host weiter; der Host selbst spricht kein JSON-RPC."
+  server:
+    name_text: "MCP-Server"
+    sub_text: ""
+    explain_text: "Ein eigenes Programm, das Tools, Ressourcen und Prompts anbietet: auf dem Arbeitsplatz (stdio) oder außerhalb (Streamable HTTP)."
+  source:
+    name_text: "Datenquelle"
+    sub_text: ""
+    explain_text: "Was der Server liest oder aufruft. Der Host greift nie darauf zu: Dieser Austausch geschieht im Server, die Werkstatt sieht ihn nicht."
+
+phases:
+  connect:
+    why_label_text: "Warum ein Handshake?"
+    why_text: >-
+      Wie im Restaurant: „Guten Tag, ich bin die Bedienung von WaveStack“ (initialize); „Guten
+      Tag, das servieren wir: Gerichte à la carte, was wir auf den Tisch stellen, Menüs“
+      (Fähigkeiten: Tools, Ressourcen, Prompts); „Verstanden“ (notifications/initialized); „Die
+      Karte, bitte“ (tools/list, resources/list, prompts/list). Erst dann wird bestellt.
+  call:
+    why_label_text: "Wer wählt das Tool?"
+    why_text: >-
+      Ein Tool wird vom Modell gewählt. Der Host zeigt ihm die Tools, das Modell bittet um einen
+      Aufruf, der Host leitet ihn über den Client weiter. Das Modell spricht nie mit dem Server.
+  read:
+    why_label_text: "Wer wählt die Ressource?"
+    why_text: >-
+      Eine Ressource wird von der Anwendung (dem Host) gewählt, nicht vom Modell: Sie liefert
+      Kontext, wie eine mit @ angehängte Datei.
+  prompt:
+    why_label_text: "Wer wählt den Prompt?"
+    why_text: >-
+      Ein Prompt wird vom Nutzer gewählt: eine Anfragevorlage, die der Server vorbereitet, wie
+      ein /-Befehl.
+  ask:
+    why_label_text: "Was erhält das Modell?"
+    why_text: >-
+      Was die Anwendung oder der Nutzer gewählt hat, kommt in den Kontext; das Modell antwortet
+      oder fordert ein Tool an, das der Host über den Client ausführt.
+
+primitives:
+  tools:
+    note_text: "Ein Tool wird vom Modell gewählt: Der Host zeigt es ihm, das Modell fordert den Aufruf an."
+  resources:
+    note_text: "Sie spielen die Anwendung: Sie wählt eine Ressource."
+  prompts:
+    note_text: "Ein Prompt wird vom Nutzer gewählt, wie ein /-Befehl: Seine Nachrichten gehen wie Ihre in das Gespräch ein."
+
+servers:
+  local:
+    source_label_text: "glossary.yaml"
+    source_action_text: "liest glossary.yaml"
+    source_explain_text: "Die Quelle des Glossars: eine YAML-Datei, die der Server liest. Der Host liest sie nie selbst."
+  datagouv:
+    source_label_text: "API data.gouv.fr"
+    source_action_text: "ruft die API von data.gouv.fr auf"
+    source_explain_text: "Die API von data.gouv.fr, vom Server aufgerufen. Dieser Austausch geschieht beim Server: Der Arbeitsplatz sieht ihn nicht."
+  mslearn:
+    source_label_text: "Microsoft-Dokumentation"
+    source_action_text: "liest die Microsoft-Dokumentation"
+    source_explain_text: "Die Dokumentation von Microsoft Learn, vom Server gelesen, außer Sicht des Arbeitsplatzes."
+
+restaurant:
+  host:
+    place_text: "der Gastraum des Restaurants"
+    meaning_text: "er empfängt, platziert, serviert; er kocht nicht"
+  client:
+    place_text: "eine Bedienung pro Küche"
+    meaning_text: "sie bringt die Bestellungen hin und die Gerichte zurück; eine Bedienung pro Küche (1 Client = 1 Server)"
+  server_stdio:
+    place_text: "die Küche im Hinterzimmer"
+    meaning_text: "dasselbe Gebäude (der Arbeitsplatz), aber ein eigener Raum (ein anderer Prozess)"
+  server_http:
+    place_text: "ein externer Caterer"
+    meaning_text: "die Bestellung geht auf die Straße (das Netzwerk)"
+  source:
+    place_text: "die Vorratskammer der Küche"
+    meaning_text: "der Gastraum betritt sie nie"
+  model:
+    place_text: "der Gast"
+    meaning_text: "er liest die Karte und bestellt; er geht nie in die Küche"
+  tool:
+    place_text: "ein Gericht à la carte"
+    meaning_text: "vom Gast gewählt"
+  resource:
+    place_text: "was das Haus auf den Tisch stellt, Brot oder Karaffe"
+    meaning_text: "vom Gastraum gewählt, ohne dass der Gast fragt"
+  prompt:
+    place_text: "das Tagesmenü"
+    meaning_text: "gewählt von dem, der einlädt (dem Nutzer)"
+
+before:
+  banner_text: "Prinzipskizze: Nichts wird erfasst"
+  integrations:
+    local: "Code zum Lesen von glossary.yaml"
+    datagouv: "Code für die API von data.gouv.fr (REST, ihr Format)"
+    mslearn: "Code für die Microsoft-API (ein anderes Format, eine andere Authentifizierung)"
+  captions:
+    - "Eine Integration pro Tool zu schreiben und zu pflegen."
+    - "Eine API, die sich ändert, bricht ihre Integration, bis der Code nachzieht."
+  after_caption_text: "Ein einziges Protokoll: derselbe Client für alle Server; jeder Server folgt der Entwicklung seiner API."

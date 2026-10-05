@@ -11,6 +11,8 @@ import { languageChanging, renderLanguagePicker as drawLanguagePicker, setDispla
 import { renderMarkdown } from "./markdown.js";
 // Lot 2 (2026-10-04): the shared diagram's primitives (blocks, halo, wires, layer).
 import { block as diagramBlock, light, marker, svgEl, wire, wireLayer } from "./diagram.js";
+// Lot 4 (2026-10-04, AD-28): the panes' mechanics and the projection mode, shared with /mcp.
+import { createPanes, initProjection } from "./panes.js";
 
 const PANES = ["bricks", "human", "ctx", "orch", "schema"];
 const PANE_LABELS = section("main.pane_titles");
@@ -48,11 +50,18 @@ const store = {
   // Story 34, UI state only: the link keys of the element under the pointer or the keyboard
   // focus (`data-links`); every pane lights what shares one of them.
   linkHover: null,
-  hiddenPanes: new Set(),
-  focusedPane: null,
-  // Sizes the user dragged (story 8f), absent until then: `bricks` width and `schema` height
-  // in px, `human` / `ctx` / `orch` as flex-grow weights. Saved with `hiddenPanes`.
-  paneSizes: {},
+  // Lot 4 (AD-28): the hidden panes, the focused one and the sizes the user dragged (story 8f:
+  // `bricks` width and `schema` height in px, `human` / `ctx` / `orch` as flex-grow weights)
+  // are panes.js's, read here through `panes`.
+  get hiddenPanes() {
+    return panes.hidden;
+  },
+  get focusedPane() {
+    return panes.focused;
+  },
+  set focusedPane(paneId) {
+    panes.focused = paneId;
+  },
   // Gauge source: the most recent of `context_preview` / `context_rendered` (AD-9), and the
   // call it measures (the envelope's `call_id`, `null` for a preview; story 34).
   gauge: null, // { payload, preview, callId }
@@ -900,27 +909,40 @@ function announce(turn) {
 
 // ---------- pane visibility, focus, selection ----------
 
-function hidePane(paneId) {
-  if (store.hiddenPanes.size >= PANES.length - 1) return; // at least one stays visible
-  store.hiddenPanes.add(paneId);
-  savePaneLayout();
-  render();
-}
+// Lot 4 (AD-28): panes.js lays them out, hides, focuses, resizes and remembers them
+// (`wavestack.panes`); the page re-renders on each change. At least one stays visible.
+const panes = createPanes({
+  panes: PANES,
+  labels: PANE_LABELS,
+  storageKey: "wavestack.panes",
+  layout: document.getElementById("layout"),
+  left: "bricks",
+  row: ["human", "ctx", "orch"],
+  bottom: "schema",
+  chips: document.getElementById("pane-chips"),
+  // The Vue humain waits for the user's answer to an H5 validation; story 34: a hidden pane
+  // holds an element linked to the selection (FR-4), said in words on its chip.
+  chipState: (paneId) => {
+    const awaiting = paneId === "human" && store.sessionState?.state === "awaiting_human";
+    return {
+      awaiting,
+      linked: Boolean(document.querySelector(`.pane[data-pane="${paneId}"] .is-selection-linked`)),
+      ...(awaiting ? { title: t("main.panes.awaiting") } : {}),
+    };
+  },
+  onChange: () => render(),
+});
 
 function showPane(paneId) {
-  store.hiddenPanes.delete(paneId);
-  savePaneLayout();
-  render();
+  panes.show(paneId);
 }
 
 function togglePane(paneId) {
-  if (store.hiddenPanes.has(paneId)) showPane(paneId);
-  else hidePane(paneId);
+  panes.toggle(paneId);
 }
 
-function toggleFocus(paneId) {
-  store.focusedPane = store.focusedPane === paneId ? null : paneId;
-  render();
+function savePaneLayout() {
+  panes.save();
 }
 
 function cssEscape(value) {
@@ -6080,50 +6102,13 @@ function setTopStatus(text, title = text) {
   if (status.title !== title) status.title = title;
 }
 
-let renderedChipsKey = null;
-
 function renderChips() {
-  const container = document.getElementById("pane-chips");
-  // The Vue humain waits for the user's answer to an H5 validation; story 34: a hidden pane
-  // holds an element linked to the selection (FR-4), said in words on its chip.
-  const chips = [...store.hiddenPanes].map((paneId) => ({
-    paneId,
-    awaiting: paneId === "human" && store.sessionState?.state === "awaiting_human",
-    linked: Boolean(document.querySelector(`.pane[data-pane="${paneId}"] .is-selection-linked`)),
-  }));
-  // Rebuilt only when it changes: `applyLinks` runs on each hover, under the pointer.
-  const key = JSON.stringify(chips);
-  if (key === renderedChipsKey) return;
-  renderedChipsKey = key;
-  container.innerHTML = "";
-  for (const { paneId, awaiting, linked } of chips) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "pane-chip";
-    const name = PANE_LABELS[paneId];
-    chip.textContent = `+ ${name}${linked ? ` · ${t("main.panes.linked")}` : ""}`;
-    if (awaiting || linked) {
-      chip.classList.add("is-linked");
-      const dot = el("span", "pane-chip-dot", "● ");
-      dot.setAttribute("aria-hidden", "true");
-      chip.prepend(dot);
-    }
-    chip.title = awaiting
-      ? t("main.panes.awaiting")
-      : linked
-        ? t("main.panes.show_linked", { pane: name })
-        : t("main.panes.show", { pane: name });
-    // WCAG 2.5.3: the accessible name starts with the visible text.
-    chip.setAttribute("aria-label", labelValue(chip.textContent.replace(/^● /, ""), chip.title));
-    chip.addEventListener("click", () => showPane(paneId));
-    container.appendChild(chip);
-  }
+  panes.renderChips();
 }
 
 function renderMenu() {
   const list = document.getElementById("pane-menu-list");
   list.innerHTML = "";
-  const lastVisible = store.hiddenPanes.size >= PANES.length - 1;
   for (const paneId of PANES) {
     const visible = !store.hiddenPanes.has(paneId);
     const li = document.createElement("li");
@@ -6131,8 +6116,8 @@ function renderMenu() {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = visible;
-    checkbox.disabled = visible && lastVisible;
-    if (checkbox.disabled) checkbox.title = t("main.panes.one_visible");
+    checkbox.disabled = !panes.canHide(paneId);
+    if (checkbox.disabled) checkbox.title = t("common.panes.one_visible");
     checkbox.addEventListener("change", () => togglePane(paneId));
     label.appendChild(checkbox);
     label.append(PANE_LABELS[paneId]);
@@ -6154,267 +6139,7 @@ function renderMenu() {
 }
 
 function renderPaneVisibility() {
-  const lastVisible = store.hiddenPanes.size >= PANES.length - 1;
-  document.body.classList.toggle("focus-mode", store.focusedPane !== null);
-  for (const paneId of PANES) {
-    const section = document.querySelector(`.pane[data-pane="${paneId}"]`);
-    const hidden = store.hiddenPanes.has(paneId);
-    section.classList.toggle("is-hidden", hidden);
-    section.classList.toggle("is-focused", store.focusedPane === paneId);
-    const hideButton = section.querySelector('[data-action="hide"]');
-    const disable = !hidden && lastVisible;
-    hideButton.disabled = disable;
-    hideButton.title = disable ? t("main.panes.one_visible") : t("main.panes.hide", { pane: PANE_LABELS[paneId] });
-    hideButton.setAttribute("aria-label", hideButton.title);
-  }
-  // A handle only stands between two visible neighbours, never in focus mode.
-  for (const handle of document.querySelectorAll(".pane-resize-handle")) {
-    const pair = store.focusedPane === null ? handleNeighbours(handle.dataset.handle) : null;
-    handle.hidden = !pair;
-    if (pair) handle.setAttribute("aria-label", pair.label);
-  }
-  scheduleHandleValues();
-}
-
-// ---------- pane resizing (story 8f): gutter handles, mouse and keyboard ----------
-
-const PANES_STORAGE_KEY = "wavestack.panes";
-const TOP_ROW = ["human", "ctx", "orch"];
-const PANE_SIZE_VARS = {
-  bricks: "--pane-bricks-width",
-  schema: "--pane-schema-height",
-  human: "--pane-human-grow",
-  ctx: "--pane-ctx-grow",
-  orch: "--pane-orch-grow",
-};
-const PANE_MIN_WIDTH = 240; // same minimums as app.css (--pane-min-width / --pane-min-height)
-const PANE_MIN_HEIGHT = 160;
-const RESIZE_STEP = 16;
-// One handle after each of these; "schema" sits between the top row and the schema.
-const RESIZE_HANDLES = ["bricks", "human", "ctx", "schema"];
-
-function paneSection(paneId) {
-  return document.querySelector(`.pane[data-pane="${paneId}"]`);
-}
-
-function isPaneVisible(paneId) {
-  return !store.hiddenPanes.has(paneId);
-}
-
-// The two neighbours a handle moves the boundary between, or null when it has no place (one
-// side hidden). `before` / `after` are the elements measured; `label` names both panes.
-function handleNeighbours(handleId) {
-  if (handleId === "bricks") {
-    if (!isPaneVisible("bricks") || ![...TOP_ROW, "schema"].some(isPaneVisible)) return null;
-    return {
-      before: paneSection("bricks"),
-      after: document.querySelector(".right"),
-      label: t("main.panes.resize_bricks", { pane: PANE_LABELS.bricks }),
-    };
-  }
-  if (handleId === "schema") {
-    const top = TOP_ROW.filter(isPaneVisible);
-    if (!top.length || !isPaneVisible("schema")) return null;
-    const names = top.map((p) => PANE_LABELS[p]).join(", ");
-    return {
-      before: document.querySelector(".top-row"),
-      after: paneSection("schema"),
-      label: t("main.panes.resize_schema", { names, pane: PANE_LABELS.schema }),
-    };
-  }
-  const next = TOP_ROW.slice(TOP_ROW.indexOf(handleId) + 1).find(isPaneVisible);
-  if (!isPaneVisible(handleId) || !next) return null;
-  return {
-    before: paneSection(handleId),
-    after: paneSection(next),
-    beforeId: handleId,
-    afterId: next,
-    label: t("main.panes.resize_between", { a: PANE_LABELS[handleId], b: PANE_LABELS[next] }),
-  };
-}
-
-// Current sizes along the handle's axis. For a top-row handle, also the width and the weight
-// shared by the visible columns, to turn pixels back into weights.
-function measureHandle(handleId) {
-  const pair = handleNeighbours(handleId);
-  if (!pair) return null;
-  const vertical = handleId === "schema";
-  const size = (el) => {
-    const rect = el.getBoundingClientRect();
-    return vertical ? rect.height : rect.width;
-  };
-  const m = { handleId, pair, a: size(pair.before), b: size(pair.after) };
-  m.min = vertical ? PANE_MIN_HEIGHT : PANE_MIN_WIDTH;
-  m.minAfter = m.min;
-  if (handleId === "bricks") {
-    // Every visible top-row column keeps its minimum, not just the right side as a whole: the
-    // narrowest share (smallest weight) sets the width the columns need together.
-    const weights = TOP_ROW.filter(isPaneVisible).map((p) => store.paneSizes[p] ?? 1);
-    if (weights.length > 1) {
-      const gutter = parseFloat(getComputedStyle(document.querySelector(".top-row")).columnGap) || 0;
-      const sum = weights.reduce((total, w) => total + w, 0);
-      m.minAfter = (PANE_MIN_WIDTH * sum) / Math.min(...weights) + (weights.length - 1) * gutter;
-    }
-  }
-  if (TOP_ROW.includes(handleId)) {
-    const visible = TOP_ROW.filter(isPaneVisible);
-    m.total = visible.reduce((sum, p) => sum + size(paneSection(p)), 0);
-    m.weight = visible.reduce((sum, p) => sum + (store.paneSizes[p] ?? 1), 0);
-  }
-  return m;
-}
-
-// Moves the boundary `delta` px from the measured position, within the minimums. A side already
-// under its minimum (shrunk window) is never pushed further down, nor snapped up.
-function moveBoundary(m, delta) {
-  const lo = Math.min(m.min, m.a);
-  const hi = Math.max(m.a + m.b - m.minAfter, m.a);
-  const a = Math.min(hi, Math.max(lo, m.a + delta));
-  const round = (value) => Math.round(value * 10000) / 10000;
-  if (m.handleId === "bricks") {
-    store.paneSizes.bricks = Math.round(a);
-  } else if (m.handleId === "schema") {
-    store.paneSizes.schema = Math.round(m.a + m.b - a);
-  } else if (m.total > 0) {
-    // Weights of the two neighbours only, their sum unchanged: the other columns do not move.
-    store.paneSizes[m.pair.beforeId] = round((a / m.total) * m.weight);
-    store.paneSizes[m.pair.afterId] = round(((m.a + m.b - a) / m.total) * m.weight);
-  }
-  applyPaneSizes();
-  updateHandleValues();
-}
-
-// Double-click: default proportions for what this handle moves.
-function resetBoundary(handleId) {
-  if (handleId === "bricks" || handleId === "schema") delete store.paneSizes[handleId];
-  else for (const p of TOP_ROW) delete store.paneSizes[p];
-  applyPaneSizes();
-  savePaneLayout();
-  updateHandleValues();
-}
-
-function applyPaneSizes() {
-  const layout = document.getElementById("layout");
-  for (const [key, name] of Object.entries(PANE_SIZE_VARS)) {
-    const value = store.paneSizes[key];
-    if (value === undefined) layout.style.removeProperty(name);
-    else layout.style.setProperty(name, key === "bricks" || key === "schema" ? `${value}px` : String(value));
-  }
-}
-
-// aria-valuenow: share (%) of what precedes the handle, out of both neighbours.
-function updateHandleValues() {
-  for (const handle of document.querySelectorAll(".pane-resize-handle")) {
-    if (handle.hidden) continue;
-    const m = measureHandle(handle.dataset.handle);
-    const total = m ? m.a + m.b : 0;
-    if (!total) continue;
-    const pct = (value) => String(Math.round((value / total) * 100));
-    handle.setAttribute("aria-valuenow", pct(m.a));
-    handle.setAttribute("aria-valuemin", pct(Math.min(m.min, m.a)));
-    handle.setAttribute("aria-valuemax", pct(Math.max(total - m.minAfter, m.a)));
-  }
-}
-
-let handleValuesFrame = 0;
-
-function scheduleHandleValues() {
-  if (handleValuesFrame) return;
-  handleValuesFrame = requestAnimationFrame(() => {
-    handleValuesFrame = 0;
-    updateHandleValues();
-  });
-}
-
-// Sizes and hidden panes survive a reload (not the focus mode). Missing, unreadable or corrupt
-// storage leaves the defaults, silently.
-function loadPaneLayout() {
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(PANES_STORAGE_KEY));
-  } catch {
-    return;
-  }
-  if (!saved || typeof saved !== "object") return;
-  const sizes = saved.sizes && typeof saved.sizes === "object" ? saved.sizes : {};
-  for (const key of Object.keys(PANE_SIZE_VARS)) {
-    const value = sizes[key];
-    const max = key === "bricks" || key === "schema" ? 100000 : 100;
-    if (typeof value === "number" && Number.isFinite(value) && value > 0 && value <= max) {
-      store.paneSizes[key] = value;
-    }
-  }
-  if (Array.isArray(saved.hidden)) {
-    const hidden = new Set(saved.hidden.filter((p) => PANES.includes(p)));
-    if (hidden.size < PANES.length) store.hiddenPanes = hidden; // at least one stays visible
-  }
-}
-
-function savePaneLayout() {
-  try {
-    localStorage.setItem(
-      PANES_STORAGE_KEY,
-      JSON.stringify({ hidden: [...store.hiddenPanes], sizes: store.paneSizes })
-    );
-  } catch {
-    // No storage (private window, blocked site data): the layout just won't be remembered.
-  }
-}
-
-function createResizeHandles() {
-  for (const handleId of RESIZE_HANDLES) {
-    const horizontal = handleId === "schema";
-    const handle = document.createElement("div");
-    handle.className = "pane-resize-handle";
-    handle.dataset.handle = handleId;
-    handle.setAttribute("role", "separator");
-    handle.setAttribute("aria-orientation", horizontal ? "horizontal" : "vertical");
-    handle.tabIndex = 0;
-    handle.hidden = true;
-    (horizontal ? document.querySelector(".top-row") : paneSection(handleId)).after(handle);
-
-    let drag = null;
-    const endDrag = () => {
-      if (!drag) return;
-      if (drag.moved) savePaneLayout();
-      drag = null;
-      handle.classList.remove("is-dragging");
-      document.body.classList.remove("is-resizing-x", "is-resizing-y");
-    };
-    handle.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) return;
-      const m = measureHandle(handleId);
-      if (!m) return;
-      event.preventDefault(); // no text selection; focus is given explicitly
-      handle.focus({ preventScroll: true });
-      handle.setPointerCapture(event.pointerId);
-      drag = { m, x: event.clientX, y: event.clientY, moved: false };
-      handle.classList.add("is-dragging");
-      document.body.classList.add(horizontal ? "is-resizing-y" : "is-resizing-x");
-    });
-    handle.addEventListener("pointermove", (event) => {
-      if (!drag) return;
-      const delta = horizontal ? event.clientY - drag.y : event.clientX - drag.x;
-      if (!delta && !drag.moved) return;
-      drag.moved = true;
-      moveBoundary(drag.m, delta);
-    });
-    handle.addEventListener("pointerup", endDrag);
-    handle.addEventListener("pointercancel", endDrag);
-    handle.addEventListener("lostpointercapture", endDrag);
-    handle.addEventListener("dblclick", () => resetBoundary(handleId));
-    handle.addEventListener("keydown", (event) => {
-      if (event.altKey || event.ctrlKey || event.metaKey) return; // browser shortcuts (Alt+←)
-      const keys = horizontal ? ["ArrowUp", "ArrowDown"] : ["ArrowLeft", "ArrowRight"];
-      const direction = keys.indexOf(event.key);
-      if (direction < 0) return;
-      event.preventDefault();
-      const m = measureHandle(handleId);
-      if (!m) return;
-      moveBoundary(m, direction ? RESIZE_STEP : -RESIZE_STEP);
-      savePaneLayout();
-    });
-  }
+  panes.render();
 }
 
 // ---------- event log: every event the harness emits, folded at the bottom of Orchestration ----------
@@ -6569,12 +6294,37 @@ function eventSummary(group) {
       return `${t(p.direction === "to_server" ? "mcp.to_server" : "mcp.from_server")} · ${p.method || "—"} · ${seconds(p.elapsed_ms)}`;
     case "mcp_lab_connect_ended":
       return p.status === "ok"
-        ? `${labelValue(mcpServerLabel(p.server), plural(p.tools.length, "tool"))} · ${seconds(p.duration_ms)}`
+        ? `${labelValue(mcpServerLabel(p.server), plural((p.tools ?? []).length, "tool"))} · ${seconds(p.duration_ms)}`
         : labelValue(mcpServerLabel(p.server), p.error_text);
     case "mcp_lab_call_ended":
       return [labelValue(mcpServerLabel(p.server), p.tool), seconds(p.duration_ms), p.error_text]
         .filter(Boolean)
         .join(" · ");
+    // Lot 4 of 2026-10-04 (AD-27): the workshop's other exchanges, in the log only.
+    case "mcp_lab_exchange_started":
+      return [labelValue(mcpServerLabel(p.server), p.exchange), p.tool ?? p.uri ?? p.prompt ?? p.question]
+        .filter(Boolean)
+        .join(" · ");
+    case "mcp_lab_read_ended":
+      return [labelValue(mcpServerLabel(p.server), p.uri), seconds(p.duration_ms), p.error_text]
+        .filter(Boolean)
+        .join(" · ");
+    case "mcp_lab_prompt_ended":
+      return [labelValue(mcpServerLabel(p.server), p.name), seconds(p.duration_ms), p.error_text]
+        .filter(Boolean)
+        .join(" · ");
+    case "mcp_lab_model_started":
+      return p.phase_label;
+    case "mcp_lab_model_ended":
+      return [p.outcome ?? p.status, seconds(p.duration_ms), p.refusal_text ?? p.error_text]
+        .filter(Boolean)
+        .join(" · ");
+    case "mcp_lab_ask_ended":
+      return [labelValue(mcpServerLabel(p.server), p.outcome ?? p.status), seconds(p.duration_ms), p.error_text]
+        .filter(Boolean)
+        .join(" · ");
+    case "mcp_lab_closed":
+      return labelValue(mcpServerLabel(p.server), p.cause);
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
@@ -7410,38 +7160,6 @@ async function openAudit() {
   }
 }
 
-// ---------- story 34: projection mode (NFR-9) ----------
-// Every text a notch larger (the ramp × 9/7, in app.css), remembered by the browser; the
-// reset leaves it, like the panes' layout. Without storage, it works until the next reload.
-
-const PROJECTION_STORAGE_KEY = "wavestack.projection";
-
-function setProjection(on) {
-  document.documentElement.classList.toggle("projection", on);
-  document.getElementById("projection-toggle").setAttribute("aria-pressed", String(on));
-  schemaWires.schedule(); // the schema's pieces moved
-}
-
-function loadProjection() {
-  let on = false;
-  try {
-    on = localStorage.getItem(PROJECTION_STORAGE_KEY) === "1";
-  } catch {
-    // No storage: the default size.
-  }
-  setProjection(on);
-}
-
-function toggleProjection() {
-  const on = !document.documentElement.classList.contains("projection");
-  setProjection(on);
-  try {
-    localStorage.setItem(PROJECTION_STORAGE_KEY, on ? "1" : "0");
-  } catch {
-    // No storage: the mode lasts until the page is reloaded.
-  }
-}
-
 // ---------- boot ----------
 
 function closePaneMenu() {
@@ -7456,20 +7174,19 @@ async function boot() {
   // `data-i18n*` of the page); every render reads them.
   await textsReady;
   // Remembered pane layout first, so the page does not open on the defaults then jump.
-  loadPaneLayout();
-  loadProjection();
+  panes.load();
+  // Story 34: the projection mode (NFR-9), panes.js's; the schema's pieces move with it.
+  initProjection({
+    toggle: document.getElementById("projection-toggle"),
+    onChange: () => schemaWires.schedule(),
+  });
   bindLinkedView();
   loadShowForced();
   loadShowReasoning();
   loadCtxMode(); // story 32: Contexte LLM's view, remembered by the browser
   document.getElementById("show-reasoning").addEventListener("change", toggleShowReasoning);
-  createResizeHandles();
-  applyPaneSizes();
-  renderChips();
+  panes.start(); // the gutter handles, the sizes, « — » and ⛶, then the first layout
   renderMenu();
-  renderPaneVisibility();
-  // aria-valuenow follows the window too (bricks and schema are in px).
-  new ResizeObserver(scheduleHandleValues).observe(document.getElementById("layout"));
 
   document.getElementById("pane-menu-toggle").addEventListener("click", () => {
     const list = document.getElementById("pane-menu-list");
@@ -7485,16 +7202,6 @@ async function boot() {
   });
   bindWindowPicker();
 
-  for (const paneId of PANES) {
-    const section = document.querySelector(`.pane[data-pane="${paneId}"]`);
-    section
-      .querySelector('[data-action="hide"]')
-      .addEventListener("click", () => hidePane(paneId));
-    section
-      .querySelector('[data-action="focus"]')
-      .addEventListener("click", () => toggleFocus(paneId));
-  }
-
   document.getElementById("composer").addEventListener("submit", sendMessage);
   document.getElementById("composer-stop").addEventListener("click", stopTurn);
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
@@ -7508,7 +7215,6 @@ async function boot() {
   document.getElementById("model-picker-apply").addEventListener("click", applyPick);
   bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
-  document.getElementById("projection-toggle").addEventListener("click", toggleProjection);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
   document.getElementById("event-log-head").addEventListener("click", toggleJournal);

@@ -101,8 +101,9 @@ def test_every_page_opens_on_the_same_shared_bar(monkeypatch, tmp_path):
         for control in ('id="display-menu"', 'id="theme-picker"', 'id="language-picker"'):
             assert control in nav, (path, control)
         assert nav.index("/diagnostic") < nav.index('id="display-menu"'), path
-        assert ('id="projection-toggle"' in page) == (path == "/"), path
-        if path == "/":
+        # Lot 4 of 2026-10-04 (AD-28): the projection mode on the atelier and on /mcp.
+        assert ('id="projection-toggle"' in page) == (path in ("/", "/mcp")), path
+        if path in ("/", "/mcp"):
             nav = nav.replace(_projection_row(nav), "")
         navs[path] = nav.replace(' aria-current="page"', "")
     assert len(set(navs.values())) == 1, "the five copies of the bar differ"
@@ -624,7 +625,8 @@ def test_the_answer_bubble_alone_uses_the_markdown_rendering():
     assert app_js.count("renderMarkdown(") == 1  # one place: the Vue humain's answer
     assert 'el("div", "bubble-text is-markdown")' in app_js
     assert 'el("div", "bubble-text", turn.text)' not in app_js
-    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    # Lot 4 of 2026-10-04 (AD-28): the panes' rules live in pages.css, shared by the workshops.
+    css = (STATIC / "pages.css").read_text(encoding="utf-8")
     assert re.search(
         r"body\.focus-mode \.right:has\([^)]*\.pane\.is-focused\) \{\s*min-height: 0;", css
     )

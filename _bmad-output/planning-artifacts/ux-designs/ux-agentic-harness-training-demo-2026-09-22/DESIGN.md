@@ -203,6 +203,7 @@ spacing:
   brick-panel-width: 280px
   architecture-band-height: 250px
   stroke-min: 2px
+  stroke-path: 3px
   hit-target-min: 32px
   relief-offset: 4px
   relief-offset-pressed: 1px

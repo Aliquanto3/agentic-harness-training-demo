@@ -971,3 +971,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-lot-1-quick-wins-2026-10-04.md`
   summary: Raccourcir le README sous 100 lignes : `tests/test_docs_links.py::test_readme_is_a_short_onboarding_page` est rouge.
   evidence: Le README faisait déjà 120 lignes au commit de base 64c660d. Le lien vers « Modèles du RAG » ajouté au lot 1 le porte à 121 lignes.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-lot-4-atelier-mcp-en-sequence-2026-10-04.md`
+  summary: Rendre déterministes les deux chemins de fermeture d'une connexion de l'Atelier MCP perdue hors échange (`mcp_lab_closed{lost}` et `call_ended{lost}`) dans `test_a_server_gone_closes_the_workshops_connection`.
+  evidence: le test accepte l'une ou l'autre fin selon la course entre la tâche de connexion et l'appel suivant ; chaque chemin n'est couvert que par le hasard du minutage (non vérifié : il faudrait un point d'accroche dans la tâche de connexion pour forcer chaque branche).

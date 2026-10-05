@@ -352,6 +352,7 @@ EXCEPTIONS = {
     ("hooks.py", "décembre"),
     # An internal exception, mapped to `mcp.error.closed` by `describe_error`.
     ("mcp/connection.py", "connexion fermée"),
+    ("mcp/lab.py", "connexion fermée"),  # the same, in the MCP workshop's `_serve` (lot 4)
     # Validation of `memory.json` and `memory.yaml`: file validation, never translated.
     ("memory.py", "entrée"),
     ("memory.py", "caractères au plus"),

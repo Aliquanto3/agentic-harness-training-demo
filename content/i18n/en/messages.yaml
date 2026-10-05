@@ -109,6 +109,7 @@ session:
       abandoned: "The previous turn did not complete (stopped, failed, blocked or exceeded): its output is in the engine's cache, not in the history."
       subagent: "The sub-agent occupied the engine's cache{why}."
       llm: "The LLM workshop occupied the engine's cache{why}."
+      mcp_lab: "The MCP workshop occupied the engine's cache{why}."
     evicted:
       stateless: ": this engine cannot save the state of the main context"
       failed: ": saving or restoring the state of the main context failed"
@@ -528,9 +529,74 @@ session:
     not_connected: "Connect to {server} first: the call goes through the MCP workshop's connection."
     unknown_tool: "{server} did not list a tool “{tool}”."
     stopped: "Exchange stopped: the MCP workshop's connection is closed."
+    stopped_ask: "Sending to the model stopped: the tool asked for was not called; the connection stays open."
     closed: "The MCP workshop's connection is closed: connect to the server again."
-    is_error: "The server answered with is_error: the tool reports an error, which the harness would reinject to the model as it is."
+    is_error: "The server answered with isError: the tool reports an error, which the harness reinjects to the model as it is. The protocol worked, the tool did not."
     interrupted: The MCP workshop stopped on an error.
+    launch:
+      stdio: "launches the server: {command}"
+      http: "opens an HTTP session with {host}"
+    summary:
+      error: "error {code}: {message}"
+      no_capabilities: "no capability"
+      capabilities: "capabilities: {names}"
+      tools:
+        one: "{n} tool"
+        other: "{n} tools"
+      resources:
+        one: "{n} resource"
+        other: "{n} resources"
+      prompts:
+        one: "{n} prompt"
+        other: "{n} prompts"
+      text_blocks:
+        one: "{n} text block"
+        other: "{n} text blocks"
+      other_blocks:
+        one: "{n} other block"
+        other: "{n} other blocks"
+      is_error: "isError · {blocks}"
+      text_content:
+        one: "{mime} · {n} line"
+        other: "{mime} · {n} lines"
+      blob_content: "{mime} · {n} bytes"
+      contents:
+        one: "{n} content"
+        other: "{n} contents"
+      messages:
+        one: "{n} message"
+        other: "{n} messages"
+    no_resources: "{server} does not announce resources."
+    no_prompts: "{server} does not announce prompts."
+    unknown_resource: "{server} did not list a resource “{uri}”."
+    unknown_prompt: "{server} did not list a prompt “{prompt}”."
+    missing_argument: "The prompt “{prompt}” needs the argument “{argument}”."
+    blob_content: "[{mime} content of {n} bytes, not included]"
+    ask:
+      no_model: "No model is loaded: choose one in the diagnostic."
+      no_tools: "The active model does not call tools: choose another one in the diagnostic."
+      cloud_no_tools: "The active model ({model}) does not declare tool calling: choose another one in the diagnostic."
+      of_unknown: "Nothing to send: first read a resource or get a prompt on this connection."
+      question_with_prompt: "A prompt leaves without a question: its messages are the request."
+      question_required: "Write a question first."
+    model_phase: "Sending to the model ({tokens} tokens)"
+    model_phase_cloud: "Sending to {provider} (≈ {tokens} tokens)"
+    overflow: "Not sent: the context counts {tokens} tokens for {usable} usable."
+    model_error: "The model could not answer."
+    provider_effect: "The MCP workshop stops this sending; the connection to the server stays open."
+    arguments_unparsed: "The call's arguments are not a valid JSON object."
+    sends:
+      question: "question"
+      resource: "resource {uri}"
+      prompt: "prompt {name}"
+      tools:
+        one: "{n} tool"
+        other: "{n} tools"
+      lazy: "load_tool_doc and its catalog"
+      tool_doc: "documentation of {tool}"
+      tool_call: "call: {tool}"
+      tool_result: "tool result"
+    share: "of which {model} s of generation"
   reading_context: "Reading the context ({tokens} tokens)"
 
 tools:

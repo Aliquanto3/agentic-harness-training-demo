@@ -1,0 +1,16 @@
+# La ressource et le prompt du serveur MCP local (lot 4 du 2026-10-04, AD-27), lus par le
+# serveur au lancement, dans sa langue. `{…}` : une valeur que le serveur place.
+terms:
+  title: Termes du glossaire
+  description: La liste des termes du glossaire du démonstrateur WaveStack, un par ligne.
+explain_term:
+  title: Expliquer une notion
+  description: >-
+    Prépare une demande d'explication d'une notion du glossaire, la définition déjà insérée.
+  term: La notion à expliquer, un terme du glossaire.
+  text: >-
+    Explique la notion « {term} » à un consultant qui découvre les agents, en trois phrases,
+    à partir de cette définition : {definition}
+  unknown_text: >-
+    Explique la notion « {term} » à un consultant qui découvre les agents, en trois phrases.
+    Elle n'est pas dans le glossaire de WaveStack, dont voici les termes : {known}.
