@@ -233,7 +233,7 @@ Au lancement, WaveStack vérifie la mémoire disponible, la présence d'un modè
 poste, l'accès réseau et la disponibilité du port — chaque résultat s'affiche en français dans le
 terminal et sur la page de diagnostic. Si aucun modèle n'est trouvé, la page propose de saisir le
 chemin d'un fichier `.gguf` (partage, clé USB, cache Hugging Face, LM Studio, Ollama). Avec
-plusieurs modèles utilisables, cliquez sur « Choisir » en face de celui que vous voulez, puis
+plusieurs modèles utilisables, cliquez sur « Choisir ce modèle » en face de celui que vous voulez, puis
 ouvrez l'Atelier Harnais par le lien « Harnais » de la barre de navigation. Pour la suite (l'interface,
 les scénarios, les ateliers), voir le [guide d'utilisation](guide.md).
 
