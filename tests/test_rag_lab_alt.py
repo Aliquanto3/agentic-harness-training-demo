@@ -66,9 +66,7 @@ def test_unavailable_without_the_extra_with_the_command(index, without_extra, op
     stage(b, "vector_store").option = option
     with pytest.raises(SendRefused) as refused:
         session.run_rag_lab(QUESTION, [a, b])
-    assert (
-        INSTALL in refused.value.reason_text and "« Base vectorielle »" in refused.value.reason_text
-    )
+    assert INSTALL in refused.value.reason_text and "« Vector store »" in refused.value.reason_text
 
 
 def _faiss_chain(session):  # noqa: ANN001, ANN202

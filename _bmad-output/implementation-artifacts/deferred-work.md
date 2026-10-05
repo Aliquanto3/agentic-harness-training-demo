@@ -971,3 +971,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-lot-1-quick-wins-2026-10-04.md`
   summary: Raccourcir le README sous 100 lignes : `tests/test_docs_links.py::test_readme_is_a_short_onboarding_page` est rouge.
   evidence: Le README faisait déjà 120 lignes au commit de base 64c660d. Le lien vers « Modèles du RAG » ajouté au lot 1 le porte à 121 lignes.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
+  summary: Passer au vocabulaire « chunk » / « prompt » les refus de l'Atelier RAG et les comptes `rag_lab.noun` de `content/messages.yaml` (fr, en, de), qui disent encore « extrait » et « contexte ».
+  evidence: `messages.yaml` est un fichier carrefour des lots 3 à 6 (ajouts seulement pendant le parallélisme) ; à faire après la fusion du lot 6.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
+  summary: Retirer les clés orphelines de la comparaison A/B (`rag.chain_a`, `rag.chain_b`, `rag.chain_b_steps`, `rag.comparison.*`) de `content/ui.yaml` et de ses copies en/de, avec la voie B du backend (5c-1).
+  evidence: Plus aucun appel depuis rag.js ; `rag.chain` reste utilisé par app.js. Gardées pendant le parallélisme (fichier carrefour).
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
+  summary: Vérifier en E2E que la raison d'indisponibilité de FAISS ou LanceDB devient visible une fois la ligne Vector store choisie (branche sans l'extra rag-alt).
+  evidence: low ; `_rag_lab_alt` lit `all_inner_texts()`, qui renvoie le texte même masqué. Pour trancher : `is_visible()` après `_focus_of(r, "vector_store")`.

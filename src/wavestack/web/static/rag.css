@@ -99,86 +99,241 @@ body.rag-page {
     var(--typography-number-line-height) var(--typography-number-font-family);
 }
 
-/* ---------- rag-chain (DESIGN.md): the stages as cards joined by arrows, one row ---------- */
+/* ---------- lot 5a: the three views, sequence | architecture | focus (vues-atelier-rag.md) ----------
+   The column of 5rem carries the wires from a step to its components (diagram.js). Colours
+   by tokens, no opacity: BUILD on the primary, RUN on the context discipline, the groups on
+   the primary's soft tint, the Generation on the ink. */
 
-.rag-chain {
+.rag-views {
+  position: relative;
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  gap: var(--spacing-5);
-  margin: var(--spacing-3) 0 0;
+  grid-template-columns:
+    minmax(21rem, 1fr) 5rem minmax(15rem, 0.62fr) var(--spacing-5)
+    minmax(24rem, 1.15fr);
+  align-items: start;
+  margin-top: var(--spacing-4);
+}
+
+.rag-seq {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.rag-arch {
+  grid-column: 3;
+  min-width: 0;
+}
+
+.rag-focus {
+  grid-column: 5;
+  min-width: 0;
+}
+
+@media (max-width: 1300px) {
+  .rag-views {
+    grid-template-columns: minmax(18rem, 1fr) 4rem minmax(14rem, 0.8fr);
+  }
+
+  .rag-focus {
+    grid-column: 1 / -1;
+    margin-top: var(--spacing-5);
+  }
+}
+
+.rag-view-label {
+  display: block;
+  margin: 0 0 var(--spacing-2);
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  text-transform: uppercase;
+}
+
+/* The sequence: BUILD then RUN, each under its band. */
+.rag-phase {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-2);
+  margin: 0 0 6px;
+  padding: 6px var(--spacing-3);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) / 1.2
+    var(--typography-heading-font-family);
+}
+
+.rag-phase small {
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) / 1.3
+    var(--typography-body-sm-font-family);
+}
+
+.rag-phase-tag {
+  padding: 1px var(--spacing-2);
+  border-radius: var(--rounded-full);
+  font: 700 var(--typography-label-font-size) / 1.4 var(--typography-label-font-family);
+  letter-spacing: 0.06em;
+}
+
+.rag-phase.is-build {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.rag-phase.is-build .rag-phase-tag {
+  background: var(--color-on-primary);
+  color: var(--color-primary);
+}
+
+.rag-phase.is-run {
+  margin-top: var(--spacing-3);
+  background: var(--color-discipline-context);
+  color: var(--color-on-discipline);
+}
+
+.rag-phase.is-run .rag-phase-tag {
+  background: var(--color-on-discipline);
+  color: var(--color-discipline-context);
+}
+
+.rag-seq-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.rag-chain-card {
+.rag-seq-step {
   position: relative;
   min-width: 0;
-  padding: var(--spacing-3);
-  background: var(--color-discipline-context-soft);
+  padding: 6px var(--spacing-3);
+  background: var(--color-surface-raised);
   border: 1px solid var(--color-line);
-  border-left: 4px solid var(--color-discipline-context);
-  border-radius: var(--rounded-md);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--rounded-sm);
   color: var(--color-ink);
 }
 
-/* The arrow between two cards, in the gap: the chain reads left to right. */
-.rag-chain-card + .rag-chain-card::before {
-  content: "→";
-  position: absolute;
-  top: 1.2em;
-  left: calc(-1 * var(--spacing-5) - 4px);
-  width: var(--spacing-5);
-  text-align: center;
-  color: var(--color-ink);
-  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) / 1
-    var(--typography-heading-font-family);
+.rag-seq-step.is-run {
+  border-left-color: var(--color-discipline-context);
 }
 
-.rag-chain-card.is-model {
-  background: var(--color-ink-fill);
-  border-color: var(--color-ink-fill-edge);
-  border-left-color: var(--color-ink-fill-edge);
-  color: var(--color-on-ink);
+.rag-seq-step.is-model {
+  border-left-color: var(--color-ink-fill);
 }
 
-.rag-chain-card.is-model .rag-chain-number {
-  background: var(--color-on-ink);
-  color: var(--color-ink-fill);
+.rag-seq-step.is-selected {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
-.rag-chain-head {
+.rag-seq-head {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
-  margin: 0 0 var(--spacing-2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.rag-chain-name {
-  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
-    var(--typography-heading-line-height) var(--typography-heading-font-family);
-  overflow-wrap: anywhere;
-}
-
-.rag-chain-option {
-  margin: 0 0 var(--spacing-1);
+.rag-seq-name {
   font-weight: 700;
   overflow-wrap: anywhere;
 }
 
-.rag-chain-params,
-.rag-chain-explain,
-.rag-chain-note {
-  margin: var(--spacing-1) 0;
+.rag-seq-status {
+  margin-left: auto;
+  padding: 0 var(--spacing-2);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-full);
+  font: var(--typography-number-font-weight) var(--typography-label-font-size) / 1.5
+    var(--typography-number-font-family);
+  white-space: nowrap;
+}
+
+.rag-seq-status[hidden] {
+  display: none;
+}
+
+[data-run="ok"] .rag-seq-status::before {
+  content: "✓ ";
+  color: var(--color-discipline-context);
+  font-weight: 700;
+}
+
+[data-run="error"] .rag-seq-status::before {
+  content: "✖ ";
+  color: var(--color-danger);
+}
+
+[data-run="running"] .rag-seq-status {
+  border-color: var(--color-state-active);
+}
+
+.rag-seq-line,
+.rag-seq-same {
+  margin: var(--spacing-1) 0 0 calc(1.7em + var(--spacing-2));
+  color: var(--color-ink-soft);
   font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
     var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
 }
 
+/* Composer: the chain's editor in the line of its stage. */
+.rag-seq-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1) var(--spacing-2);
+  margin: var(--spacing-2) 0 0 calc(1.7em + var(--spacing-2));
+}
+
+.rag-seq-controls .rag-option {
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+}
+
+.rag-seq-controls .rag-param {
+  margin: 0;
+}
+
+.rag-seq-controls .rag-param-name {
+  flex: none;
+}
+
+.rag-seq-controls .rag-chain-moves {
+  margin: 0 0 0 auto;
+}
+
+.rag-seq-controls .rag-chain-note,
+.rag-seq-controls .rag-chain-unavailable {
+  flex: 1 1 100%;
+}
+
+/* Why an option cannot be chosen: on the line selected only (the select greys it and says
+   it in its tooltip), so that the sequence stays compact. */
+.rag-seq-step:not(.is-selected) .rag-chain-unavailable {
+  display: none;
+}
+
+.rag-chain-option {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .rag-chain-note {
+  margin: var(--spacing-1) 0;
   padding: var(--spacing-1) var(--spacing-2);
   background: var(--color-warning-soft);
   border-left: 3px solid var(--color-warning);
   color: var(--color-ink);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
   overflow-wrap: anywhere;
 }
 
@@ -186,16 +341,249 @@ body.rag-page {
   content: "⚠ ";
 }
 
-/* ---------- the question ---------- */
+/* The architecture: the components, by group (the training slides RAG_0 to RAG_6). */
+.rag-arch-group {
+  margin: 0 0 var(--spacing-2);
+  padding: 6px var(--spacing-2) var(--spacing-2);
+  background: var(--color-primary-soft);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--rounded-md);
+}
 
-.rag-label {
-  display: block;
-  margin: var(--spacing-2) 0 var(--spacing-1);
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
+.rag-arch-group h4 {
+  margin: 0 0 6px;
+  text-align: center;
+  color: var(--color-primary-deep);
+  font: var(--typography-heading-font-weight) var(--typography-body-font-size) / 1.2
+    var(--typography-heading-font-family);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rag-arch-group ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rag-arch-tile {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--spacing-2);
+  align-items: center;
+  padding: 4px var(--spacing-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink);
+  line-height: 1.25;
+}
+
+.rag-arch-icon {
+  grid-row: 1 / span 2;
+  font-size: 1.3em;
+}
+
+.rag-arch-name {
+  font-weight: 700;
+}
+
+.rag-arch-sub {
   color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) calc(var(--typography-body-sm-font-size) * 0.92) /
+    1.25 var(--typography-body-sm-font-family);
+  overflow-wrap: anywhere;
+}
+
+/* Lot 5a-2, « Dérouler »: the steps, the tiles, their groups and the RUN band after the frame
+   shown keep their place, invisible (no opacity: the contrast sweep); a tile revealed by the
+   frame arrives by a short slide, none with reduced motion. */
+.rag-seq-step.is-hidden,
+.rag-arch-tile.is-hidden,
+.rag-arch-group.is-hidden,
+.rag-phase.is-hidden {
+  visibility: hidden;
+}
+
+.rag-arch-tile.is-new {
+  animation: rag-appear 0.35s ease-out;
+}
+
+@keyframes rag-appear {
+  from {
+    transform: translateX(-10px) scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rag-arch-tile.is-new {
+    animation: none;
+  }
+}
+
+/* The pills of a run's steps: skipped, stopped, not run (ok ✓ and error ✖ above). */
+[data-run="skipped"] .rag-seq-status::before {
+  content: "↷ ";
+}
+
+[data-run="cancelled"] .rag-seq-status::before {
+  content: "■ ";
+}
+
+[data-run="not_run"] .rag-seq-status::before {
+  content: "○ ";
+}
+
+[data-run="error"] .rag-seq-status {
+  border-color: var(--color-danger);
+}
+
+/* The focus on a step. */
+.rag-focus {
+  padding: var(--spacing-4);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-top: 6px solid var(--color-primary);
+  border-radius: var(--rounded-md);
+  color: var(--color-ink);
+}
+
+.rag-focus.is-run {
+  border-top-color: var(--color-discipline-context);
+}
+
+.rag-focus-phase {
+  margin: 0;
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1.4
+    var(--typography-label-font-family);
   text-transform: uppercase;
 }
+
+.rag-focus h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin: var(--spacing-1) 0;
+  font: var(--typography-heading-font-weight) calc(var(--typography-heading-font-size) * 1.25) /
+    1.2 var(--typography-heading-font-family);
+}
+
+.rag-focus-action {
+  margin: 0 0 var(--spacing-3);
+  color: var(--color-ink-soft);
+}
+
+.rag-focus-explain {
+  margin: 0 0 var(--spacing-3);
+}
+
+.rag-focus-uses {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin: 0 0 var(--spacing-3);
+}
+
+.rag-focus-uses .rag-view-label {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.rag-tag {
+  padding: 0 var(--spacing-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-full);
+  color: var(--color-ink);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1.5
+    var(--typography-label-font-family);
+  white-space: nowrap;
+}
+
+.rag-focus-note {
+  margin: 0 0 var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-warning-soft);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--rounded-sm);
+}
+
+.rag-focus-status {
+  margin: 0 0 var(--spacing-2);
+  font: var(--typography-number-font-weight) var(--typography-label-font-size) / 1.5
+    var(--typography-number-font-family);
+}
+
+.rag-focus-io {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--spacing-1) var(--spacing-3);
+  margin: 0 0 var(--spacing-3);
+}
+
+.rag-focus-io dt {
+  font-weight: 700;
+}
+
+.rag-focus-io dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rag-focus-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  margin: 0 0 var(--spacing-3);
+  padding: 0;
+  list-style: none;
+}
+
+.rag-focus-facts li {
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--color-discipline-neutral-soft);
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink);
+  font: var(--typography-number-font-weight) var(--typography-label-font-size) / 1.4
+    var(--typography-number-font-family);
+}
+
+.rag-focus-pre {
+  max-height: 22em;
+  margin: 0 0 var(--spacing-3);
+  padding: var(--spacing-3);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink);
+  font: 400 var(--typography-body-sm-font-size) / 1.45 var(--typography-number-font-family);
+}
+
+/* The head of a wire's arrow (diagram.js draws the wire). */
+.rag-arrow-head {
+  fill: var(--color-ink);
+}
+
+/* Every step in detail, folded. */
+.rag-details {
+  margin-top: var(--spacing-4);
+}
+
+.rag-details > summary {
+  min-height: var(--spacing-hit-target-min);
+  color: var(--color-primary);
+  font-weight: 700;
+  line-height: var(--spacing-hit-target-min);
+  cursor: pointer;
+}
+
+/* ---------- the question ---------- */
 
 .rag-question {
   box-sizing: border-box;
@@ -210,12 +598,61 @@ body.rag-page {
     var(--typography-chat-line-height) var(--typography-chat-font-family);
 }
 
-.rag-actions {
+/* Lot 5a: two bars, the question and « Lancer », then the mode. */
+.rag-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--spacing-3);
   margin: var(--spacing-3) 0 0;
+}
+
+.rag-toolbar .rag-question {
+  flex: 1 1 28rem;
+  width: auto;
+}
+
+.rag-toolbar [hidden] {
+  display: none;
+}
+
+.rag-modes {
+  display: inline-flex;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--rounded-full);
+  overflow: hidden;
+}
+
+.rag-modes button {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-4);
+  border: 0;
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1
+    var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.rag-modes button[aria-pressed="true"] {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.rag-page .rag-modes button:focus-visible {
+  outline-offset: -4px;
+}
+
+/* Lot 5a-2: « Dérouler »'s stepper (diagram.js, its rules in pages.css) and its legend. */
+.rag-stepper-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+.rag-stepper-caption {
+  color: var(--color-ink-soft);
 }
 
 .rag-status {
@@ -272,7 +709,7 @@ body.rag-page {
   border-color: var(--color-line);
 }
 
-/* ---------- the results: one column per lane, one rag-stage-card per stage ---------- */
+/* ---------- every step in detail (folded under the views), one rag-stage-card each ---------- */
 
 .rag-run-summary {
   margin: var(--spacing-2) 0;
@@ -286,27 +723,12 @@ body.rag-page {
   gap: var(--spacing-4);
 }
 
-.rag-results[data-lanes="2"] {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .rag-lane {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(26rem, 1fr));
   align-content: start;
   gap: var(--spacing-3);
   min-width: 0;
-}
-
-.rag-results[data-lanes="2"] .rag-lane {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.rag-lane-title {
-  grid-column: 1 / -1;
-  margin: 0;
-  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
-    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
 }
 
 .rag-stage-card {
@@ -520,19 +942,7 @@ body.rag-page {
   }
 }
 
-/* ---------- increment 2: options, settings, a second chain, the comparison ---------- */
-
-.rag-chain-title {
-  margin: var(--spacing-3) 0 0;
-  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
-    var(--typography-heading-line-height) var(--typography-heading-font-family);
-}
-
-.rag-chain-title[hidden],
-.rag-chain[hidden],
-.rag-comparison[hidden] {
-  display: none;
-}
+/* ---------- increment 2: a stage's options and settings (no A/B since lot 5a) ---------- */
 
 .rag-option {
   box-sizing: border-box;
@@ -586,64 +996,6 @@ body.rag-page {
 
 .rag-chain-unavailable::before {
   content: "⊘ ";
-}
-
-.rag-compare {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  min-height: var(--spacing-hit-target-min);
-  cursor: pointer;
-}
-
-.rag-compare input {
-  width: 1.2em;
-  height: 1.2em;
-  accent-color: var(--color-primary);
-}
-
-.rag-comparison {
-  margin: var(--spacing-4) 0 0;
-  padding: var(--spacing-3);
-  background: var(--color-surface);
-  border: 1px solid var(--color-line);
-  border-left: 4px solid var(--color-discipline-context);
-  border-radius: var(--rounded-md);
-}
-
-.rag-comparison-title {
-  margin: 0 0 var(--spacing-2);
-  font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
-    var(--typography-heading-line-height) var(--typography-heading-font-family);
-}
-
-.rag-comparison-summary {
-  margin: 0 0 var(--spacing-2);
-}
-
-.rag-comparison-lists {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--spacing-1) var(--spacing-4);
-  margin: 0;
-}
-
-.rag-comparison-lists dt {
-  grid-row: 1;
-  color: var(--color-ink-soft);
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-    var(--typography-label-line-height) var(--typography-label-font-family);
-  text-transform: uppercase;
-}
-
-.rag-comparison-lists dd {
-  grid-row: 2;
-  margin: 0;
-}
-
-.rag-comparison-lists ul {
-  margin: 0;
-  padding-left: var(--spacing-4);
 }
 
 /* ---------- increment 4: moving, removing and adding a stage of the retrieval ---------- */
@@ -735,17 +1087,6 @@ body.rag-page {
   color: var(--color-ink);
   font: var(--typography-number-font-weight) var(--typography-label-font-size) /
     var(--typography-number-line-height) var(--typography-number-font-family);
-}
-
-/* Nine cards on a line: the number and the name wrap as whole words (never « Découpag e »). */
-.rag-chain-head {
-  flex-wrap: wrap;
-}
-
-.rag-chain-name {
-  min-width: 0;
-  overflow-wrap: break-word;
-  hyphens: auto;
 }
 
 /* Read by a screen reader only: the chain's refusals, announced when they change. */

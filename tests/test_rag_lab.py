@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 from fake_reranker import FakeReranker
 from starlette.testclient import TestClient
 from test_bricks import HEADERS
@@ -389,7 +390,7 @@ def test_rules_of_the_chain_each_refusal_names_the_stage(index):
     fixed = b.model_copy(deep=True)
     move(fixed, "context", "rerank")  # the context among the retrieval
     reason, stage_id = refusal(session, fixed)
-    assert "« Construction du contexte »" in reason and stage_id == stage(fixed, "context").id
+    assert "« Prompt augmentation »" in reason and stage_id == stage(fixed, "context").id
 
     none = b.model_copy(deep=True)
     remove(none, "vector_search")
@@ -402,7 +403,7 @@ def test_rules_of_the_chain_each_refusal_names_the_stage(index):
     bm25 = add(two, "lexical_search", "bm25", candidates=8)
     reason, stage_id = refusal(session, two)
     assert reason.startswith("Deux recherches demandent une fusion après elles")
-    assert "« Recherche lexicale BM25 »" in reason and stage_id == bm25.id
+    assert "« BM25 »" in reason and stage_id == bm25.id
 
     fused = two.model_copy(deep=True)
     fusion = add(fused, "fusion", "rrf")
@@ -411,13 +412,13 @@ def test_rules_of_the_chain_each_refusal_names_the_stage(index):
     )
     move(fused, "fusion", "lexical_search")  # before the second search
     reason, stage_id = refusal(session, fused)
-    assert "« Fusion »" in reason and "après les deux recherches" in reason
+    assert "« Fusion (RRF) »" in reason and "après les deux recherches" in reason
     assert stage_id == fusion.id
 
     alone = b.model_copy(deep=True)
     add(alone, "fusion", "rrf")
     reason, stage_id = refusal(session, alone)
-    assert "« Fusion »" in reason and "deux recherches avant elle" in reason
+    assert "« Fusion (RRF) »" in reason and "deux recherches avant elle" in reason
 
     early = b.model_copy(deep=True)
     move(early, "rerank", "vector_search")
@@ -427,18 +428,18 @@ def test_rules_of_the_chain_each_refusal_names_the_stage(index):
     twice = b.model_copy(deep=True)
     twice.stages.insert(4, rag_lab.Stage(id="dup", kind="vector_search", option="cosine"))
     reason, stage_id = refusal(session, twice)
-    assert "« Recherche »" in reason and "qu'une fois" in reason and stage_id == "dup"
+    assert "« Dense retrieval »" in reason and "qu'une fois" in reason and stage_id == "dup"
 
     few = two.model_copy(deep=True)
     add(few, "fusion", "rrf")
     stage(few, "lexical_search").params["candidates"] = 2
     reason, stage_id = refusal(session, few)
-    assert "« Recherche lexicale BM25 »" in reason and "moins que les 3 extraits" in reason
+    assert "« BM25 »" in reason and "moins que les 3 extraits" in reason
 
     mark = get_journal().last_seq()
     with pytest.raises(SendRefused) as refused:
         session.run_rag_lab(QUESTION, [fused])
-    assert "« Fusion »" in refused.value.reason_text
+    assert "« Fusion (RRF) »" in refused.value.reason_text
     assert not [e for e in get_journal().events_since(mark) if e.kind.startswith("rag_lab")]
 
 
@@ -961,6 +962,122 @@ def test_content_file_is_valid_and_names_every_kind():
     assert content.default_question_text == QUESTION
 
 
+# ---------- lot 5a: the three views (sequence, architecture, focus) ----------
+
+
+def test_the_catalog_renders_the_sequence_its_components_groups_and_phases(index):
+    """AD-1: the table step → components is the session's (STEPS), with its texts."""
+    session, _ = ready(index)
+    catalog = session.rag_lab_state()["catalog"]
+    steps = {s["key"]: s for s in catalog["steps"]}
+    assert list(steps) == list(rag_lab.STEPS)
+    build = [k for k, s in steps.items() if s["phase"] == "build"]
+    assert build == ["documents", "chunking", "embed_passages", "vector_store"]
+    assert steps["documents"] | {"explain_text": ""} == {
+        "key": "documents",
+        "phase": "build",
+        "stage": "chunking",
+        "own": False,
+        "uses": [{"component": "documents", "how": "reads"}],
+        "label_text": "Documents",
+        "action_text": "Charger le corpus",
+        "explain_text": "",
+        "note_text": None,
+    }
+    assert steps["generation"]["uses"] == [
+        {"component": "augmented_prompt", "how": "reads"},
+        {"component": "answer", "how": "writes"},
+        {"component": "llm", "how": "calls"},
+    ]
+    assert steps["rerank"]["uses"] == [
+        {"component": "question", "how": "reads"},
+        {"component": "reranker", "how": "calls"},
+    ]
+    assert steps["fusion"]["uses"] == []
+    # Without its own explanation, a step takes its stage's; the question has its own.
+    content = rag_lab.load_lab_content()
+    assert steps["rerank"]["explain_text"] == content.stages["rerank"].explain_text
+    assert steps["question"]["stage"] is None and steps["question"]["explain_text"]
+    assert steps["generation"]["note_text"]
+    assert [(s["key"], s["stage"]) for s in catalog["steps"] if not s["own"]] == [
+        ("documents", "chunking"),
+        ("question", None),
+        ("embed_query", "embedding"),
+    ]
+    components = {c["id"]: c for c in catalog["components"]}
+    assert list(components) == list(rag_lab.COMPONENTS)
+    assert [c["label_text"] for c in catalog["components"]] == [
+        "Documents",
+        "Chunks",
+        "Vector store",
+        "Embedding model",
+        "Reranker",
+        "LLM",
+        "Question",
+        "Augmented prompt",
+        "Réponse",
+    ]
+    assert components["reranker"]["group"] == "models"
+    assert components["reranker"]["stage"] == "rerank"
+    assert components["documents"]["stage"] is None and components["documents"]["note_text"]
+    used = {u["component"] for s in catalog["steps"] for u in s["uses"]}
+    assert used == set(rag_lab.COMPONENTS)  # every tile is called on by some step
+    assert [g["id"] for g in catalog["groups"]] == ["data", "models", "exchange"]
+    assert [(p["id"], p["tag_text"], p["label_text"]) for p in catalog["phases"]] == [
+        ("build", "BUILD", "Indexing"),
+        ("run", "RUN", "Retrieval"),
+    ]
+
+
+def test_every_step_names_a_stage_of_the_chain_or_none():
+    for step in rag_lab.STEPS.values():
+        assert step.phase in rag_lab.PHASES
+        assert step.stage is None or step.stage in rag_lab.KINDS
+        for name in (*step.reads, *step.writes, *step.calls):
+            assert name in rag_lab.COMPONENTS
+    own = [s.stage for s in rag_lab.STEPS.values() if s.own]
+    assert sorted(own) == sorted(rag_lab.KINDS)  # one own line per kind of stage
+
+
+@pytest.mark.parametrize("key", ["steps", "components", "groups", "phases"])
+def test_the_content_refuses_a_view_key_missing(key):
+    data = yaml.safe_load(config.content_file("rag_lab.yaml").read_text(encoding="utf-8"))
+    data[key].popitem()
+    with pytest.raises(ValueError, match=key):
+        rag_lab.RagLabContent.model_validate(data)
+    del data[key]
+    with pytest.raises(ValueError):
+        rag_lab.RagLabContent.model_validate(data)
+
+
+@pytest.mark.parametrize("key", ["question", "documents", "embed_query"])
+def test_the_content_refuses_a_reading_step_without_its_explanation(key):
+    """A step that is not its stage's own (it only reads it) has its own explanation."""
+    data = yaml.safe_load(config.content_file("rag_lab.yaml").read_text(encoding="utf-8"))
+    del data["steps"][key]["explain_text"]
+    with pytest.raises(ValueError, match=f"steps.{key} : il faut un explain_text"):
+        rag_lab.RagLabContent.model_validate(data)
+
+
+@pytest.mark.parametrize("lang", ["fr", "en", "de"])
+def test_a_stage_s_own_step_bears_the_stage_s_name(lang):
+    """The sequence's line of a stage and the stage (catalogue, refusals, detail cards) carry
+    the same technical name, in every language; but the vector store's line, which names the
+    act (« Indexing ») where the stage names the component (vues-atelier-rag.md §2)."""
+    content = rag_lab.load_lab_content(lang)
+    for key, step in rag_lab.STEPS.items():
+        if step.own and key != "vector_store":
+            assert content.steps[key].label_text == content.stages[step.stage].label_text, key
+    assert content.steps["vector_store"].label_text == "Indexing"
+    assert content.stages["vector_store"].label_text == "Vector store"
+
+
+def test_the_comparison_texts_are_gone_from_the_content():
+    fields = set(rag_lab.RagLabContent.model_fields)
+    gone = {"compare_text", "chain_a_text", "chain_b_text", "comparison_title_text"}
+    assert not fields & gone
+
+
 _SKIP = {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", "screenshots"}
 
 
@@ -1019,7 +1136,7 @@ def test_web_page_state_and_intention(index):
         json={"question": QUESTION, "pipelines": [changed]},
         headers=HEADERS,
     )
-    assert refused.status_code == 409 and "Base vectorielle" in refused.json()["detail"]
+    assert refused.status_code == 409 and "Vector store" in refused.json()["detail"]
     ok = client.post("/api/intentions/rag_lab_run", json={"question": QUESTION}, headers=HEADERS)
     assert ok.status_code == 200 and ok.json()["run_id"].startswith("lab")
     wait_idle(session)
@@ -1056,7 +1173,7 @@ def test_web_validate_is_read_only_and_names_the_stage(index):
     assert answer["refusals"] == [
         {"lane": "b", "stage_id": "s9", "reason_text": answer["refusals"][0]["reason_text"]}
     ]
-    assert "« Fusion »" in answer["refusals"][0]["reason_text"]
+    assert "« Fusion (RRF) »" in answer["refusals"][0]["reason_text"]
     assert get_journal().last_seq() == mark  # nothing emitted
     refused = client.post(
         "/api/intentions/rag_lab_run",

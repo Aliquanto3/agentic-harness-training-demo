@@ -93,6 +93,68 @@ PROGRESS_INTERVAL_S = 0.1  # `rag_lab_stage_progress` at most ten times a second
 
 _MIB = 1024**2
 
+# ---------- lot 5a: the sequence the page draws (vues-atelier-rag.md §2 to §4) ----------
+
+# The two times of a RAG, its sequence's two bands: the indexing, then each question.
+PHASES = ("build", "run")
+# The architecture's groups, and their components in the order drawn: the group, an icon,
+# and the kind of the stage whose option names it (the tile's subtitle), if any.
+GROUPS = ("data", "models", "exchange")
+COMPONENTS: dict[str, tuple[str, str, str | None]] = {
+    "documents": ("data", "📄", None),
+    "chunks": ("data", "🧩", None),
+    "vector_store": ("data", "🗄️", "vector_store"),
+    "embedding_model": ("models", "🔢", "embedding"),
+    "reranker": ("models", "⚖️", "rerank"),
+    "llm": ("models", "🧠", "generation"),
+    "question": ("exchange", "💬", None),
+    "augmented_prompt": ("exchange", "📝", None),
+    "answer": ("exchange", "💡", None),
+}
+
+
+@dataclass(frozen=True)
+class SequenceStep:
+    """A line of the sequence. `stage`: the kind of the chain's stage it shows (its status,
+    its figures; the line is drawn only when the chain has it, `None`: always); `own`: the
+    line is that stage's own (it carries its editor), else it reads it (Documents reads the
+    Chunking's input, the question's Embedding is the Embedding stage's second half). The
+    components it reads, writes and calls."""
+
+    phase: str
+    stage: str | None
+    own: bool = True
+    reads: tuple[str, ...] = ()
+    writes: tuple[str, ...] = ()
+    calls: tuple[str, ...] = ()
+
+
+# In the order drawn: BUILD, then RUN (whose retrieval segment follows the chain's order).
+STEPS: dict[str, SequenceStep] = {
+    "documents": SequenceStep("build", "chunking", own=False, reads=("documents",)),
+    "chunking": SequenceStep("build", "chunking", reads=("documents",), writes=("chunks",)),
+    "embed_passages": SequenceStep(
+        "build", "embedding", reads=("chunks",), calls=("embedding_model",)
+    ),
+    "vector_store": SequenceStep(
+        "build", "vector_store", reads=("embedding_model",), writes=("vector_store",)
+    ),
+    "question": SequenceStep("run", None, own=False, reads=("question",)),
+    "embed_query": SequenceStep(
+        "run", "embedding", own=False, reads=("question",), calls=("embedding_model",)
+    ),
+    "vector_search": SequenceStep("run", "vector_search", reads=("vector_store",)),
+    "lexical_search": SequenceStep("run", "lexical_search", reads=("chunks", "question")),
+    "fusion": SequenceStep("run", "fusion"),
+    "rerank": SequenceStep("run", "rerank", reads=("question",), calls=("reranker",)),
+    "context": SequenceStep(
+        "run", "context", reads=("chunks", "question"), writes=("augmented_prompt",)
+    ),
+    "generation": SequenceStep(
+        "run", "generation", reads=("augmented_prompt",), writes=("answer",), calls=("llm",)
+    ),
+}
+
 
 # ---------- the page's texts (content/rag_lab.yaml, AD-19) ----------
 
@@ -132,6 +194,35 @@ class ColumnTexts(_Strict):
     score_text: str
 
 
+class StepText(_Strict):
+    """A line of the sequence: its technical name (English, the same in every language), its
+    action, its explanation (else its stage's) and a note (Generation: not run here)."""
+
+    label_text: str = Field(min_length=1)
+    action_text: str = Field(min_length=1)
+    explain_text: str | None = Field(default=None, min_length=1)
+    note_text: str | None = Field(default=None, min_length=1)
+
+
+class ComponentText(_Strict):
+    """A tile of the architecture: its name, and its subtitle when no option names it."""
+
+    label_text: str = Field(min_length=1)
+    note_text: str = Field(min_length=1)
+
+
+class GroupText(_Strict):
+    label_text: str = Field(min_length=1)
+
+
+class PhaseText(_Strict):
+    """A band of the sequence: « BUILD · Indexing », « une fois pour toutes… »."""
+
+    tag_text: str = Field(min_length=1)
+    label_text: str = Field(min_length=1)
+    help_text: str = Field(min_length=1)
+
+
 class RagLabContent(_Strict):
     """`content/rag_lab.yaml`: every French text of the page, a text per kind of stage, per
     option and per setting."""
@@ -147,7 +238,30 @@ class RagLabContent(_Strict):
     run_text: str = Field(min_length=1)
     stop_text: str = Field(min_length=1)
     running_text: str = Field(min_length=1)
-    results_title_text: str = Field(min_length=1)
+    # Lot 5a: the three views (sequence, architecture, focus) and the two modes.
+    modes_label_text: str = Field(min_length=1)
+    compose_text: str = Field(min_length=1)
+    play_text: str = Field(min_length=1)
+    sequence_title_text: str = Field(min_length=1)
+    architecture_title_text: str = Field(min_length=1)
+    focus_title_text: str = Field(min_length=1)
+    focus_empty_text: str = Field(min_length=1)
+    focus_no_run_text: str = Field(min_length=1)
+    focus_position_text: str = Field(min_length=1)
+    uses_title_text: str = Field(min_length=1)
+    reads_text: str = Field(min_length=1)
+    writes_text: str = Field(min_length=1)
+    calls_text: str = Field(min_length=1)
+    same_model_text: str = Field(min_length=1)
+    question_received_text: str = Field(min_length=1)
+    # Composer, the last run being the edited chain's: its figures are in « Dérouler ».
+    focus_play_hint_text: str = Field(min_length=1)
+    # Lot 5a-2: the stepper's legend in « Dérouler » (guided tour, live, ended, replay).
+    legend_tour_text: str = Field(min_length=1)
+    legend_live_text: str = Field(min_length=1)
+    legend_done_text: str = Field(min_length=1)
+    legend_replay_text: str = Field(min_length=1)
+    details_text: str = Field(min_length=1)
     results_empty_text: str = Field(min_length=1)
     generation_not_run_text: str = Field(min_length=1)
     borrowed_text: str = Field(min_length=1)
@@ -158,32 +272,42 @@ class RagLabContent(_Strict):
     duration_text: str = Field(min_length=1)
     memory_text: str = Field(min_length=1)
     last_run_text: str = Field(min_length=1)
-    compare_text: str = Field(min_length=1)
     add_text: str = Field(min_length=1)
     add_button_text: str = Field(min_length=1)
     move_before_text: str = Field(min_length=1)
     move_after_text: str = Field(min_length=1)
     remove_text: str = Field(min_length=1)
     reset_chain_text: str = Field(min_length=1)
-    chain_a_text: str = Field(min_length=1)
-    chain_b_text: str = Field(min_length=1)
     unavailable_text: str = Field(min_length=1)
-    comparison_title_text: str = Field(min_length=1)
-    common_text: str = Field(min_length=1)
-    only_a_text: str = Field(min_length=1)
-    only_b_text: str = Field(min_length=1)
-    rank_changes_text: str = Field(min_length=1)
     status: StatusTexts
     columns: ColumnTexts
     stages: dict[str, StageText]
     options: dict[str, dict[str, OptionText]]
     params: dict[str, ParamText]
+    steps: dict[str, StepText]
+    components: dict[str, ComponentText]
+    groups: dict[str, GroupText]
+    phases: dict[str, PhaseText]
 
     @model_validator(mode="after")
     def _every_kind_option_and_setting(self) -> RagLabContent:
-        """A text for each kind, option and setting the workshop offers, and no other."""
+        """A text for each kind, option, setting, step, component, group and phase the
+        workshop offers, and no other."""
         if set(self.stages) != set(KINDS):
             raise ValueError(f"stages : il faut exactement {', '.join(KINDS)}")
+        for name, keys in (
+            ("steps", STEPS),
+            ("components", COMPONENTS),
+            ("groups", GROUPS),
+            ("phases", PHASES),
+        ):
+            if set(getattr(self, name)) != set(keys):
+                raise ValueError(f"{name} : il faut exactement {', '.join(keys)}")
+        for key, step in STEPS.items():
+            # A step that only reads a stage (Documents, the question and its Embedding) says
+            # what it does itself: its stage's explanation is about another step.
+            if not step.own and self.steps[key].explain_text is None:
+                raise ValueError(f"steps.{key} : il faut un explain_text")
         for kind, options in OPTIONS.items():
             if set(self.options.get(kind, {})) != set(options):
                 raise ValueError(f"options.{kind} : il faut exactement {', '.join(options)}")
@@ -328,7 +452,52 @@ class Catalog:
                     "options": options,
                 }
             )
-        return {"stages": stages, "insert_before": FIXED_TAIL[0]}
+        return {"stages": stages, "insert_before": FIXED_TAIL[0], **self._views()}
+
+    def _views(self) -> dict[str, Any]:
+        """Lot 5a: the sequence's steps (the table step → components), the architecture's
+        components and groups, the bands of the two phases, with their texts."""
+        texts = self.content
+        steps = []
+        for key, step in STEPS.items():
+            text = texts.steps[key]
+            uses = [
+                {"component": c, "how": how}
+                for how, names in (("reads", step.reads), ("writes", step.writes))
+                for c in names
+            ] + [{"component": c, "how": "calls"} for c in step.calls]
+            explain = text.explain_text
+            if explain is None and step.stage is not None:
+                explain = texts.stages[step.stage].explain_text
+            steps.append(
+                {
+                    "key": key,
+                    "phase": step.phase,
+                    "stage": step.stage,
+                    "own": step.own,
+                    "uses": uses,
+                    "label_text": text.label_text,
+                    "action_text": text.action_text,
+                    "explain_text": explain,
+                    "note_text": text.note_text,
+                }
+            )
+        return {
+            "steps": steps,
+            "components": [
+                {
+                    "id": key,
+                    "group": group,
+                    "icon": icon,
+                    "stage": stage,
+                    "label_text": texts.components[key].label_text,
+                    "note_text": texts.components[key].note_text,
+                }
+                for key, (group, icon, stage) in COMPONENTS.items()
+            ],
+            "groups": [{"id": g, "label_text": texts.groups[g].label_text} for g in GROUPS],
+            "phases": [{"id": p, **texts.phases[p].model_dump()} for p in PHASES],
+        }
 
     def option_label(self, kind: str, option: str) -> str:
         state = self.options.get((kind, option))
