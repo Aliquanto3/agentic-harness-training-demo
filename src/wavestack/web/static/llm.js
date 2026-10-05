@@ -1314,14 +1314,22 @@ function renderDistribution(body) {
   $("distribution-body").hidden = false;
   $("logits-body").hidden = false;
   $("logits-caption").textContent = example ? exampleCaption() : logitsCaption();
-  $("distribution-token").textContent = example
-    ? ""
-    : store.dist.source === "step"
-      ? text("stages.output.step_token_text", { texte: quote(visibleBlanks(body.token_text)) })
-      : text("distribution.token_text", {
-          index: decimals().format(body.index + 1),
-          texte: quote(visibleBlanks(body.token_text)),
-        });
+  // Correction D (2026-10-05): a step's token is named and marked only while its chip shows
+  // (none after the first load's step, none once a setting moved), as the mockup; a
+  // generation's only while its chips show (after a reload, the candidates kept may be a
+  // step's: nothing named).
+  const named =
+    store.dist.source === "step" ? Boolean(store.step.drawn) : store.gen.texts[store.dist.index] !== undefined;
+  const chosen = example || !named ? null : body.token_text;
+  $("distribution-token").textContent =
+    chosen === null
+      ? ""
+      : store.dist.source === "step"
+        ? text("stages.output.step_token_text", { texte: quote(visibleBlanks(chosen)) })
+        : text("distribution.token_text", {
+            index: decimals().format(body.index + 1),
+            texte: quote(visibleBlanks(chosen)),
+          });
   const shown = rows.slice(0, DIST_ROWS);
   const probability = text("distribution.probability_text");
   const chance = text("distribution.chance_text");
@@ -1330,7 +1338,7 @@ function renderDistribution(body) {
   logits.replaceChildren();
   for (const c of shown) {
     const row = el("li", "dist-row");
-    if (c.text === body.token_text) row.classList.add("is-chosen");
+    if (chosen !== null && c.text === chosen) row.classList.add("is-chosen");
     row.append(distText(c.text), distributionBar("is-model", c.p, percent().format(c.p), probability));
     logits.append(row);
   }
@@ -1348,7 +1356,7 @@ function renderDistribution(body) {
   shown.forEach((c, i) => {
     const row = el("li", "dist-row");
     if (!c.kept) row.classList.add("is-dropped");
-    if (c.text === body.token_text) row.classList.add("is-chosen");
+    if (chosen !== null && c.text === chosen) row.classList.add("is-chosen");
     const why = body.dropped_by?.[i];
     const dropped = why ? text("stages.output.dropped_text", { reglage: why }) : text("distribution.dropped_text");
     row.append(distText(c.text));
@@ -1435,7 +1443,18 @@ function stepReason() {
 function clearDrawn() {
   if (!store.step.drawn) return;
   store.step.drawn = null;
+  unmarkStepToken();
   renderStep();
+}
+
+// Correction D (2026-10-05): a step's token chip gone, its name and its marked rows go with
+// it at once (the bars asked again draw them so too, `renderDistribution`).
+function unmarkStepToken() {
+  if (store.dist.source !== "step" || store.dist.example) return;
+  $("distribution-token").textContent = "";
+  for (const row of document.querySelectorAll("#logits-bars .is-chosen, #distribution-bars .is-chosen")) {
+    row.classList.remove("is-chosen");
+  }
 }
 
 function renderStep() {
@@ -1481,16 +1500,21 @@ function setStepStatus(message, error = false) {
 async function drawStep() {
   const prompt = $("llm-prompt").value;
   if (!prompt.trim()) {
+    store.auto = null; // no read follows: the next « Tirer » draws
     setStepStatus(t("llm.empty_prompt"), true);
     return;
   }
+  // Correction E (2026-10-05): the first load's own step asks the next token's candidates
+  // only; the session reads them and draws nothing. « Tirer » draws.
+  const candidatesOnly = store.auto === "step";
   store.pending.step = "…";
-  setStepStatus(text("stages.output.running_text"));
+  setStepStatus(text(candidatesOnly ? "stages.output.reading_text" : "stages.output.running_text"));
   renderBusy();
   const answer = await post("/api/intentions/llm_step", {
     prompt,
     continuation: store.step.added.map((token) => token.id),
     sampling: samplingToSend(),
+    candidates_only: candidatesOnly,
   });
   if (!answer.ok) {
     store.pending.step = null;
@@ -1561,6 +1585,7 @@ function clearSteps() {
 function stepEvent(kind, p) {
   if (kind === "llm_generation_started") {
     store.step.drawn = null;
+    unmarkStepToken();
     store.step.prompt = p.prompt;
     store.dist.stepped = true; // the session forgot the last generation's candidates
   } else if (kind === "llm_token") {
@@ -1575,14 +1600,26 @@ function stepEvent(kind, p) {
       store.dist.tokens = p.index + 1;
       scheduleDistribution(0);
     }
-    // The first load's own step leaves the OUTPUT at its first step (Logits), as the mockup.
-    if (store.auto !== "step") store.steppers.output?.show(OUTPUT_STEPS.length - 1);
+    store.steppers.output?.show(OUTPUT_STEPS.length - 1);
     renderStep();
   } else if (kind === "llm_generation_ended") {
     if (store.auto === "step") store.auto = null;
-    // Correction C (2026-10-05): no token shown (the end token, an error, « Arrêter », a text
-    // edited since): the session keeps nothing for it, the OUTPUT goes back to the example.
-    if (!store.step.drawn || !store.dist.tokens) {
+    // Correction E (2026-10-05): the first load's read (`candidates_only`): no token drawn,
+    // no `llm_token`; the session keeps the next token's candidates as the token 0, shown as
+    // real bars, the OUTPUT left on its first step (Logits), nothing shown drawn.
+    const read =
+      p.candidates_only &&
+      p.status === "completed" &&
+      store.step.prompt === $("llm-prompt").value &&
+      store.candidates?.available;
+    if (read) {
+      store.dist.source = "step";
+      store.dist.index = 0;
+      store.dist.tokens = 1;
+      scheduleDistribution(0);
+    } else if (p.candidates_only || !store.step.drawn || !store.dist.tokens) {
+      // Correction C (2026-10-05): no token shown (the end token, an error, « Arrêter », a
+      // text edited since): nothing kept for it, the OUTPUT goes back to the example.
       store.dist.tokens = 0;
       renderDistributionIdle();
     }
@@ -1590,6 +1627,7 @@ function stepEvent(kind, p) {
     if (store.pending.step === p.request_id) store.pending.step = null;
     if (p.status === "error") setStepStatus([text("generation.status.error"), p.message_text].filter(Boolean).join(" "), true);
     else if (p.status === "cancelled" && !store.step.drawn) setStepStatus(text("generation.status.cancelled"));
+    else if (p.candidates_only) setStepStatus(""); // nothing drawn: no « token de fin » either
     else if (!store.step.drawn) setStepStatus(p.message_text || text("stages.output.end_text"));
     else setStepStatus("");
     renderBusy();

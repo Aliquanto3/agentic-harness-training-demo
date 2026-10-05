@@ -73,3 +73,33 @@ def test_fragments_carry_the_most_probable_tokens(engine):
         assert top["tail"] == pytest.approx(1 - sum(top["p"]), abs=1e-6)
     without = list(engine.complete(ids, [], 2, CancelToken(), sampling=Sampling(1.0, 0, 1.0, 0.0)))
     assert all(f.top is None for f in without)
+
+
+def test_next_candidates_reads_the_next_token_without_drawing_one(engine):
+    """Correction E of 2026-10-05: the OUTPUT's first load reads the candidates of the token
+    after the ids, from the logits of their last position, nothing sampled: the same `top`
+    as the first token a generation draws there, whatever the cache holds (empty, the ids
+    and more, exactly the ids); `None` when cancelled first."""
+    ids = engine.tokenize("<|im_start|>user\nBonjour<|im_end|>\n")
+    fresh = engine.next_candidates(ids, CancelToken())
+    assert fresh is not None and set(fresh) == {"p", "texts", "tail"}
+    assert fresh["p"] == sorted(fresh["p"], reverse=True)
+    assert fresh["tail"] == pytest.approx(1 - sum(fresh["p"]), abs=1e-6)
+    drawn = list(
+        engine.complete(
+            ids, [], 2, CancelToken(), sampling=Sampling(1.0, 0, 1.0, 0.0), candidates=5
+        )
+    )
+    first = next(f for f in drawn if f.token_id is not None)
+    assert first.top["texts"] == fresh["texts"]
+    assert first.top["p"] == pytest.approx(fresh["p"], abs=1e-5)
+    for _ in range(2):  # the cache past the ids, then exactly on them: read again the same
+        again = engine.next_candidates(ids, CancelToken())
+        assert again["texts"] == fresh["texts"]
+        assert again["p"] == pytest.approx(fresh["p"], abs=1e-5)
+        assert engine.last_evaluated == 1  # only the last id evaluated again
+    cancel = CancelToken()
+    cancel.cancel()
+    assert engine.next_candidates(engine.tokenize("Autre texte"), cancel) is None
+    with pytest.raises(ValueError):
+        engine.next_candidates([], CancelToken())

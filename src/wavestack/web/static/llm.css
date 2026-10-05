@@ -596,6 +596,17 @@ body.llm-page {
   visibility: hidden;
 }
 
+/* Correction D (2026-10-05): the text in one block at step 1, as the mockup. Hidden, the
+   token and the id would keep their width: a narrow piece (« , », « ? ») would sit centred
+   in a wider column, a gap before it. Their width (padding and border too) counts from step
+   2, when the columns part. Clipped: their hidden content never scrolls the INPUT sideways. */
+.llm-input:not(.show-tokens) .llm-input-cols .token-chip > :nth-child(n + 2) {
+  overflow: hidden;
+  max-width: 0;
+  padding-inline: 0;
+  border-inline-width: 0;
+}
+
 .llm-input-counts {
   display: grid;
   gap: 6px;

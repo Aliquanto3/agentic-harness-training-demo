@@ -294,6 +294,7 @@ stages:
     none_text: "aucun token tiré pour l'instant"
     history_text: "derniers tirages : {tirages}"
     running_text: "Le moteur tire un token…"
+    reading_text: "Le moteur lit les probabilités du token suivant, sans en tirer…"
     end_text: "Le moteur a tiré son token de fin : pour lui, le texte s'arrête là. Rien à ajouter."
     raw_text: "Ici, le moteur lit le texte tel quel, sans gabarit de chat : il le prolonge. « Générer » (section 6) le lit comme un message et y répond."
     limit_text: "64 tokens ajoutés au plus : retirez-en un, ou changez le texte."

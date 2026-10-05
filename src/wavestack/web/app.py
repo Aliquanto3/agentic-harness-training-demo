@@ -222,6 +222,8 @@ class LlmStepIntention(BaseModel):
     prompt: str = Field(min_length=1, max_length=2000)
     continuation: list[Annotated[int, Field(ge=0)]] = Field(default=[], max_length=1024)
     sampling: SamplingIntention
+    # Correction E of 2026-10-05: the first load's read, the next token's candidates only.
+    candidates_only: bool = False
 
 
 class LlmDistributionRequest(BaseModel):
@@ -514,12 +516,15 @@ def create_app(
     @app.post("/api/intentions/llm_step")
     def llm_step(intention: LlmStepIntention) -> dict[str, str]:
         """Lot 6 of 2026-10-04, class (b): accepted in `idle` with the engine in process
-        only; one token drawn, `llm_token` then `llm_generation_ended` (`llm{n}.step`)."""
+        only (`llm{n}.step`): one token drawn, `llm_token` then `llm_generation_ended`; with
+        `candidates_only` (correction E of 2026-10-05), the next token's candidates read,
+        nothing drawn, no `llm_token`."""
         try:
             request_id = app_session.llm_step(
                 intention.prompt,
                 intention.continuation,
                 Sampling(**intention.sampling.model_dump()),
+                candidates_only=intention.candidates_only,
             )
         except SendRefused as refused:
             raise HTTPException(

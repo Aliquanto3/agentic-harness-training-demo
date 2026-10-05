@@ -436,6 +436,8 @@ class OutputStage(_Strict):
     none_text: str
     history_text: str
     running_text: str
+    # Correction E of 2026-10-05: the first load's read, the next token's candidates only.
+    reading_text: str
     end_text: str
     raw_text: str  # the step reads the text without the chat template, unlike « Générer »
     limit_text: str

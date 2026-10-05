@@ -4866,14 +4866,15 @@ def s_mcp_full(r: Run) -> None:
         r.last_answer()[:200],
     )
     # Chat mode: each tool definition of the body (native and MCP) shown as a tree, not as
-    # the fragments of JSON the sentinels cut.
+    # the fragments of JSON the sentinels cut. Lot 1 of 2026-10-04: the root open, its sub-nodes
+    # folded, so `function.name` is read from the DOM (`text_contents`), not from what shows.
     tools_row = (
         r.page.locator("#ctx .ctx-call")
         .first.locator(".ctx-section")
         .filter(has=r.page.locator(".ctx-section-label", has_text="Descriptions d'outils"))
     )
     names = (
-        tools_row.first.locator(".json-tree .json-string").all_inner_texts()
+        tools_row.first.locator(".json-tree .json-string").all_text_contents()
         if tools_row.count()
         else []
     )
@@ -4883,6 +4884,15 @@ def s_mcp_full(r: Run) -> None:
         and '"local__define_term"' in names,
         "mode cloud : les descriptions d'outils, MCP compris, en arbres JSON",
         str(names[:6]),
+    )
+    # 2026-10-05: each tool folded says its name (native or MCP at a glance).
+    folded = (
+        tools_row.first.locator(".json-folded-name").all_inner_texts() if tools_row.count() else []
+    )
+    r.check(
+        '"local__define_term"' in folded and '"get_datetime"' in folded,
+        "mode cloud : chaque outil replié montre son nom (natif ou MCP sans déplier)",
+        str(folded[:8]),
     )
     _ctx_focus_shot(r, "10b-contexte-outils-mcp-en-arbre")
     r.shot("10-mcp-documentation-complete")
@@ -8650,6 +8660,20 @@ def _value_patterns(
     return patterns
 
 
+def _literals(french: dict[str, str], translated: dict[str, str]) -> set[str]:
+    """The values without variable of the catalogue in the page's language, whitespace folded:
+    a text that is exactly one of them is in that language, even when a French pattern reads
+    it too (« Augmented prompt », a label of `rag_lab.yaml` in `de`, against « {n} prompt »).
+    Never a French value whose translation differs: one copied by mistake into the
+    translated catalogue stays a French text left."""
+
+    def fold(value: str) -> str:
+        return " ".join(value.split())
+
+    left = {fold(v) for k, v in french.items() if fold(translated.get(k, "")) != fold(v)}
+    return {fold(v) for v in translated.values() if not _UI_VAR.search(v)} - left
+
+
 def _french_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
     """The French values of `common` and `main` whose `lang` value differs: a text without
     variable as itself, a text with variables as a pattern (each variable any text), kept
@@ -8686,11 +8710,13 @@ _VISIBLE_TEXTS_JS = """() => {
 }"""
 
 
-def _history_strings(r: Run) -> set[str]:
+def _history_strings(r: Run, errors: bool = False) -> set[str]:
     """The texts of the history the pages replay from the journal, emitted before the last
-    change of language: the last model load's steps and the startup diagnostic's checks, kept
-    as they were said. Every other text the session sends is in the current language
-    (languages 5/5): a card's reason or a state is never set aside."""
+    change of language: the last model load's steps and the startup diagnostic's checks, and
+    with `errors` the errors (`harness_error`, that /diagnostic replays as lines of its checks:
+    a provider's refusal, a failed download), kept as they were said. Every other text the
+    session sends is in the current language (languages 5/5): a card's reason or a state is
+    never set aside."""
     with r.ev._lock:
         items = list(r.ev.items)
     changes = [e["seq"] for e in items if e["kind"] == "language_changed"]
@@ -8709,6 +8735,8 @@ def _history_strings(r: Run) -> set[str]:
                 walk(item)
 
     history = ("model_load_started", "model_load_step", "model_load_ended", "diagnostic_check")
+    if errors:
+        history += ("harness_error",)
     walk([e.get("payload") for e in items if e["seq"] < changes[-1] and e["kind"] in history])
     return found
 
@@ -8716,12 +8744,18 @@ def _history_strings(r: Run) -> set[str]:
 def _french_left(r: Run, lang: str) -> list[str]:
     """The texts of the page that are a French value of the catalogue (whole texts), what
     the session sent included (languages 5/5: its messages are translated), the journal's
-    history before the change of language aside."""
+    history before the change of language and the literals of the `lang` catalogue
+    (`_literals`) aside."""
     patterns = _french_patterns(lang)
+    literals = _literals(
+        _ui_catalogue("fr") | _message_catalogue("fr"),
+        _ui_catalogue(lang) | _message_catalogue(lang),
+    )
     history = _history_strings(r)
     found = []
     for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
-        if " ".join(text.split()).removeprefix("— ") in history:
+        folded = " ".join(text.split())
+        if folded.removeprefix("— ") in history or folded in literals:
             continue
         for key, pattern in patterns:
             if pattern.fullmatch(text):
@@ -9153,11 +9187,14 @@ def _yaml_leaves(tree: Any, prefix: str = "") -> dict[str, str]:
     return found
 
 
-def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
+def _annex_patterns(
+    lang: str,
+) -> tuple[list[tuple[str, re.Pattern[str]]], set[str]]:
     """The French values of the story's scope whose `lang` value differs: the sections
     `common`, `llm`, `rag`, `diagnostic` and `models` of `ui.yaml`, and the workshops'
     `llm_lab.yaml` and `rag_lab.yaml`. As `_french_patterns`: a variable is any text, and
-    only fixed words of six letters at least say something."""
+    only fixed words of six letters at least say something. With them, the literals of the
+    `lang` catalogue (`_literals`)."""
     french, translated = {}, {}
     for key, value in _ui_catalogue("fr").items():
         if key.split(".")[0] in ("common", *ANNEX_PAGES, "models"):
@@ -9170,18 +9207,20 @@ def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
     # Languages 5/5 (story 7 of 2026-09-30): the backend's messages too.
     french |= _message_catalogue("fr")
     translated |= _message_catalogue(lang)
-    return _value_patterns(french, translated)
+    return _value_patterns(french, translated), _literals(french, translated)
 
 
 def _annex_french_left(r: Run, lang: str) -> list[str]:
     """As `_french_left`, on an annex page, with the annex catalogue (languages 5/5: what
     the session sent is no longer set aside, the journal's history excepted)."""
-    patterns = _annex_patterns(lang)
-    history = _history_strings(r)
+    patterns, literals = _annex_patterns(lang)
+    history = _history_strings(r, errors=True)
     found = []
     for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
         text = " ".join(text.split())
         if text.removeprefix("— ") in history:  # a check's line: « — {its text} »
+            continue
+        if text in literals:  # a value of the page's language, whatever pattern reads it
             continue
         for key, pattern in patterns:
             if pattern.fullmatch(text):
@@ -12675,6 +12714,8 @@ class _LoopLab(_LiveLab):
         self.exact = exact
         self.busy = False
         self.refuse_step = False
+        # Correction E of 2026-10-05: the last step was a read of the candidates only.
+        self.peeked_last = False
 
     def lab(self, route) -> None:  # noqa: ANN001
         if not self.exact:
@@ -12718,7 +12759,8 @@ class _LoopLab(_LiveLab):
         route.fulfill(
             json={
                 "index": 0,
-                "token_text": self.draw["text"],
+                # Correction E of 2026-10-05: a read of the candidates names no token.
+                "token_text": None if self.peeked_last else self.draw["text"],
                 "candidates": [
                     {"text": text} | row
                     for (text, _), row in zip(self.draw["top"], rows, strict=True)
@@ -12772,11 +12814,46 @@ class _LoopLab(_LiveLab):
         }
         self.draw = draw
         self.kept = 1
+        self.peeked_last = False
         self.add_batch(
             ("llm_generation_started", started),
             ("llm_token", token),
             ("llm_generation_ended", ended),
         )
+        self.release()
+
+    def peeked(self, draw: dict[str, Any]) -> None:
+        """Correction E of 2026-10-05, a step asked `candidates_only`: as the session, a
+        read of the next token's candidates, nothing drawn: started then ended, both marked
+        `candidates_only`, no `llm_token`; `/distribution` names no token."""
+        rid = self.step_id
+        started = {
+            "request_id": rid,
+            "prompt": _LOOP_TEXT,
+            "rendered": _LOOP_TEXT,
+            "prompt_tokens": 5,
+            "exact": True,
+            "sampling": _LOOP_SAMPLING | {"source": "screen"},
+            "reserve": 0,
+            "usable": 4096,
+            "phase_label": "Lecture des probabilités du token suivant (e2e)",
+            "unit": "token",
+            "figures_text": {"prompt_tokens": "5", "reserve": "0", "window": "4 096"},
+            "candidates_only": True,
+        }
+        ended = {
+            "request_id": rid,
+            "status": "completed",
+            "duration_ms": 9,
+            "answer_tokens": 0,
+            "message_text": "Probabilités du token suivant lues : aucun token tiré (e2e).",
+            "figures_text": {"reasoning_tokens": "0", "answer_tokens": "0"},
+            "candidates_only": True,
+        }
+        self.draw = draw
+        self.kept = 1
+        self.peeked_last = True
+        self.add_batch(("llm_generation_started", started), ("llm_generation_ended", ended))
         self.release()
 
 
@@ -12818,6 +12895,7 @@ def s_llm_loop(r: Run) -> None:
     r.check(not errors, "/llm, boucle simulée : aucune erreur JavaScript", str(errors)[:300])
     _llm_loop_first_load(r)
     _llm_loop_cloud(r)
+    _llm_loop_journal(r)
 
 
 def _llm_loop_first_load(r: Run) -> None:
@@ -12858,18 +12936,59 @@ def _llm_loop_first_load(r: Run) -> None:
         live.add_batch(("llm_tokenized", _loop_tokenized()))
         live.release()
         stepped, _ = r.poll(pumped(lambda: len(live.steps) == 1), 10)
+        # Correction E of 2026-10-05: the first load's step asks the candidates only; the
+        # session reads them and draws nothing (no `llm_token`, `/distribution` unnamed).
+        peek = stepped and live.steps[0].get("candidates_only") is True
+        reading = page.inner_text("#llm-step-status")  # while the read is pending
+        reading_text = _content("fr", "llm_lab.yaml")["stages"]["output"]["reading_text"]
         if stepped:
-            live.drawn(_LOOP_DRAWS[0])
+            live.peeked(_LOOP_DRAWS[0])
+        r.check(
+            peek and reading == reading_text,
+            "1er chargement : le pas automatique demande les candidats seuls (aucun tirage"
+            " demandé ni émis), « le moteur lit les probabilités » pendant la lecture",
+            f"{live.steps[:1]} · {reading!r}",
+        )
         chip = page.locator("#llm-step-drawn .llm-output-chip")
-        shown, _ = r.poll(lambda: chip.count() == 1 and chip.inner_text() == "␣canapé", 10)
+        shown, _ = r.poll(lambda: page.inner_text("#output-tag").startswith("RÉEL"), 10)
         r.check(
             asked and stepped and shown,
             "1er chargement : la page demande le découpage, puis le pas, sans clic",
-            f"{len(live.tokenizes)} découpage(s), {len(live.steps)} pas, puce {shown}"
+            f"{len(live.tokenizes)} découpage(s), {len(live.steps)} pas, barres réelles {shown}"
             f" · statut {page.inner_text('#llm-step-status')!r}"
             f" · {page.inner_text('#tokenize-status')!r} · {page.inner_text('#llm-busy')!r}",
         )
         ok, drawn = _llm_loop_rows(r, _LOOP_SAMPLING)
+        # Correction D of 2026-10-05: the first load's step reads the candidates only; no
+        # token shown drawn (chip, « derniers tirages », the Logits' legend, a marked row).
+        output = _content("fr", "llm_lab.yaml")["stages"]["output"]
+        page.wait_for_timeout(300)  # the step's end handled: nothing drawn shown after it
+        card = {
+            "drawn": page.inner_text("#llm-step-drawn"),
+            "history": page.inner_text("#llm-step-history"),
+            "legend": page.inner_text("#distribution-token"),
+            "chosen": page.locator(
+                "#logits-bars .is-chosen, #distribution-bars .is-chosen"
+            ).count(),
+            "status": page.inner_text("#llm-step-status"),
+        }
+        r.check(
+            ok
+            and chip.count() == 0
+            and card
+            == {
+                "drawn": output["none_text"],
+                "history": "",
+                "legend": "",
+                "chosen": 0,
+                "status": "",
+            }
+            and page.locator("#llm-step-append").is_disabled()
+            and page.locator("#llm-step-button").is_enabled(),
+            "1er chargement : le pas automatique lit les probabilités sans rien montrer de tiré"
+            " (ni puce, ni « derniers tirages », ni token tiré nommé ou marqué)",
+            str(card),
+        )
         first = page.evaluate(_INPUT_JS)
         logits = page.locator("#logits-bars .dist-row:not(.is-tail) .dist-text").all_inner_texts()
         tags = [page.locator(t) for t in ("#input-tag", "#output-tag")]
@@ -12917,10 +13036,15 @@ def _llm_loop_first_load(r: Run) -> None:
             kept
             and len(live.tokenizes) == cuts
             and len(live.steps) == steps
-            and page.locator("#token-chips .token-chip.is-example").count() == 5,
+            and page.locator("#token-chips .token-chip.is-example").count() == 5
+            # Correction D of 2026-10-05: the kept candidates may be a step's, never shown
+            # drawn: no token named nor marked.
+            and page.inner_text("#distribution-token") == ""
+            and page.locator("#logits-bars .is-chosen, #distribution-bars .is-chosen").count() == 0,
             "rechargement, distribution gardée : rien de demandé sans clic, barres réelles"
-            " gardées, l'INPUT sur l'exemple",
-            f"{len(live.tokenizes) - cuts} découpage(s), {len(live.steps) - steps} pas",
+            " gardées sans token nommé ni marqué, l'INPUT sur l'exemple",
+            f"{len(live.tokenizes) - cuts} découpage(s), {len(live.steps) - steps} pas"
+            f" · {page.inner_text('#distribution-token')!r}",
         )
 
         # The session busy (a workshop turn): nothing asked by itself, the example shown.
@@ -12961,10 +13085,19 @@ def _llm_loop_first_load(r: Run) -> None:
             live.drawn(_LOOP_DRAWS[0])
         expect(chip).to_have_text("␣canapé", timeout=10_000)
         position = page.locator("#output-stepper .diagram-step-position")
+        legend = page.locator("#distribution-token")
+        expect(legend).to_have_text(re.compile("^Candidats du token tiré par le moteur"))
         r.check(
-            stepped and position.inner_text() == "Étape 3 / 3",
-            "après le refus, un pas demandé au clic mène l'OUTPUT à son token tiré",
-            position.inner_text(),
+            stepped
+            and live.steps[-2].get("candidates_only") is True  # the refused automatic one
+            and live.steps[-1].get("candidates_only") is False  # « Tirer » draws
+            and position.inner_text() == "Étape 3 / 3"
+            and page.inner_text("#llm-step-history") == "derniers tirages : ␣canapé"
+            and page.locator("#logits-bars .dist-row.is-chosen").count() == 1
+            and page.locator("#llm-step-append").is_enabled(),
+            "après le refus, un pas demandé au clic mène l'OUTPUT à son token tiré : puce,"
+            " « derniers tirages », token nommé et marqué, « Ajouter » actif",
+            f"{position.inner_text()} · {legend.inner_text()!r}",
         )
     finally:
         for pattern, _ in routes:
@@ -12974,6 +13107,50 @@ def _llm_loop_first_load(r: Run) -> None:
     r.check(
         not errors, "/llm, premier chargement simulé : aucune erreur JavaScript", str(errors)[:300]
     )
+
+
+def _llm_loop_journal(r: Run) -> None:
+    """Correction E of 2026-10-05: the Harnais workshop's event log names the first load's
+    read of the candidates (`candidates_only`) a read of the probabilities, never a
+    generation, and keeps « génération » and « tokens produits » for a step drawn. The two
+    steps' events fed by a routed `/api/stream` (as `_LoopLab` simulates them)."""
+    page = r.page
+    ui = _ui_catalogue("fr")
+    live = _LoopLab()
+    live.next_seq = max((e["seq"] for e in r.ev.since(0)), default=0) + 1000
+    live.peeked(_LOOP_DRAWS[0])
+    live.steps.append({})  # the next step's own id
+    live.drawn(_LOOP_DRAWS[0])
+    page.route("**/api/stream", live.stream)
+    try:
+        r.goto_app()
+        page.click("#event-log-head")
+        expect(page.locator("#event-log-list")).to_be_visible(timeout=5000)
+
+        def names() -> list[tuple[str, str]]:
+            rows = page.evaluate(_LOG_ROWS_JS)
+            return [(x["kind"], x["name"]) for x in rows if x["kind"].startswith("llm_")]
+
+        ok, _ = r.poll(lambda: len(names()) == 5, 10)
+        found = names()
+        r.check(
+            ok
+            and found
+            == [
+                ("llm_generation_started", ui["main.log.lab_peek.llm_generation_started"]),
+                ("llm_generation_ended", ui["main.log.lab_peek.llm_generation_ended"]),
+                ("llm_generation_started", ui["main.log.kinds.llm_generation_started"]),
+                ("llm_token", ui["main.log.lab_tokens"].replace("{count}", "1")),
+                ("llm_generation_ended", ui["main.log.kinds.llm_generation_ended"]),
+            ],
+            "journal du Harnais : la lecture du premier chargement s'appelle « lecture des"
+            " probabilités », un pas tiré « génération » et « tokens produits × 1 »",
+            str(found),
+        )
+        page.click("#event-log-head")
+    finally:
+        page.unroute("**/api/stream")
+        r.goto_app()
 
 
 _EXAMPLE_INPUT_JS = """() => [...document.querySelectorAll('#token-chips .token-chip')].map(c => ({
@@ -13039,6 +13216,14 @@ def _llm_loop_example(r: Run) -> None:
     )
     stepper = page.locator("#input-stepper")
     states = [page.evaluate(_INPUT_JS)]
+    # Correction D of 2026-10-05: step 1 shows the text in one block, never « Bonjour , ».
+    gaps = page.evaluate(_SEG_GAPS_JS)
+    r.check(
+        len(gaps) == len(want) - 1 and all(abs(g) < 0.5 for g in gaps),
+        "cloud A, exemple au pas 1 : le texte d'un bloc, aucun écart entre les morceaux"
+        " (ni avant la virgule)",
+        str(gaps),
+    )
     for _ in range(2):
         stepper.locator(".diagram-step-next").click()
         states.append(page.evaluate(_INPUT_JS))
@@ -13146,6 +13331,7 @@ def _llm_loop(r: Run, live: _LoopLab) -> None:
     page = r.page
     _goto_lab(r)
     expect(page.locator("#llm-step-button")).to_be_visible(timeout=5000)
+    _llm_loop_gaps(r, live)
     _llm_loop_input(r, live)
     _llm_loop_transfo(r)
     _llm_loop_output(r, live)
@@ -13173,6 +13359,67 @@ _INPUT_JS = """() => {
       : '',
   };
 }"""
+
+
+# Correction D of 2026-10-05: the horizontal gaps between the INPUT's successive pieces of
+# text (same line), in px: 0 at step 1 (the text in one block), the columns' gap from step 2.
+_SEG_GAPS_JS = """() => {
+  const boxes = [...document.querySelectorAll('#token-chips .token-chip .llm-input-seg')]
+    .map(s => s.getBoundingClientRect());
+  const gaps = [];
+  for (let i = 1; i < boxes.length; i++) {
+    if (Math.abs(boxes[i].top - boxes[i - 1].top) < 1) {
+      gaps.push(Math.round((boxes[i].left - boxes[i - 1].right) * 10) / 10);
+    }
+  }
+  return gaps;
+}"""
+
+_GAPS_TEXT = "Hello, how are you?"
+_GAPS_TOKENS = [(9707, "Hello"), (11, ","), (1246, " how"), (525, " are"), (498, " you"), (30, "?")]
+
+
+def _llm_loop_gaps(r: Run, live: _LoopLab) -> None:
+    """Correction D of 2026-10-05: an exact cut of « Hello, how are you? » (simulated): at
+    step 1 each piece touches the next (no gap before « , » nor « ? »), the tokens carrying
+    their own space (« ␣how »); at step 2 the columns part (26 px at least)."""
+    page = r.page
+    page.fill("#llm-prompt", _GAPS_TEXT)
+    expect(page.locator("#tokenize-button")).to_be_enabled(timeout=10_000)
+    tokenized = _loop_tokenized() | {
+        "text": _GAPS_TEXT,
+        "char_count": len(_GAPS_TEXT),
+        "tokens": [{"id": i, "text": t, "special": False} for i, t in _GAPS_TOKENS],
+        "token_count": len(_GAPS_TOKENS),
+        "figures_text": {"char_count": str(len(_GAPS_TEXT)), "token_count": "6", "more": "0"},
+    }
+    live.add_batch(("llm_tokenized", tokenized))
+    page.click("#tokenize-button")
+    live.release()
+    expect(page.locator("#token-chips .token-chip:not(.is-example)")).to_have_count(
+        6, timeout=10_000
+    )
+    first = page.evaluate(_INPUT_JS)
+    gaps = page.evaluate(_SEG_GAPS_JS)
+    text = page.inner_text("#token-chips .token-chip:first-child .llm-input-seg")
+    r.check(
+        not first["cut"]
+        and "".join(first["pieces"]) == _GAPS_TEXT
+        and text == "Hello"
+        and len(gaps) == 5
+        and all(abs(g) < 0.5 for g in gaps),
+        "INPUT pas 1, découpage exact de « Hello, how are you? » : le texte d'un bloc, aucun"
+        " écart avant « , » ni « ? »",
+        f"{gaps} · {first['pieces']}",
+    )
+    page.locator("#input-stepper .diagram-step-next").click()
+    parted, _ = r.poll(lambda: all(g >= 25.5 for g in page.evaluate(_SEG_GAPS_JS) or [0]), 5)
+    r.check(
+        parted and page.evaluate(_INPUT_JS)["chips"][2] == "␣how",
+        "INPUT pas 2 : les colonnes s'écartent, le token porte son espace (« ␣how »)",
+        str(page.evaluate(_SEG_GAPS_JS)),
+    )
+    page.locator("#input-stepper .diagram-step-prev").click()
 
 
 def _llm_loop_input(r: Run, live: _LoopLab) -> None:
@@ -13408,10 +13655,19 @@ def _llm_loop_output(r: Run, live: _LoopLab) -> None:
         "OUTPUT : la chance suit la température puis top-p, les écartés disent « écarté (top-p) »",
         f"{hot} · {cut}",
     )
+    chosen = page.locator("#logits-bars .is-chosen, #distribution-bars .is-chosen")
     r.check(
         page.locator("#llm-step-drawn .llm-output-chip").count() == 0
-        and page.locator("#llm-step-append").is_disabled(),
-        "un réglage bougé efface le token tiré (tiré avec les réglages d'avant), « Ajouter » grisé",
+        and page.locator("#llm-step-append").is_disabled()
+        # Correction D of 2026-10-05: its name and its marked rows go with it (the mockup);
+        # the last draws stay said.
+        and page.inner_text("#distribution-token") == ""
+        and chosen.count() == 0
+        and page.inner_text("#llm-step-history") == "derniers tirages : ␣canapé",
+        "un réglage bougé efface le token tiré (tiré avec les réglages d'avant), son nom et son"
+        " marquage ; « Ajouter » grisé, « derniers tirages » gardé",
+        f"{page.inner_text('#distribution-token')!r} · {chosen.count()}"
+        f" · {page.inner_text('#llm-step-history')!r}",
     )
     page.click("#llm-step-button")
     r.poll(lambda: len(live.steps) == 2, 5)

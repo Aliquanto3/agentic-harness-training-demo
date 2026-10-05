@@ -1568,6 +1568,131 @@ def test_step_route_answers_validates_and_refuses():
     assert busy.status_code == 409 and "Un tour est déjà en cours" in busy.json()["detail"]
 
 
+def _peek(session, prompt="Bonjour", continuation=(), sampling=SCREEN) -> tuple[str, list]:  # noqa: ANN001
+    mark = get_journal().last_seq()
+    request_id = session.llm_step(prompt, list(continuation), sampling, candidates_only=True)
+    session.join()
+    return request_id, get_journal().events_since(mark)
+
+
+def test_a_candidates_only_step_reads_the_next_token_without_drawing_one():
+    """Correction E of 2026-10-05: the OUTPUT's first load reads the candidates of the next
+    token, nothing drawn nor added: no `llm_token`, no generation in the engine, the
+    candidates kept as the token 0 (`/distribution` as for a step, no token named)."""
+    engine = FakeEngine(output="xyz", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    history, calls, samplings = list(session._history), len(engine.calls), len(engine.samplings)
+    snapshots, restores = engine.snapshots, engine.restores
+    request_id, events = _peek(session, "Le chat", [65])
+    assert request_id.startswith("llm") and request_id.endswith(".step")
+    lab = [e for e in events if e.context_id == "llm"]
+    assert [e.kind for e in lab] == ["llm_generation_started", "llm_generation_ended"]
+    assert all(e.step_id == request_id for e in lab)
+    assert not [e for e in events if e.kind in ("llm_token", "model_call_started", "model_delta")]
+    started, ended = lab[0].payload, lab[1].payload
+    assert started["candidates_only"] is True and started["rendered"] == "Le chatA"
+    assert "aucun token tiré" in started["phase_label"]
+    assert ended["candidates_only"] is True and ended["status"] == "completed"
+    assert ended["answer_tokens"] == 0 and "aucun token tiré" in ended["message_text"]
+    # The engine read the step's ids, generated nothing.
+    assert engine.peeks == [engine.tokenize("Le chat") + [65]]
+    assert len(engine.calls) == calls and len(engine.samplings) == samplings
+    assert engine.snapshots == snapshots + 1 and engine.restores == restores + 1
+    # The candidates kept: the same `distribution` and `dropped_by` as a drawn step's.
+    assert session.lab_state()["distribution"] == {"tokens": 1}
+    sampling = Sampling(1.0, 2, 1.0, 0.0)
+    read = session.llm_distribution(0, sampling)
+    ids, probs, tail = top_from_logits(LOGITS)
+    assert read["token_text"] is None and read["tail"] == pytest.approx(tail)
+    assert [c["text"] for c in read["candidates"]] == [bytes([i]).decode() for i in ids]
+    assert [c["p"] for c in read["candidates"]] == pytest.approx(probs)
+    assert read["dropped_by"] == dropped_by(probs, tail, sampling)
+    _, drawn = _step(session, "Le chat", [65])  # « Tirer »: the same candidates, one drawn
+    assert [e.payload["text"] for e in drawn if e.kind == "llm_token"] == ["x"]
+    again = session.llm_distribution(0, sampling)
+    assert again["token_text"] == "x" and again["candidates"] == read["candidates"]
+    assert session.state == "idle" and session._history == history
+
+
+def test_a_candidates_only_step_is_refused_as_a_step_and_ends_on_an_engine_failure(
+    monkeypatch,
+):
+    session = booted_session(SpecialEngine(logits_script=LOGITS_SCRIPT))
+    mark = get_journal().last_seq()
+    for continuation in ([1] * 65, [1004]):
+        with pytest.raises(SendRefused):
+            session.llm_step("Bonjour", continuation, SCREEN, candidates_only=True)
+    session.state, session.reason_text = "turn", "Un tour est en cours."
+    with pytest.raises(SendRefused):
+        session.llm_step("Bonjour", [], SCREEN, candidates_only=True)
+    session.state, session.reason_text = "idle", None
+    assert not [e for e in get_journal().events_since(mark) if e.context_id == "llm"]
+    server = FakeServer()
+    monkeypatch.setattr(servers, "default_transport", httpx.MockTransport(server))
+    with pytest.raises(SendRefused):
+        _booted("llama_server").llm_step("Bonjour", [], SCREEN, candidates_only=True)
+    provider = Provider(sse(delta(content="ok"), delta("stop")))
+    with pytest.raises(SendRefused):
+        _cloud_session("groq", provider).llm_step("Bonjour", [], SCREEN, candidates_only=True)
+    # The engine failing: the read ends in error, nothing kept, the session back to `idle`.
+    broken = FakeEngine(logits_script=LOGITS_SCRIPT)
+    failing = booted_session(broken)
+    broken.fail = True
+    _, events = _peek(failing)
+    ended = next(e.payload for e in events if e.kind == "llm_generation_ended")
+    assert ended["status"] == "error" and ended["candidates_only"] is True
+    assert failing.lab_state()["distribution"] == {"tokens": 0}
+    assert failing.state == "idle"
+
+
+def test_a_candidates_only_step_too_long_or_cancelled_keeps_nothing():
+    """Correction E of 2026-10-05: a text too long for « Tirer » is not read either (the
+    same bound, `window - output_reserve(False)`); « Arrêter » before the read ends it
+    `cancelled`; nothing kept in both cases, the session back to `idle`."""
+    engine = FakeEngine(logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine, window=1024)
+    long_text = "x" * 600  # 600 tokens > 1 024 - 512
+    _, events = _peek(session, long_text)
+    ended = next(e.payload for e in events if e.kind == "llm_generation_ended")
+    assert ended["status"] == "error" and "trop long" in ended["message_text"]
+    assert not engine.peeks and session.lab_state()["distribution"] == {"tokens": 0}
+    _, drawn = _step(session, long_text)
+    refused = next(e.payload for e in drawn if e.kind == "llm_generation_ended")
+    assert refused["message_text"] == ended["message_text"]
+
+    class Stopped(FakeEngine):
+        def next_candidates(self, prompt_ids, cancel):  # noqa: ANN001, ANN201
+            cancel.cancel()  # « Arrêter » pressed meanwhile
+            return super().next_candidates(prompt_ids, cancel)
+
+    stopped = booted_session(Stopped(logits_script=LOGITS_SCRIPT))
+    _, events = _peek(stopped)
+    ended = next(e.payload for e in events if e.kind == "llm_generation_ended")
+    assert ended["status"] == "cancelled" and ended["candidates_only"] is True
+    assert stopped.lab_state()["distribution"] == {"tokens": 0}
+    assert stopped.state == "idle"
+
+
+def test_step_route_takes_candidates_only():
+    engine = SpecialEngine(output="ab", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    client = _web(session)
+    calls = len(engine.calls)
+    good = {"temperature": 0.2, "top_k": 5, "top_p": 0.9, "min_p": 0.05}
+    answer = client.post(
+        "/api/intentions/llm_step",
+        json={"prompt": "Bonjour", "sampling": good, "candidates_only": True},
+        headers=ORIGIN,
+    )
+    assert answer.status_code == 200 and answer.json()["request_id"].endswith(".step")
+    session.join()
+    assert engine.peeks and len(engine.calls) == calls
+    read = client.post(
+        "/api/llm_lab/distribution", json={"index": 0, "sampling": good}, headers=ORIGIN
+    )
+    assert read.status_code == 200 and read.json()["token_text"] is None
+
+
 def test_dropped_by_names_the_first_setting_of_the_chain():
     probs, tail = [0.5, 0.2, 0.1, 0.05, 0.05], 0.1
     assert dropped_by(probs, tail, Sampling(1.0, 0, 1.0, 0.0)) == [None] * 5

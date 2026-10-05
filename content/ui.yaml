@@ -787,6 +787,10 @@ main:
       cancelled: "arrêtée"
       limit: "réserve de sortie atteinte"
       error: "en échec"
+    # Correction E of 2026-10-05: the LLM workshop's first load, a read of probabilities.
+    lab_peek:
+      llm_generation_started: "Atelier LLM : lecture des probabilités commencée"
+      llm_generation_ended: "Atelier LLM : lecture des probabilités terminée"
     rag_lab_status:
       ok: "terminée"
       error: "en erreur"
