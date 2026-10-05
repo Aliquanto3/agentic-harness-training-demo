@@ -1054,7 +1054,8 @@ body {
   font-weight: 600;
 }
 
-.json-string {
+.json-string,
+.json-folded-name {
   color: var(--color-json-string);
 }
 

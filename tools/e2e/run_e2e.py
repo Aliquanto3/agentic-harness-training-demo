@@ -4885,6 +4885,15 @@ def s_mcp_full(r: Run) -> None:
         "mode cloud : les descriptions d'outils, MCP compris, en arbres JSON",
         str(names[:6]),
     )
+    # 2026-10-05: each tool folded says its name (native or MCP at a glance).
+    folded = (
+        tools_row.first.locator(".json-folded-name").all_inner_texts() if tools_row.count() else []
+    )
+    r.check(
+        '"local__define_term"' in folded and '"get_datetime"' in folded,
+        "mode cloud : chaque outil replié montre son nom (natif ou MCP sans déplier)",
+        str(folded[:8]),
+    )
     _ctx_focus_shot(r, "10b-contexte-outils-mcp-en-arbre")
     r.shot("10-mcp-documentation-complete")
     r.results.append((r.current, f"jauge avant envoi : {gauge}", True, ""))

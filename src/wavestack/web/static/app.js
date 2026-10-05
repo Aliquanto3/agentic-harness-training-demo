@@ -4246,7 +4246,14 @@ function jsonNode(value, name, path, last, root = false) {
     summary.dataset.focusKey = path;
     const count = entries.length;
     const noun = isArray ? t("main.ctx.json_items", { count }) : t("main.ctx.json_keys", { count });
-    summary.append(...head, el("span", "json-punct", open), el("span", "json-folded", ` … ${close} ${noun}`));
+    // Folded, an object with a string `name` says it (a tool's definition, a tool call:
+    // native or MCP at a glance, lot of 2026-10-05).
+    const folded = el("span", "json-folded");
+    if (!isArray && typeof value.name === "string") {
+      folded.append(" ", el("span", "json-folded-name", jsonString(value.name)));
+    }
+    folded.append(` … ${close} ${noun}`);
+    summary.append(...head, el("span", "json-punct", open), folded);
     const children = el("span", "json-children");
     entries.forEach(([k, v], i) => {
       children.appendChild(jsonNode(v, isArray ? undefined : k, `${path}/${encodeURIComponent(k)}`, i === count - 1));
