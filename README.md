@@ -37,8 +37,16 @@ faites autoriser les domaines de
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
-2. **Récupérez WaveStack**, avec Git (`git clone https://github.com/Aliquanto3/agentic-harness-training-demo.git`)
-   ou en décompressant l'archive zip, puis ouvrez un terminal dans le dossier obtenu.
+2. **Récupérez WaveStack** avec Git, puis entrez dans le dossier cloné : toutes les commandes
+   suivantes se lancent depuis ce dossier.
+
+   ```powershell
+   git clone https://github.com/Aliquanto3/agentic-harness-training-demo.git
+   cd agentic-harness-training-demo
+   ```
+
+   Avec l'archive zip, décompressez-la, puis `cd` dans le dossier obtenu (par exemple
+   `cd agentic-harness-training-demo-main`).
 
 3. **Déposez le modèle** (1,28 Go) dans `%LOCALAPPDATA%\WaveStack\models`, le dossier de
    données de votre profil, hors du dossier cloné (une mise à jour du code n'y touche pas) :
