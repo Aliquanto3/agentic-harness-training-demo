@@ -24,9 +24,10 @@ spec: ../../../implementation-artifacts/spec-lot-6-atelier-llm-boucle-du-modele.
 
 | Fichier | Nature | Contenu |
 | --- | --- | --- |
-| `src/wavestack/session/app_session.py` | ajouts, deux retouches | `llm_step`, `_engine_vocab` (ajoutés avant `_lab_release`) ; `_run_lab` gagne `continuation` et `max_tokens` (défauts neutres) ; `_lab_dimensions` passe `architecture=` ; `llm_distribution` renvoie `dropped_by` ; imports `Sequence`, `dropped_by`. |
+| `src/wavestack/session/app_session.py` | ajouts, deux retouches | `llm_step`, `_engine_vocab` (ajoutés avant `_lab_release`) ; `_run_lab` gagne `continuation` et `max_tokens` (défauts neutres) ; `_lab_dimensions` passe `architecture=` ; `llm_distribution` renvoie `dropped_by` ; imports `Sequence`, `dropped_by`. Suite de la revue (pas sans gabarit) : `_run_lab` gagne `raw: bool = False` (la branche locale appelle `_step_context` au lieu de `render_context`, sans raisonnement ; `continuation` n'est plus lu qu'avec `raw`, le bloc `replace(rendered, …)` a disparu) ; `llm_step` passe `raw=True` ; `_step_context` ajouté avant `_lab_release` ; `_step_bos`, `_step_bos_text` ajoutés après `_lab_tokenized`, qui renvoie `bos_token`. |
 | `src/wavestack/web/app.py` | ajouts, une ligne retouchée | `LlmStepIntention`, `POST /api/intentions/llm_step` (après `llm_compare`) ; la ligne `from typing import Any, Literal` devient `from typing import Annotated, Any, Literal` (conflit d'une ligne si un autre lot touche cet import). |
-| `src/wavestack/trace/catalog.py` | ajouts | `LlmArchitecture`, champ `LlmDimensions.architecture` (défaut `None`). |
+| `src/wavestack/trace/catalog.py` | ajouts | `LlmArchitecture`, champ `LlmDimensions.architecture` (défaut `None`) ; suite de la revue : champ `LlmTokenizedPayload.bos_token` (défaut `None`). |
+| `src/wavestack/models/engine.py` | ajouts (suite de la revue) | `VocabTokenizer.adds_bos()` (id du BOS si `llama_vocab_get_add_bos`, sinon `None`) après `is_eog` ; `LlamaCppEngine.adds_bos()` qui délègue, après `tokenize`. |
 | `src/wavestack/models/candidates.py` | refactorisation locale | `_cuts` extrait de `distribution` (même règle), `dropped_by` ajouté. Comportement de `distribution` inchangé (tests oracle verts). |
 | `content/messages.yaml` + en + de | ajouts | `session.llm_lab.step.too_many`, `session.llm_lab.step.out_of_vocabulary`. |
 | `src/wavestack/web/static/diagram.js` | ajout d'option | `createStepper(host, { onShow, liveText })` : deux lignes touchées (la signature et le texte du bouton de droite, `liveText \|\| t("common.diagram.live")`). Rétrocompatible. |
@@ -99,10 +100,12 @@ sans valeur.
   bandeau, un token tiré par le moteur en 1,3 s, chaque étape dans l'écran à 1600 × 1000 et
   1366 × 768. En-tête du vrai Qwen3.5-2B : `hybrid`, une couche sur 4, 2 têtes K/V.
 
-## Question ouverte (décision d'Anaël)
+## Décision d'Anaël (2026-10-05) : le pas lit le texte de l'INPUT
 
-Le pas lit le texte de l'INPUT **enveloppé par le gabarit de chat** (comme « Générer ») : le token
-tiré est le début d'une réponse (« Le chat dort sur le » → « Le », 71 %), pas la suite du texte.
-L'INPUT, lui, montre le texte brut. Deux options : garder le gabarit et le dire (légende des Logits,
-note dans l'INPUT), ou faire un pas « sans gabarit » (suite directe des tokens de l'INPUT, comme le
-découpage de l'étape 1). Le second se fait dans `_run_lab` (quelques lignes, `app_session.py`).
+Spec : `spec-lot-6-pas-de-l-output-lit-le-texte-de-l-input.md`. Option B retenue : le pas se
+fait **sans gabarit de chat**. Le moteur lit les identifiants mêmes de l'INPUT (`tokenize`, comme
+`llm_tokenize`), précédés du BOS quand le modèle le demande (Gemma, Llama ; pas Qwen), puis les
+tokens ajoutés ; le token tiré prolonge le texte. « Générer » garde le gabarit. Côté page :
+`#token-bos` (phrase de l'INPUT qui nomme le BOS, `stages.input.bos_text`) et `#llm-step-raw`
+(phrase de l'OUTPUT, `stages.output.raw_text`) ; `stages.output.end_text` réécrit (« le texte
+s'arrête là »). Un modèle qui raisonne toujours tire son pas sans raisonnement.

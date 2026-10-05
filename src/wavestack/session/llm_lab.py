@@ -271,6 +271,7 @@ class InputStage(_Strict):
     added_text: PluralText  # « dont 1 ajouté par l'OUTPUT », the session's figures unchanged
     column_label_text: str  # a column's accessible name
     produced_label_text: str  # the same, for a token the engine drew and the trainer added
+    bos_text: str  # « Avant ces tokens, le moteur lit aussi {bos} » (the step's BOS)
 
 
 class TransfoSteps(_Strict):
@@ -389,6 +390,7 @@ class OutputStage(_Strict):
     history_text: str
     running_text: str
     end_text: str
+    raw_text: str  # the step reads the text without the chat template, unlike « Générer »
     limit_text: str
     step_token_text: str
     help_text: str  # the « ? » of a setting's name, for screen readers

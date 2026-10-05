@@ -114,6 +114,7 @@ stages:
       other: "dont {n} ajoutés par l'OUTPUT"
     column_label_text: "{texte} → token {token} → identifiant {id}"
     produced_label_text: "{texte} → token {token} → identifiant {id}, tiré par le moteur et ajouté à la suite"
+    bos_text: "Avant ces tokens, le moteur lit aussi {bos} : le token de début de texte que ce modèle demande."
   transfo:
     title_text: "TRANSFORMATION"
     subtitle_text: "les nombres traversent les couches du modèle"
@@ -283,7 +284,8 @@ stages:
     none_text: "aucun token tiré pour l'instant"
     history_text: "derniers tirages : {tirages}"
     running_text: "Le moteur tire un token…"
-    end_text: "Le moteur a tiré la fin de la réponse (son token de fin) : rien à ajouter."
+    end_text: "Le moteur a tiré son token de fin : pour lui, le texte s'arrête là. Rien à ajouter."
+    raw_text: "Ici, le moteur lit le texte tel quel, sans gabarit de chat : il le prolonge. « Générer » (section 6) le lit comme un message et y répond."
     limit_text: "64 tokens ajoutés au plus : retirez-en un, ou changez le texte."
     step_token_text: "Candidats du token tiré par le moteur : {texte}."
     help_text: "Ce que fait ce réglage"

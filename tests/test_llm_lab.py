@@ -8,6 +8,7 @@ import json
 import shutil
 import threading
 import time
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -1405,7 +1406,7 @@ def test_a_step_draws_one_token_with_its_candidates():
     assert ended["request_id"] == request_id and ended["answer_tokens"] == 1
     assert engine.samplings[-1] == SCREEN and engine.candidates[-1] == CANDIDATES
     started = next(e.payload for e in lab if e.kind == "llm_generation_started")
-    assert engine.calls[-1] == list(started["rendered"].encode())  # the template's render
+    assert engine.calls[-1] == list(started["rendered"].encode())  # the text, no template
     # `/distribution` index 0 draws the step's token again, with what leaves each one out.
     assert session.lab_state()["distribution"] == {"tokens": 1}
     again = session.llm_distribution(0, Sampling(1.0, 2, 1.0, 0.0))
@@ -1414,17 +1415,90 @@ def test_a_step_draws_one_token_with_its_candidates():
     assert session.state == "idle" and session._history == history
 
 
+def test_a_step_reads_the_input_ids_without_the_template_unlike_generate():
+    """Spec « le pas de l'OUTPUT lit le texte de l'INPUT »: the engine reads the very ids of
+    the INPUT (`llm_tokenize`), no template marker; « Générer » keeps the template."""
+    engine = FakeEngine(output="xyz", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    text = "Le chat dort sur le"
+    _, events = _step(session, text)
+    assert engine.calls[-1] == engine.tokenize(text)
+    started = next(e.payload for e in events if e.kind == "llm_generation_started")
+    assert started["rendered"] == text and "<|im_start|>" not in started["rendered"]
+    assert started["prompt_tokens"] == len(engine.tokenize(text))
+    assert _tokenized(session, text)["bos_token"] is None  # no `adds_bos`: no BOS
+    generated = _generate(session, text, candidates=True)
+    rendered = next(e.payload for e in generated if e.kind == "llm_generation_started")
+    assert rendered["rendered"].startswith("<|im_start|>user\n" + text)
+    assert rendered["rendered"].endswith("<|im_start|>assistant\n")
+
+
 def test_a_step_reads_the_tokens_already_added_and_draws_again_at_the_same_place():
     engine = FakeEngine(output="xyz", logits_script=LOGITS_SCRIPT)
     session = booted_session(engine)
     _, events = _step(session, "Bonjour", [65, 66])
     started = next(e.payload for e in events if e.kind == "llm_generation_started")
-    assert started["rendered"].endswith("<|im_start|>assistant\nAB")
-    assert engine.calls[-1][-2:] == [65, 66]
+    assert started["rendered"] == "BonjourAB"
+    assert engine.calls[-1] == engine.tokenize("Bonjour") + [65, 66]
     assert started["prompt_tokens"] == len(engine.calls[-1])
     first = list(engine.calls[-1])
     _step(session, "Bonjour", [65, 66])  # « Tirer » again: the same text, the same tokens
     assert engine.calls[-1] == first
+
+
+class BosEngine(FakeEngine):
+    """A vocabulary that asks a begin-of-text token (Gemma, Llama): `<s>`, id 1."""
+
+    def __init__(self, bos_text: str = "<s>", **kwargs) -> None:  # noqa: ANN003
+        super().__init__(**kwargs)
+        self.bos_text = bos_text
+
+    def adds_bos(self) -> int | None:
+        return 1
+
+    def metadata(self) -> EngineMetadata:
+        return replace(super().metadata(), bos_token=self.bos_text)
+
+
+def test_a_step_reads_the_bos_first_when_the_model_asks_one_and_names_it():
+    engine = BosEngine(output="xyz", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    payload = _tokenized(session, "Le chat")
+    assert payload["bos_token"] == "<s>"
+    assert payload["token_count"] == len("Le chat")  # the chips and counts unchanged
+    assert [t["id"] for t in payload["tokens"]] == engine.tokenize("Le chat")
+    _, events = _step(session, "Le chat", [65])
+    assert engine.calls[-1] == [1] + engine.tokenize("Le chat") + [65]
+    started = next(e.payload for e in events if e.kind == "llm_generation_started")
+    assert started["rendered"] == "<s>Le chatA"
+    # A BOS without a text in the metadata: its piece names it.
+    unnamed = booted_session(BosEngine(bos_text="", output="x", logits_script=LOGITS_SCRIPT))
+    assert _tokenized(unnamed, "Le chat")["bos_token"] == "\x01"
+
+
+def test_an_engine_whose_adds_bos_fails_reads_no_bos_and_never_fails():
+    class Failing(FakeEngine):
+        def adds_bos(self) -> int | None:
+            raise RuntimeError("llama.cpp ne sait pas")
+
+    engine = Failing(output="xyz", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    assert _tokenized(session, "Le chat")["bos_token"] is None
+    _step(session, "Le chat")
+    assert engine.calls[-1] == engine.tokenize("Le chat")
+    assert session.state == "idle"
+
+
+def test_a_step_never_reasons_even_for_a_model_that_always_reasons():
+    engine, session = _reasoning_session("Réponse.")
+    engine.logits_script = LOGITS_SCRIPT
+    session._caps = replace(session._caps, reasoning_always=True)
+    _, events = _step(session, "Le chat dort sur le")
+    started = next(e.payload for e in events if e.kind == "llm_generation_started")
+    assert started["reasoning"] is False and "<think>" not in started["rendered"]
+    assert engine.calls[-1] == engine.tokenize("Le chat dort sur le")
+    tokens = [e.payload for e in events if e.kind == "llm_token"]
+    assert len(tokens) == 1 and tokens[0]["channel"] == "text"
 
 
 def test_a_step_is_refused_outside_idle_without_an_engine_in_process_or_beyond_bounds(

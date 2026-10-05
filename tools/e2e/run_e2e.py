@@ -11814,15 +11814,15 @@ class _LoopLab(_LiveLab):
         started = {
             "request_id": rid,
             "prompt": _LOOP_TEXT,
-            "rendered": f"<|im_start|>user\n{_LOOP_TEXT}<|im_end|>\n<|im_start|>assistant\n",
-            "prompt_tokens": 14,
+            "rendered": _LOOP_TEXT,  # the INPUT's text, no chat template
+            "prompt_tokens": 5,
             "exact": True,
             "sampling": _LOOP_SAMPLING | {"source": "screen"},
             "reserve": 512,
             "usable": 3584,
             "phase_label": "Lecture (e2e)",
             "unit": "token",
-            "figures_text": {"prompt_tokens": "14", "reserve": "512", "window": "4 096"},
+            "figures_text": {"prompt_tokens": "5", "reserve": "512", "window": "4 096"},
         }
         token = {
             "request_id": rid,
@@ -11924,8 +11924,10 @@ def _llm_loop_cloud(r: Run) -> None:
         button.is_disabled()
         and "Faux fournisseur (e2e)" in (button.get_attribute("title") or "")
         and "Faux fournisseur (e2e)" in status
-        and refused.status_code == 409,
-        "cloud A : « Tirer le token suivant » grisé avec la raison des candidats, appel direct 409",
+        and refused.status_code == 409
+        and page.locator("#llm-step-raw").is_hidden(),
+        "cloud A : « Tirer le token suivant » grisé avec la raison des candidats, appel direct 409,"
+        " pas de phrase « sans gabarit »",
         f"{button.get_attribute('title')} · {status} · {refused.status_code}",
     )
     r.goto_app()
@@ -11940,6 +11942,8 @@ def _llm_loop(r: Run, live: _LoopLab) -> None:
     _llm_loop_output(r, live)
     _llm_loop_heights(r)
     _llm_loop_families(r, live)
+    _llm_loop_bos(r, live)
+    _llm_loop_end(r, live)
 
 
 _INPUT_JS = """() => {
@@ -12007,6 +12011,10 @@ def _llm_loop_input(r: Run, live: _LoopLab) -> None:
         and "5 nombres entre 0 et 248 319" in counts,
         "INPUT pas 3 : les identifiants reçus sous chaque token, compteurs de la session",
         f"{third['ids_']} · {counts!r} · {third['labels'][1]!r}",
+    )
+    r.check(
+        page.locator("#token-bos").is_hidden(),
+        "INPUT sans BOS (modèle qui n'en demande pas) : aucune phrase sur le token de début",
     )
     r.shot_element("70-llm-boucle-input", "#stage-input")
 
@@ -12152,6 +12160,13 @@ def _llm_loop_output(r: Run, live: _LoopLab) -> None:
         and "après « dort sur le »" in page.inner_text("#logits-caption"),
         "OUTPUT : le moteur tire « ␣canapé », Logits et Tirage montrent ses 6 premiers candidats",
         f"{logits} · {drawn}",
+    )
+    raw = page.locator("#llm-step-raw")
+    raw_text = _content("fr", "llm_lab.yaml")["stages"]["output"]["raw_text"]
+    r.check(
+        raw.is_visible() and _plain(raw.inner_text()) == _plain(raw_text),
+        "OUTPUT : la carte du token tiré dit que le pas lit le texte sans gabarit, « Générer » non",
+        raw.inner_text()[:160],
     )
     _set_live(r, "temperature", 1.5, slider=True)
     ok_hot, hot = _llm_loop_rows(r, _LOOP_SAMPLING | {"temperature": 1.5})
@@ -12361,6 +12376,80 @@ def _llm_loop_families(r: Run, live: _LoopLab) -> None:
         dense == "" and page.locator("#transfo-banner").is_hidden(),
         "TRANSFORMATION, modèle dense : pas de bandeau",
         dense[:160],
+    )
+
+
+def _llm_loop_bos(r: Run, live: _LoopLab) -> None:
+    """A model that asks a begin-of-text token (`llm_tokenized.bos_token`): the INPUT names
+    it in a sentence, its columns and counters unchanged; gone again without one."""
+    page = r.page
+    payload = _loop_tokenized(_LOOP_DENSE_HEADER)
+    payload["bos_token"] = "<bos>"
+    live.add_batch(("llm_tokenized", payload))
+    live.release()
+    bos = page.locator("#token-bos")
+    expect(bos).to_be_visible(timeout=10_000)
+    said = _plain(bos.inner_text())
+    counts = _plain(page.inner_text("#token-counts"))
+    bos_text = _content("fr", "llm_lab.yaml")["stages"]["input"]["bos_text"]
+    r.check(
+        said == _plain(bos_text.replace("{bos}", "<bos>"))
+        and bos.locator("code").inner_text() == "<bos>"
+        and page.locator("#token-chips .token-chip").count() == 5
+        and counts.startswith("5 tokens"),
+        "INPUT, modèle qui demande le BOS : une phrase le nomme, puces et compteurs inchangés",
+        f"{said!r} · {counts!r}",
+    )
+    live.add_batch(("llm_tokenized", _loop_tokenized(_LOOP_DENSE_HEADER)))
+    live.release()
+    expect(bos).to_be_hidden(timeout=10_000)
+
+
+def _llm_loop_end(r: Run, live: _LoopLab) -> None:
+    """A step whose token is the model's end token: no `llm_token`, the step ends
+    `completed`; the OUTPUT says the text stops there for the model."""
+    page = r.page
+    expect(page.locator("#llm-step-button")).to_be_enabled(timeout=5000)
+    before = len(live.steps)
+    page.click("#llm-step-button")
+    r.poll(lambda: len(live.steps) == before + 1, 5)
+    rid = live.step_id
+    live.add_batch(
+        (
+            "llm_generation_started",
+            {
+                "request_id": rid,
+                "prompt": _LOOP_TEXT,
+                "rendered": _LOOP_TEXT,
+                "prompt_tokens": 5,
+                "exact": True,
+                "sampling": _LOOP_SAMPLING | {"source": "screen"},
+                "reserve": 512,
+                "usable": 3584,
+                "phase_label": "Lecture (e2e)",
+                "unit": "token",
+                "figures_text": {"prompt_tokens": "5", "reserve": "512", "window": "4 096"},
+            },
+        ),
+        (
+            "llm_generation_ended",
+            {
+                "request_id": rid,
+                "status": "completed",
+                "duration_ms": 9,
+                "answer_tokens": 0,
+                "figures_text": {"reasoning_tokens": "0", "answer_tokens": "0"},
+            },
+        ),
+    )
+    live.release()
+    end_text = _content("fr", "llm_lab.yaml")["stages"]["output"]["end_text"]
+    status = page.locator("#llm-step-status")
+    expect(status).to_have_text(end_text, timeout=10_000)
+    r.check(
+        status.inner_text() == end_text,
+        "OUTPUT, token de fin tiré : le texte s'arrête là pour le modèle, rien à ajouter",
+        status.inner_text(),
     )
 
 

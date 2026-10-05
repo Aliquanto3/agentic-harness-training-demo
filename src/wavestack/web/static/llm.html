@@ -99,6 +99,7 @@
         </div>
         <div class="llm-input-counts" id="token-counts" hidden></div>
       </div>
+      <p class="llm-note" id="token-bos" hidden></p>
       <p class="llm-note" id="token-blanks" data-text="tokenization.blanks_text" hidden></p>
       <p class="llm-stage-caption" id="input-caption" aria-live="polite"></p>
     </section>
@@ -190,6 +191,7 @@
             <button type="button" id="llm-step-undo" class="llm-button-secondary" data-text="stages.output.undo_text" disabled>Retirer le dernier</button>
             <span class="llm-output-history" id="llm-step-history"></span>
           </div>
+          <p class="llm-note" id="llm-step-raw" data-text="stages.output.raw_text"></p>
           <p class="llm-status" id="llm-step-status" role="status" aria-live="polite"></p>
         </section>
       </div>

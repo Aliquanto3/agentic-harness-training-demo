@@ -113,6 +113,7 @@ stages:
       other: "davon {n} vom OUTPUT angehängt"
     column_label_text: "{texte} → Token {token} → Kennung {id}"
     produced_label_text: "{texte} → Token {token} → Kennung {id}, von der Engine gezogen und angehängt"
+    bos_text: "Vor diesen Tokens liest die Engine auch {bos}: das Textanfangs-Token, das dieses Modell verlangt."
   transfo:
     title_text: "TRANSFORMATION"
     subtitle_text: "die Zahlen durchlaufen die Schichten des Modells"
@@ -281,7 +282,8 @@ stages:
     none_text: "noch kein Token gezogen"
     history_text: "letzte Ziehungen: {tirages}"
     running_text: "Die Engine zieht ein Token…"
-    end_text: "Die Engine hat das Ende der Antwort gezogen (ihr End-Token): nichts anzuhängen."
+    end_text: "Die Engine hat ihr End-Token gezogen: für sie endet der Text hier. Nichts anzuhängen."
+    raw_text: "Hier liest die Engine den Text so, wie er ist, ohne Chat-Vorlage: sie setzt ihn fort. „Generieren“ (Abschnitt 6) liest ihn als Nachricht und antwortet darauf."
     limit_text: "Höchstens 64 angehängte Tokens: entfernen Sie eines oder ändern Sie den Text."
     step_token_text: "Kandidaten des von der Engine gezogenen Tokens: {texte}."
     help_text: "Was diese Einstellung tut"

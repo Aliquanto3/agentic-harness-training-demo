@@ -342,6 +342,14 @@ function renderInput() {
     more.textContent = p.more ? text("tokenization.more_text", { reste: figures.more, count: p.more }) : "";
     $("token-blanks").hidden = !p.tokens.length;
   }
+  // The begin-of-text token the OUTPUT's step reads before these tokens, when the model
+  // asks one (Gemma, Llama): named by the session, never one of the columns.
+  const bos = $("token-bos");
+  const bosToken = p?.exact ? p.bos_token : null;
+  bos.hidden = !bosToken;
+  bos.replaceChildren(
+    ...(bosToken ? richText("stages.input.bos_text", { bos: el("code", "token-bos-text", visibleBlanks(bosToken)) }) : [])
+  );
   showInputStep(store.steppers.input?.index ?? 0);
 }
 
@@ -369,6 +377,7 @@ function showInputStep(index) {
     const dim = (count.dataset.count === "tokens" && index < 1) || (count.dataset.count === "ids" && index < 2);
     count.classList.toggle("is-dim", dim);
   }
+  $("token-bos").classList.toggle("is-dim", index < 1); // read with the tokens, from step 2
   const step = INPUT_STEPS[Math.max(0, index)];
   caption($("input-caption"), `stages.input.steps.${step}`);
 }
@@ -1317,6 +1326,8 @@ function renderStep() {
   }
   $("llm-step-append").disabled = !step.drawn || step.drawn.id === null || pending || step.added.length >= STEP_LIMIT;
   $("llm-step-undo").disabled = !step.added.length || pending;
+  // « sans gabarit »: said only where a step can be drawn (not a server, not a cloud model).
+  $("llm-step-raw").hidden = Boolean(store.candidates && !store.candidates.available);
   $("llm-step-history").textContent = step.history.length
     ? text("stages.output.history_text", { tirages: step.history.map(visibleBlanks).join(" · ") })
     : "";

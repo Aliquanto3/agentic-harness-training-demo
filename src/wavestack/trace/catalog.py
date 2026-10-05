@@ -1139,6 +1139,9 @@ class LlmTokenizedPayload(BaseModel):
     dimensions_text: str
     # The counts in French (« 1 004 »), written by the session: the page places them.
     figures_text: dict[str, str] = {}
+    # Lot 6 of 2026-10-04: the begin-of-text token the OUTPUT's step reads before `tokens`
+    # when the model asks one (Gemma, Llama), else `None` (Qwen, a server, a cloud model).
+    bos_token: str | None = None
 
 
 class LlmGenerationStartedPayload(BaseModel):

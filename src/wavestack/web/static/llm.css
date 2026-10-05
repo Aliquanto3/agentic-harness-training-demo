@@ -460,7 +460,8 @@ body.llm-page {
 }
 
 .llm-input-rows span.is-dim,
-.llm-input-count.is-dim {
+.llm-input-count.is-dim,
+#token-bos.is-dim {
   opacity: 0.3;
 }
 

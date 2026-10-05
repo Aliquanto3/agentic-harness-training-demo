@@ -112,6 +112,7 @@ stages:
       other: "including {n} added by the OUTPUT"
     column_label_text: "{texte} → token {token} → identifier {id}"
     produced_label_text: "{texte} → token {token} → identifier {id}, drawn by the engine and added at the end"
+    bos_text: "Before these tokens, the engine also reads {bos}: the begin-of-text token this model asks for."
   transfo:
     title_text: "TRANSFORMATION"
     subtitle_text: "the numbers go through the model's layers"
@@ -279,7 +280,8 @@ stages:
     none_text: "no token drawn yet"
     history_text: "last draws: {tirages}"
     running_text: "The engine is drawing a token…"
-    end_text: "The engine drew the end of the answer (its end token): nothing to add."
+    end_text: "The engine drew its end token: for it, the text stops here. Nothing to add."
+    raw_text: "Here, the engine reads the text as is, without the chat template: it continues it. “Generate” (section 6) reads it as a message and answers it."
     limit_text: "64 tokens added at most: remove one, or change the text."
     step_token_text: "Candidates of the token the engine drew: {texte}."
     help_text: "What this setting does"

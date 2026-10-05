@@ -1353,6 +1353,16 @@ def test_vocab_tokenizer_on_a_real_gguf():
     tokenizer.close()
 
 
+def test_vocab_tokenizer_says_whether_the_vocabulary_asks_a_bos():
+    """Lot 6 of 2026-10-04 (the OUTPUT's step): `adds_bos` on real GGUF files."""
+    tokenizer = VocabTokenizer(str(TINY))
+    assert tokenizer.adds_bos() is None  # this vocabulary adds none
+    tokenizer.close()
+    rank = VocabTokenizer(str(Path(__file__).parent / "fixtures" / "tiny-bert-rank.gguf"))
+    assert rank.adds_bos() == 2
+    rank.close()
+
+
 _LOG_SPY = """
 import builtins, sys
 calls = []
