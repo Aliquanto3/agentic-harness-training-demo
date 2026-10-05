@@ -54,21 +54,17 @@ def wait_idle(session: AppSession) -> None:
     session.join()
 
 
-def run(session: AppSession, question: str = QUESTION, pipelines=None) -> list:  # noqa: ANN001
+def run(session: AppSession, question: str = QUESTION, pipeline=None) -> list:  # noqa: ANN001
     """One run, the worker joined: the events of the workshop's context."""
     mark = get_journal().last_seq()
-    session.run_rag_lab(question, pipelines)
+    session.run_rag_lab(question, pipeline)
     wait_idle(session)
     return [e for e in get_journal().events_since(mark) if e.context_id == "rag_lab"]
 
 
-def ended(events: list, kind: str, lane: str = "a") -> dict:
+def ended(events: list, kind: str) -> dict:
     found = [
-        e.payload
-        for e in events
-        if e.kind == "rag_lab_stage_ended"
-        and e.payload["kind"] == kind
-        and e.payload["lane"] == lane
+        e.payload for e in events if e.kind == "rag_lab_stage_ended" and e.payload["kind"] == kind
     ]
     assert len(found) == 1, (kind, len(found))
     return found[0]
@@ -93,14 +89,14 @@ def test_the_shipped_chain_runs_each_stage(index):
     kinds = [e.kind for e in events]
     assert kinds[0] == "rag_lab_run_started" and kinds[-1] == "rag_lab_run_ended"
     started = [e.payload["kind"] for e in events if e.kind == "rag_lab_stage_started"]
-    assert started == KINDS  # one pair per stage run, none for the generation
-    for kind in KINDS:
+    assert started == [*KINDS, "generation"]  # one pair per stage run (lot 5c-3: generation)
+    for kind in [*KINDS, "generation"]:
         stage = ended(events, kind)
         assert stage["status"] == "ok", (kind, stage["error_text"])
         assert stage["duration_ms"] >= 0 and stage["rss_bytes"] and "Mo" in stage["memory_text"]
     # Scope (AD-2): no turn, the workshop's context, its own components.
     first = next(e for e in events if e.kind == "rag_lab_stage_started")
-    assert first.turn_id is None and first.step_id == "lab1.a.s1"
+    assert first.turn_id is None and first.step_id == "lab1.s1"
     assert first.brick == "rag" and first.component == "rag_lab.chunking"
     assert (first.actor, first.trigger) == ("harness", "user")
 
@@ -127,10 +123,11 @@ def test_the_shipped_chain_runs_each_stage(index):
         assert item["text"].startswith(f"Extrait {position} — {item['title_text']} :\n")
     assert context["output_text"].startswith(content.intro_text)
 
+    # Lot 5c-3: the workshop's active model (FakeEngine) answers the augmented prompt.
     generation = ended(events, "generation")
-    assert generation["status"] == "not_run" and generation["rss_bytes"] is None
-    assert "Non exécutée dans l'atelier RAG" in generation["output_text"]
+    assert generation["output_text"] == "Quatorze caractères."
     assert "3 extraits" in generation["input_text"]
+    assert content.intro_text in generation["prompt_text"] and QUESTION in generation["prompt_text"]
     assert run_status(events) == "ok" and session.state == "idle"
     assert rerankers.made and rerankers.made[0].calls[0][0] == QUESTION
 
@@ -311,11 +308,9 @@ def test_stop_between_two_stages(index):
 
 
 def chains(session: AppSession) -> tuple[rag_lab.Catalog, rag_lab.Pipeline, rag_lab.Pipeline]:
-    """The catalog, the shipped chain A, and a copy B to change."""
+    """The catalog, the shipped chain, and a copy of it to change."""
     catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
-    b = catalog.default.model_copy(deep=True)
-    b.label_text = "B"
-    return catalog, catalog.default, b
+    return catalog, catalog.default, catalog.default.model_copy(deep=True)
 
 
 def stage(pipeline: rag_lab.Pipeline, kind: str) -> rag_lab.Stage:
@@ -348,7 +343,7 @@ def test_bounds_and_refusals_name_the_stage(index, kind, change, said):
     assert f"« {label} »" in reason and said in reason, reason
     mark = get_journal().last_seq()
     with pytest.raises(SendRefused):
-        session.run_rag_lab(QUESTION, [catalog.default, b])
+        session.run_rag_lab(QUESTION, b)
     assert not [e for e in get_journal().events_since(mark) if e.kind.startswith("rag_lab")]
 
 
@@ -438,7 +433,7 @@ def test_rules_of_the_chain_each_refusal_names_the_stage(index):
 
     mark = get_journal().last_seq()
     with pytest.raises(SendRefused) as refused:
-        session.run_rag_lab(QUESTION, [fused])
+        session.run_rag_lab(QUESTION, fused)
     assert "« Fusion (RRF) »" in refused.value.reason_text
     assert not [e for e in get_journal().events_since(mark) if e.kind.startswith("rag_lab")]
 
@@ -472,7 +467,7 @@ def test_a_hybrid_chain_runs_bm25_the_fusion_then_the_reranking(index):
     add(hybrid, "lexical_search", "bm25", candidates=8)
     add(hybrid, "fusion", "rrf")
     add(hybrid, "rerank", "declared")  # the reranking after the fusion
-    events = run(session, QUESTION, [hybrid])
+    events = run(session, QUESTION, hybrid)
     assert run_status(events) == "ok"
     vector = ended(events, "vector_search")["items"]
     lexical = ended(events, "lexical_search")
@@ -504,7 +499,7 @@ def test_bm25_alone_is_a_chain(index):
     remove(lexical, "vector_search")
     remove(lexical, "rerank")
     add(lexical, "lexical_search", "bm25", candidates=5)
-    events = run(session, "Combien de jours de télétravail ?", [lexical])
+    events = run(session, "Combien de jours de télétravail ?", lexical)
     assert run_status(events) == "ok"
     items = ended(events, "context")["items"]
     assert len(items) == 3 and items[0]["doc_id"] == "teletravail"
@@ -515,15 +510,12 @@ def test_the_memory_search_ranks_as_sqlite_vec(index):
     catalog, a, b = chains(session)
     stage(b, "vector_store").option = "memory"
     for question in (QUESTION, COVERED, "Quel plafond pour une nuit d'hôtel à Paris ?"):
-        events = run(session, question, [a, b])
-        searched = [ended(events, "vector_search", lane)["items"] for lane in "ab"]
+        searched = [
+            ended(run(session, question, chain), "vector_search")["items"] for chain in (a, b)
+        ]
         assert [(i["chunk_id"], i["score"]) for i in searched[0]] == [
             (i["chunk_id"], i["score"]) for i in searched[1]
         ], question
-        comparison = next(e for e in events if e.kind == "rag_lab_run_ended").payload["comparison"]
-        assert comparison["basis"] == "excerpt"
-        assert len(comparison["common"]) == 3 and not comparison["rank_changes"]
-        assert not comparison["only_a"] and not comparison["only_b"]
 
 
 def test_the_vectors_cache_is_read_again_and_rebuilt_when_the_size_changes(index):
@@ -532,28 +524,24 @@ def test_the_vectors_cache_is_read_again_and_rebuilt_when_the_size_changes(index
     stage(b, "chunking").params["chunk_max_chars"] = 300
     stage(b, "vector_store").option = "memory"
     stage(b, "context").params["top_k"] = 2
-    first = run(session, QUESTION, [a, b])
-    embedding = ended(first, "embedding", "b")
+    first = run(session, QUESTION, b)
+    embedding = ended(first, "embedding")
     assert "calculés (77 passages)" in embedding["output_text"]
     progress = [
         e for e in first if e.kind == "rag_lab_stage_progress" and e.payload["kind"] == "embedding"
     ]
     assert progress and progress[-1].payload["done"] == progress[-1].payload["total"] == 77
-    assert len(ended(first, "context", "b")["items"]) == 2
+    assert len(ended(first, "context")["items"]) == 2
     folders = list(config.rag_lab_dir().iterdir())
     assert len(folders) == 1
     assert {p.name for p in folders[0].iterdir()} == {"chunks.json", "vectors.f32"}
-    second = run(session, QUESTION, [a, b])
-    assert "relus du cache" in ended(second, "embedding", "b")["output_text"]
-    assert (
-        ended(second, "vector_search", "b")["items"] == ended(first, "vector_search", "b")["items"]
-    )
+    second = run(session, QUESTION, b)
+    assert "relus du cache" in ended(second, "embedding")["output_text"]
+    assert ended(second, "vector_search")["items"] == ended(first, "vector_search")["items"]
     stage(b, "chunking").params["chunk_max_chars"] = 1200
-    third = run(session, QUESTION, [a, b])
-    assert "calculés (16 passages)" in ended(third, "embedding", "b")["output_text"]
+    third = run(session, QUESTION, b)
+    assert "calculés (16 passages)" in ended(third, "embedding")["output_text"]
     assert len(list(config.rag_lab_dir().iterdir())) == 2
-    comparison = next(e for e in third if e.kind == "rag_lab_run_ended").payload["comparison"]
-    assert comparison["basis"] == "document" and "par document" in comparison["summary_text"]
 
 
 def test_sqlite_vec_of_another_size_is_built_in_the_workshops_folder(index):
@@ -561,10 +549,10 @@ def test_sqlite_vec_of_another_size_is_built_in_the_workshops_folder(index):
     before = index.stat().st_mtime_ns
     catalog, a, _ = chains(session)
     stage(a, "chunking").params["chunk_max_chars"] = 300
-    first = run(session, QUESTION, [a])
+    first = run(session, QUESTION, a)
     store = ended(first, "vector_store")
     assert store["status"] == "ok" and "construit (77 vecteurs)" in store["output_text"]
-    second = run(session, QUESTION, [a])
+    second = run(session, QUESTION, a)
     assert "relu" in ended(second, "vector_store")["output_text"]
     assert index.stat().st_mtime_ns == before  # the brick's index is never written
     built = list(config.rag_lab_dir().glob("*/index.sqlite"))
@@ -600,7 +588,7 @@ def test_stop_while_the_passages_are_embedded_leaves_no_file(index):
         return lent
 
     session._rag_lab_embedder = embedder  # type: ignore[method-assign]
-    events = run(session, QUESTION, [a])
+    events = run(session, QUESTION, a)
     assert ended(events, "embedding")["status"] == "cancelled"
     assert run_status(events) == "cancelled"
     assert not config.rag_lab_dir().exists() or not list(config.rag_lab_dir().rglob("*"))
@@ -656,11 +644,11 @@ def test_fastembed_unavailable_without_the_package_then_available(index, monkeyp
     catalog, a, b = chains(session)
     assert catalog.options[("embedding", "fastembed")].label_text == "Fast"
     stage(b, "embedding").option = "fastembed"
-    events = run(session, QUESTION, [a, b])
-    embedding = ended(events, "embedding", "b")
+    events = run(session, QUESTION, b)
+    embedding = ended(events, "embedding")
     assert embedding["status"] == "ok" and "calculés (29 passages)" in embedding["output_text"]
     assert FakeTextEmbedding.opened[-1]["local_files_only"] is True
-    assert ended(events, "vector_store", "b")["status"] == "ok"  # its own sqlite-vec index
+    assert ended(events, "vector_store")["status"] == "ok"  # its own sqlite-vec index
     assert session._load_registry.holder("rag_lab.embedding") is None
     # The library (fastembed, onnxruntime) is counted for life, apart from the model.
     assert session._load_registry.holder("rag_lab.fastembed") == "fastembed"
@@ -707,22 +695,25 @@ def test_settings_omitted_are_the_bricks_own_rag_values(index):
     for s in bare.stages:
         s.params = {}  # every setting left to the catalog's values ([rag])
     assert rag_lab.validate_pipeline(bare, catalog) is None
-    events = run(session, QUESTION, [bare])
+    events = run(session, QUESTION, bare)
     assert "700 caractères" in ended(events, "chunking")["output_text"]
     assert len(ended(events, "vector_search")["items"]) == 10
     assert len(ended(events, "context")["items"]) == 4
 
 
-def test_the_run_always_ends_even_when_the_comparison_fails(index, monkeypatch):
-    session, _ = ready(index)
-    _, a, b = chains(session)
+def test_the_comparison_is_gone_from_the_backend():
+    """Lot 5c-1: one chain per run and per validation; nothing of lane B survives."""
+    for name in ("LANES_MAX", "compare", "_compared", "_Lane"):
+        assert not hasattr(rag_lab, name), name
+    from wavestack.trace import catalog as trace_catalog
 
-    def broken(*args):  # noqa: ANN002, ANN202
-        raise RuntimeError("comparaison cassée")
-
-    monkeypatch.setattr(rag_lab, "compare", broken)
-    events = run(session, QUESTION, [a, b])
-    assert run_status(events) == "error" and session.state == "idle"
+    for name in ("RagLabLaneId", "RagLabLane", "RagLabCompared", "RagLabComparison"):
+        assert not hasattr(trace_catalog, name), name
+    assert "lanes" not in trace_catalog.RagLabRunStartedPayload.model_fields
+    assert "comparison" not in trace_catalog.RagLabRunEndedPayload.model_fields
+    for model in ("Started", "Progress", "Ended"):
+        fields = getattr(trace_catalog, f"RagLabStage{model}Payload").model_fields
+        assert "lane" not in fields, model
 
 
 def test_the_run_always_ends_even_when_an_event_cannot_be_emitted(index):
@@ -743,16 +734,16 @@ def test_the_run_always_ends_even_when_an_event_cannot_be_emitted(index):
     assert session.state == "idle" and session._cancel is None
 
 
-def test_two_lanes_load_each_model_once(index):
+def test_a_run_loads_each_model_once_in_its_slot(index):
     session, rerankers = ready(index)
     embedders = session._embedder_factory
     grants = []
     registry = session._load_registry
     original = registry.grant
     registry.grant = lambda *a, **k: (grants.append(a[2] if len(a) > 2 else a), original(*a, **k))  # type: ignore[method-assign]
-    _, a, b = chains(session)
+    _, _, b = chains(session)
     stage(b, "vector_store").option = "memory"
-    events = run(session, QUESTION, [a, b])
+    events = run(session, QUESTION, b)
     assert run_status(events) == "ok"
     assert len(embedders.made) == 1 and len(rerankers.made) == 1
     assert sorted(grants) == ["embedding", "reranker"]
@@ -866,7 +857,7 @@ def test_a_lexical_search_drops_the_stop_words_of_its_language(index, lang):
     remove(lexical, "rerank")
     stage(lexical, "vector_store").option = "memory"  # the fixture's index is the French one
     add(lexical, "lexical_search", "bm25", candidates=8)
-    events = run(session, question, [lexical])
+    events = run(session, question, lexical)
     searched = ended(events, "lexical_search")
     assert searched["status"] == "ok", searched["error_text"]
     assert words in searched["input_text"], searched["input_text"]
@@ -928,7 +919,8 @@ def test_state_catalog_default_chain_and_last_run(index):
     kinds = [e["kind"] for e in state["last_run"]]
     assert kinds[0] == "rag_lab_run_started" and kinds[-1] == "rag_lab_run_ended"
     assert all(e["payload"]["run_id"] == run_id for e in state["last_run"])
-    assert len(state["last_run"]) == len(events)
+    # Lot 5c-3: the generation's `model_*` events share the context, never `last_run`.
+    assert len(state["last_run"]) == len([e for e in events if e.kind.startswith("rag_lab_")])
 
 
 def test_catalog_notes_say_what_a_run_would_meet(index):
@@ -998,7 +990,7 @@ def test_the_catalog_renders_the_sequence_its_components_groups_and_phases(index
     content = rag_lab.load_lab_content()
     assert steps["rerank"]["explain_text"] == content.stages["rerank"].explain_text
     assert steps["question"]["stage"] is None and steps["question"]["explain_text"]
-    assert steps["generation"]["note_text"]
+    assert steps["generation"]["note_text"] is None  # lot 5c-3: it runs, no « not run » note
     assert [(s["key"], s["stage"]) for s in catalog["steps"] if not s["own"]] == [
         ("documents", "chunking"),
         ("question", None),
@@ -1167,7 +1159,7 @@ def test_the_hybrid_preset_runs_and_the_fusion_shows_both_ranks(index):
     stage(hybrid, "chunking").params["chunk_max_chars"] = 300
     stage(hybrid, "context").params["top_k"] = 2
     assert rag_lab.check_pipeline(hybrid, catalog) is None
-    events = run(session, QUESTION, [hybrid])
+    events = run(session, QUESTION, hybrid)
     assert run_status(events) == "ok"
     assert {e.payload["kind"] for e in events if e.kind == "rag_lab_stage_ended"} >= {
         "vector_search",
@@ -1246,13 +1238,13 @@ def test_web_page_state_and_intention(index):
         assert refused.status_code == 422, question
         assert refused.json()["detail"].startswith("Intention invalide")
         assert "input" not in str(refused.json()["errors"])
-    three = [body["default_pipeline"]] * 3
-    too_many = client.post(
-        "/api/intentions/rag_lab_run",
-        json={"question": QUESTION, "pipelines": three},
-        headers=HEADERS,
-    )
-    assert too_many.status_code == 422
+    for many in (2, 3):  # lot 5c-1: one chain per run
+        too_many = client.post(
+            "/api/intentions/rag_lab_run",
+            json={"question": QUESTION, "pipelines": [body["default_pipeline"]] * many},
+            headers=HEADERS,
+        )
+        assert too_many.status_code == 422, many
     changed = body["default_pipeline"] | {}
     changed["stages"] = [dict(s) for s in changed["stages"]]
     changed["stages"][2]["option"] = "annoy"
@@ -1288,24 +1280,28 @@ def test_web_validate_is_read_only_and_names_the_stage(index):
     shipped = body["default_pipeline"]
     ok = client.post("/api/rag_lab/validate", json={"pipelines": [shipped]}, headers=HEADERS)
     assert ok.status_code == 200 and ok.json() == {"valid": True, "refusals": []}
-    chain = {"label_text": "B", "stages": [dict(s) for s in shipped["stages"]]}
+    chain = {"label_text": "A", "stages": [dict(s) for s in shipped["stages"]]}
     chain["stages"][4] = {"id": "s9", "kind": "fusion", "option": "rrf", "params": {}}
     mark = get_journal().last_seq()
-    answer = client.post(
-        "/api/rag_lab/validate", json={"pipelines": [shipped, chain]}, headers=HEADERS
-    ).json()
+    answer = client.post("/api/rag_lab/validate", json={"pipelines": [chain]}, headers=HEADERS)
+    answer = answer.json()
     assert not answer["valid"]
     assert answer["refusals"] == [
-        {"lane": "b", "stage_id": "s9", "reason_text": answer["refusals"][0]["reason_text"]}
+        {"stage_id": "s9", "reason_text": answer["refusals"][0]["reason_text"]}
     ]
     assert "« Fusion (RRF) »" in answer["refusals"][0]["reason_text"]
+    two = client.post(
+        "/api/rag_lab/validate", json={"pipelines": [shipped, chain]}, headers=HEADERS
+    )
+    assert two.status_code == 422  # lot 5c-1: one chain per validation
     assert get_journal().last_seq() == mark  # nothing emitted
     refused = client.post(
         "/api/intentions/rag_lab_run",
-        json={"question": QUESTION, "pipelines": [shipped, chain]},
+        json={"question": QUESTION, "pipelines": [chain]},
         headers=HEADERS,
     )
-    assert refused.status_code == 409 and refused.json()["detail"].startswith("Chaîne B : ")
+    assert refused.status_code == 409 and "« Fusion (RRF) »" in refused.json()["detail"]
+    assert not refused.json()["detail"].startswith("Chaîne")
 
 
 @pytest.mark.parametrize(

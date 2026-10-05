@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import threading
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -72,6 +73,19 @@ def missing_files(files: Sequence[ModelFile], dest: Path) -> list[ModelFile]:
     """The declared files not yet in `dest`, or there with another size (another model's
     file: « Télécharger » replaces it)."""
     return [f for f in files if not _same_size(dest / f.path, f.size)]
+
+
+def free_bytes(dest: Path) -> int | None:
+    """Lot 5c-4: the free space where `dest` is (its first existing parent: the models
+    folder may not exist yet), in bytes, or `None` when the disk cannot be read (no refusal
+    then: a write that fails says so)."""
+    try:
+        folder = dest
+        while not folder.exists() and folder.parent != folder:
+            folder = folder.parent
+        return shutil.disk_usage(folder).free
+    except OSError:
+        return None
 
 
 def _same_size(path: Path, size: int) -> bool:

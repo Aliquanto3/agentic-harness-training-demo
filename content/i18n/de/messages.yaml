@@ -112,6 +112,7 @@ session:
       subagent: "Der Sub-Agent hat den Cache der Engine belegt{why}."
       llm: "Die LLM-Werkstatt hat den Cache der Engine belegt{why}."
       mcp_lab: "Die MCP-Werkstatt hat den Cache der Engine belegt{why}."
+      rag_lab: "Die RAG-Werkstatt hat den Cache der Engine für ihre Generierung belegt{why}."
     evicted:
       stateless: ": Diese Engine kann den Zustand des Hauptkontexts nicht sichern"
       failed: ": Das Sichern oder Wiederherstellen des Zustands des Hauptkontexts ist fehlgeschlagen"
@@ -337,6 +338,8 @@ session:
     stopped: "Download des {noun}-Modells gestoppt: Die laufende Datei wird gelöscht, die Schaltfläche zum Herunterladen lädt die fehlenden Dateien erneut."
     failed: "Der Download des {noun}-Modells ist fehlgeschlagen."
     by_hand: "Es wird nichts installiert. Um fortzufahren, kopieren Sie die Datei von Hand nach {folder} ({names}) und klicken Sie dann erneut auf die Schaltfläche zum Herunterladen."
+    # Lot 5c-4: the room on the disk, checked before any download starts.
+    disk_full: "Nicht genug Platz für das {noun}-Modell: {need} MB zum Herunterladen benötigt, {free} MB frei in {dest}. Schaffen Sie Platz und klicken Sie dann erneut auf die Schaltfläche zum Herunterladen."
   build:
     no_model: Der RAG-Baustein hat kein deklariertes Modell.
     model_missing: "Erstellung nicht möglich: Das Embedding-Modell ist nicht auf dem Arbeitsplatz. Klicken Sie zuerst auf „Embedding-Modell herunterladen“."
@@ -501,13 +504,21 @@ session:
     fastembed_files: "Nicht verfügbar: Die Dateien des fastembed-Modells sind nicht in {folder}. Kopieren Sie sie von Hand: Die RAG-Werkstatt lädt nichts herunter."
     corpus_unreadable: "Der Korpus des RAG-Bausteins (content/rag.yaml) ist unlesbar: Die RAG-Werkstatt kann nichts zerlegen."
     texts_unreadable: Texte der RAG-Werkstatt unlesbar.
-    two_chains: "Höchstens zwei Ketten: A, dann B für den Vergleich."
-    lane: "Kette {chain}: {reason}"
     close_failed:
       message: Ein von der RAG-Werkstatt geladenes Modell konnte nicht geschlossen werden.
       effect: "Es wird verworfen; sein Speicherplatz wird freigegeben."
     no_embedding: Es ist kein Embedding-Modell deklariert.
     embedding_absent: "Embedding-Modell fehlt ({names} in {folder}). Laden Sie es über die RAG-Karte der Werkstatt herunter. Oder folgen Sie docs/installation.md, Abschnitt „Modèles du RAG“ (auf Französisch)."
+    lab_embedding_absent: "Nicht verfügbar: Modelldatei fehlt ({files} unter {folder}). Klicken Sie in diesem Schritt im Modus „Zusammenstellen“ auf „Herunterladen“, oder holen Sie sie von der in wavestack.toml ([[rag_lab.embeddings]]) angegebenen Adresse und legen Sie sie dort ab."
+    lab_embedding_effect: "Die anderen Embedding-Modelle der Werkstatt bleiben verfügbar."
+    # Lot 5c-2: a model of [[rag_lab.rerankers]] that cannot be chosen, and why.
+    lab_reranker_absent: "Nicht verfügbar: Modelldatei fehlt ({files} unter {folder}). Klicken Sie in diesem Schritt im Modus „Zusammenstellen“ auf „Herunterladen“, oder holen Sie sie von der in wavestack.toml ([[rag_lab.rerankers]]) angegebenen Adresse und legen Sie sie dort ab."
+    lab_reranker_refused: "Nicht verfügbar: {reason}."
+    lab_reranker_effect: "Die anderen Reranking-Modelle der Werkstatt bleiben verfügbar."
+    # Lot 5c-3: the Generation stage run by the workshop's active model.
+    generation_active: "Aktives Modell der Werkstatt: {model}"
+    generation_no_model: "Kein Modell in der Werkstatt geladen: Der Schritt Generation wird übersprungen. Laden Sie ein Modell und starten Sie die Kette erneut."
+    generation_stops: "Die Generierung der RAG-Werkstatt bricht ab; WaveStack bleibt nutzbar."
     noun:
       embedding: Embedding-Modell
       reranking: Reranking-Modell
@@ -790,6 +801,19 @@ config:
   fastembed:
     absent: "Nicht verfügbar: Es ist kein fastembed-Modell deklariert. Fügen Sie settings.json bei gestopptem WaveStack einen Abschnitt [rag_lab.fastembed] (model_name, dims, label_text) hinzu."
     invalid: "Nicht verfügbar: Der Abschnitt [rag_lab.fastembed] ist ungültig ({fields}). Korrigieren Sie ihn und starten Sie WaveStack dann neu."
+  rag_lab_embeddings:
+    invalid: "Embedding-Modell der Werkstatt „{name}“ ausgeschlossen: ungültige Deklaration ({fields}). Korrigieren Sie [[rag_lab.embeddings]] in wavestack.toml und starten Sie WaveStack dann neu."
+    too_long: "Embedding-Modell der Werkstatt „{name}“ ausgeschlossen: Seine ID ist länger als {max} Zeichen. Kürzen Sie sie in wavestack.toml und starten Sie WaveStack dann neu."
+    reserved: "Embedding-Modell der Werkstatt „{name}“ ausgeschlossen: Seine ID ist bereits die einer Option des Embedding-Schritts (declared, fastembed oder das Modell des RAG-Bausteins). Benennen Sie es in wavestack.toml um und starten Sie WaveStack dann neu."
+    duplicate: "Embedding-Modell der Werkstatt „{name}“ ausgeschlossen: Ein anderes Modell in [[rag_lab.embeddings]] trägt bereits diese ID. Benennen Sie es in wavestack.toml um und starten Sie WaveStack dann neu."
+    outside: "Embedding-Modell der Werkstatt „{name}“ ausgeschlossen: Seine Dateien müssen unter embedding/ im Modellordner liegen (nie als Chat-Modelle angeboten). Korrigieren Sie load_path und files in wavestack.toml und starten Sie WaveStack dann neu."
+  # Lot 5c-2: an entry of [[rag_lab.rerankers]] left out (the others are kept).
+  rag_lab_rerankers:
+    invalid: "Reranking-Modell der Werkstatt „{name}“ ausgeschlossen: ungültige Deklaration ({fields}). Korrigieren Sie [[rag_lab.rerankers]] in wavestack.toml und starten Sie WaveStack dann neu."
+    too_long: "Reranking-Modell der Werkstatt „{name}“ ausgeschlossen: Seine ID ist länger als {max} Zeichen. Kürzen Sie sie in wavestack.toml und starten Sie WaveStack dann neu."
+    reserved: "Reranking-Modell der Werkstatt „{name}“ ausgeschlossen: Seine ID ist bereits die einer Option des Reranking-Schritts (declared oder das Modell des RAG-Bausteins). Benennen Sie es in wavestack.toml um und starten Sie WaveStack dann neu."
+    duplicate: "Reranking-Modell der Werkstatt „{name}“ ausgeschlossen: Ein anderes Modell in [[rag_lab.rerankers]] trägt bereits diese ID. Benennen Sie es in wavestack.toml um und starten Sie WaveStack dann neu."
+    outside: "Reranking-Modell der Werkstatt „{name}“ ausgeschlossen: Seine Dateien müssen unter reranker/ im Modellordner liegen (nie als Chat-Modelle angeboten). Korrigieren Sie load_path und files in wavestack.toml und starten Sie WaveStack dann neu."
 
 # `greenops.py`: a call's footprint note (the method and its limits, or why there is none).
 greenops:
@@ -824,7 +848,7 @@ greenops:
     zero: " CodeCarbon hat für diesen Aufruf keine Energie gemessen (zu kurz)."
 
 # The RAG workshop (story 30, `rag/lab.py`): its chain's refusals, its stages' texts, the
-# comparison of two chains. `{stage}`: a stage's name, read in `rag_lab.yaml`.
+# truncation of its chunks. `{stage}`: a stage's name, read in `rag_lab.yaml`.
 rag_lab:
   quoted: "„{text}“"
   list_separator: "; "
@@ -845,6 +869,9 @@ rag_lab:
     vector:
       one: Vektor
       other: Vektoren
+    chunk:
+      one: Chunk
+      other: Chunks
     score:
       one: Score
       other: Scores
@@ -913,6 +940,9 @@ rag_lab:
     kept: Behaltene Auszüge
     characters: Zeichen
     placement: Platzierung
+    score_reading: Lesart des Scores
+    prompt_tokens: Tokens des Prompts
+    output_tokens: Erzeugte Tokens
   chunking:
     source_corpus: "dem Korpus (content/corpus), für diese Ausführung zerlegt"
     source_index: "dem Index des RAG-Bausteins (bei seiner Erstellung zerlegt)"
@@ -934,6 +964,9 @@ rag_lab:
     computed: "Passagen berechnet ({passages}) in {duration}, dann zwischengespeichert (Ordner {key})."
     computed_fact: "berechnet ({passages})"
     null_vector: "Die Frage ergibt keinen verwertbaren Vektor (Nullvektor): Formulieren Sie sie mit Wörtern aus dem Korpus um."
+    truncated:
+      one: "{chunks} von {total} überschreitet {max} Tokens, gekürzt: Das Ende dieses Chunks fließt nicht in seinen Vektor ein."
+      other: "{chunks} von {total} überschreiten {max} Tokens, gekürzt: Das Ende dieser Chunks fließt nicht in ihren Vektor ein."
     input: "Die Frage „{question}“ und das Chunking: {extracts}."
     output: "Frage → Vektor aus {n} Zahlen ({shown}; …). {passages}"
   vector_store:
@@ -967,6 +1000,13 @@ rag_lab:
     unchanged: "Die Reihenfolge der Suche ändert sich nicht."
     input: "Die Frage und {candidates} aus der Suche, paarweise gelesen."
     output: "{candidates} durch den Reranker. {climb}"
+    # Lot 5c-2: how the score is read, and the pairs cut at the model's length.
+    reading:
+      sigmoid: "Sigmoid des Logits des Modells, auf 0 bis 1 gebracht"
+      probability: "vom Modell gelieferte Wahrscheinlichkeit, unverändert gelesen"
+    truncated:
+      one: "{candidates} von {total} überschreitet die Länge eines Paares: auf {max} Tokens gekürzt, der Reranker liest das Ende dieses Auszugs nicht (ebenso wenig das einer sehr langen Frage)."
+      other: "{candidates} von {total} überschreiten die Länge eines Paares: auf {max} Tokens gekürzt, der Reranker liest das Ende dieser Auszüge nicht (ebenso wenig das einer sehr langen Frage)."
   lexical_search:
     no_chunks: "Kein Auszug: Das Chunking wurde nicht abgeschlossen."
     no_words: keine
@@ -988,19 +1028,16 @@ rag_lab:
     question_only: "die Frage allein (kein Kontext aufgebaut)"
     with_context: "den aufgebauten Kontext ({extracts}), dann die Frage"
     input: "Das aktive Modell der Werkstatt würde erhalten: seinen System-Prompt, {context}: „{question}“."
-  compare:
-    one_empty: "Eine der beiden Ketten hat keinen Kontext aufgebaut."
-    unit_excerpt:
-      one: Auszug
-      other: Auszüge
-    unit_document:
-      one: Dokument
-      other: Dokumente
-    common: "Gemeinsam: {count} {unit}{names}; nur in A: {only_a}; nur in B: {only_b}."
-    gaps: "Rangunterschiede: {moves}."
-    move: "„{title}“: {rank_a} Rang in A, {rank_b} Rang in B"
-    no_gap: "Kein Rangunterschied zwischen den gemeinsamen Auszügen."
-    other_cut: "Die beiden Ketten zerlegen den Korpus unterschiedlich: Vergleich nach Dokument."
+    # Lot 5c-3: the generation run by the workshop's active model.
+    sent: "An das aktive Modell der Werkstatt gesendet: {system}, {context}: „{question}“."
+    system_prompt: "den System-Prompt der Werkstatt"
+    no_system: "keinen System-Prompt (Baustein „System-Prompt“ ausgeschaltet)"
+    no_model: "Kein Modell in der Werkstatt geladen: Die Generierung wird übersprungen. Laden Sie ein Modell und starten Sie die Kette erneut."
+    too_long: "Prompt zu lang: {tokens} Tokens bei {usable} nutzbaren (Fenster von {window}, davon {reserve} für die Antwort reserviert): Es wird nichts an das Modell gesendet. Behalten Sie weniger Chunks im Prompt, oder kürzere."
+    produced: "{done} von {reserve} (Ausgabereserve einer Runde)"
+    cut: "Antwort bei {max} Tokens abgeschnitten: Die Ausgabereserve einer Runde der Werkstatt ist erreicht."
+    empty: "Das Modell hat nichts geantwortet."
+    model_error: "Das Modell ist während der Generierung gescheitert: Das Ereignisprotokoll sagt, warum."
 
 # The LLM workshop (story 29, `session/llm_lab.py`): its figures and its diagram.
 llm_lab:
@@ -1340,6 +1377,7 @@ models:
   capabilities:
     no_tool_parser: "kein bekanntes Aufrufformat für diese Modellfamilie"
     no_template: "Diese GGUF-Datei enthält keine Chat-Vorlage (tokenizer.chat_template): WaveStack kann den Prompt nicht aufbauen. Wählen Sie ein anderes Modell."
+    pooling: "Diese GGUF-Datei ist ein Embedding- oder Reranking-Modell (Schlüssel pooling_type in ihrem Header), kein Chat-Modell: WaveStack bietet sie nicht als aktives Modell an. Wählen Sie ein anderes Modell."
     window_too_small: "Nicht verfügbar: Das Kontextfenster ({window} Tokens) lässt keinen Platz für den Kontext, sobald die {reserve} Ausgabe-Tokens des Denkprozesses reserviert sind. Vergrößern Sie das Fenster in der Konfiguration."
     reasoning:
       never: nie
@@ -1447,6 +1485,9 @@ models:
     embedding_pooling: "die Datei deklariert in ihren GGUF-Metadaten das Pooling {pooling}, nicht RANK (4): Es ist ein Embedding-Modell, kein Reranking-Modell"
     no_score: "das Modell bewertet kein Paar Frage–Auszug ({kind}): Es ist kein Reranking-Modell mit Pooling RANK"
     not_finite: "das Modell liefert für ein Paar Frage–Auszug einen nicht endlichen Score: Es ist kein nutzbares Reranking-Modell"
+    # Lot 5c-2: what the GGUF header says the adapter cannot score.
+    segments: "die Datei deklariert {count} Segmenttypen (tokenizer.ggml.token_type_count): Es ist ein BERT-Cross-Encoder, der Frage und Auszug an Segment-IDs unterscheidet, die llama.cpp nicht übergibt; seine Scores hätten keinen Sinn"
+    no_rerank_template: "das Modell hat eine LLM-Architektur ({arch}) und seine GGUF-Datei trägt keine nutzbare Reranking-Vorlage (tokenizer.chat_template.rerank, mit den Feldern query und document): WaveStack kann ihm kein Paar Frage–Auszug vorlegen"
 
 net:
   # `net/guard.py`, `net/factory.py` (AD-15): a destination the harness refuses, named as the

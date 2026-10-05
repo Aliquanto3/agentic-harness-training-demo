@@ -119,6 +119,7 @@ from wavestack.messages import (
     render,
     said,
 )
+from wavestack.models import catalog as model_catalog
 from wavestack.models import download as download_module
 from wavestack.models import embedding as embedding_module
 from wavestack.models import gguf_meta
@@ -157,6 +158,7 @@ from wavestack.models.load_registry import (
     RAG_LAB_FAISS,
     RAG_LAB_FASTEMBED,
     RAG_LAB_LANCEDB,
+    RAG_LAB_RERANKER,
     RERANKER,
     LoadRegistry,
     ModelChoice,
@@ -331,6 +333,7 @@ _PREFIX_CAUSES = (
     "subagent",
     "llm",
     "mcp_lab",  # lot 4 of 2026-10-04: the MCP workshop's model took the engine's cache
+    "rag_lab",  # lot 5c-3: the RAG workshop's generation took the engine's cache
 )
 _LAB_FR = Message("session.state.llm_lab")
 # Lot 4 of 2026-10-04 (AD-27): the slots of `ask_resource_text`, filled in one pass.
@@ -937,6 +940,8 @@ class AppSession:
         self._rag_lab_import_errors: dict[str, str] = {}
         # The catalog the validation of an edited chain reads (`_rag_lab_recent_catalog`).
         self._rag_lab_catalog_kept: tuple[float, Any, rag_lab.Catalog] | None = None
+        # Lot 5c-1: the `[[rag_lab.embeddings]]` entries left out, traced once each.
+        self._rag_lab_rejected_traced: set[str] = set()
         # Story 6 of 2026-09-30 (the MCP workshop): its exchanges, numbered (`mcp{n}`), the
         # first of its last connection, its own connection (never the brick's) and the tools
         # it listed, and its content error already traced.
@@ -6160,20 +6165,12 @@ class AppSession:
     def download_model(self, target: str) -> str:
         """Class (b): downloads the embedding model's missing files, on a thread of its own,
         in the `download` state (« Arrêter » stops it). `KeyError` for an unknown target,
-        `SendRefused` outside `idle`, or when there is nothing to download (the files being
-        there, the index and the files are read again)."""
-        if target not in (RAG_TARGET, RERANK_TARGET) or "rag" not in self._bricks:
-            raise KeyError(target)
-        rerank = target == RERANK_TARGET  # story 16: the reranking model
-        model = self._rerank_model if rerank else self._rag_model
-        noun = Message(
-            "session.rag.model_noun.reranking" if rerank else "session.rag.model_noun.embedding"
-        )
-        if model is None:
-            raise SendRefused(
-                (self._rerank_config_error if rerank else self._content_errors.get("rag"))
-                or Message("session.download.no_model", noun=noun)
-            )
+        `SendRefused` outside `idle`, when there is nothing to download (the files being
+        there, the index and the files are read again), or when the disk has not the room
+        for the missing files (lot 5c-4). Lot 5c-4: also the RAG workshop's own models,
+        `rag_lab_embedding:<id>` and `rag_lab_reranker:<id>`, traced outside the brick
+        (context `rag_lab`, component `rag_lab.embedding` or `rag_lab.rerank`)."""
+        model, noun, scope = self._download_target(target)
         with self._lock:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
@@ -6183,16 +6180,73 @@ class AppSession:
             self._rag_caught_up()
             raise SendRefused(Message("session.download.nothing", noun=noun, dest=dest))
         total = sum(f.size for f in missing)
+        free = download_module.free_bytes(dest)
+        if free is not None and free < total:  # lot 5c-4: nothing starts without the room
+            raise SendRefused(
+                Message(
+                    "session.download.disk_full",
+                    noun=noun,
+                    need=Lazy(lambda lang: number(max(1, math.ceil(total / 1_000_000)), lang)),
+                    free=Lazy(lambda lang: number(free // 1_000_000, lang)),
+                    dest=dest,
+                )
+            )
         cancel = download_module.StopToken()
         previous = self._enter_rag_job("download", self._download_fr(0, total, noun), cancel)
         threading.Thread(
             target=self._run_download,
             args=(missing, dest, cancel, previous),
-            kwargs={"noun": noun, "component": RAG_RERANKER if rerank else "rag.retriever"},
+            kwargs={"noun": noun, "scope": scope},
             name="wavestack-download",
             daemon=True,
         ).start()
         return self._download_fr(0, total, noun)
+
+    def _download_target(
+        self, target: str
+    ) -> tuple[EmbeddingModel | RerankerModel, Message, dict[str, Any]]:
+        """A `download_model` target: its model, its noun (« d'embedding », « de
+        reranking ») and its trace scope. The brick's (`rag_embedding`, `rag_reranker`) keep
+        the brick's scope; the workshop's (lot 5c-4, `rag_lab_embedding:<id>`,
+        `rag_lab_reranker:<id>`) are traced outside it, so the RAG card does not show them.
+        `KeyError` for an unknown target, `SendRefused` for a brick's model not declared."""
+        kind, _, model_id = target.partition(":")
+        if kind in ("rag_lab_embedding", "rag_lab_reranker") and model_id:
+            rerank = kind == "rag_lab_reranker"
+            lab_model = (
+                self.cfg.rag_lab_reranker(model_id)
+                if rerank
+                else self.cfg.rag_lab_embedding(model_id)
+            )
+            if lab_model is None:
+                raise KeyError(target)
+            component = "rag_lab.rerank" if rerank else "rag_lab.embedding"
+            scope = self._rag_lab_scope("rag_lab", component, brick=None)
+            return lab_model, self._model_noun(rerank), scope
+        if target not in (RAG_TARGET, RERANK_TARGET) or "rag" not in self._bricks:
+            raise KeyError(target)
+        rerank = target == RERANK_TARGET  # story 16: the reranking model
+        model = self._rerank_model if rerank else self._rag_model
+        noun = self._model_noun(rerank)
+        if model is None:
+            raise SendRefused(
+                (self._rerank_config_error if rerank else self._content_errors.get("rag"))
+                or Message("session.download.no_model", noun=noun)
+            )
+        return (
+            model,
+            noun,
+            {
+                "brick": "rag",
+                "component": RAG_RERANKER if rerank else "rag.retriever",
+            },
+        )
+
+    @staticmethod
+    def _model_noun(rerank: bool) -> Message:
+        return Message(
+            "session.rag.model_noun.reranking" if rerank else "session.rag.model_noun.embedding"
+        )
 
     def _enter_rag_job(self, state: str, reason_text: str, cancel: CancelToken) -> str | None:
         """`download` or `index_build`, switched under the lock from `idle` (class b). Returns
@@ -6250,16 +6304,18 @@ class AppSession:
         previous: str | None,
         *,
         noun: str | None = None,
-        component: str = "rag.retriever",
+        scope: dict[str, Any] | None = None,
     ) -> None:
         """The download thread, then back to `idle`; the index and the files are read again,
         and the model loads if wanted. Each file's sha256 is traced (to pin it in
-        [rag.embedding])."""
+        [rag.embedding]). `scope`: where the trace goes, the brick's embedding model by
+        default (lot 5c-4: the workshop's models outside the brick)."""
+        scope = scope or {"brick": "rag", "component": "rag.retriever"}
         failed: str | None = None
         stopped = False
         digests: dict[str, str] = {}
         try:
-            with scoped(brick="rag", component=component, origin="download"):
+            with scoped(**scope, origin="download"):
                 digests = download_module.download_files(
                     files,
                     dest,
@@ -6274,7 +6330,7 @@ class AppSession:
         noun = noun or Message("session.rag.model_noun.embedding")
         with self._lock:
             self._download_cancel = None
-        with scoped(brick="rag", component=component):  # the card shows it (AD-1)
+        with scoped(**scope):  # the card shows the brick's (AD-1), the workshop its own
             if stopped:
                 # Finition V1 (#20): « Arrêter » is no failure; the `.part` is gone, said in a
                 # neutral line on the card, without the copy by hand of a failure.
@@ -6301,6 +6357,12 @@ class AppSession:
                         "lines": [f"{dest / path} · sha256 {sha}" for path, sha in digests.items()],
                     },
                 )
+        try:
+            # Lot 5c-4: the files read again before `idle`, which the RAG workshop answers by
+            # reading its catalog again (its « Télécharger » then gone).
+            self._rag_refresh()
+        except Exception:  # noqa: BLE001 - AD-16: read again below, said by the card
+            pass
         self._set_state("idle", previous)
         try:
             self._rag_caught_up()
@@ -9078,10 +9140,13 @@ class AppSession:
         token: Callable[[str, int | None, str], None],
         ended: dict[str, Any],
         request_id: str,
+        effect: Message | None = None,
     ) -> str:
         """The screen's cloud call: `run_call` directly (neither `context_reconciled` nor the
         estimate's ratio: the workshop's gauge learns nothing from it), each fragment the
-        provider sends one `llm_token`. Returns the generation's status."""
+        provider sends one `llm_token`. Returns the generation's status. `effect`: what a
+        provider's refusal stops (the screen's generation by default; lot 5c-3: the RAG
+        workshop's)."""
         engine = _TokenTap(
             self._engine, lambda channel, text: token(text, None, channel, None, [(channel, text)])
         )
@@ -9104,7 +9169,7 @@ class AppSession:
         except ProviderError as error:
             self._journal().emit(
                 "harness_error",
-                error.payload(Message("session.llm_lab.stops"), lang=self._language),
+                error.payload(effect or Message("session.llm_lab.stops"), lang=self._language),
             )
             ended["message_text"] = error.message_text
             return "error"
@@ -9183,10 +9248,23 @@ class AppSession:
             _, index_error, _, _, _, missing_text = self._rag_index_state(model, content)
             embedding.note_text = missing_text
             store.note_text = index_error
+        # Lot 5c-4: « Télécharger » in the stage, the RAG card's own offer (its target).
+        embedding.download = self._rag_offers()["download"]
         rerank = options[("rerank", "declared")]
         if self._rerank_model is not None:
             rerank.label_text = self._rerank_model.label_text
         rerank.note_text = self._rerank_static_reason()
+        rerank.download = (self._rerank_card() or {}).get("download")
+        # Lot 5c-3: the generation by the workshop's active model, named after it; without a
+        # model loaded, it can still be chosen, its stage skipped (the note says so).
+        generation = options[("generation", "active")]
+        active = self.active_model()
+        if active is not None:
+            generation.label_text = self._t(
+                "session.rag_lab.generation_active", model=active["label"]
+            )
+        else:
+            generation.note_text = Message("session.rag_lab.generation_no_model")
         fastembed = options[("embedding", "fastembed")]
         declared, reason = self._rag_lab_fastembed()
         if declared is not None:
@@ -9198,9 +9276,92 @@ class AppSession:
                 state.available, state.reason_text = False, self._rag_lab_import_errors[option]
             elif option not in self._rag_lab_imported and not rag_lab.installed(module):
                 state.available, state.reason_text = False, rag_lab.not_installed_fr(option)
+        # Lot 5c-1: the workshop's own embedding models, an option each (its id), offered only
+        # when its files are on the workstation (lot 5c-4: « Télécharger » in the stage else).
+        declared_models, rejected = self.cfg.rag_lab_embeddings
+        self._rag_lab_trace_rejected(rejected, "embeddings")
+        for lab_model in declared_models:
+            absent = self._rag_lab_absent(lab_model)
+            options[("embedding", lab_model.id)] = rag_lab.OptionState(
+                lab_model.label_text,
+                available=absent is None,
+                reason_text=absent,
+                download=self._rag_lab_download(texts, lab_model),
+            )
+        # Lot 5c-2: the workshop's own reranking models, the same way; a file on the
+        # workstation that the adapter would refuse (its GGUF header: segment ids, an LLM
+        # without a rerank template) makes its option unavailable, with the reason.
+        lab_rerankers, rejected = self.cfg.rag_lab_rerankers
+        self._rag_lab_trace_rejected(rejected, "rerankers")
+        for lab_reranker in lab_rerankers:
+            refused = self._rag_lab_absent(lab_reranker) or self._rag_lab_refused(lab_reranker)
+            options[("rerank", lab_reranker.id)] = rag_lab.OptionState(
+                lab_reranker.label_text,
+                available=refused is None,
+                reason_text=refused,
+                download=self._rag_lab_download(texts, lab_reranker),
+            )
         return rag_lab.Catalog(
             texts, rag_lab.default_pipeline(self.cfg), options, lang=self._language
         )
+
+    def _rag_lab_absent(self, model: config.EmbeddingModel | RerankerModel) -> Message | None:
+        """Lot 5c-1: why a declared embedding model (lot 5c-2: or reranking model) of the
+        workshop cannot be chosen (its files missing, named by their path under the models
+        folder), or `None`."""
+        missing = download_module.missing_files(model.files, config.models_dir())
+        if not missing:
+            return None
+        files = ", ".join(PurePosixPath(f.path).as_posix() for f in missing)
+        kind = "reranker" if isinstance(model, RerankerModel) else "embedding"
+        return Message(
+            f"session.rag_lab.lab_{kind}_absent", files=files, folder=config.models_dir()
+        )
+
+    @staticmethod
+    def _rag_lab_download(
+        texts: rag_lab.RagLabContent, model: config.EmbeddingModel | RerankerModel
+    ) -> dict[str, str] | None:
+        """Lot 5c-4: « Télécharger (≈ N Mo) » for a workshop's model whose files are missing
+        (its `download_model` target, `rag_lab_embedding:<id>` or `rag_lab_reranker:<id>`),
+        or `None`."""
+        missing = download_module.missing_files(model.files, config.models_dir())
+        if not missing:
+            return None
+        kind = "reranker" if isinstance(model, RerankerModel) else "embedding"
+        size_mb = max(1, round(sum(f.size for f in missing) / 1_000_000))
+        return {
+            "target": f"rag_lab_{kind}:{model.id}",
+            "label_text": texts.download_label_text.format(size_mb=size_mb),
+        }
+
+    @staticmethod
+    def _rag_lab_refused(model: RerankerModel) -> Message | None:
+        """Lot 5c-2: why the adapter would refuse a declared reranking model whose file is on
+        the workstation, read in its GGUF header (remembered per size and modification time),
+        or `None`; an unreadable header is left to the load, which says why."""
+        header = model_catalog.header_metadata(str(reranker_module.model_path(model)))
+        try:
+            reranker_module.rerank_format(header[1] if header is not None else None)
+        except reranker_module.RerankerRefused as exc:
+            return Message("session.rag_lab.lab_reranker_refused", reason=exc.message)
+        return None
+
+    def _rag_lab_trace_rejected(self, rejected: list[Message], section: str) -> None:
+        """Lot 5c-1: each entry of `[[rag_lab.embeddings]]` (lot 5c-2: or
+        `[[rag_lab.rerankers]]`) left out, traced once as `harness_error` (the others stay
+        offered)."""
+        kind = {"embeddings": "embedding", "rerankers": "reranker"}[section]
+        for reason in rejected:
+            if str(reason) in self._rag_lab_rejected_traced:
+                continue
+            self._rag_lab_rejected_traced.add(str(reason))
+            with scoped(**self._rag_lab_scope("rag_lab", None, brick=None)):
+                self._error(
+                    reason,
+                    f"wavestack.toml [[rag_lab.{section}]]",
+                    Message(f"session.rag_lab.lab_{kind}_effect"),
+                )
 
     def _rag_lab_fastembed(self) -> tuple[config.FastembedModel | None, str | None]:
         """Story 30: the fastembed option, offered only installed, declared and on the
@@ -9245,12 +9406,14 @@ class AppSession:
             return self._content_errors.get("rag") or Message("session.rag_lab.corpus_unreadable")
         return None
 
-    def run_rag_lab(self, question: str, pipelines: list[rag_lab.Pipeline] | None = None) -> str:
+    def run_rag_lab(self, question: str, pipeline: rag_lab.Pipeline | None = None) -> str:
         """Intention `rag_lab_run` (story 30, class b): accepted in `idle` only (a reason
-        there, such as no model loaded, does not matter: nothing is generated), switched to
-        `rag_lab` under the lock in this call, then run on the worker; « Arrêter » (class c)
-        stops it between two stages, passages or candidates. A chain the workshop refuses:
-        `SendRefused` with the reason, nothing emitted. Returns the run's id, `lab{n}`."""
+        there, such as no model loaded, does not matter: the generation is then skipped, lot
+        5c-3), switched to `rag_lab` under the lock in this call, then run on the worker;
+        « Arrêter » (class c) stops it between two stages, passages or candidates, or during
+        the generation's tokens. One chain per run (lot 5c-1), the
+        shipped one when `pipeline` is `None`. A chain the workshop refuses: `SendRefused` with
+        the reason, nothing emitted. Returns the run's id, `lab{n}`."""
         texts, error_text = self._rag_lab_content()
         if texts is None:
             raise SendRefused(error_text or Message("session.rag_lab.texts_unreadable"))
@@ -9258,15 +9421,10 @@ class AppSession:
         if unavailable is not None:
             raise SendRefused(unavailable)
         catalog = self._rag_lab_catalog(texts)
-        chains = list(pipelines) if pipelines else [catalog.default]
-        if len(chains) > rag_lab.LANES_MAX:
-            raise SendRefused(Message("session.rag_lab.two_chains"))
-        for chain in chains:
-            reason = rag_lab.validate_pipeline(chain, catalog)
-            if reason is not None:
-                if len(chains) > 1:
-                    reason = Message("session.rag_lab.lane", chain=chain.label_text, reason=reason)
-                raise SendRefused(reason)
+        chain = pipeline or catalog.default
+        reason = rag_lab.validate_pipeline(chain, catalog)
+        if reason is not None:
+            raise SendRefused(reason)
         with self._lock:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
@@ -9277,7 +9435,7 @@ class AppSession:
             self.state, self.reason_text = "rag_lab", _RAG_LAB_FR
         self._emit_state()
         self._executor.submit(
-            self._run_rag_lab, run_id, question, chains, texts, catalog, cancel, previous
+            self._run_rag_lab, run_id, question, chain, texts, catalog, cancel, previous
         )
         return run_id
 
@@ -9293,30 +9451,24 @@ class AppSession:
         self._rag_lab_catalog_kept = (now, texts, catalog)
         return catalog
 
-    def validate_rag_lab(self, pipelines: list[rag_lab.Pipeline]) -> dict[str, Any]:
-        """`POST /api/rag_lab/validate` (story 30, increment 4), read only: the reason each
+    def validate_rag_lab(self, pipeline: rag_lab.Pipeline) -> dict[str, Any]:
+        """`POST /api/rag_lab/validate` (story 30, increment 4), read only: the reason the
         chain would be refused for, and the stage at fault, so that the page says it on the
-        stage's card before « Lancer » (AD-1: the rules are the session's)."""
+        stage's line before « Lancer » (AD-1: the rules are the session's)."""
         texts, error_text = self._rag_lab_content()
         if texts is None:
             reason = error_text or Message("session.rag_lab.texts_unreadable")
-            return {
-                "valid": False,
-                "refusals": [{"lane": None, "stage_id": None, "reason_text": reason}],
-            }
+            return {"valid": False, "refusals": [{"stage_id": None, "reason_text": reason}]}
         catalog = self._rag_lab_recent_catalog(texts)
-        refusals = []
-        for lane, chain in zip("ab", pipelines, strict=False):
-            refusal = rag_lab.check_pipeline(chain, catalog)
-            if refusal is not None:
-                refusals.append({"lane": lane, "stage_id": refusal[1], "reason_text": refusal[0]})
+        refusal = rag_lab.check_pipeline(pipeline, catalog)
+        refusals = [] if refusal is None else [{"stage_id": refusal[1], "reason_text": refusal[0]}]
         return {"valid": not refusals, "refusals": refusals}
 
     def _run_rag_lab(
         self,
         run_id: str,
         question: str,
-        chains: list[rag_lab.Pipeline],
+        chain: rag_lab.Pipeline,
         texts: rag_lab.RagLabContent,
         catalog: rag_lab.Catalog,
         cancel: CancelToken,
@@ -9350,8 +9502,9 @@ class AppSession:
                 emit=self._rag_lab_emit,
                 rss=self._rss_now,
                 lang=self._language,
+                generator=lambda ask: self._rag_lab_generate(ask, cancel),
             )
-            lab_run = rag_lab.LabRun(run_id, question, chains, deps)
+            lab_run = rag_lab.LabRun(run_id, question, chain, deps)
             lab_run.run()
         except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
             with scoped(**self._rag_lab_scope(run_id, "rag_lab", brick=None)):
@@ -9382,9 +9535,150 @@ class AppSession:
         self, kind: str, payload: dict[str, Any], step_id: str, component: str
     ) -> None:
         model = PAYLOAD_MODELS[kind]
-        with scoped(**self._rag_lab_scope(step_id, component)):
+        # Lot 5c-3: the generation's progress is emitted during the model's call, never
+        # under its `origin`.
+        with scoped(**self._rag_lab_scope(step_id, component), origin=None):
             payload = in_language(payload, self._language)
             self._journal().emit(kind, model.model_validate(payload).model_dump(mode="json"))
+
+    def _rag_lab_generate(
+        self, ask: rag_lab.GenerationAsk, cancel: CancelToken
+    ) -> rag_lab.Generated:
+        """Lot 5c-3: the Generation stage of the RAG workshop, by the active model. Sent: the
+        system prompt brick's text as a turn would send it (custom or default; nothing when
+        the brick is off: neither the global memory nor the skills, whose meta-tools the
+        workshop does not offer), then one user message, the context the chain built and the
+        question. Within a turn's bounds: its output reserve and its reasoning budget. Local:
+        `_call_model` (its `model_*` events, CodeCarbon, the session's footprint), the main
+        context's engine state saved around it (`rag_lab` names a cache it could not keep).
+        Cloud: `_lab_cloud_call`, `run_call` directly (the session's spend, neither the gauge
+        nor the ratio). Scope `rag_lab`, the stage's step, no turn, no brick (a model's error
+        is not the RAG brick's). Raises `StageSkipped` without a model."""
+        with self._lock:
+            engine, caps, cloud, window = self._engine, self._caps, self._cloud, self._window
+        if engine is None or caps is None:
+            raise rag_lab.StageSkipped(Message("rag_lab.generation.no_model"))
+        state = self.build_turn_state()
+        reasons, reserve = self._reasoning_on(state), self._reserve_of(state)
+        system = "system_prompt" in state.effective and bool(state.system_prompt)
+        messages: list[dict[str, Any]] = []
+        if system:
+            prompt = Part(
+                SegmentKind.SYSTEM_PROMPT,
+                state.system_prompt,
+                "system_prompt",
+                "system_prompt.prompt",
+            )
+            messages.append({"role": "system", "content": [prompt]})
+        user = [Part(SegmentKind.USER_MESSAGE, ask.question)]
+        if ask.context_text:  # its introduction and its excerpts, before the question
+            user.insert(0, Part(SegmentKind.RAG_EXCERPT, ask.context_text, "rag", "rag.retriever"))
+        messages.append({"role": "user", "content": user})
+        model = self.active_model()
+        produced = 0
+
+        def token(*_: Any) -> None:
+            nonlocal produced
+            produced += 1
+            ask.progress(min(produced, reserve), reserve)
+
+        step_id = ask.step_id
+        scope = self._rag_lab_scope(step_id, "rag_lab.generation", brick=None)
+        with scoped(**scope | {"call_id": step_id}, origin="model"):
+            rendered: RenderedContext | RenderedChat
+            if cloud is None:
+                meta = engine.metadata()
+                template_vars: dict[str, Any] = {}
+                if caps.reasoning_variable:
+                    template_vars[caps.reasoning_variable] = reasons
+                rendered = render_context(
+                    engine,
+                    caps.chat_template or "",
+                    messages,
+                    call_id=step_id,
+                    special_tokens=meta.special_tokens,
+                    bos_token=meta.bos_token,
+                    eos_token=meta.eos_token,
+                    add_generation_prompt=True,
+                    **template_vars,
+                    lang=self._language,
+                )
+                text, tokens, exact = rendered.prompt, len(rendered.ids), True
+            else:
+                content = self._cloud_content or self._localized(load_cloud_content)
+                rendered = render_chat_body(
+                    messages,
+                    None,
+                    call_id=step_id,
+                    fields=chat_fields(cloud, reserve, reasoning=reasons),
+                    markers=self.cfg.cloud_markers,
+                    estimate=lambda t: config.estimate_tokens(t, self.cfg.chars_per_token),
+                    provider_label_text=content.provider_segment_text,
+                    lang=self._language,
+                    api=cloud.api,
+                )
+                text, tokens, exact = rendered.body, rendered.raw_total, False
+            got = rag_lab.Generated(
+                model_label=model["label"] if model is not None else "",
+                prompt_text=text,
+                prompt_tokens=tokens,
+                exact=exact,
+                window=window,
+                reserve=reserve,
+                system_prompt=system,
+            )
+            if tokens > window - reserve:  # AD-9: nothing leaves
+                got.status = "too_long"
+                return got
+            journal = self._journal()
+            mark = journal.last_seq()
+            ask.progress(0, reserve)  # the prompt being read: « 0 / 1 024 tokens »
+            if cloud is None:
+                saved = self._save_main_state()
+                try:
+                    out = self._call_model(rendered, cancel, (), reserve, reasons, on_token=token)
+                    got.status = out.status
+                    if out.status == "error":
+                        got.error_text = out.message_text or None
+                except Exception as exc:  # noqa: BLE001 - AD-16: the stage says it, prompt kept
+                    got.status = "error"
+                    got.error_text = Message(
+                        "rag_lab.stage.failed",
+                        error=type(exc).__name__,
+                        cause=rag_index.exception_text(exc, self._language),
+                    )
+                    self._error(got.error_text, exc, Message("session.rag_lab.generation_stops"))
+                finally:
+                    self._lab_restore(saved, "rag_lab")
+            else:
+                failed: dict[str, Any] = {}
+                trace = self._sampling_trace(None, reasons)
+                got.status = self._lab_cloud_call(
+                    rendered,
+                    cancel,
+                    cloud,
+                    tokens,
+                    trace,
+                    token,
+                    failed,
+                    step_id,
+                    effect=Message("session.rag_lab.generation_stops"),
+                )
+                got.error_text = failed.get("message_text")
+            call = next(
+                (
+                    e.payload
+                    for e in reversed(journal.events_since(mark))
+                    if e.kind == "model_call_ended" and e.step_id == step_id
+                ),
+                None,
+            )
+            if call is not None:
+                got.answer_text = call.get("text") or ""
+                got.output_tokens = int(call.get("output_tokens") or 0)
+            else:
+                got.output_tokens = produced
+            return got
 
     def _rag_lab_embedder(self, option: str, loans: rag_lab.Loans) -> rag_lab.Lent:
         """The brick's embedding model, borrowed when it holds it, else loaded as
@@ -9392,6 +9686,9 @@ class AppSession:
         end; its errors are said in the stage, never as `harness_error`."""
         if option == "fastembed":
             return self._rag_lab_fastembed_lent(loans)
+        lab_model = self.cfg.rag_lab_embedding(option)
+        if lab_model is not None:
+            return self._rag_lab_declared_lent(lab_model, loans)
         model = self._rag_model
         if option != "declared" or model is None:
             raise rag_lab.StageFailed(
@@ -9423,6 +9720,34 @@ class AppSession:
                 model.measured_rss_mb, [f.size for f in model.files]
             ),
             slot=EMBEDDING,
+            open_model=open_model,
+        )
+
+    def _rag_lab_declared_lent(
+        self, model: config.EmbeddingModel, loans: rag_lab.Loans
+    ) -> rag_lab.Lent:
+        """Lot 5c-1: a `[[rag_lab.embeddings]]` model, loaded for the run in its own slot
+        (`rag_lab.embedding.<id>`: the brick's `embedding` slot is never touched), within the
+        budget, its declared sha256 checked, by the brick's factory; closed at the run's end."""
+
+        def open_model() -> Embedder:
+            path = embedding_module.model_path(model)
+            declared = model.load_file.sha256
+            # Kept per size and modification time: the file is not hashed again at each run.
+            if declared and rag_lab.file_digest(path) != declared.lower():
+                # Bracketed by the message: « [[rag_lab.embeddings]] », as in wavestack.toml.
+                raise ValueRefused("session.rag.sha256", path=path, section="[rag_lab.embeddings]")
+            return self._embedder_factory(model)
+
+        return loans.lend(
+            borrowed=None,
+            label_text=model.label_text,
+            noun_text=Message("session.rag_lab.noun.embedding"),
+            unavailable_text=self._rag_lab_absent(model),
+            cost=self._load_registry.component_cost(
+                model.measured_rss_mb, [f.size for f in model.files]
+            ),
+            slot=f"{RAG_LAB_EMBEDDING}.{model.id}",
             open_model=open_model,
         )
 
@@ -9526,7 +9851,8 @@ class AppSession:
 
     def _rag_lab_identity(self, option: str) -> dict[str, Any]:
         """What identifies an embedding model, the key of the workshop's vector cache: its id,
-        its dimensions, its file's size and sha256 (declared, else computed once)."""
+        its dimensions, its file's size and sha256 (declared, else computed once); lot 5c-1:
+        its prefixes and `max_tokens` (they change the vectors), each model its own cache."""
         if option == "fastembed":
             model, _ = self._rag_lab_fastembed()
             assert model is not None  # the stage loaded it
@@ -9534,15 +9860,27 @@ class AppSession:
                 embedding_module.fastembed_dir() / model.folder_name
             )
             return {"id": model.model_name, "dims": model.dims, "size": size, "sha256": sha}
-        model = self._rag_model
+        model = self.cfg.rag_lab_embedding(option) or self._rag_model
         assert model is not None  # the stage loaded it
         declared = model.load_file
         sha = declared.sha256 or rag_lab.file_digest(embedding_module.model_path(model))
-        return {"id": model.id, "dims": model.dims, "size": declared.size, "sha256": sha.lower()}
+        return {
+            "id": model.id,
+            "dims": model.dims,
+            "size": declared.size,
+            "sha256": sha.lower(),
+            "query_prefix": model.query_prefix,
+            "passage_prefix": model.passage_prefix,
+            "max_tokens": model.max_tokens,
+        }
 
     def _rag_lab_reranker(self, option: str, loans: rag_lab.Loans) -> rag_lab.Lent:
         """The brick's reranker, borrowed or loaded as `_load_reranker` loads it; without its
-        declaration or its file, the stage is skipped and the chain goes on."""
+        declaration or its file, the stage is skipped and the chain goes on. Lot 5c-2: a
+        `[[rag_lab.rerankers]]` model, by its id, in its own slot."""
+        lab_model = self.cfg.rag_lab_reranker(option)
+        if lab_model is not None:
+            return self._rag_lab_declared_reranker_lent(lab_model, loans)
         model = self._rerank_model
         if option != "declared" or model is None:
             raise rag_lab.StageSkipped(
@@ -9574,6 +9912,36 @@ class AppSession:
                 model.measured_rss_mb, [f.size for f in model.files]
             ),
             slot=RERANKER,
+            open_model=open_model,
+            soft=True,
+        )
+
+    def _rag_lab_declared_reranker_lent(
+        self, model: RerankerModel, loans: rag_lab.Loans
+    ) -> rag_lab.Lent:
+        """Lot 5c-2: a `[[rag_lab.rerankers]]` model, loaded for the run in its own slot
+        (`rag_lab.reranker.<id>`: the brick's `reranker` slot is never touched), within the
+        budget, its declared sha256 checked (kept per size and modification time), by the
+        brick's factory; closed at the run's end. As the brick's, a failure lets the chain go
+        on with the search's order."""
+
+        def open_model() -> Reranker:
+            path = reranker_module.model_path(model)
+            declared = model.load_file.sha256
+            if declared and rag_lab.file_digest(path) != declared.lower():
+                # The message wraps it in brackets: « [[rag_lab.rerankers]] », as in wavestack.toml.
+                raise ValueRefused("session.rag.sha256", path=path, section="[rag_lab.rerankers]")
+            return self._reranker_factory(model)
+
+        return loans.lend(
+            borrowed=None,
+            label_text=model.label_text,
+            noun_text=Message("session.rag_lab.noun.reranking"),
+            unavailable_text=self._rag_lab_absent(model) or self._rag_lab_refused(model),
+            cost=self._load_registry.component_cost(
+                model.measured_rss_mb, [f.size for f in model.files]
+            ),
+            slot=f"{RAG_LAB_RERANKER}.{model.id}",
             open_model=open_model,
             soft=True,
         )

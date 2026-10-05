@@ -321,7 +321,7 @@ def test_the_rag_workshop_chunks_the_languages_corpus_without_the_brick_index(ma
     session, _ = lab_session(values)
     _, chain, _ = chains(session)
     stage(chain, "vector_store").option = "memory"  # the brick's index is absent
-    events = run(session, pipelines=[chain])
+    events = run(session, pipeline=chain)
     chunking = next(
         e.payload
         for e in events

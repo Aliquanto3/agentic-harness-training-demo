@@ -32,7 +32,7 @@ Retour d'Anaël du 2026-10-04 : l'Atelier RAG montre une seule chaîne linéaire
 - **CAP-4** Architectures toutes faites (story 5b-1)
   - **intent:** Le formateur applique en un clic un RAG dense, un RAG hybride (BM25 + dense + fusion) ou un RAG avec reranking.
   - **success:** `GET /api/rag_lab` rend `catalog.presets` (trois entrées : id, textes, segment, disponibilité) ; un clic sur « RAG hybride » remplace le segment par Dense retrieval, BM25, Fusion (RRF) sans toucher le reste ; la chaîne est validée et s'exécute ; le bouton du préréglage courant est `aria-pressed="true"` ; testé en pytest et E2E.
-- **CAP-5** Modèle par composant (stories 5c-1 à 5c-4, non implémentées dans ce lot)
+- **CAP-5** Modèle par composant (stories 5c-1 à 5c-4, livrées en lot 5c sur la branche `feat/lot-5c-modele-par-composant-2026-10-05`)
   - **intent:** Le formateur choisit le modèle de chaque composant (embedding, reranker, LLM de génération), exécute la génération et télécharge un modèle absent depuis l'Atelier RAG.
   - **success:** Plusieurs embeddings et rerankers déclarés sont proposés ; la génération s'exécute avec le modèle actif et s'arrête par « Arrêter » ; un modèle absent se télécharge depuis l'étape (`download_model`) avec progression ; vérifié par pytest et E2E.
 
@@ -54,7 +54,8 @@ Retour d'Anaël du 2026-10-04 : l'Atelier RAG montre une seule chaîne linéaire
 - Aucune étape backend nouvelle ni découpage de l'étape `embedding` en deux.
 - Pas de comparaison A/B dans la page (retirée à la demande d'Anaël).
 - Pas de glisser-déposer : ▲ ▼ restent les seuls déplacements.
-- 5c (choix du modèle par composant, génération exécutée, téléchargement) n'est pas implémenté dans ce lot.
+- 5c (choix du modèle par composant, génération exécutée, téléchargement) n'est pas implémenté dans les lots 5a et 5b : il l'est en lot 5c (stories 5c-1 à 5c-4), après la fusion du lot 3.
+- 5c-4 : ni téléchargement de fastembed, ni téléchargement depuis le mode Dérouler ou le focus, ni reprise d'un `.part`.
 - Pas de préréglage « hybride + reranking » : il se compose à la main.
 - Pas de mise à jour de DESIGN.md / EXPERIENCE.md partagés : la décision UX vit dans `vues-atelier-rag.md`.
 - Pas de fusion, rebase ni push sans demande d'Anaël.
@@ -68,10 +69,15 @@ Retour d'Anaël du 2026-10-04 : l'Atelier RAG montre une seule chaîne linéaire
 - « Avec reranking » (plan, 5b) est la chaîne dense + reranking, celle livrée.
 - Story Breakdown déroulé sans conversation (consigne d'enchaîner jusqu'au build) : checkpoints décidés par Claude, notés au memlog.
 
-## Open Questions
+## Décisions de 5c (Anaël, 2026-10-05)
 
-- 5c : la génération exécutée dans l'Atelier RAG compte-t-elle dans la dépense (FinOps/GreenOps) de l'atelier principal, et avec quel prompt système ?
-- 5c : quels rerankers et embeddings déclarer en plus (noms, tailles, licences) ?
+- Modèles déclarés en plus : voir `essai-modeles-5c.md` (embeddings multilingual-e5-small et Qwen3-Embedding-0.6B, reranker Qwen3-Reranker-0.6B), livrés par 5c-1 et 5c-2.
+- 5c-3, génération exécutée dans l'Atelier RAG :
+  1. **Dépense** : comptée dans la dépense de la session (FinOps/GreenOps, `consumption_updated`), comme l'Atelier LLM ; jamais dans la jauge d'un tour (aucun tour).
+  2. **Prompt système** : le prompt système effectif de l'atelier principal, tel qu'un tour l'enverrait (rien si la brique « prompt système » est éteinte), puis le contexte construit par la chaîne avec son introduction, puis la question ; le focus montre le prompt envoyé.
+  3. **Au choix** : une option sur la ligne Generation, « Modèle actif de l'atelier » (par défaut, exécutée) ou « Ne pas générer » (le comportement d'avant).
+  4. **Bornes** : celles de l'atelier principal (borne de sortie, budget de raisonnement) ; progression en tokens et « Arrêter » pour la lenteur.
+  5. **Cas limites** : sans modèle chargé, l'étape est sautée avec sa raison et le reste de la chaîne se termine ; le cache de préfixe de la conversation de l'atelier est écrasé, ce qu'on accepte, en ajoutant la cause « atelier RAG » à la ligne « Préfixe non réutilisé ».
 
 ## Notes de fusion
 
@@ -100,3 +106,28 @@ Fichiers propres au RAG modifiés : `rag.html`, `rag.js`, `rag.css`, `rag/lab.py
 - **Lot 4 (Atelier MCP)** : `test_i18n.py`, si le lot 4 modifie la branche `mcp_lab.yaml`, juste après l'ajout RAG, conflit de voisinage : garder les deux. `diagram.js` : les ajouts du lot 4 n'interagissent pas avec le RAG (aucun appel modifié). `deferred-work.md` : conflit d'ajouts en fin de fichier, garder toutes les entrées.
 - **Lot 6 (Atelier LLM)** : `run_e2e.py`, `s_llm_live` se termine juste avant le bloc `# ---------- story 30: the RAG workshop` ; un ajout du lot 6 en fin de `s_llm_live` touche la frontière, garder les deux blocs. `test_i18n.py` : la branche `llm_lab.yaml` précède immédiatement l'ajout RAG, même règle. `docs/guide.md` : section « Atelier LLM » distincte de « Atelier RAG ».
 - **Après fusion** (registre `deferred-work.md`) : retirer les clés orphelines `rag.chain_a`, `rag.chain_b`, `rag.chain_b_steps`, `rag.chain_steps`, `rag.comparison.*` d'`ui.yaml` ; passer au vocabulaire chunk / prompt les refus `rag_lab.check.*` et les comptes `rag_lab.noun` de `messages.yaml` ; mettre à jour les lignes `rag-screen`, `rag-chain` et `rag-stage-card` d'EXPERIENCE.md d'après `vues-atelier-rag.md`.
+
+## Notes de fusion de 5c
+
+Branche `feat/lot-5c-modele-par-composant-2026-10-05`, base `f37aa72` (après la fusion des lots 1 à 6), commits « lot 5c-1 » à « lot 5c-4 ». Le lot 3 étant fusionné, 5c touche `app_session.py` et les fichiers de modèles qu'il fallait (voir les stories).
+
+**`static/diagram.js` : non modifié.**
+
+**`app_session.py`** : sections RAG seulement (`_rag_lab_*`, `run_rag_lab`, `validate_rag_lab`, `_rag_lab_generate`, `download_model` et `_run_download`, `_PREFIX_CAUSES`). 5c-4 : `download_model` accepte `rag_lab_embedding:<id>` et `rag_lab_reranker:<id>`, vérifie la place sur le disque (`models/download.py`, `free_bytes`) pour toute cible, et `_run_download` reçoit sa portée (`scope`, la brique par défaut) ; les fichiers sont relus avant le retour à `idle`.
+
+**Fichiers carrefour touchés**
+
+| Fichier | Nature | Zone |
+| --- | --- | --- |
+| `content/messages.yaml` et copies en/de | ajouts et retraits RAG | `session.rag_lab.*`, `rag_lab.*`, `config.rag_lab_*`, `models.reranker.*`, `session.download.disk_full` (5c-4), `session.prefix.causes.rag_lab` |
+| `content/ui.yaml` et copies en/de | ajout | `main.orch.prefix_causes.rag_lab` (5c-3) ; voie B retirée |
+| `src/wavestack/web/static/app.js` | voie B retirée du journal | `ragLabStage`, `eventSummary` (`rag_lab_*`) |
+| `src/wavestack/web/app.py` | `pipelines` de longueur 1 ; docstring de `DownloadModelIntention` (5c-4) | intentions RAG |
+| `tools/e2e/run_e2e.py` | zone RAG | `_rag_lab`, `_rag_lab_views`, `_rag_lab_download` (5c-4) |
+| `wavestack.toml` | ajouts | `[[rag_lab.embeddings]]`, `[[rag_lab.rerankers]]` et leurs commentaires |
+| `docs/guide.md`, `docs/installation.md` | section « Atelier RAG », « Modèles du RAG » | puces Embedding, Reranking, Generation, Télécharger un modèle absent |
+| `_bmad-output/implementation-artifacts/deferred-work.md` | entrées en fin de fichier | fin de fichier |
+
+Fichiers de modèles (hors RAG pur) : `config.py` (`rag_lab_embeddings`, `rag_lab_rerankers`), `models/catalog.py`, `models/discovery.py`, `models/capabilities.py`, `models/gguf_meta.py`, `models/engine.py`, `models/embedding.py`, `models/reranker.py`, `models/load_registry.py`, `models/download.py` (5c-4), `session/diagnostic.py` (GGUF d'embedding ou de reranking jamais proposés comme modèles de conversation), `trace/catalog.py` (voie B retirée, `warning_text`, `prompt_text`, cause `rag_lab`).
+
+**Conflits probables** : `app_session.py` avec tout lot qui touche `download_model` ou la carte RAG (story 15/16) ; `messages.yaml` (section `session.download`) ; `run_e2e.py` dans la zone RAG. Captures `55` à `59-atelier-rag-*.jpg` régénérées.

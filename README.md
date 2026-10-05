@@ -2,9 +2,8 @@
 
 WaveStack rend visible, brique par brique, ce qu'un harnais agentique ajoute à un LLM nu :
 raisonnement, mémoire, prompt système, outils, RAG, MCP, skills, hooks, sous-agent et
-compression du contexte.
-Démonstrateur pédagogique local, qui tourne sur CPU, sans GPU ; interface en français, en
-anglais et en allemand.
+compression du contexte. Démonstrateur pédagogique local, qui tourne sur CPU, sans GPU ;
+interface en français, en anglais et en allemand.
 
 ![Démonstration de WaveStack : le LLM nu ne connaît pas l'heure ; avec la brique Outils, le modèle appelle get_datetime et chaque étape s'affiche](docs/assets/wavestack-demo.gif)
 
@@ -17,37 +16,32 @@ montrent chaque étape. [Version vidéo (MP4)](docs/assets/wavestack-demo.mp4).*
 - **Quatre volets synchronisés** : ce que voit l'utilisateur, ce que lit vraiment le modèle,
   ce que fait le harnais pas à pas, et où tourne chaque pièce (sur le poste ou sur le réseau).
 - **Des briques à brancher une à une**, au fil d'un programme guidé de six modules (5 h 15).
-- **Trois écrans pour regarder à l'intérieur** : l'Atelier LLM (tokens, échantillonnage),
-  l'Atelier RAG et l'Atelier MCP.
+- **Trois ateliers pour regarder à l'intérieur** : l'Atelier LLM (de l'entrée aux tokens puis à
+  la sortie), l'Atelier RAG (indexation puis requête, architectures toutes faites, modèle au
+  choix pour chaque composant) et l'Atelier MCP.
 - **Un petit modèle local** (Qwen3.5-2B, 1,3 Go), installé sans droits administrateur, ou un
   modèle cloud si vous avez une clé API.
 
 ## Installation sous Windows
 
-Pour Windows 10 ou 11 x64 ; aucun droit administrateur n'est nécessaire. Sous macOS ou Linux,
-ou si une étape bloque (politique du poste, proxy), suivez
-[l'installation détaillée](docs/installation.md) ; les deux modèles de la brique RAG sont
-décrits dans sa section [Modèles du RAG](docs/installation.md#modèles-du-rag).
-
-**Sur un réseau d'entreprise**, tapez d'abord `$env:UV_SYSTEM_CERTS = "1"` dans le terminal, et
-faites autoriser par votre service informatique les domaines listés dans
+Pour Windows 10 ou 11 x64, sans droits administrateur ; prévoyez 3 Go de disque (5,9 Go avec
+tous les modèles du RAG) et 4 Go de RAM libre. Sous macOS ou Linux, ou si une étape bloque
+(politique du poste, proxy), suivez [l'installation détaillée](docs/installation.md).
+**Sur un réseau d'entreprise**, tapez d'abord `$env:UV_SYSTEM_CERTS = "1"` dans le terminal et
+faites autoriser les domaines de
 [Derrière un proxy d'entreprise](docs/installation.md#derrière-un-proxy-dentreprise).
 
-1. **Installez `uv`**, le gestionnaire Python utilisé par le projet, dans un terminal PowerShell :
+1. **Installez `uv`** dans un terminal PowerShell, puis rouvrez le terminal (refusé ? voir [Windows](docs/installation.md#windows)) :
 
    ```powershell
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
-   Fermez puis rouvrez le terminal pour que la commande `uv` soit reconnue. Si la commande est
-   refusée par le poste, voir [Windows](docs/installation.md#windows).
+2. **Récupérez WaveStack**, avec Git (`git clone https://github.com/Aliquanto3/agentic-harness-training-demo.git`)
+   ou en décompressant l'archive zip, puis ouvrez un terminal dans le dossier obtenu.
 
-2. **Récupérez WaveStack**, avec Git (`git clone https://github.com/Aliquanto3/agentic-harness-training-demo.git`) ou en décompressant
-   l'archive zip remise par votre formateur, puis ouvrez un terminal dans le dossier obtenu.
-
-3. **Déposez le modèle** (1,28 Go) dans le dossier des modèles de WaveStack. Ce dossier,
-   `%LOCALAPPDATA%\WaveStack\models`, appartient à votre profil Windows et ne fait pas partie
-   du dossier cloné : une mise à jour du code n'y touche pas.
+3. **Déposez le modèle** (1,28 Go) dans `%LOCALAPPDATA%\WaveStack\models`, le dossier de
+   données de votre profil, hors du dossier cloné (une mise à jour du code n'y touche pas) :
 
    ```powershell
    New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\WaveStack\models" | Out-Null
@@ -55,67 +49,52 @@ faites autoriser par votre service informatique les domaines listés dans
    Invoke-WebRequest -UseBasicParsing "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" -OutFile "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf"
    ```
 
-   Si le téléchargement échoue, prenez
-   [le fichier](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf)
+   En cas d'échec, prenez [le fichier](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf)
    avec le navigateur et copiez-le dans ce dossier.
 
-4. **Lancez** :
+4. **Facultatif : ajoutez les extras** (compression Headroom, FAISS et LanceDB dans l'Atelier
+   RAG, empreinte CodeCarbon), en gardant tous ceux voulus dans la même commande :
 
    ```powershell
-   uv run wavestack
+   uv sync --extra compression --extra rag-alt --extra greenops
    ```
 
-Le premier lancement télécharge Python 3.13 et les dépendances dans votre profil (quelques
-minutes), puis ouvre le navigateur sur le diagnostic. Si plusieurs modèles sont trouvés sur le
-poste, cliquez sur « Choisir » en face de Qwen3.5-2B. Ouvrez ensuite l'Atelier Harnais par le
-lien « Harnais » de la barre de navigation, choisissez le scénario « LLM nu » dans le sélecteur
-en bas à gauche et suivez sa consigne : le [programme de formation](docs/guide.md#programme-de-formation) enchaîne ensuite
-les modules. Ctrl+C dans le terminal arrête WaveStack ; `uv run wavestack` le relance.
+5. **Lancez** avec `uv run wavestack`. Le premier lancement télécharge Python 3.13 et les
+   dépendances dans votre profil (quelques minutes), puis ouvre le navigateur sur le
+   diagnostic. Si plusieurs modèles sont trouvés, cliquez sur « Choisir » en face de
+   Qwen3.5-2B, puis ouvrez l'Atelier Harnais par le lien « Harnais » de la barre de navigation.
+
+**Modèles du RAG.** La brique RAG demande un modèle d'embedding (121 Mo) et, en option, un
+modèle de reranking (438 Mo) : téléchargez-les depuis la carte RAG de l'Atelier Harnais. Les
+modèles en plus de l'Atelier RAG (132 à 639 Mo chacun) se téléchargent depuis son étape
+Embedding ou Reranking, en mode Composer. Détails et copie à la main :
+[Modèles du RAG](docs/installation.md#modèles-du-rag).
+
+**Pour commencer**, choisissez le scénario « LLM nu » en bas à gauche et suivez sa consigne ;
+le [programme de formation](docs/guide.md#programme-de-formation) enchaîne les modules. Ctrl+C
+arrête WaveStack. Mise à jour : `git pull` (ou un nouveau zip), `uv sync` avec vos extras.
 
 ## Utiliser un modèle cloud (clé API)
 
-Le modèle local suffit pour toute la formation. Un modèle cloud est facultatif : plus rapide et
-meilleur avec les outils. Les préréglages fournis sont Groq, Mistral, Gemini, Gemma, Claude et
-GPT-6 Luna.
-
-1. **Créez une clé API** dans la console du fournisseur. Chez Mistral, activez d'abord un plan
-   (« Experiment », gratuit, suffit) ; sans plan, chaque appel répond 429.
-2. **Ouvrez la page de diagnostic.** Elle s'ouvre au lancement, ou passez par « Autre fichier ou
-   clé API… » dans le sélecteur de modèle de la barre du bas.
-3. **Collez la clé** dans la ligne du modèle, puis cliquez sur « Enregistrer la clé ». Elle est
-   conservée sur ce poste seulement, dans `%LOCALAPPDATA%\WaveStack\api_keys.json`. Elle n'est
-   jamais affichée ni écrite dans les traces, et elle n'est envoyée qu'à l'hôte du fournisseur.
-4. **Cliquez sur « Tester »** (deux appels au plus, sans vos données), puis sur « Choisir » et
-   « Utiliser ce modèle ».
-
-Autre méthode : une variable d'environnement, lue si aucune clé n'a été saisie au diagnostic.
-
-| Fournisseur | Variable |
-|---|---|
-| Groq | `GROQ_API_KEY` |
-| Mistral | `MISTRAL_API_KEY` |
-| Gemini et Gemma | `GEMINI_API_KEY` |
-| Claude (Haiku, Sonnet) | `ANTHROPIC_API_KEY` |
-| GPT-6 Luna | `OPENAI_API_KEY` |
-
-```powershell
-setx GROQ_API_KEY votre-clé
-```
-
-`setx` ne vaut que pour les **nouveaux** terminaux : rouvrez-en un avant `uv run wavestack`.
-La clé est alors stockée en clair dans votre environnement utilisateur. Ne mettez jamais de
-clé dans `wavestack.toml` ni dans un fichier suivi par Git.
-
-Sur un réseau d'entreprise, faites autoriser l'hôte du fournisseur (`api.groq.com`,
-`api.mistral.ai`, `generativelanguage.googleapis.com`, `api.anthropic.com`, `api.openai.com`).
-Pour les conditions de chaque fournisseur (données, prix, quotas), voir
-[Modèles cloud](docs/modeles.md#modèles-cloud).
+Facultatif : le modèle local suffit pour toute la formation. Préréglages fournis : Groq,
+Mistral, Gemini, Gemma, Claude et GPT-6 Luna. Créez une clé dans la console du fournisseur
+(chez Mistral, activez d'abord le plan gratuit « Experiment »), collez-la au diagnostic dans la
+ligne du modèle (« Enregistrer la clé »), puis « Tester », « Choisir » et « Utiliser ce
+modèle ». La clé reste sur ce poste (`%LOCALAPPDATA%\WaveStack\api_keys.json`), n'est jamais
+affichée ni tracée, et ne part que vers l'hôte du fournisseur. Variables d'environnement,
+domaines à autoriser et conditions de chaque fournisseur : [Modèles cloud](docs/modeles.md#modèles-cloud).
 
 ## Aller plus loin
 
 | Document | Contenu |
 |---|---|
-| [Installation détaillée](docs/installation.md) | Pas à pas Windows, macOS et Linux, premier lancement, proxy, mise à jour, extras optionnels |
+| [Installation détaillée](docs/installation.md) | Pas à pas Windows, macOS et Linux, premier lancement, proxy, mise à jour, extras |
 | [Guide d'utilisation](docs/guide.md) | L'interface, le programme de formation, les ateliers, le RAG, la compression, FinOps et GreenOps |
 | [Modèles](docs/modeles.md) | Changer de modèle, fenêtre de contexte, Ollama et llama-server, modèles cloud |
 | [Contribuer](CONTRIBUTING.md) | Environnement de développement, conventions, tests, ajout de scénarios |
+
+## Licence
+
+WaveStack est distribué sous [licence Apache 2.0](LICENSE) : vous pouvez le réutiliser, le
+modifier et l'intégrer à vos propres formations, à condition de conserver le fichier
+[NOTICE](NOTICE) et de citer « WaveStack, par Anaël Yahi » avec un lien vers ce dépôt.

@@ -7,7 +7,8 @@
 // then RUN, a line per step), the architecture (the components the chain calls on, by
 // group) and the focus on one step, every step's detail folded under them. The table step →
 // components is the session's (`catalog.steps`). In « Composer » the chain's editor lives in
-// the sequence's lines; the A/B comparison is gone from the page.
+// the sequence's lines; the A/B comparison is gone from the page (lot 5c-1: and from the
+// session, one chain per run).
 //
 // Lot 5a-2: in « Dérouler » the steps and the components arrive one by one, by a stepper
 // (`diagram.createStepper`) whose frames are the sequence's steps: every step pushed for a
@@ -34,14 +35,17 @@ const store = {
   serverInstance: null,
   lastSeq: 0,
   pending: false, // a POST sent, not answered yet
-  run: null, // the projection of the last run: its lanes and their stages
-  pipelines: [], // the chain being edited (one: the A/B comparison is gone from the page)
+  run: null, // the projection of the last run: its question and its stages
+  pipelines: [], // the chain being edited (one: the session runs one chain)
   refusals: [], // why the session would refuse it (`POST /api/rag_lab/validate`)
   validating: 0, // the last validation asked, so that a late answer is dropped
   mode: "play", // « compose » or « play » (vues-atelier-rag.md §1)
   current: null, // the step shown in the focus (its key), or none
   replaying: false, // `last_run` being read again: one render at its end, not one per event
   land: false, // a run just ended: its stepper lands on its last frame, or its failed step
+  promptOpen: false, // lot 5c-3: the generation's prompt unfolded, kept across the renders
+  download: null, // lot 5c-4: the download this page launched, { target, kind }, until `idle`
+  downloadNotices: {}, // lot 5c-4: its outcome, said in its stage, by kind: { text, error }
 };
 
 // ---------- small helpers ----------
@@ -78,6 +82,9 @@ const QUESTION_KEY = "wavestack.ragLab.question";
 const CHAINS_KEY = "wavestack.ragLab"; // the chain being edited (a browser setting only)
 const MODE_KEY = "wavestack.ragLab.mode";
 const MODES = ["compose", "play"];
+// Lot 5c-3: the version of the saved chain. Before it (no version), Generation had a single
+// option, `not_run`: a chain saved then had not chosen « Ne pas générer ».
+const CHAINS_VERSION = 2;
 
 function stored(key) {
   try {
@@ -173,11 +180,17 @@ function loadChains() {
   };
   const pipelines = Array.isArray(saved?.pipelines) ? saved.pipelines.slice(0, 1).map(renamed) : [];
   if (!pipelines.length || !pipelines.every(shaped)) return [clone(store.defaultPipeline)];
+  if (saved.version === undefined) {
+    // Lot 5c-3: saved before the generation ran, its `not_run` was the only option.
+    for (const p of pipelines) {
+      for (const s of p.stages) if (s.kind === "generation" && s.option === "not_run") s.option = "active";
+    }
+  }
   return pipelines;
 }
 
 function saveChains() {
-  keep(CHAINS_KEY, JSON.stringify({ pipelines: store.pipelines }));
+  keep(CHAINS_KEY, JSON.stringify({ version: CHAINS_VERSION, pipelines: store.pipelines }));
 }
 
 function forgetChains() {
@@ -197,7 +210,6 @@ function paramInput(stage, param) {
   input.max = String(param.max);
   input.step = "1";
   input.value = String(stage.params?.[param.name] ?? param.default);
-  input.dataset.lane = "a";
   input.dataset.stageId = stage.id;
   input.dataset.param = param.name;
   input.title = t("rag.param_range", { min: fmtInt(param.min), max: fmtInt(param.max), unit: param.unit_text }).trim();
@@ -220,7 +232,6 @@ function paramInput(stage, param) {
 function optionSelect(stage, info) {
   const select = el("select", "rag-option");
   select.setAttribute("aria-label", t("rag.option_label", { stage: info.label_text }));
-  select.dataset.lane = "a";
   select.dataset.stageId = stage.id;
   for (const option of info.options) {
     const item = el("option", null, option.available ? option.label_text : `${option.label_text} (${text("unavailable_text")})`);
@@ -257,7 +268,151 @@ function stageControls(stage, index) {
       box.append(el("p", "rag-chain-unavailable", labelled(other.label_text, other.reason_text)));
     }
   }
+  const downloads = el("div", "rag-chain-downloads");
+  downloads.dataset.kind = stage.kind;
+  fillDownloads(downloads);
+  box.append(downloads);
   return box;
+}
+
+// ---------- lot 5c-4: a model missing, downloaded from its stage ----------
+
+// The components whose download outcome the stage says: the workshop's models, and the
+// brick's (its « declared » options). Taken only during a download this page launched.
+// (Built from their parts: a quoted `rag.…` would read as a text key of ui.yaml.)
+const DOWNLOAD_COMPONENTS = [
+  ...["embedding", "rerank"].map((c) => `rag_lab.${c}`),
+  ...["retriever", "reranker"].map((c) => `rag.${c}`),
+];
+
+// A stage's « Télécharger » lines, one per option whose files are missing (the session's
+// target and label, AD-1), the progress and « Arrêter » in place of the one downloading, and
+// the last outcome under them.
+function fillDownloads(box) {
+  const kind = box.dataset.kind;
+  const options = (stageInfo(kind)?.options ?? []).filter((o) => o.download);
+  box.replaceChildren();
+  for (const option of options) {
+    const target = option.download.target;
+    const line = el("p", "rag-chain-download");
+    line.dataset.target = target;
+    line.append(el("span", "rag-chain-download-name", option.label_text));
+    const ours = store.download?.target === target;
+    line.classList.toggle("is-active", ours);
+    if (ours && store.session.state === "download") {
+      const progress = el("span", "rag-chain-download-progress", store.session.reason_text || "");
+      progress.setAttribute("role", "status");
+      const stop = el("button", "rag-button-secondary rag-download-stop", text("download_stop_text"));
+      stop.type = "button";
+      stop.dataset.target = target;
+      stop.addEventListener("click", stopRun);
+      line.append(progress, stop);
+    } else {
+      const button = el("button", "rag-button-secondary rag-download", option.download.label_text);
+      button.type = "button";
+      button.dataset.target = target;
+      button.setAttribute("aria-label", labelled(option.label_text, option.download.label_text));
+      const busy = busyReason();
+      button.disabled = Boolean(busy || store.download);
+      if (busy) button.title = busy;
+      button.addEventListener("click", () => downloadModel(kind, target));
+      line.append(button);
+    }
+    box.append(line);
+  }
+  const notice = store.downloadNotices[kind];
+  if (notice) {
+    const said = el("p", `rag-chain-download-notice${notice.error ? " is-error" : ""}`, notice.text);
+    said.setAttribute("role", "status");
+    box.append(said);
+  }
+  box.hidden = !box.childElementCount;
+}
+
+// The download line the keyboard was on ({ target, kind }), found again after its line is
+// drawn again: its button (« Télécharger », « Arrêter »), else its stage's option.
+let downloadFocus = null;
+
+function noteDownloadFocus() {
+  const line = document.activeElement?.closest?.(".rag-chain-download");
+  if (line) downloadFocus = { target: line.dataset.target, kind: line.parentElement?.dataset.kind };
+}
+
+function restoreDownloadFocus() {
+  if (!downloadFocus) return;
+  const active = document.activeElement;
+  if (active && active !== document.body && active.isConnected) {
+    // Elsewhere now (or still there): nothing to give back.
+    if (!active.closest(".rag-chain-download")) downloadFocus = null;
+    return;
+  }
+  const line = [...document.querySelectorAll(".rag-chain-download")].find((l) => l.dataset.target === downloadFocus.target);
+  const button = line?.querySelector("button:not(:disabled)");
+  if (button) button.focus();
+  else if (!line) document.querySelector(`#rag-seq .rag-chain-card[data-kind="${downloadFocus.kind}"] select.rag-option`)?.focus();
+  else return; // its button disabled for now (the download starting): given back later
+  downloadFocus = null;
+}
+
+// Every stage's lines drawn again in place (the progress, once a second), the keyboard's
+// focus kept on the same target's line.
+function renderDownloads() {
+  noteDownloadFocus();
+  for (const box of document.querySelectorAll(".rag-chain-downloads")) fillDownloads(box);
+  restoreDownloadFocus();
+}
+
+async function downloadModel(kind, target) {
+  noteDownloadFocus();
+  store.download = { target, kind };
+  delete store.downloadNotices[kind];
+  renderDownloads();
+  const answer = await post("/api/intentions/download_model", { target });
+  if (answer.ok) {
+    renderDownloads();
+    return;
+  }
+  // Refused (the room on the disk, the session busy, the files already there): nothing
+  // started; the catalog read again (a file copied by hand meanwhile).
+  if (store.download?.target === target) store.download = null;
+  store.downloadNotices[kind] = { text: refusalText(answer), error: true };
+  await reloadCatalog();
+}
+
+// The catalog only, read again (a download ended): the options' availability, their reasons
+// and their « Télécharger », the chain checked again.
+async function reloadCatalog() {
+  try {
+    const response = await fetch("/api/rag_lab");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    if (body.catalog) store.catalog = body.catalog;
+  } catch {
+    // the next reload of the page reads it
+  }
+  noteDownloadFocus();
+  redraw();
+  restoreDownloadFocus();
+  validateChains();
+}
+
+// A download's outcome (`effect_applied`, `harness_error` outside a turn), said in the stage
+// of the download this page launched; a load failing afterwards is not the stage's.
+function downloadOutcome(envelope) {
+  if (!store.download || envelope.turn_id || !DOWNLOAD_COMPONENTS.includes(envelope.component)) return;
+  const p = envelope.payload;
+  let notice = null;
+  if (envelope.kind === "harness_error") {
+    const cause = p.cause ? t("main.bricks.notice_cause", { cause: p.cause }) : null;
+    notice = { text: [p.message_text, cause, p.effect_text].filter(Boolean).join(" "), error: true };
+  } else if (p.effect === "model_download") {
+    notice = { text: text("download_done_text"), error: false };
+  } else if (p.effect === "model_download_stopped") {
+    notice = { text: (p.lines ?? []).join(" "), error: false };
+  }
+  if (!notice) return;
+  store.downloadNotices[store.download.kind] = notice;
+  renderDownloads();
 }
 
 // Increment 4: a stage of the retrieval segment moves by buttons (keyboard included), never
@@ -275,7 +430,6 @@ function moveButtons(index) {
     b.setAttribute("aria-label", label);
     b.title = label;
     b.disabled = disabled;
-    b.dataset.lane = "a";
     b.dataset.stageId = stages[index].id;
     b.dataset.action = action;
     b.addEventListener("click", onClick);
@@ -370,7 +524,7 @@ async function askValidation() {
     validateChains();
     return;
   } else {
-    store.refusals = [{ lane: null, stage_id: null, reason_text: refusalText(answer) }];
+    store.refusals = [{ stage_id: null, reason_text: refusalText(answer) }];
   }
   renderRefusals();
   renderBusy();
@@ -577,8 +731,28 @@ let seen = null;
 // A tile's subtitle: the chosen option of its stage (the embedding model, the reranker, the
 // store), else its own note.
 function subtitle(component) {
+  if (component.id === "answer") return answerOf(shownRun()) || component.note_text;
   const stage = component.stage ? chain()?.stages.find((s) => s.kind === component.stage) : null;
   return (stage && optionInfo(stage.kind, stage.option)?.label_text) || component.note_text;
+}
+
+// Lot 5c-3: the answer of a run's generation, as it arrives (the `model_delta` of the workshop's
+// context), then as its end says it; none when nothing was sent (« Ne pas générer », skipped).
+function answerOf(run) {
+  const stage = run?.stages.find((s) => s.kind === "generation");
+  if (!stage) return "";
+  if (stage.ended) return typeof stage.ended.prompt_text === "string" ? stage.ended.output_text : "";
+  return stage.status === "running" ? stage.live : "";
+}
+
+// The answer tile follows the run between two frames (its subtitle only).
+function renderAnswerTile() {
+  const sub = document.querySelector('#rag-arch .rag-arch-tile[data-component="answer"] .rag-arch-sub');
+  const component = store.catalog?.components.find((c) => c.id === "answer");
+  if (!sub || !component) return;
+  const said = subtitle(component);
+  if (sub.textContent !== said) sub.textContent = said;
+  sub.title = said;
 }
 
 function renderArchitecture(entries, shown) {
@@ -605,7 +779,9 @@ function renderArchitecture(entries, shown) {
       else if (playing && seen && !seen.has(component.id)) tile.classList.add("is-new");
       const icon = el("span", "rag-arch-icon", component.icon);
       icon.setAttribute("aria-hidden", "true");
-      tile.append(icon, el("span", "rag-arch-name", component.label_text), el("span", "rag-arch-sub", subtitle(component)));
+      const sub = el("span", "rag-arch-sub", subtitle(component));
+      sub.title = sub.textContent;
+      tile.append(icon, el("span", "rag-arch-name", component.label_text), sub);
       list.append(tile);
     }
     section.append(list);
@@ -615,11 +791,6 @@ function renderArchitecture(entries, shown) {
 }
 
 // ---------- the run, as the sequence reads it ----------
-
-function runLane() {
-  const run = store.run;
-  return run ? (run.lanes.find((l) => l.lane === "a") ?? run.lanes[0] ?? null) : null;
-}
 
 // A stage's settings, those left out at their shipped value: a run and the chain compared.
 function settingsOf(kind, option, params) {
@@ -637,10 +808,9 @@ function shownRun() {
 // The last run, when it ran the chain being edited; else none.
 function chainRun() {
   if (!store.run) return null;
-  const lane = runLane();
   const stages = chain()?.stages ?? [];
-  if (!lane || lane.stages.length !== stages.length) return null;
-  const same = lane.stages.every((s, i) => {
+  if (store.run.stages.length !== stages.length) return null;
+  const same = store.run.stages.every((s, i) => {
     const mine = stages[i];
     return (
       s.stage_id === mine.id &&
@@ -654,7 +824,7 @@ function chainRun() {
 
 function runStage(step) {
   if (!step.stage || !shownRun()) return null;
-  return runLane()?.stages.find((s) => s.kind === step.stage) ?? null;
+  return store.run.stages.find((s) => s.kind === step.stage) ?? null;
 }
 
 // The pill of a line in « Dérouler », once a run is known: a stage's own status and duration;
@@ -705,6 +875,25 @@ function uses(step) {
   return box;
 }
 
+// Lot 5c-3: the prompt the generation sent, exactly, folded (its state kept across renders).
+function promptBlock(prompt) {
+  const details = el("details", "rag-prompt");
+  details.open = store.promptOpen;
+  details.addEventListener("toggle", () => {
+    store.promptOpen = details.open;
+  });
+  details.append(el("summary", null, text("prompt_sent_text")), el("pre", "rag-focus-pre", prompt));
+  return details;
+}
+
+// Lot 5c-3: the model's answer (`waiting`: before its first token).
+function answerBlock(answer, waiting = false) {
+  const box = el("div", "rag-answer");
+  box.append(el("span", "rag-view-label", text("answer_title_text")));
+  box.append(el("p", `rag-answer-text${waiting ? " is-waiting" : ""}`, answer));
+  return box;
+}
+
 function focusIo(rows) {
   const dl = el("dl", "rag-focus-io");
   for (const [label, value, className] of rows) {
@@ -733,14 +922,26 @@ function focusRun(box, step) {
   }
   box.append(el("p", "rag-focus-status", stepStatus(step, stage)));
   const ended = stage.ended;
+  if (!ended && step.stage === "generation" && stage.status === "running") {
+    // Lot 5c-3: the answer as the model writes it.
+    // Before its first word: the model reads the prompt, or reasons.
+    const waiting = stage.reasoning ? "answer_reasoning_text" : "answer_waiting_text";
+    box.append(stage.live ? answerBlock(stage.live) : answerBlock(text(waiting), true));
+  }
   if (!ended) return;
   if (ended.error_text) box.append(el("p", "rag-stage-error", ended.error_text));
+  // Lot 5c-1: what the stage met without failing (chunks truncated), on its own lines only.
+  if (ended.warning_text && step.own) box.append(el("p", "rag-stage-warning", ended.warning_text));
   if (step.key === "documents") {
     box.append(focusIo([[text("input_text"), ended.input_text]]));
     return;
   }
   if (step.key === "embed_query") {
     box.append(focusIo([[text("input_text"), quote(run.question)]]));
+  } else if (step.stage === "generation" && typeof ended.prompt_text === "string") {
+    // Lot 5c-3: run by the active model: what it was sent, then its answer.
+    box.append(focusIo([[text("input_text"), ended.input_text]]), promptBlock(ended.prompt_text));
+    if (ended.output_text) box.append(answerBlock(ended.output_text));
   } else if (["context", "generation"].includes(step.stage)) {
     box.append(focusIo([[text("input_text"), ended.input_text]]));
     if (ended.output_text) box.append(el("pre", "rag-focus-pre", ended.output_text));
@@ -907,7 +1108,7 @@ let quiet = false; // the stepper being rebuilt: one render at the end, not one 
 function playFrames(entries) {
   const run = shownRun();
   if (!run) return entries.map((e) => e.step.key);
-  const reached = new Set((runLane()?.stages ?? []).filter((s) => s.status !== "waiting").map((s) => s.stage_id));
+  const reached = new Set(run.stages.filter((s) => s.status !== "waiting").map((s) => s.stage_id));
   let last = -1;
   entries.forEach((e, i) => {
     if (e.step.own && e.stage && reached.has(e.stage.id)) last = i;
@@ -1005,18 +1206,30 @@ function renderViews() {
 function stageOf(envelope) {
   const p = envelope.payload;
   if (!store.run || store.run.runId !== p.run_id) return null;
-  const lane = store.run.lanes.find((l) => l.lane === p.lane);
-  return lane?.stages.find((s) => s.stage_id === p.stage_id) ?? null;
+  return store.run.stages.find((s) => s.stage_id === p.stage_id) ?? null;
 }
 
 function applyEnvelope(envelope) {
   store.lastSeq = Math.max(store.lastSeq, envelope.seq);
   const p = envelope.payload;
   switch (envelope.kind) {
-    case "session_state":
+    case "session_state": {
+      const was = store.session.state;
       store.session = { state: p.state, reason_text: p.reason_text };
       if (p.state === "idle" && closeStaleRun()) renderRun();
       renderBusy();
+      // Lot 5c-4: a download ended (this page's or another's): the catalog read again.
+      if (was === "download" && p.state !== "download") {
+        store.download = null;
+        reloadCatalog();
+      } else {
+        renderDownloads();
+      }
+      return;
+    }
+    case "effect_applied":
+    case "harness_error":
+      downloadOutcome(envelope);
       return;
     case "rag_lab_run_started":
       store.run = {
@@ -1024,10 +1237,7 @@ function applyEnvelope(envelope) {
         question: p.question,
         startedAt: envelope.ts,
         ended: null,
-        lanes: p.lanes.map((lane) => ({
-          ...lane,
-          stages: lane.stages.map((s) => ({ ...s, status: "waiting", progress: null, ended: null })),
-        })),
+        stages: p.stages.map((s) => ({ ...s, status: "waiting", progress: null, ended: null, live: "", reasoning: false })),
       };
       break;
     case "rag_lab_stage_started": {
@@ -1046,6 +1256,18 @@ function applyEnvelope(envelope) {
         stage.status = p.status;
         stage.ended = p;
       }
+      break;
+    }
+    case "model_delta": {
+      // Lot 5c-3: the generation's answer as it arrives (AD-1: the session's text, never
+      // computed here); its reasoning's text is not shown, only that it is under way. A turn's
+      // deltas are not the workshop's.
+      if (envelope.context_id !== "rag_lab" || !["text", "reasoning"].includes(p.channel)) return;
+      const stage = store.run?.stages.find((s) => s.kind === "generation" && s.status === "running");
+      if (!stage) return;
+      if (p.channel === "text") stage.live += p.text;
+      else if (stage.reasoning) return; // already said: nothing to draw again
+      else stage.reasoning = true;
       break;
     }
     case "rag_lab_run_ended":
@@ -1067,10 +1289,8 @@ function applyEnvelope(envelope) {
 function closeStaleRun() {
   const run = store.run;
   if (!run || run.ended) return false;
-  run.ended = { status: "error", duration_ms: null, comparison: null };
-  for (const lane of run.lanes) {
-    for (const stage of lane.stages) if (!stage.ended) stage.status = "skipped";
-  }
+  run.ended = { status: "error", duration_ms: null };
+  for (const stage of run.stages) if (!stage.ended) stage.status = "skipped";
   return true;
 }
 
@@ -1087,7 +1307,10 @@ const STATUS_KEYS = {
 function statusLine(stage) {
   const label = text(STATUS_KEYS[stage.status] ?? "") || stage.status;
   if (stage.status === "running" && stage.progress) {
-    return `${label} · ${fmtInt(stage.progress.done)} / ${fmtInt(stage.progress.total)}`;
+    const { done, total } = stage.progress;
+    // Lot 5c-3: the generation counts tokens produced against the reserve.
+    const said = stage.kind === "generation" ? text("progress_tokens_text", { done: fmtInt(done), total: fmtInt(total) }) : `${fmtInt(done)} / ${fmtInt(total)}`;
+    return `${label} · ${said}`;
   }
   if (stage.ended && ["ok", "error", "cancelled"].includes(stage.status)) {
     return `${label} · ${fmtInt(stage.ended.duration_ms)} ms`;
@@ -1147,11 +1370,17 @@ function stageCard(stage, index) {
   const ended = stage.ended;
   if (!ended) return card;
   if (ended.error_text) card.append(el("p", "rag-stage-error", ended.error_text));
+  if (ended.warning_text) card.append(el("p", "rag-stage-warning", ended.warning_text));
   if (ended.borrowed) card.append(el("p", "rag-stage-borrowed", text("borrowed_text")));
   const dl = el("dl", "rag-stage-io");
   if (ended.input_text) dl.append(el("dt", null, text("input_text")), el("dd", "rag-stage-input", ended.input_text));
   if (ended.output_text) dl.append(el("dt", null, text("output_text")), el("dd", "rag-stage-output", ended.output_text));
   if (dl.childElementCount) card.append(dl);
+  if (typeof ended.prompt_text === "string") {
+    const prompt = el("details", "rag-prompt");
+    prompt.append(el("summary", null, text("prompt_sent_text")), el("pre", "rag-focus-pre", ended.prompt_text));
+    card.append(prompt);
+  }
   if (ended.facts.length) {
     const facts = el("dl", "rag-stage-facts");
     for (const fact of ended.facts) facts.append(el("dt", null, fact.label_text), el("dd", null, fact.value_text));
@@ -1167,8 +1396,8 @@ function stageCard(stage, index) {
   return card;
 }
 
-// Every step's detail (the former section 3), folded under the views: the chain's lane only
-// (a run of two lanes, from a page of before lot 5a, shows its A).
+// Every step's detail (the former section 3), folded under the views: one card per stage of
+// the run's chain.
 function renderResults() {
   const box = $("rag-results");
   box.replaceChildren();
@@ -1179,11 +1408,8 @@ function renderResults() {
   if (!run) return;
   const status = run.ended ? text(STATUS_KEYS[run.ended.status === "ok" ? "ok" : run.ended.status]) : text("status.running_text");
   summary.textContent = `${quote(run.question)} · ${status}${typeof run.ended?.duration_ms === "number" ? ` · ${fmtInt(run.ended.duration_ms)} ms` : ""}`;
-  const lane = runLane();
-  if (!lane) return;
   const column = el("section", "rag-lane");
-  column.dataset.lane = lane.lane;
-  lane.stages.forEach((stage, index) => column.append(stageCard(stage, index)));
+  run.stages.forEach((stage, index) => column.append(stageCard(stage, index)));
   box.append(column);
 }
 
@@ -1198,6 +1424,7 @@ function renderRun() {
   }
   store.land = false;
   renderPills();
+  renderAnswerTile();
   renderCurrent();
   renderLegend();
 }
@@ -1226,7 +1453,8 @@ function renderBusy() {
   const blocked = runBlocked();
   run.disabled = Boolean(blocked) || store.pending || !store.content;
   run.title = blocked || "";
-  $("rag-stop").disabled = store.session.state !== "rag_lab";
+  // Lot 5c-4: « Arrêter » stops a download too (even one launched before a reload).
+  $("rag-stop").disabled = !["rag_lab", "download"].includes(store.session.state);
 }
 
 function renderContent() {

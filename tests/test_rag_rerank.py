@@ -33,7 +33,7 @@ from wavestack import config
 from wavestack.config import RerankerModel
 from wavestack.models import discovery
 from wavestack.models.load_registry import RERANKER, ModelChoice
-from wavestack.models.reranker import LlamaCppReranker, pair_tokens, sigmoid
+from wavestack.models.reranker import LlamaCppReranker, fit, pair_tokens, sigmoid
 from wavestack.session.app_session import AppSession, SendRefused
 from wavestack.session.diagnostic import DiagnosticSession
 from wavestack.trace.journal import get_journal
@@ -172,6 +172,14 @@ def test_the_query_keeps_at_least_half_and_takes_the_room_the_passage_leaves():
     # A short query leaves its room to the passage.
     tokens, cut = pair_tokens([1], [7] * 50, bos=0, eos=9, sep=8, max_tokens=20)
     assert cut and len(tokens) == 20 and tokens.count(7) == 15
+
+
+def test_fit_cuts_a_long_query_to_half_of_the_room_and_the_passage_to_the_rest():
+    """Lot 5c-2: the rule shared by the pair and a rerank template's pair."""
+    query, passage, cut = fit(list(range(100, 130)), [7] * 30, 20)
+    assert cut and query == list(range(100, 110)) and passage == [7] * 10
+    assert len(query) + len(passage) == 20
+    assert fit([1, 2], [3], 20) == ([1, 2], [3], False)
 
 
 def test_sigmoid_bounds_the_logit():

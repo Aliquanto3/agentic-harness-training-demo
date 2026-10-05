@@ -44,10 +44,10 @@ from wavestack.config import mo_fr as _mo
 from wavestack.context.render import render_chat_body
 from wavestack.context.segments import Part, SegmentKind
 from wavestack.messages import KeyedError, Lazy, Message, Said, msg, render
-from wavestack.models import catalog, discovery, probe
+from wavestack.models import catalog, discovery, gguf_meta, probe
 from wavestack.models.cloud_api import create_cloud_engine
 from wavestack.models.cloud_base import CloudEngine
-from wavestack.models.engine import CancelToken
+from wavestack.models.engine import CancelToken, is_pooled, pooling_of
 from wavestack.models.load_registry import ModelChoice
 from wavestack.models.openai_chat import ChatBody, ProviderError, run_call
 from wavestack.net.factory import create_client
@@ -446,6 +446,12 @@ class DiagnosticSession:
             if candidate.status != "found" or not candidate.path:
                 continue
             path = candidate.path
+            if _embedding_or_reranking(path):
+                # Lot 5c-1: `{arch}.pooling_type` in its header, wherever it lies (models
+                # folder, HF cache, LM Studio): never a chat model, never probed nor chosen.
+                candidate.status = "incompatible"
+                candidate.reason = Message("models.capabilities.pooling")
+                continue
             probing = probe_only is None or path in probe_only
             entry = probe.probed_entry(path)
             if entry is not None and probe.measured(path):
@@ -1223,6 +1229,17 @@ def _served(
 ) -> discovery.ModelCandidate | None:
     """The served model `ref`, if a server serves it now and WaveStack can use it."""
     return next((c for c in candidates if c.ref == ref and c.status == "server"), None)
+
+
+def _embedding_or_reranking(path: str) -> bool:
+    """Lot 5c-1: the GGUF's header carries `{arch}.pooling_type` above 0, the mark of an
+    embedding or reranking model. Only the header's head is read, up to the tokenizer's keys
+    (R1: the whole header, its vocabulary, is the model table's, read in the background)."""
+    head = gguf_meta.try_read_metadata(path, stop_at="tokenizer.")
+    arch = head.get("general.architecture") if head else None
+    if not isinstance(arch, str) or not arch:
+        return False
+    return is_pooled(pooling_of(head.get(f"{arch}.pooling_type")))
 
 
 def _usable(

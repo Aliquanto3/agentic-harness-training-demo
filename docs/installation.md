@@ -26,11 +26,14 @@ commandes près.
 - Windows 10 ou 11 **x64** (pas Windows sur ARM : le moteur `llama-cpp-python` n'y est pas
   publié), Linux ou macOS sur puce Apple (voir [macOS et Linux](#macos-et-linux)).
 - Environ 3 Go d'espace disque libre (Python, dépendances et modèle), 4,5 Go avec les modèles
-  du RAG et tous les extras.
+  du RAG et tous les extras, 5,9 Go avec en plus les modèles de l'Atelier RAG (deux d'embedding,
+  un de reranking).
 - Pas de carte graphique nécessaire. Le modèle recommandé occupe environ 2 Go de RAM (mesuré sur
   le PC cible) ; comme le [budget mémoire](modeles.md#budget-mémoire) en retient 60 % de la RAM
   disponible au lancement, comptez environ 4 Go de RAM libre (fermez Teams ou le navigateur au
-  besoin).
+  besoin). Les modèles de l'Atelier RAG se chargent le temps d'une exécution, en plus : environ
+  1 Go chacun pour Qwen3-Reranker 0.6B (937 Mo) et Qwen3-Embedding 0.6B (1 055 Mo), mesurés sur
+  le PC de développement ; le budget refuse, chiffres à l'appui, ce qui ne tient pas.
 - Sur un réseau d'entreprise, les réglages de
   [Derrière un proxy d'entreprise](#derrière-un-proxy-dentreprise), avant toute commande.
 
@@ -157,13 +160,17 @@ diagnostic (voir [Modèles cloud](modeles.md#modèles-cloud)).
 ## Modèles du RAG
 
 La brique RAG (et l'Atelier RAG) utilise deux petits modèles GGUF, distincts du modèle de
-conversation et jamais proposés comme tel. Chacun est nommé dans une seule section de
+conversation et jamais proposés comme tel ; l'Atelier RAG en propose deux de plus pour son
+étape Embedding et un pour son étape Reranking. Chacun est nommé dans une seule section de
 `wavestack.toml`, qui donne aussi son adresse de téléchargement et son sha256 :
 
 | Rôle | Fichier | Taille | Section | Dossier |
 |---|---|---|---|---|
 | Embedding (obligatoire pour le RAG) | `granite-embedding-107m-multilingual-Q8_0.gguf` (IBM, Apache-2.0) | 121 Mo | `[rag.embedding]` | `models/embedding/` |
 | Reranking (facultatif, case « Reranking ») | `bge-reranker-v2-m3-Q4_K_M.gguf` (BAAI, Apache-2.0) | 438 Mo | `[rag.reranker]` | `models/reranker/` |
+| Embedding de l'Atelier RAG (facultatif) | `multilingual-e5-small-q8_0.gguf` (intfloat, MIT) | 132 Mo | `[[rag_lab.embeddings]]` | `models/embedding/` |
+| Embedding de l'Atelier RAG (facultatif) | `Qwen3-Embedding-0.6B-Q8_0.gguf` (Qwen, Apache-2.0) | 639 Mo | `[[rag_lab.embeddings]]` | `models/embedding/` |
+| Reranking de l'Atelier RAG (facultatif) | `qwen3-reranker-0.6b-q8_0.gguf` (Qwen, Apache-2.0) | 639 Mo | `[[rag_lab.rerankers]]` | `models/reranker/` |
 
 Les dossiers sont relatifs au dossier `models/` du dossier de données
 (`%LOCALAPPDATA%\WaveStack\models\embedding\` sous Windows,
@@ -173,10 +180,22 @@ Les dossiers sont relatifs au dossier `models/` du dossier de données
 « Télécharger le modèle d'embedding », puis, dans la sous-option « Reranking », « Télécharger
 le modèle de reranking ». WaveStack vérifie la taille et le sha256 de chaque fichier.
 
-**Hors ligne, ou derrière un proxy qui bloque Hugging Face.** Téléchargez les deux fichiers sur
-un autre poste (adresses `url` des sections `[rag.embedding]` et `[rag.reranker]` de
-`wavestack.toml`), copiez-les sous ces noms exacts dans `models/embedding/` et
-`models/reranker/`, puis cliquez de nouveau sur la carte RAG (ou relancez WaveStack).
+**Les modèles d'embedding de l'Atelier RAG** (multilingual-e5-small, Qwen3-Embedding 0.6B) sont
+des options de son étape Embedding, à côté de celui de la brique. En mode Composer, l'étape les
+télécharge par son bouton « Télécharger (≈ N Mo) », taille et sha256 vérifiés ; sinon,
+téléchargez-les à la main (adresses `url` des entrées `[[rag_lab.embeddings]]` de
+`wavestack.toml`) et copiez-les sous ces noms exacts dans `models/embedding/`. Sans son
+fichier, l'option est grisée, la raison nomme le fichier attendu ; WaveStack vérifie son sha256
+au chargement. **Le modèle de reranking de l'Atelier RAG** (Qwen3-Reranker 0.6B) se télécharge
+de même depuis l'étape Reranking, ou se place à la main, sous son nom exact, dans
+`models/reranker/` (adresse `url` de l'entrée `[[rag_lab.rerankers]]`).
+
+**Hors ligne, ou derrière un proxy qui bloque Hugging Face.** Téléchargez les fichiers sur un
+autre poste (adresses `url` des sections `[rag.embedding]` et `[rag.reranker]` de
+`wavestack.toml`, et, pour l'Atelier RAG, des entrées `[[rag_lab.embeddings]]` et
+`[[rag_lab.rerankers]]`), copiez-les sous ces noms exacts dans `models/embedding/` et
+`models/reranker/`, puis cliquez de nouveau sur la carte RAG ou rechargez l'Atelier RAG (ou
+relancez WaveStack).
 
 **Les index.** Les index du corpus sont livrés avec le dépôt, un par langue :
 `data/rag_index.sqlite` (français), `data/rag_index.en.sqlite` et `data/rag_index.de.sqlite`.

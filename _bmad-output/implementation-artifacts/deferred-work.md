@@ -979,9 +979,6 @@
   summary: Passer au vocabulaire « chunk » / « prompt » les refus de l'Atelier RAG et les comptes `rag_lab.noun` de `content/messages.yaml` (fr, en, de), qui disent encore « extrait » et « contexte ».
   evidence: `messages.yaml` est un fichier carrefour des lots 3 à 6 (ajouts seulement pendant le parallélisme) ; à faire après la fusion du lot 6.
 - source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
-  summary: Retirer les clés orphelines de la comparaison A/B (`rag.chain_a`, `rag.chain_b`, `rag.chain_b_steps`, `rag.comparison.*`) de `content/ui.yaml` et de ses copies en/de, avec la voie B du backend (5c-1).
-  evidence: Plus aucun appel depuis rag.js ; `rag.chain` reste utilisé par app.js. Gardées pendant le parallélisme (fichier carrefour).
-- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
   summary: Vérifier en E2E que la raison d'indisponibilité de FAISS ou LanceDB devient visible une fois la ligne Vector store choisie (branche sans l'extra rag-alt).
   evidence: low ; `_rag_lab_alt` lit `all_inner_texts()`, qui renvoie le texte même masqué. Pour trancher : `is_visible()` après `_focus_of(r, "vector_store")`.
 - source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5b-1-architectures-toutes-faites.md`
@@ -1002,3 +999,19 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-lot-6-atelier-llm-boucle-du-modele.md`
   summary: Reverser les sections UX du lot 6 (composants `llm-*`, règle 1366 × 768, arborescence de `/llm`, INPUT / TRANSFORMATION / OUTPUT, intention `llm_step`, bandeau D4) de `ux-lot-6-atelier-llm-2026-10-04/` dans le DESIGN.md et l'EXPERIENCE.md principaux.
   evidence: Notes de fusion du lot 6, « Sections UX à reverser après la fusion du lot 3 » ; les documents UX partagés étaient interdits pendant le parallélisme des lots 3 à 6.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-1-embedding-au-choix.md`
+  summary: Vérifier en E2E que l'avertissement de troncature (`.rag-stage-warning`) s'affiche dans le focus de la ligne Embedding et sa carte de `#rag-details`, et pas sur Embedding de la question.
+  evidence: medium, non vérifié dans la page ; la pile E2E branche `tests/fake_embedder.FakeEmbedder`, sans `max_tokens` ni `last_truncated` : aucun run ne tronque. Il faut un faux qui compte la troncature (ou un vrai modèle) pour que le contrôle ne passe pas à vide ; l'événement est couvert en pytest.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-2-rerankers-declares.md`
+  summary: Rendre dans la langue de la session la cause d'un échec de chargement d'un modèle de l'Atelier RAG (`Loans.lend`, `cause=str(exc)` donne le français en en/de).
+  evidence: antérieur à 5c (`rag/lab.py`, `Loans.lend`) ; les refus d'en-tête des rerankers déclarés sont déjà traduits au catalogue, seul un refus au chargement (en-tête illisible en Python, `no_score`, `not_finite`) reste en français.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-3-generation-executee-par-le-modele-actif.md`
+  summary: Mettre à jour `SPEC.md` du lot 5 en fin de lot 5c (CAP-5 dit encore « non implémentées dans ce lot », Notes de fusion de 5c à compléter).
+  evidence: Revue 5c-3, constat 5 ; ligne 35 de `SPEC.md` périmée depuis 5c-1.
+  closed: 2026-10-05 (5c-4, fin de lot 5c) — `SPEC.md` : CAP-5 dit les stories livrées en lot 5c, Non-goals précisés, section « Notes de fusion de 5c » ajoutée.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-4-telechargement-modele-absent.md`
+  summary: Vérifier sur le PC cible un vrai téléchargement complet depuis l'étape Embedding ou Reranking de l'Atelier RAG (multilingual-e5-small, 132 Mo), jusqu'à l'option devenue disponible sans recharger la page, et le refus « Place insuffisante » sur un disque presque plein.
+  evidence: medium ; la pile E2E coupe le réseau sortant : le parcours clique, voit l'état `download`, arrête (ou constate l'échec hors ligne) et lit l'issue dans l'étape, sans jamais finir un téléchargement. Pendant ce téléchargement, la carte RAG de l'atelier principal montre aussi la progression et « Arrêter » (état `download` partagé, `app.js` non modifié), sans l'issue.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-4-telechargement-modele-absent.md`
+  summary: E2E de l'Atelier RAG — couvrir le refus d'un téléchargement dit dans l'étape (409 « Rien à télécharger » ou « Place insuffisante », classe `is-error`, catalogue relu), la réussite (« Modèle téléchargé », option disponible sans recharger), l'étape Reranking et l'option `declared` de la brique.
+  evidence: medium ; revue 5c-4, constat 4 : la pile E2E est hors ligne et ne joue que le chemin accepté puis arrêté. Piste : un fichier de la taille déclarée (fichier creux) posé sous `models/embedding/` avant le clic pour le 409, ou un petit modèle servi en local pour la réussite.

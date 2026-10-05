@@ -13399,11 +13399,9 @@ def _rag_lab_run(
     return ended, seq
 
 
-def _stage_ended(r: Run, seq: int, kind: str, lane: str = "a") -> dict[str, Any]:
+def _stage_ended(r: Run, seq: int, kind: str) -> dict[str, Any]:
     found = [
-        e["payload"]
-        for e in r.ev.since(seq, "rag_lab_stage_ended")
-        if e["payload"]["kind"] == kind and e["payload"]["lane"] == lane
+        e["payload"] for e in r.ev.since(seq, "rag_lab_stage_ended") if e["payload"]["kind"] == kind
     ]
     return found[-1] if found else {}
 
@@ -13463,6 +13461,88 @@ def s_rag_lab(r: Run) -> None:
         if page.locator("#theme-picker").count():
             _pick_theme(page, "system")
         r.goto_app()
+
+
+def _rag_lab_download(r: Run) -> None:
+    """Lot 5c-4: « Télécharger » in the Embedding's line (selected) for a workshop's model
+    missing; its click enters `download`, the stage's « Arrêter » stops it, or (the e2e stack
+    being offline) it fails at once: the outcome, traced outside the brick, said in the stage,
+    the button active again. No real download is completed."""
+    page = r.page
+    target = "rag_lab_embedding:qwen3-embedding-0.6b"
+    row = _seq_row(r, "embedding")
+    row.locator(".rag-seq-head").click()
+    button = row.locator(f'button.rag-download[data-target="{target}"]')
+    expect(button).to_be_visible(timeout=5000)
+    catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
+    stage = next(s for s in catalog["stages"] if s["kind"] == "embedding")
+    option = next(o for o in stage["options"] if o["id"] == "qwen3-embedding-0.6b")
+    label = button.inner_text()
+    r.check(
+        option["download"] == {"target": target, "label_text": label}
+        and re.fullmatch(r"Télécharger \(≈ \d+ Mo\)", label) is not None
+        and option["label_text"] in (button.get_attribute("aria-label") or "")
+        and button.is_enabled()
+        and "dans cette étape en mode Composer" in option["reason_text"],
+        "lot 5c-4 : « Télécharger (≈ N Mo) » dans la ligne Embedding pour Qwen3-Embedding absent, "
+        "nommé d'après l'option, la raison invitant à cliquer",
+        f"{label} · {button.get_attribute('aria-label')} · {option.get('download')}",
+    )
+    seq = r.ev.mark()
+    button.click()
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
+    stop = row.locator(f'button.rag-download-stop[data-target="{target}"]')
+    line = row.locator(f'.rag-chain-download[data-target="{target}"]')
+    progress = line.locator(".rag-chain-download-progress")
+
+    def outcome() -> dict[str, Any] | None:
+        stopped = [
+            e
+            for e in r.ev.since(seq, "effect_applied")
+            if e["payload"].get("effect") == "model_download_stopped"
+        ]
+        return (stopped or r.ev.since(seq, "harness_error") or [None])[0]
+
+    # While it downloads (unless, offline, it already failed): the progress and the stage's
+    # « Arrêter » in place of the button, the page's « Arrêter » active too.
+    shown, _ = r.poll(lambda: outcome() is not None or stop.is_visible(), 5)
+    clicked = False
+    if outcome() is None:
+        during = {
+            "progress": progress.is_visible() and bool(progress.inner_text().strip()),
+            "stop": stop.is_visible(),
+            "page_stop": page.locator("#rag-stop").is_enabled(),
+        }
+        r.check(
+            shown and all(during.values()),
+            "lot 5c-4 : pendant le téléchargement, progression et « Arrêter » dans l'étape, "
+            "« Arrêter » de la page actif",
+            str(during),
+        )
+        with contextlib.suppress(PlaywrightTimeout):
+            stop.click(timeout=2000)
+            clicked = True
+
+    ended, _ = r.poll(lambda: outcome() is not None, 30)
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "idle", 30)
+    event = outcome() or {}
+    notice = row.locator(".rag-chain-download-notice")
+    expect(notice).to_contain_text("modèle d'embedding", timeout=5000)
+    expect(button).to_be_enabled(timeout=5000)
+    part = list((r.stack.data_dir / "models").rglob("*.part"))
+    r.check(
+        ended
+        and (not clicked or event.get("payload", {}).get("effect") == "model_download_stopped")
+        and event.get("component") == "rag_lab.embedding"
+        and event.get("brick") is None
+        and event.get("context_id") == "rag_lab"
+        and not [e for e in r.ev.since(seq) if e.get("brick") == "rag"]
+        and not part,
+        "lot 5c-4 : clic, état download, « Arrêter » de l'étape ; issue (arrêt ou échec hors "
+        "ligne) tracée hors de la brique, dite dans l'étape, bouton de nouveau actif, aucun .part",
+        f"{event.get('kind')} · {event.get('component')} · arrêt cliqué : {clicked} · "
+        f"{notice.inner_text()[:160]} · {part}",
+    )
 
 
 def _rag_lab(r: Run, errors: list[str]) -> None:
@@ -13552,6 +13632,44 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "chaque ligne nomme son option livrée ; les tuiles Embedding model et Reranker aussi",
         f"{options} · {subs}",
     )
+    # Lot 5c-1: the models of [[rag_lab.embeddings]] in the Embedding's select, after the
+    # brick's model and fastembed; their files are not on the e2e workstation: unavailable,
+    # the reason naming the file under the models folder.
+    choices = _seq_row(r, "embedding").evaluate(
+        "row => [...row.querySelectorAll('select.rag-option option')].map(o =>"
+        " ({ value: o.value, disabled: o.disabled, title: o.title }))"
+    )
+    e5 = next((c for c in choices if c["value"] == "multilingual-e5-small"), {})
+    notes = _seq_row(r, "embedding").locator(".rag-chain-unavailable").all_inner_texts()
+    r.check(
+        [c["value"] for c in choices][:2] == ["declared", "fastembed"]
+        and "qwen3-embedding-0.6b" in [c["value"] for c in choices]
+        and e5.get("disabled") is True
+        and "embedding/multilingual-e5-small-q8_0.gguf" in e5.get("title", "")
+        and any("embedding/multilingual-e5-small-q8_0.gguf" in n for n in notes),
+        "Embedding : multilingual-e5-small et Qwen3-Embedding dans le choix, indisponibles "
+        "sans leur fichier, la raison nommant embedding/…",
+        f"{choices} · {notes}",
+    )
+    # Lot 5c-2: the models of [[rag_lab.rerankers]] in the Reranking's select, after the
+    # brick's model; Qwen3-Reranker's file is not on the e2e workstation: unavailable, the
+    # reason naming the file under the models folder.
+    choices = _seq_row(r, "rerank").evaluate(
+        "row => [...row.querySelectorAll('select.rag-option option')].map(o =>"
+        " ({ value: o.value, disabled: o.disabled, title: o.title }))"
+    )
+    qwen = next((c for c in choices if c["value"] == "qwen3-reranker-0.6b"), {})
+    notes = _seq_row(r, "rerank").locator(".rag-chain-unavailable").all_inner_texts()
+    r.check(
+        [c["value"] for c in choices] == ["declared", "qwen3-reranker-0.6b"]
+        and qwen.get("disabled") is True
+        and "reranker/qwen3-reranker-0.6b-q8_0.gguf" in qwen.get("title", "")
+        and any("reranker/qwen3-reranker-0.6b-q8_0.gguf" in n for n in notes),
+        "Reranking : Qwen3-Reranker dans le choix après le reranker de la brique, indisponible "
+        "sans son fichier, la raison nommant reranker/…",
+        f"{choices} · {notes}",
+    )
+    _rag_lab_download(r)
     r.check(
         "Même modèle" in page.inner_text('#rag-seq [data-step="embed_query"]'),
         "Embedding de la question : « même modèle que l'Embedding des chunks »",
@@ -13599,8 +13717,11 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     r.check(
         "is-selected" in (selected.get_attribute("class") or "")
         and shown["uses"] == ["question", "reranker"]
-        and shown["wires"] == ["question", "reranker"],
-        "Reranking sélectionné : flèches vers Question (lu) et Reranker (appelé)",
+        and shown["wires"] == ["question", "reranker"]
+        and "calibré à sa façon" in shown["explain"]
+        and "seul l'ordre que chacun donne compte" in shown["explain"],
+        "Reranking sélectionné : flèches vers Question (lu) et Reranker (appelé) ; "
+        "l'explication dit que les scores de rerankers différents ne se comparent pas (lot 5c-2)",
         str(shown)[:300],
     )
     page.locator('#rag-seq [data-step="chunking"] .rag-seq-head').focus()
@@ -13629,8 +13750,8 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     )
     started = {e["payload"]["kind"] for e in r.ev.since(seq, "rag_lab_stage_started")}
     r.check(
-        started == set(RAG_LAB_STAGES_KINDS[:-1]),
-        "une paire started/ended par étape exécutée, la génération non exécutée",
+        started == set(RAG_LAB_STAGES_KINDS),
+        "une paire started/ended par étape, la génération comprise (lot 5c-3)",
         str(sorted(started)),
     )
     _open_details(r)
@@ -13670,6 +13791,12 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "Reranking : pour chaque extrait, le rang avant et le rang après",
         str([(i["rank"], i["before"], i["doc_id"]) for i in rerank.get("items", [])]),
     )
+    facts = _result_card(r, "rerank").locator(".rag-stage-facts").inner_text()
+    r.check(
+        "lecture du score" in facts.casefold() and "sigmoïde du logit" in facts,  # dt uppercased
+        "Reranking : le détail dit comment le score est lu (sigmoïde du logit, lot 5c-2)",
+        facts[:300],
+    )
     context = _stage_ended(r, seq, "context")
     output = _result_card(r, "context").locator(".rag-stage-output").inner_text()
     r.check(
@@ -13680,11 +13807,23 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "Prompt augmentation : les 3 extraits (top_k) au format de la brique",
         output[:200],
     )
-    gen = _result_card(r, "generation").inner_text()
+    # Lot 5c-3: the workshop's active model answers; the card folds the prompt sent.
+    generation = _stage_ended(r, seq, "generation")
+    gen = _result_card(r, "generation")
+    answer = generation.get("output_text") or ""
+    deltas = [e for e in r.ev.since(seq, "model_delta") if e.get("context_id") == "rag_lab"]
     r.check(
-        "non exécutée dans l'atelier rag" in gen.lower(),
-        "Generation : « non exécutée dans l'atelier RAG »",
-        gen[:200],
+        generation.get("status") == "ok"
+        and answer.strip()
+        and RAG_LAB_QUESTION in (generation.get("prompt_text") or "")
+        and " ".join(answer.split())[:40]
+        in " ".join(gen.locator(".rag-stage-output").inner_text().split())
+        and gen.locator("details.rag-prompt").count() == 1
+        and deltas
+        and all(e.get("turn_id") is None for e in deltas),
+        "Generation : le modèle actif répond (model_delta du contexte rag_lab, sans tour), "
+        "le prompt envoyé replié dans la carte",
+        f"{generation.get('status')} {answer[:120]!r} {generation.get('error_text')}",
     )
     # In « Dérouler », the focus shows what the step received and produced.
     _rag_mode(r, "play")
@@ -13740,6 +13879,26 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     _rag_lab_alt(r)
     _rag_lab_hybrid(r)
     _rag_lab_presets(r)
+
+    # (6) Lot 5c-1: the main page's journal reads the workshop's events (one chain per run,
+    # no lane): a summary per stage ended, its name read in `rag_lab_run_started`'s stages.
+    r.goto_app()
+    r.wait_idle()
+    page.click("#event-log-head")
+    try:
+        expect(page.locator("#event-log-list")).to_be_visible(timeout=5000)
+        rows = [x for x in page.evaluate(_LOG_ROWS_JS) if x["kind"] == "rag_lab_stage_ended"]
+        r.check(
+            bool(rows)
+            and all(x["summary"].strip() for x in rows)
+            and any(x["summary"].startswith("Dense retrieval · ") for x in rows)
+            and not errors,
+            "page principale : le journal résume chaque rag_lab_stage_ended (« Dense retrieval "
+            "· … »), sans pageerror",
+            f"{rows[:3]} · {errors[:3]}",
+        )
+    finally:
+        page.click("#event-log-head")
 
 
 # Lot 5a-2: what « Dérouler » shows now: the steps, tiles and band visible, the tiles just
@@ -13797,6 +13956,9 @@ _WATCH_PLAY_JS = """() => {
       wires: [...document.querySelectorAll('#rag-views .diagram-path-core')]
         .map(p => p.dataset.component).sort(),
       flowing: document.querySelectorAll('#rag-views .diagram-path-core.is-flow').length,
+      // Lot 5c-3: the generation's answer in the focus, live (or its waiting text).
+      answer: document.querySelector('#rag-focus .rag-answer-text')?.textContent ?? null,
+      waiting: Boolean(document.querySelector('#rag-focus .rag-answer-text.is-waiting')),
     });
   };
   window.__ragPlayObserver?.disconnect();
@@ -13817,9 +13979,9 @@ def _rag_lab_views(r: Run) -> None:
     alone; each ▶ the next step and the tiles it calls on first, arriving, none moving with
     reduced motion; the steps after it keep their place); a run, from « Composer »: « Lancer »
     passes into « Dérouler », the steps arrive one by one, the step running lit with its
-    components, its wires flowing; at the end, Generation « non exécutée » and « rejouez avec
-    ◀ ▶ »; ◀ ▶ replay; the same state after a reload; a step in error: its ✖ and its error in
-    the focus."""
+    components, its wires flowing; at the end, Generation « terminée » with the model's answer
+    (lot 5c-3) and « rejouez avec ◀ ▶ »; ◀ ▶ replay; the same state after a reload; a step in
+    error: its ✖ and its error in the focus."""
     page = r.page
     state = r.api("GET", "/api/rag_lab").json()
     uses = {s["key"]: [u["component"] for u in s["uses"]] for s in state["catalog"]["steps"]}
@@ -13930,19 +14092,58 @@ def _rag_lab_views(r: Run) -> None:
         f"flèches vues en cours : {len(drawn)} · {unlit[:2]} · "
         f"{[s for s in drawn if s['flowing'] != len(s['wires'])][:2]}",
     )
+    # Lot 5c-3: while the generation runs, its pill counts tokens (« n / N tokens ») and the
+    # focus shows the answer as it comes (or that the model reasons).
+    tokens_form = texts["progress_tokens_text"].replace("{done}", "").replace("{total}", "")
+    unit = tokens_form.split("/")[-1].strip()
+    live = [
+        s
+        for s in states
+        if s["step"] == "generation"
+        and s["pill"].startswith("en cours")
+        and re.search(rf"\d+ / [\d\u202f\u00a0 ]+ {re.escape(unit)}$", s["pill"])
+        and (
+            (s["answer"] and s["answer"].strip() and not s["waiting"])
+            or s["answer"] == texts["answer_reasoning_text"]
+        )
+    ]
+    r.check(
+        bool(live),
+        "Generation en cours : pastille « n / N tokens » et réponse en direct dans le focus "
+        "(lot 5c-3)",
+        str(
+            [
+                (s["pill"], (s["answer"] or "")[:40], s["waiting"])
+                for s in states
+                if s["step"] == "generation"
+            ][:6]
+        ),
+    )
     end = _rag_play(r)
     r.check(
         end["rows"] == keys
         and end["focus"] == "generation"
-        and end["pill"] == texts["status"]["not_run_text"]
+        and end["pill"].startswith(texts["status"]["ok_text"])
         and end["legend"] == texts["legend_done_text"]
         and "◀ ▶" in end["legend"]
         and end["position"] == "Étape 10 / 10"
         and end["next"]
         and end["live_button"]
         and not end["flowing"],
-        "fin de run : dernière image Generation « non exécutée », légende « rejouez avec ◀ ▶ »",
+        "fin de run : dernière image Generation « terminée », légende « rejouez avec ◀ ▶ »",
         str({k: end[k] for k in ("focus", "pill", "legend", "position")}),
+    )
+    # Lot 5c-3: the focus shows the prompt sent (folded) and the answer; the Réponse tile, the
+    # answer's first lines (the whole in its tooltip).
+    focus_answer = page.locator("#rag-focus .rag-answer-text").inner_text()
+    tile = page.locator('#rag-arch .rag-arch-tile[data-component="answer"] .rag-arch-sub')
+    r.check(
+        focus_answer.strip()
+        and page.locator("#rag-focus details.rag-prompt").count() == 1
+        and (tile.get_attribute("title") or "").strip() == focus_answer.strip(),
+        "fin de run : le focus montre le prompt envoyé (replié) et la réponse ; la tuile Réponse "
+        "porte la réponse",
+        f"{focus_answer[:80]!r} · {(tile.get_attribute('title') or '')[:80]!r}",
     )
     prev.click()
     back = _rag_play(r)

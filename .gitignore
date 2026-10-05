@@ -29,6 +29,7 @@ data/indexes/
 !tests/fixtures/tiny-llama.gguf
 !tests/fixtures/tiny-bert-rank.gguf
 !tests/fixtures/tiny-bert-cls.gguf
+!tests/fixtures/tiny-bert-rank-segments.gguf
 *.safetensors
 
 # OS / IDE

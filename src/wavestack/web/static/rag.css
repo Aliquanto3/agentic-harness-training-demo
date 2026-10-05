@@ -321,6 +321,65 @@ body.rag-page {
   display: none;
 }
 
+/* Lot 5c-4: « Télécharger » for a model missing, on the line selected only (like its reason),
+   unless it downloads (the progress and « Arrêter » stay said); the outcome likewise on the
+   line selected only. No opacity: a
+   disabled button keeps its contrast (AA sweep of the E2E). */
+.rag-chain-downloads {
+  flex: 1 1 100%;
+}
+
+.rag-chain-downloads[hidden] {
+  display: none;
+}
+
+.rag-chain-download {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1) var(--spacing-2);
+  margin: var(--spacing-1) 0;
+  color: var(--color-ink);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.rag-seq-step:not(.is-selected) .rag-chain-download:not(.is-active),
+.rag-seq-step:not(.is-selected) .rag-chain-download-notice {
+  display: none;
+}
+
+.rag-chain-download-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-download-progress {
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-download .rag-button-secondary {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+}
+
+.rag-chain-download-notice {
+  margin: var(--spacing-1) 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  border-left: 3px solid var(--color-line);
+  color: var(--color-ink);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-download-notice.is-error {
+  background: var(--color-danger-soft);
+  border-left-color: var(--color-danger);
+}
+
 .rag-chain-option {
   font-weight: 700;
   overflow-wrap: anywhere;
@@ -563,6 +622,48 @@ body.rag-page {
   border-radius: var(--rounded-sm);
   color: var(--color-ink);
   font: 400 var(--typography-body-sm-font-size) / 1.45 var(--typography-number-font-family);
+}
+
+/* Lot 5c-3: the generation's prompt as sent, folded, then the model's answer. */
+.rag-prompt {
+  margin: 0 0 var(--spacing-3);
+}
+
+.rag-prompt > summary {
+  min-height: var(--spacing-hit-target-min);
+  color: var(--color-primary);
+  font-weight: 700;
+  line-height: var(--spacing-hit-target-min);
+  cursor: pointer;
+}
+
+.rag-answer {
+  margin: 0 0 var(--spacing-3);
+  padding: var(--spacing-3);
+  background: var(--color-accent-soft);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--rounded-sm);
+}
+
+.rag-answer-text {
+  margin: 0;
+  color: var(--color-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rag-answer-text.is-waiting {
+  color: var(--color-ink-soft);
+  font-style: italic;
+}
+
+/* The answer tile: the first lines of the answer, the whole in its tooltip. */
+.rag-arch-tile[data-component="answer"] .rag-arch-sub {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
 }
 
 /* The head of a wire's arrow (diagram.js draws the wire). */
@@ -845,6 +946,7 @@ body.rag-page {
 }
 
 .rag-stage-error,
+.rag-stage-warning,
 .rag-stage-borrowed {
   margin: var(--spacing-2) 0;
   padding: var(--spacing-1) var(--spacing-2);
@@ -859,10 +961,12 @@ body.rag-page {
   border-left: 3px solid var(--color-danger);
 }
 
+/* Lot 5c-1: a warning (chunks truncated by the embedding model), never an error. */
+.rag-stage-warning,
 .rag-stage-card[data-status="skipped"] .rag-stage-error,
 .rag-stage-card[data-status="cancelled"] .rag-stage-error {
+  border-left: 3px solid var(--color-warning);
   background: var(--color-warning-soft);
-  border-left-color: var(--color-warning);
 }
 
 .rag-stage-borrowed {

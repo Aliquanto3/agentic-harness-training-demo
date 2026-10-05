@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Literal
 
 from wavestack.config import MAX_RESERVE
 from wavestack.messages import Lazy, Message, number
-from wavestack.models.engine import EngineMetadata, partial_suffix_len
+from wavestack.models.engine import EngineMetadata, is_pooled, partial_suffix_len
 
 if TYPE_CHECKING:
     from wavestack.config import CloudModel
@@ -24,6 +24,8 @@ CLOUD_FAMILY = "openai_chat"  # a cloud model: capabilities declared, no templat
 # Languages (5/5): the texts of this module are `Message`s, French as a text, rendered by
 # the session in its language.
 NO_TOOL_PARSER_FR = Message("models.capabilities.no_tool_parser")
+# Lot 5c-1: a GGUF with `{arch}.pooling_type` is an embedding or reranking model, no chat model.
+POOLING_FR = Message("models.capabilities.pooling")
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,19 @@ class Capabilities:
 def capabilities_for(meta: EngineMetadata) -> Capabilities:
     arch = meta.architecture or ""
     template = meta.chat_template
+    if is_pooled(meta.pooling_type):
+        # Lot 5c-1: an embedding or reranking model (Qwen3-Embedding, Qwen3-Reranker) has a
+        # chat template too; `{arch}.pooling_type` says what it is: never a chat model.
+        return Capabilities(
+            family=arch or "unknown",
+            chat_template=None,
+            tool_call_parser=None,
+            stop_sequences=(),
+            reasoning_variable=None,
+            native_context=meta.native_context,
+            reasoning_tags=None,
+            incompatible_reason=POOLING_FR,
+        )
     if not template:
         return Capabilities(
             family=arch or "unknown",

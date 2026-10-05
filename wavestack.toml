@@ -139,6 +139,71 @@ lancedb_cost_mb = 180
 # sur le PC cible) ; le modèle lui-même est compté à part, par la taille de ses fichiers.
 fastembed_cost_mb = 150
 
+# Lot 5c-1 : les modèles d'embedding que l'atelier propose en plus de celui de la brique
+# ([rag.embedding], option « Modèle d'embedding de la brique RAG ») et de fastembed. Même schéma
+# que [rag.embedding] ; fichiers sous embedding/ (jamais proposés comme modèles de conversation),
+# sha256 vérifié au chargement. `id` : unique, 32 caractères au plus, ni « declared » ni
+# « fastembed » ni l'id de la brique ; une entrée invalide est écartée, les autres restent.
+# Lus dans ce fichier seulement (jamais dans settings.json). Un fichier absent rend l'option
+# indisponible, avec son chemin sous models/ ; « Télécharger » dans l'étape (Composer) le
+# récupère à l'adresse déclarée, sha256 vérifié.
+# Valeurs de l'essai du 2026-10-05 (essai-modeles-5c.md) ; RSS mesuré sur le PC de
+# développement, à remesurer sur le PC cible.
+[[rag_lab.embeddings]]
+id = "multilingual-e5-small"
+backend = "llama_cpp"
+label_text = "multilingual-e5-small (intfloat, GGUF Q8_0)"
+license = "MIT"
+dims = 384        # pooling MEAN lu dans le GGUF
+max_tokens = 512
+query_prefix = "query: "      # convention d'e5 : un préfixe pour la question, un pour les passages
+passage_prefix = "passage: "
+load_path = "embedding/multilingual-e5-small-q8_0.gguf"
+measured_rss_mb = 440
+files = [
+    { url = "https://huggingface.co/TwinSunsLLC/multilingual-e5-small-gguf/resolve/b6cac9615d4ecce28d7f22539b7322d695fc2886/multilingual-e5-small-q8_0.gguf", path = "embedding/multilingual-e5-small-q8_0.gguf", size = 132439008, sha256 = "e011debc1208e31bf7b6aebee2d9fc8bd2ca11694a77ed66ac9d0c9d0a877c93" },
+]
+
+[[rag_lab.embeddings]]
+id = "qwen3-embedding-0.6b"
+backend = "llama_cpp"
+label_text = "Qwen3-Embedding 0.6B (Qwen, GGUF Q8_0)"
+license = "Apache-2.0"
+dims = 1024        # pooling LAST lu dans le GGUF
+max_tokens = 2048  # le RSS ci-dessous est mesuré à cette fenêtre
+query_prefix = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
+passage_prefix = ""
+load_path = "embedding/Qwen3-Embedding-0.6B-Q8_0.gguf"
+measured_rss_mb = 1055
+files = [
+    { url = "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/370f27d7550e0def9b39c1f16d3fbaa13aa67728/Qwen3-Embedding-0.6B-Q8_0.gguf", path = "embedding/Qwen3-Embedding-0.6B-Q8_0.gguf", size = 639150592, sha256 = "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439" },
+]
+
+# Lot 5c-2 : les modèles de reranking que l'atelier propose en plus de celui de la brique
+# ([rag.reranker], option « Modèle de reranking de la brique RAG »). Même schéma que
+# [rag.reranker] ; fichiers sous reranker/, sha256 vérifié au chargement ; mêmes règles d'id que
+# [[rag_lab.embeddings]] (unique, 32 caractères au plus, ni « declared » ni l'id de la brique).
+# Lus dans ce fichier seulement. Le format de la paire se lit dans l'en-tête du GGUF : un
+# reranker d'architecture LLM (Qwen3-Reranker) passe par son gabarit
+# tokenizer.chat_template.rerank et rend déjà une probabilité (pas de sigmoïde) ; un
+# cross-encoder BERT à identifiants de segment (token_type_count ≥ 2, ms-marco MiniLM) est
+# refusé : llama.cpp ne les transmet pas. Un fichier absent rend l'option indisponible, avec
+# son chemin sous models/ ; « Télécharger » dans l'étape (Composer) le récupère à l'adresse
+# déclarée, sha256 vérifié.
+# Valeurs de l'essai du 2026-10-05 (essai-modeles-5c.md) ; RSS mesuré sur le PC de
+# développement, à remesurer sur le PC cible.
+[[rag_lab.rerankers]]
+id = "qwen3-reranker-0.6b"
+backend = "llama_cpp"
+label_text = "Qwen3-Reranker 0.6B (Qwen, GGUF Q8_0)"
+license = "Apache-2.0"
+max_tokens = 1024  # une paire passée par le gabarit, en tokens (l'extrait est coupé au-delà)
+load_path = "reranker/qwen3-reranker-0.6b-q8_0.gguf"
+measured_rss_mb = 937
+files = [
+    { url = "https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/resolve/a02f48bb4f057028298c21fa033da2b30d7742d5/qwen3-reranker-0.6b-q8_0.gguf", path = "reranker/qwen3-reranker-0.6b-q8_0.gguf", size = 639153184, sha256 = "22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48" },
+]
+
 [tools]
 # Bornes de la boucle de tour (AD-10), affichées sur la carte de la brique outils.
 # Appels au modèle par tour, dont les nouveaux essais après un appel mal formé.

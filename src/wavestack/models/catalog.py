@@ -57,7 +57,7 @@ from wavestack.models.capabilities import (
     tools_summary,
 )
 from wavestack.models.discovery import ModelCandidate, reason_message
-from wavestack.models.engine import EngineMetadata
+from wavestack.models.engine import EngineMetadata, pooling_of
 
 log = logging.getLogger(__name__)
 
@@ -378,6 +378,7 @@ def _engine_metadata(raw: dict[str, Any]) -> EngineMetadata:
         bos_token="",
         eos_token="",
         special_tokens=(),
+        pooling_type=pooling_of(raw.get(f"{arch}.pooling_type")) if arch else None,
     )
 
 

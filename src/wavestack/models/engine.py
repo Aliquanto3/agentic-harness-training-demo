@@ -92,6 +92,9 @@ class EngineMetadata:
     special_tokens: tuple[str, ...]
     # A local server's own context (llama-server `n_ctx`), a bound of the window (AD-9).
     server_context: int | None = None
+    # Lot 5c-1: `{arch}.pooling_type` of the GGUF, the mark of an embedding or reranking
+    # model (absent from chat models): never a chat model (`capabilities_for`).
+    pooling_type: int | None = None
 
 
 @dataclass(frozen=True)
@@ -180,6 +183,23 @@ def _int(value: object) -> int:
         return 0
 
 
+def pooling_of(value: object) -> int | None:
+    """Lot 5c-1: `{arch}.pooling_type` as a GGUF header (an int) or llama.cpp's metadata (a
+    text) gives it, or `None`. Only a value above 0 marks an embedding or reranking model
+    (`is_pooled`): 0 is llama.cpp's « none », a generative model's."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return None
+
+
+def is_pooled(pooling_type: int | None) -> bool:
+    """Lot 5c-1: an embedding or reranking model (mean, CLS, last, rank: above 0)."""
+    return pooling_type is not None and pooling_type > 0
+
+
 def common_prefix_len(a: Sequence[int], b: Sequence[int]) -> int:
     """How many ids `a` and `b` share from their start."""
     n = 0
@@ -245,6 +265,7 @@ class VocabTokenizer:
             bos_token=self._token_text(lib.llama_vocab_bos(self._vocab)),
             eos_token=self._token_text(lib.llama_vocab_eos(self._vocab)),
             special_tokens=tuple(special),
+            pooling_type=pooling_of(meta.get(f"{arch}.pooling_type")) if arch else None,
         )
 
     def metadata(self) -> EngineMetadata:
