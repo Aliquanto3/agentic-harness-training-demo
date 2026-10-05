@@ -1021,3 +1021,4 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-b2-atelier-rag-index-lexical-bm25.md`
   summary: Journal de la page principale (`app.js`, `ragLabStage`) — nommer « Lexical indexing » les événements à `part: "index"` (ils reprennent l'id de l'étape BM25 et s'affichent « BM25 · … », deux lignes par run hybride).
   evidence: low ; revue B2 (edge, verif, blind). `app.js` est modifié en parallèle par un autre lot ce jour-là : laissé de côté pour éviter un conflit. Correctif d'une ligne : `if (p.part) return` le libellé de l'étape du catalogue (`phase_label` porte déjà « Lexical indexing »).
+  closed: lot des retours du 2026-10-05, après fusion de A, B et C : `ragLabStage` rend `main.log.rag_lab_lexical_index` (« Lexical indexing », fr/en/de) pour `part: "index"`.

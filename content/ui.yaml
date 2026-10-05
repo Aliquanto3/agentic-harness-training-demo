@@ -794,6 +794,7 @@ main:
       cancelled: "arrêtée"
       not_run: "non exécutée"
     rag_lab_progress: "{done} sur {total}"
+    rag_lab_lexical_index: "Lexical indexing"
     languages:
       fr: "français"
       en: "anglais"

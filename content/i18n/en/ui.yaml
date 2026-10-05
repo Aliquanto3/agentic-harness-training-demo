@@ -783,6 +783,7 @@ main:
       cancelled: "stopped"
       not_run: "not run"
     rag_lab_progress: "{done} of {total}"
+    rag_lab_lexical_index: "Lexical indexing"
     languages:
       fr: "French"
       en: "English"
