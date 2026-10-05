@@ -210,7 +210,9 @@ steps:
     explain_text: >-
       The embedding model turns each chunk into a vector of numbers. Two texts with a similar
       meaning give close vectors, even with no word in common. This is computed once: the
-      vectors of the RAG brick's index are read again, not recomputed.
+      vectors of the RAG brick's index are read again, not recomputed. Each model offered
+      has its own vector cache. A chunk longer than what the model reads at once (max_tokens)
+      is truncated: the step says how many.
   vector_store:
     label_text: "Indexing"
     action_text: "Store the vectors in the vector store"

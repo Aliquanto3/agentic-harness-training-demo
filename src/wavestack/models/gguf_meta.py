@@ -105,9 +105,11 @@ def _value(f: BinaryIO, kind: int, keep: bool = True) -> Any:
     raise GGUFError(f"type de valeur inconnu : {kind}")
 
 
-def read_metadata(path: str | Path) -> dict[str, Any]:
+def read_metadata(path: str | Path, stop_at: str | None = None) -> dict[str, Any]:
     """The key/values of the GGUF header of `path` (versions 2 and 3). Raises `OSError` or
-    `GGUFError`."""
+    `GGUFError`. Lot 5c-1: `stop_at`, a key prefix (`tokenizer.`): the reading stops at the
+    first key that starts with it, never read, nor anything after it (the header's head: the
+    `general.*` and `{arch}.*` keys come before the tokenizer's)."""
     with open(path, "rb") as f:
         if f.read(4) != MAGIC:
             raise GGUFError("pas un fichier GGUF")
@@ -121,16 +123,18 @@ def read_metadata(path: str | Path) -> dict[str, Any]:
         meta: dict[str, Any] = {}
         for _ in range(n_keys):
             key = _string(f) or ""
+            if stop_at is not None and key.startswith(stop_at):
+                break
             meta[key] = _value(f, _unpack(f, "<I"))
         return meta
 
 
-def try_read_metadata(path: str | Path | None) -> dict[str, Any] | None:
+def try_read_metadata(path: str | Path | None, stop_at: str | None = None) -> dict[str, Any] | None:
     """`read_metadata`, or `None` when the file is absent or not a readable GGUF."""
     if not path:
         return None
     try:
-        return read_metadata(path)
+        return read_metadata(path, stop_at)
     except (OSError, GGUFError, UnicodeDecodeError, struct.error):
         return None
 

@@ -214,6 +214,8 @@ steps:
       Le modèle d'embedding transforme chaque chunk en un vecteur de nombres. Deux textes au
       sens proche donnent des vecteurs proches, même sans mot commun. Ce calcul est fait une
       fois : les vecteurs de l'index de la brique RAG sont relus sans être recalculés.
+      Chaque modèle proposé a son propre cache de vecteurs. Un chunk plus long que ce que le
+      modèle lit d'un coup (max_tokens) est tronqué : l'étape dit combien.
   vector_store:
     label_text: "Indexing"
     action_text: "Ranger les vecteurs dans le vector store"

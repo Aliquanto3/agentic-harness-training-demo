@@ -1,11 +1,11 @@
 """The RAG workshop (story 30, CAP-45): a RAG chain drawn and run apart from the RAG brick.
 
 A chain (`Pipeline`) is an ordered list of stages (`Stage`: a kind, an option, its settings).
-`LabRun` runs the chains of one question, lane after lane, with what it is given: the
-models lent by the brick or loaded for the run (`Lent`), the brick's index, a stop test and
-an emitter. It knows no session. Every figure the page shows is computed here (AD-1): ranks,
-scores, sizes, durations, the context built. The workshop is a sandbox: it only reads the
-brick's index and never changes the brick's state.
+`LabRun` runs one chain on one question (lot 5c-1: the A/B comparison is gone), with what it
+is given: the models lent by the brick or loaded for the run (`Lent`), the brick's index, a
+stop test and an emitter. It knows no session. Every figure the page shows is computed here
+(AD-1): ranks, scores, sizes, durations, the context built. The workshop is a sandbox: it
+only reads the brick's index and never changes the brick's state.
 """
 
 from __future__ import annotations
@@ -87,7 +87,6 @@ BOUNDS: dict[str, tuple[int, int]] = {
 }
 QUESTION_MAX = 500  # the characters of a question the workshop accepts
 STATUSES = ("ok", "error", "skipped", "cancelled", "not_run")
-LANES_MAX = 2  # a chain, or two compared: A then B
 EMBED_BATCH = 8  # passages embedded at a time: « Arrêter » and the progress between batches
 PROGRESS_INTERVAL_S = 0.1  # `rag_lab_stage_progress` at most ten times a second
 
@@ -373,7 +372,7 @@ class Stage(_Strict):
 
 
 class Pipeline(_Strict):
-    """A chain: its name (« A », « B ») and its stages, in order."""
+    """A chain: its name (« A », kept for the pages that send it) and its stages, in order."""
 
     label_text: str = Field(default="A", min_length=1, max_length=40)
     stages: list[Stage] = Field(min_length=1, max_length=12)
@@ -438,7 +437,7 @@ class Catalog:
         for kind in KINDS:
             text = self.content.stages[kind]
             options = []
-            for option in OPTIONS[kind]:
+            for option in self.kind_options(kind):
                 state = self.options.get((kind, option))
                 if state is None:
                     continue
@@ -480,6 +479,13 @@ class Catalog:
             **self._views(),
             "presets": self._presets(),
         }
+
+    def kind_options(self, kind: str) -> list[str]:
+        """A kind's options in the order drawn: the workshop's own (`OPTIONS`, the shipped one
+        first), then those the session adds (lot 5c-1: the declared embedding models of
+        `[[rag_lab.embeddings]]`, by their id), in the order declared."""
+        static = list(OPTIONS.get(kind, ()))
+        return static + [o for k, o in self.options if k == kind and o not in static]
 
     def preset_pipeline(self, preset: str) -> Pipeline:
         """The shipped chain, its retrieval segment replaced by the preset's, each stage of
@@ -876,9 +882,15 @@ def _replace(path: Path, data: bytes) -> None:
 
 
 def write_vectors(
-    folder: Path, chunks: Sequence[Chunk], vectors: Sequence[Sequence[float]], identity: dict
+    folder: Path,
+    chunks: Sequence[Chunk],
+    vectors: Sequence[Sequence[float]],
+    identity: dict,
+    truncated: int | None = None,
 ) -> None:
-    """The vectors (float32, `array('f')`), then the chunks and what identifies them."""
+    """The vectors (float32, `array('f')`), then the chunks and what identifies them; lot
+    5c-1: how many chunks the model truncated (`None`: it does not say), said again when the
+    cache is read."""
     folder.mkdir(parents=True, exist_ok=True)
     flat = array("f", (x for v in vectors for x in v))
     _replace(folder / VECTORS_FILE, flat.tobytes())
@@ -886,6 +898,7 @@ def write_vectors(
         "embedder": identity,
         "dims": len(vectors[0]) if vectors else 0,
         "count": len(vectors),
+        "truncated": truncated,
         "chunks": [list(c) for c in chunks],
     }
     _replace(folder / CHUNKS_FILE, json.dumps(meta, ensure_ascii=False).encode("utf-8"))
@@ -907,6 +920,16 @@ def read_vectors(folder: Path, chunks: Sequence[Chunk], dims: int) -> list[list[
     flat = array("f")
     flat.frombytes(data)
     return [list(flat[i * dims : (i + 1) * dims]) for i in range(len(chunks))]
+
+
+def read_truncated(folder: Path) -> int | None:
+    """Lot 5c-1: the chunks the model truncated when the cache was written, or `None`."""
+    try:
+        meta = json.loads((folder / CHUNKS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = meta.get("truncated") if isinstance(meta, dict) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 TIE_DIGITS = 6  # two scores equal to this many decimals are a tie, whatever the float noise
@@ -1152,14 +1175,13 @@ class Lent:
 class Loans:
     """The models a run loads itself (AD-8): the budget checked first (a refusal in figures,
     nothing loaded), then the load and its grant; `close()` closes each and frees its slot. A
-    model the brick holds is borrowed: neither checked, granted nor closed. A model the run
-    already loaded (lane A's, for lane B) is lent again: one load, one grant, per slot and
-    model."""
+    model the brick holds is borrowed: neither checked, granted nor closed. Lot 5c-1: each
+    model has its own slot (a declared embedding model `rag_lab.embedding.<id>`), the
+    brick's never touched."""
 
     def __init__(self, registry: LoadRegistry) -> None:
         self._registry = registry
         self._opened: list[tuple[Any, str]] = []
-        self._by_key: dict[tuple[str, str], Any] = {}
 
     def lend(
         self,
@@ -1182,8 +1204,6 @@ class Loans:
             if soft:
                 raise StageSkipped(unavailable_text)
             raise StageFailed(unavailable_text)
-        if (slot, label_text) in self._by_key:
-            return Lent(self._by_key[(slot, label_text)], False, label_text)
         # Finition V1 (#9): « pour charger le modèle d'embedding X », its article included.
         named = Message("session.rag_lab.to_load", noun=noun_text, model=label_text)
         refusal = self._registry.check_component(named, cost, slot)
@@ -1204,13 +1224,11 @@ class Loans:
             ) from exc
         self._registry.grant(label_text, cost, slot)
         self._opened.append((model, slot))
-        self._by_key[(slot, label_text)] = model
         return Lent(model, False, label_text)
 
     def close(self) -> list[str]:
         """Close what the run loaded, free its slots; the errors met, in French."""
         errors = []
-        self._by_key.clear()
         while self._opened:
             model, slot = self._opened.pop()
             try:
@@ -1280,13 +1298,14 @@ class _Result:
     facts: list[tuple[str, str]] = field(default_factory=list)
     items: list[Item] = field(default_factory=list)
     borrowed: bool = False
+    # Lot 5c-1: what the stage met without failing (chunks truncated by the embedding model).
+    warning_text: str | None = None
 
 
 @dataclass
-class _Lane:
-    """What the stages of one lane hand each other."""
+class _Chain:
+    """What the stages of the chain hand each other."""
 
-    lane: str
     pipeline: Pipeline
     chunk_max_chars: int = 0
     chunks: list[Chunk] = field(default_factory=list)
@@ -1309,19 +1328,17 @@ class _Lane:
 
 
 class LabRun:
-    """One run of the workshop: the chains of `pipelines`, one lane each (« a », « b »), in
-    order, on the same question. `run()` emits `rag_lab_run_started`, a
+    """One run of the workshop: one chain (`pipeline`) on one question (lot 5c-1: one chain
+    per run, the A/B comparison is gone). `run()` emits `rag_lab_run_started`, a
     `rag_lab_stage_started` / `rag_lab_stage_ended` pair per stage run (only the latter for a
     stage skipped or not run), and `rag_lab_run_ended`; it never raises."""
 
-    def __init__(
-        self, run_id: str, question: str, pipelines: Sequence[Pipeline], deps: LabDeps
-    ) -> None:
+    def __init__(self, run_id: str, question: str, pipeline: Pipeline, deps: LabDeps) -> None:
         self.run_id = run_id
         self.question = question
-        self.pipelines = list(pipelines)
+        self.pipeline = pipeline
         self.deps = deps
-        self.lanes: list[_Lane] = []
+        self.chain: _Chain | None = None
         self.ended = False  # `rag_lab_run_ended` emitted
 
     # -- events --
@@ -1329,8 +1346,8 @@ class LabRun:
     def _emit(self, kind: str, payload: dict[str, Any], step_id: str, component: str) -> None:
         self.deps.emit(kind, {"run_id": self.run_id, **payload}, step_id, component)
 
-    def _step(self, lane: str, index: int) -> str:
-        return f"{self.run_id}.{lane}.s{index}"
+    def _step(self, index: int) -> str:
+        return f"{self.run_id}.s{index}"
 
     def _label(self, stage: Stage) -> str:
         return self.deps.texts.stages[stage.kind].label_text
@@ -1358,30 +1375,22 @@ class LabRun:
     def run(self) -> str:
         started = time.monotonic()
         texts = self.deps.texts
-        lanes = []
-        for pipeline, lane in zip(self.pipelines, "ab", strict=False):
-            lanes.append(
-                {
-                    "lane": lane,
-                    "label_text": pipeline.label_text,
-                    "stages": [
-                        {
-                            "stage_id": s.id,
-                            "kind": s.kind,
-                            "option": s.option,
-                            "label_text": self._label(s),
-                            "option_label_text": self.deps.catalog.option_label(s.kind, s.option),
-                            "params": s.params,
-                        }
-                        for s in pipeline.stages
-                    ],
-                }
-            )
+        stages = [
+            {
+                "stage_id": s.id,
+                "kind": s.kind,
+                "option": s.option,
+                "label_text": self._label(s),
+                "option_label_text": self.deps.catalog.option_label(s.kind, s.option),
+                "params": s.params,
+            }
+            for s in self.pipeline.stages
+        ]
         self._emit(
             "rag_lab_run_started",
             {
                 "question": self.question,
-                "lanes": lanes,
+                "stages": stages,
                 "phase_label": self._text(
                     "run.phase", running=texts.running_text, question=self.question[:80]
                 ),
@@ -1389,64 +1398,53 @@ class LabRun:
             self.run_id,
             "rag_lab",
         )
-        status, comparison = "error", None
+        status = "error"
         try:
-            cancelled = False
-            for pipeline, lane in zip(self.pipelines, "ab", strict=False):
-                state = _Lane(lane, pipeline)
-                self.lanes.append(state)
-                try:
-                    self._run_lane(state, skip_all=cancelled)
-                finally:
-                    if state.store is not None:
-                        try:
-                            state.store.close()
-                        except Exception:  # noqa: BLE001 - a store closed badly is forgotten
-                            pass
-                cancelled = cancelled or state.status == "cancelled"
-            statuses = {lane.status for lane in self.lanes}
-            status = "ok"
-            if "cancelled" in statuses or "error" in statuses:
-                status = "cancelled" if "cancelled" in statuses else "error"
-            if len(self.lanes) == LANES_MAX and status != "cancelled":
-                comparison = compare(self.lanes[0], self.lanes[1], self._lang)
+            chain = self.chain = _Chain(self.pipeline)
+            try:
+                self._run_chain(chain)
+            finally:
+                if chain.store is not None:
+                    try:
+                        chain.store.close()
+                    except Exception:  # noqa: BLE001 - a store closed badly is forgotten
+                        pass
+            status = chain.status
         except Exception:  # noqa: BLE001 - the run ends in error, `run_ended` all the same
-            status, comparison = "error", None
+            status = "error"
         finally:
-            self.end(status, _ms(time.monotonic() - started), comparison)
+            self.end(status, _ms(time.monotonic() - started))
         return status
 
-    def end(self, status: str, duration_ms: int, comparison: dict[str, Any] | None = None) -> None:
+    def end(self, status: str, duration_ms: int) -> None:
         """`rag_lab_run_ended`, once: the page never stays « en cours »."""
         if self.ended:
             return
         self.ended = True
         self._emit(
             "rag_lab_run_ended",
-            {"status": status, "duration_ms": duration_ms, "comparison": comparison},
+            {"status": status, "duration_ms": duration_ms},
             self.run_id,
             "rag_lab",
         )
 
-    def _run_lane(self, lane: _Lane, skip_all: bool) -> None:
-        stopped = skip_all  # an earlier stage failed or was stopped: the rest is skipped
-        if skip_all:
-            lane.status = "cancelled"
-        for index, stage in enumerate(lane.pipeline.stages, start=1):
-            step_id = self._step(lane.lane, index)
+    def _run_chain(self, chain: _Chain) -> None:
+        stopped = False  # an earlier stage failed or was stopped: the rest is skipped
+        for index, stage in enumerate(chain.pipeline.stages, start=1):
+            step_id = self._step(index)
             component = f"rag_lab.{stage.kind}"
-            base = {"lane": lane.lane, "stage_id": stage.id, "kind": stage.kind}
+            base = {"stage_id": stage.id, "kind": stage.kind}
             base["option"] = stage.option
             if stopped:
                 self._ended(step_id, component, base, "skipped", _Result(), None, 0, None)
                 continue
             if stage.kind == "generation":
-                result = self._generation(lane)
+                result = self._generation(chain)
                 self._ended(step_id, component, base, "not_run", result, None, 0, None)
                 continue
             if self.deps.cancelled():
                 self._ended(step_id, component, base, "cancelled", _Result(), None, 0, None)
-                lane.status, stopped = "cancelled", True
+                chain.status, stopped = "cancelled", True
                 continue
             self._emit(
                 "rag_lab_stage_started",
@@ -1458,19 +1456,19 @@ class LabRun:
             started = time.monotonic()
             status, error_text, result = "ok", None, _Result()
             try:
-                result = self._run_stage(lane, stage, step_id, component, base)
+                result = self._run_stage(chain, stage, step_id, component, base)
             except LabCancelled:
                 status, error_text = "cancelled", self._text("stage.stopped")
-                lane.status, stopped = "cancelled", True
+                chain.status, stopped = "cancelled", True
             except StageSkipped as skipped:
                 status, error_text = "skipped", skipped.render(self._lang)
-                result = self._passed_on(lane, error_text)
+                result = self._passed_on(chain, error_text)
             except StageFailed as failed:
                 status, error_text = "error", failed.render(self._lang)
                 if failed.soft:
-                    result = self._passed_on(lane, error_text)
+                    result = self._passed_on(chain, error_text)
                 else:
-                    lane.status, stopped = "error", True
+                    chain.status, stopped = "error", True
             except Exception as exc:  # noqa: BLE001 - AD-16: a stage's failure, never a crash
                 status = "error"
                 error_text = self._text(
@@ -1478,7 +1476,7 @@ class LabRun:
                     error=type(exc).__name__,
                     cause=exception_text(exc, self._lang),
                 )
-                lane.status, stopped = "error", True
+                chain.status, stopped = "error", True
             duration = _ms(time.monotonic() - started)
             self._ended(step_id, component, base, status, result, error_text, duration, rss_before)
 
@@ -1520,6 +1518,7 @@ class LabRun:
                 "items": [i.payload() for i in result.items],
                 "borrowed": result.borrowed,
                 "error_text": error_text,
+                "warning_text": result.warning_text,
                 "duration_ms": duration_ms,
                 "rss_bytes": rss,
                 "memory_text": memory_text,
@@ -1549,30 +1548,30 @@ class LabRun:
             raise LabCancelled()
 
     def _run_stage(
-        self, lane: _Lane, stage: Stage, step_id: str, component: str, base: dict[str, Any]
+        self, chain: _Chain, stage: Stage, step_id: str, component: str, base: dict[str, Any]
     ) -> _Result:
         progress = self._progress(step_id, component, base)
         if stage.kind == "chunking":
-            return self._chunking(lane, stage)
+            return self._chunking(chain, stage)
         if stage.kind == "embedding":
-            return self._embedding(lane, stage, progress)
+            return self._embedding(chain, stage, progress)
         if stage.kind == "vector_store":
-            return self._vector_store(lane, stage)
+            return self._vector_store(chain, stage)
         if stage.kind == "vector_search":
-            return self._vector_search(lane, stage)
+            return self._vector_search(chain, stage)
         if stage.kind == "lexical_search":
-            return self._lexical_search(lane, stage)
+            return self._lexical_search(chain, stage)
         if stage.kind == "fusion":
-            return self._fusion(lane, stage)
+            return self._fusion(chain, stage)
         if stage.kind == "rerank":
-            return self._rerank(lane, stage, progress)
+            return self._rerank(chain, stage, progress)
         if stage.kind == "context":
-            return self._context(lane, stage)
+            return self._context(chain, stage)
         raise StageFailed(Message("rag_lab.stage.unknown", kind=stage.kind))
 
-    def _passed_on(self, lane: _Lane, reason_text: str) -> _Result:
+    def _passed_on(self, chain: _Chain, reason_text: str) -> _Result:
         """A reranking skipped or failed: the search's order goes on unchanged."""
-        n = len(lane.ranked or [])
+        n = len(chain.ranked or [])
         return _Result(
             input_text=self._text("passed_on.input", candidates=self._count(n, "candidate")),
             output_text=self._text("passed_on.output", reason=reason_text),
@@ -1580,25 +1579,25 @@ class LabRun:
 
     # -- the stages --
 
-    def _uses_brick_index(self, lane: _Lane) -> bool:
+    def _uses_brick_index(self, chain: _Chain) -> bool:
         """The brick's own configuration (its embedding model, its chunk size, sqlite-vec):
         its index serves, read only."""
-        store = lane.pipeline.find("vector_store")
-        embedding = lane.pipeline.find("embedding")
+        store = chain.pipeline.find("vector_store")
+        embedding = chain.pipeline.find("embedding")
         return (
             store is not None
             and store.option == "sqlite_vec"
             and embedding is not None
             and embedding.option == "declared"
-            and lane.chunk_max_chars == self.deps.shipped_chunk_max_chars
+            and chain.chunk_max_chars == self.deps.shipped_chunk_max_chars
         )
 
-    def _chunking(self, lane: _Lane, stage: Stage) -> _Result:
+    def _chunking(self, chain: _Chain, stage: Stage) -> _Result:
         size = param(stage, "chunk_max_chars", self.deps.catalog)
-        lane.chunk_max_chars = size
+        chain.chunk_max_chars = size
         source = self._text("chunking.source_corpus")
         chunks: list[Chunk] = []
-        if self._uses_brick_index(lane) and self.deps.brick_index_error is None:
+        if self._uses_brick_index(chain) and self.deps.brick_index_error is None:
             # Its ids are the index's: never the corpus's chunks under the brick's vectors.
             try:
                 chunks = rag_index.read_chunks(self.deps.brick_index)
@@ -1615,7 +1614,7 @@ class LabRun:
             chunks = chunk_corpus(self.deps.content, size, self.deps.lang)
         if not chunks:
             raise StageFailed(Message("rag_lab.chunking.no_chunks"))
-        lane.chunks = chunks
+        chain.chunks = chunks
         docs = len({c.doc_id for c in chunks})
         longest = max(len(c.text) for c in chunks)
         mean = round(sum(len(c.text) for c in chunks) / len(chunks))
@@ -1645,62 +1644,70 @@ class LabRun:
         )
 
     def _embedding(
-        self, lane: _Lane, stage: Stage, progress: Callable[[int, int], None]
+        self, chain: _Chain, stage: Stage, progress: Callable[[int, int], None]
     ) -> _Result:
         lent = self.deps.embedder(stage.option)
         embedder: Embedder = lent.model
-        lane.embedder_label = lent.label_text
+        chain.embedder_label = lent.label_text
         self._check()
         text = self._text
-        n = self._int(len(lane.chunks))
-        passages_n = self._count(len(lane.chunks), "passage")
-        vectors_n = self._count(len(lane.chunks), "vector")
+        n = self._int(len(chain.chunks))
+        passages_n = self._count(len(chain.chunks), "passage")
+        vectors_n = self._count(len(chain.chunks), "vector")
         facts = [
             (text("fact.model"), lent.label_text),
             (text("fact.dimensions"), self._int(embedder.dims)),
         ]
-        if self._uses_brick_index(lane):
+        truncated: int | None = None  # the passages the model cut, when it says so
+        if self._uses_brick_index(chain):
             if self.deps.brick_index_error is None:
                 passages = text("embedding.brick_passages", passages=passages_n)
             else:
                 passages = text("embedding.brick_unusable")
         else:
             identity = self.deps.identity(stage.option)
-            digest = rag_index.corpus_digest(lane.chunks)
-            lane.key = cache_key(identity, lane.chunk_max_chars, digest)
-            folder = self.deps.lab_dir / lane.key
-            vectors = read_vectors(folder, lane.chunks, embedder.dims)
+            digest = rag_index.corpus_digest(chain.chunks)
+            chain.key = cache_key(identity, chain.chunk_max_chars, digest)
+            folder = self.deps.lab_dir / chain.key
+            vectors = read_vectors(folder, chain.chunks, embedder.dims)
             if vectors is not None:
-                passages = text("embedding.cached", vectors=vectors_n, key=lane.key)
+                passages = text("embedding.cached", vectors=vectors_n, key=chain.key)
                 facts.append((text("fact.passages"), text("embedding.cached_fact", n=n)))
+                truncated = read_truncated(folder)
             else:
                 vectors = []
-                total = len(lane.chunks)
+                total = len(chain.chunks)
                 started = time.monotonic()
+                truncated = 0 if getattr(embedder, "max_tokens", None) else None
                 for at in range(0, total, EMBED_BATCH):
                     self._check()
-                    batch = lane.chunks[at : at + EMBED_BATCH]
+                    batch = chain.chunks[at : at + EMBED_BATCH]
                     vectors += embedder.embed_passages([rag_index.passage_text(c) for c in batch])
+                    # Lot 5c-1: the passages of this batch the model cut at `max_tokens`.
+                    cut = getattr(embedder, "last_truncated", None)
+                    known = truncated is not None and isinstance(cut, int)
+                    truncated = truncated + cut if known else None
                     progress(min(at + EMBED_BATCH, total), total)
                 if len(vectors) != total or any(len(v) != embedder.dims for v in vectors):
                     raise StageFailed(Message("rag_lab.embedding.wrong_dims", dims=embedder.dims))
-                write_vectors(folder, lane.chunks, vectors, identity)
+                write_vectors(folder, chain.chunks, vectors, identity, truncated)
                 seconds = time.monotonic() - started
                 passages = text(
                     "embedding.computed",
                     passages=passages_n,
                     duration=ms_text(_ms(seconds), self._lang),
-                    key=lane.key,
+                    key=chain.key,
                 )
                 facts.append(
                     (text("fact.passages"), text("embedding.computed_fact", passages=passages_n))
                 )
-            lane.vectors = vectors
+            chain.vectors = vectors
+        warning = self._truncation(embedder, truncated, len(chain.chunks))
         vector = embedder.embed_queries([self.question])[0]
         if not any(vector):
             raise StageFailed(Message("rag_lab.embedding.null_vector"))
-        lane.embedder = embedder
-        lane.query_vector = vector
+        chain.embedder = embedder
+        chain.query_vector = vector
         separator = text("list_separator")
         shown = separator.join(score_text(v, self._lang) for v in vector[:4])
         facts.append((text("fact.provenance"), self._provenance(lent)))
@@ -1708,31 +1715,47 @@ class LabRun:
             input_text=text(
                 "embedding.input",
                 question=self.question,
-                extracts=self._count(len(lane.chunks), "extract"),
+                extracts=self._count(len(chain.chunks), "extract"),
             ),
             output_text=text(
                 "embedding.output", n=self._int(len(vector)), shown=shown, passages=passages
             ),
             facts=facts,
             borrowed=lent.borrowed,
+            warning_text=warning,
+        )
+
+    def _truncation(self, embedder: Embedder, truncated: int | None, total: int) -> str | None:
+        """Lot 5c-1: « 3 chunks sur 29 dépassent 512 tokens, tronqués », a warning (never an
+        error) when the model cut passages at its `max_tokens`; `None` when none was cut or
+        the model does not say (fastembed, the brick's index read as it is)."""
+        max_tokens = getattr(embedder, "max_tokens", None)
+        if not truncated or not isinstance(max_tokens, int):
+            return None
+        return self._text(
+            "embedding.truncated",
+            count=truncated,  # « 1 chunk sur 16 dépasse … », « 3 chunks sur 16 dépassent … »
+            chunks=self._count(truncated, "chunk"),
+            total=self._int(total),
+            max=self._int(max_tokens),
         )
 
     def _provenance(self, lent: Lent) -> str:
         return self.deps.texts.borrowed_text if lent.borrowed else self.deps.texts.loaded_text
 
-    def _vector_store(self, lane: _Lane, stage: Stage) -> _Result:
-        if lane.embedder is None:
+    def _vector_store(self, chain: _Chain, stage: Stage) -> _Result:
+        if chain.embedder is None:
             raise StageFailed(Message("rag_lab.vector_store.no_embedder"))
-        n = len(lane.chunks)
-        dims = lane.embedder.dims
+        n = len(chain.chunks)
+        dims = chain.embedder.dims
         text, count = self._text, self._int
         vectors_fact, metric_fact = text("fact.vectors"), text("fact.metric")
-        if self._uses_brick_index(lane):
+        if self._uses_brick_index(chain):
             if self.deps.brick_index_error is not None:
                 raise StageFailed(self.deps.brick_index_error)
             path = self.deps.brick_index
             meta = rag_index.read_meta(path)
-            lane.store = _SqliteStore(path, lane.embedder)
+            chain.store = _SqliteStore(path, chain.embedder)
             return _Result(
                 input_text=text(
                     "vector_store.brick_input",
@@ -1748,14 +1771,14 @@ class LabRun:
                     (metric_fact, text("vector_store.cosine")),
                 ],
             )
-        if lane.vectors is None:
+        if chain.vectors is None:
             raise StageFailed(Message("rag_lab.vector_store.no_vectors"))
         vectors_text = text(
             "vector_store.vectors", vectors=self._count(n, "vector"), dims=count(dims)
         )
         input_text = text("vector_store.input", vectors=vectors_text)
         if stage.option == "memory":
-            lane.store = MemoryStore(lane.chunks, lane.vectors)
+            chain.store = MemoryStore(chain.chunks, chain.vectors)
             size = n * dims * 4
             return _Result(
                 input_text=input_text,
@@ -1763,7 +1786,7 @@ class LabRun:
                 facts=[(vectors_fact, count(n)), (metric_fact, text("vector_store.cosine_dot"))],
             )
         if stage.option == "sqlite_vec":
-            path = self.deps.lab_dir / lane.key / INDEX_FILE
+            path = self.deps.lab_dir / chain.key / INDEX_FILE
             built = text("vector_store.reread")
             try:
                 meta = rag_index.read_meta(path) if path.is_file() else None
@@ -1773,24 +1796,24 @@ class LabRun:
                 meta is not None
                 and meta.chunks == n
                 and meta.dims == dims
-                and meta.chunk_max_chars == lane.chunk_max_chars
-                and meta.corpus_sha256 == rag_index.corpus_digest(lane.chunks)
+                and meta.chunk_max_chars == chain.chunk_max_chars
+                and meta.corpus_sha256 == rag_index.corpus_digest(chain.chunks)
             )
             if not fits:
                 self._check()
                 rag_index.write_index(
                     path,
-                    lane.chunks,
-                    lane.vectors,
-                    model_id=lane.embedder.model_id,
+                    chain.chunks,
+                    chain.vectors,
+                    model_id=chain.embedder.model_id,
                     dims=dims,
-                    chunk_max_chars=lane.chunk_max_chars,
+                    chunk_max_chars=chain.chunk_max_chars,
                 )
                 built = text("vector_store.built", vectors=self._count(n, "vector"))
-            lane.store = _SqliteStore(path, lane.embedder)
+            chain.store = _SqliteStore(path, chain.embedder)
             return _Result(
                 input_text=input_text,
-                output_text=text("vector_store.sqlite_output", state=built, key=lane.key),
+                output_text=text("vector_store.sqlite_output", state=built, key=chain.key),
                 facts=[
                     (text("fact.file"), str(path)),
                     (vectors_fact, count(n)),
@@ -1801,14 +1824,14 @@ class LabRun:
             label = LIBRARIES[stage.option][1]
             imported = self.deps.importer(stage.option)
             self._check()
-            folder = self.deps.lab_dir / lane.key
+            folder = self.deps.lab_dir / chain.key
             if stage.option == "faiss":
-                store: Any = FaissStore(imported.module, folder, lane.vectors)
+                store: Any = FaissStore(imported.module, folder, chain.vectors)
                 kind = text("vector_store.faiss_kind")
             else:
-                store = LanceStore(imported.module, folder, lane.vectors)
+                store = LanceStore(imported.module, folder, chain.vectors)
                 kind = text("vector_store.lancedb_kind")
-            lane.store = store
+            chain.store = store
             vectors_n = self._count(n, "vector")
             state = text(
                 "vector_store.built" if store.built else "vector_store.reread_count",
@@ -1821,7 +1844,7 @@ class LabRun:
                     library=label,
                     state=state,
                     kind=kind,
-                    key=lane.key,
+                    key=chain.key,
                 ),
                 facts=[
                     (text("fact.folder"), str(store.path)),
@@ -1831,24 +1854,26 @@ class LabRun:
             )
         raise StageFailed(Message("rag_lab.vector_store.unknown", option=stage.option))
 
-    def _vector_search(self, lane: _Lane, stage: Stage) -> _Result:
-        if lane.store is None or lane.query_vector is None:
+    def _vector_search(self, chain: _Chain, stage: Stage) -> _Result:
+        if chain.store is None or chain.query_vector is None:
             raise StageFailed(Message("rag_lab.vector_search.no_store"))
         k = param(stage, "candidates", self.deps.catalog)
-        hits = lane.store.search(lane.query_vector, k)
+        hits = chain.store.search(chain.query_vector, k)
         items = []
         for rank, (chunk_id, score) in enumerate(hits, start=1):
-            chunk = lane.chunks[chunk_id - 1]
+            chunk = chain.chunks[chunk_id - 1]
             items.append(
                 Item(chunk_id, chunk.doc_id, chunk.title_text, chunk.text, score, rank=rank)
             )
-        lane.lists.append(items)
-        lane.list_kinds.append("vector_search")
+        chain.lists.append(items)
+        chain.list_kinds.append("vector_search")
         best = items[0].score if items else None
         worst = items[-1].score if items else None
         text = self._text
         return _Result(
-            input_text=text("vector_search.input", vectors=self._count(len(lane.chunks), "vector")),
+            input_text=text(
+                "vector_search.input", vectors=self._count(len(chain.chunks), "vector")
+            ),
             output_text=text(
                 "vector_search.output",
                 extracts=self._count(len(items), "extract"),
@@ -1862,8 +1887,8 @@ class LabRun:
             items=items,
         )
 
-    def _rerank(self, lane: _Lane, stage: Stage, progress: Callable[[int, int], None]) -> _Result:
-        candidates = lane.ranked
+    def _rerank(self, chain: _Chain, stage: Stage, progress: Callable[[int, int], None]) -> _Result:
+        candidates = chain.ranked
         if not candidates:
             raise StageSkipped(Message("rag_lab.rerank.no_candidates"))
         lent = self.deps.reranker(stage.option)
@@ -1916,15 +1941,15 @@ class LabRun:
                     sources=c.sources
                     or [
                         {
-                            "kind": self._made_by(lane),
-                            "label_text": self.deps.texts.stages[self._made_by(lane)].label_text,
+                            "kind": self._made_by(chain),
+                            "label_text": self.deps.texts.stages[self._made_by(chain)].label_text,
                             "rank": c.rank,
                             "score": c.score,
                         }
                     ],
                 )
             )
-        lane.lists[-1] = items
+        chain.lists[-1] = items
         moved = max(items, key=lambda x: (x.before or 0) - x.rank)
         text = self._text
         climb = (
@@ -1953,15 +1978,15 @@ class LabRun:
             borrowed=lent.borrowed,
         )
 
-    def _made_by(self, lane: _Lane) -> str:
-        """The kind of the stage that made the lane's current list (a search or the fusion)."""
-        return lane.list_kinds[-1] if lane.list_kinds else "vector_search"
+    def _made_by(self, chain: _Chain) -> str:
+        """The kind of the stage that made the chain's current list (a search or the fusion)."""
+        return chain.list_kinds[-1] if chain.list_kinds else "vector_search"
 
-    def _lexical_search(self, lane: _Lane, stage: Stage) -> _Result:
-        if not lane.chunks:
+    def _lexical_search(self, chain: _Chain, stage: Stage) -> _Result:
+        if not chain.chunks:
             raise StageFailed(Message("rag_lab.lexical_search.no_chunks"))
         k = param(stage, "candidates", self.deps.catalog)
-        passages = [rag_index.passage_text(c) for c in lane.chunks]
+        passages = [rag_index.passage_text(c) for c in chain.chunks]
         scored = bm25(self.question, passages, self.deps.lang)
         found = sorted(
             ((score, i + 1) for i, score in enumerate(scored) if score > 0),
@@ -1969,14 +1994,14 @@ class LabRun:
         )[:k]
         items = []
         for rank, (score, chunk_id) in enumerate(found, start=1):
-            chunk = lane.chunks[chunk_id - 1]
+            chunk = chain.chunks[chunk_id - 1]
             items.append(
                 Item(
                     chunk_id, chunk.doc_id, chunk.title_text, chunk.text, round(score, 3), rank=rank
                 )
             )
-        lane.lists.append(items)
-        lane.list_kinds.append("lexical_search")
+        chain.lists.append(items)
+        chain.list_kinds.append("lexical_search")
         text = self._text
         terms = bm25_terms(self.question, self.deps.lang)
         words = ", ".join(self._quoted(w) for w in dict.fromkeys(terms))
@@ -1984,7 +2009,7 @@ class LabRun:
             input_text=text(
                 "lexical_search.input",
                 words=words or text("lexical_search.no_words"),
-                extracts=self._count(len(lane.chunks), "extract"),
+                extracts=self._count(len(chain.chunks), "extract"),
             ),
             output_text=text("lexical_search.output", extracts=self._count(len(items), "extract")),
             facts=[
@@ -1994,17 +2019,17 @@ class LabRun:
             items=items,
         )
 
-    def _fusion(self, lane: _Lane, stage: Stage) -> _Result:
-        if len(lane.lists) < 2:
+    def _fusion(self, chain: _Chain, stage: Stage) -> _Result:
+        if len(chain.lists) < 2:
             raise StageFailed(Message("rag_lab.fusion.needs_two"))
-        kinds = lane.list_kinds[-len(lane.lists) :]
+        kinds = chain.list_kinds[-len(chain.lists) :]
         found: dict[int, Item] = {}
         ranks: dict[str, dict[int, tuple[int, float | None]]] = {}
-        for kind, ranked in zip(kinds, lane.lists, strict=True):
+        for kind, ranked in zip(kinds, chain.lists, strict=True):
             ranks[kind] = {i.chunk_id: (i.rank, i.score) for i in ranked}
             for item in ranked:
                 found.setdefault(item.chunk_id, item)
-        fused = rrf([[i.chunk_id for i in ranked] for ranked in lane.lists])
+        fused = rrf([[i.chunk_id for i in ranked] for ranked in chain.lists])
         items = []
         for rank, (chunk_id, score) in enumerate(fused, start=1):
             item = found[chunk_id]
@@ -2030,9 +2055,9 @@ class LabRun:
             )
         both = sum(1 for chunk_id, _ in fused if all(chunk_id in ranks[k] for k in kinds))
         text = self._text
-        sizes = join([f"{len(r)}" for r in lane.lists], self._lang)
-        lane.lists = [items]
-        lane.list_kinds = ["fusion"]
+        sizes = join([f"{len(r)}" for r in chain.lists], self._lang)
+        chain.lists = [items]
+        chain.list_kinds = ["fusion"]
         return _Result(
             input_text=text("fusion.input", sizes=sizes),
             output_text=text(
@@ -2049,8 +2074,8 @@ class LabRun:
             items=items,
         )
 
-    def _context(self, lane: _Lane, stage: Stage) -> _Result:
-        ranked = lane.ranked
+    def _context(self, chain: _Chain, stage: Stage) -> _Result:
+        ranked = chain.ranked
         if ranked is None:
             raise StageFailed(Message("rag_lab.context.nothing"))
         top_k = param(stage, "top_k", self.deps.catalog)
@@ -2069,9 +2094,9 @@ class LabRun:
             )
             for rank, c in enumerate(kept, start=1)
         ]
-        lane.context = items
+        chain.context = items
         text = "\n\n".join([content.intro_text, *(i.text for i in items)]) if items else ""
-        lane.context_text = text
+        chain.context_text = text
         say = self._text
         return _Result(
             input_text=say("context.input", extracts=self._count(len(ranked), "extract")),
@@ -2087,11 +2112,11 @@ class LabRun:
             items=items,
         )
 
-    def _generation(self, lane: _Lane) -> _Result:
-        if lane.status != "ok" or not lane.context_text:
+    def _generation(self, chain: _Chain) -> _Result:
+        if chain.status != "ok" or not chain.context_text:
             context = self._text("generation.question_only")
         else:
-            kept = self._count(len(lane.context), "extract")
+            kept = self._count(len(chain.context), "extract")
             context = self._text("generation.with_context", extracts=kept)
         return _Result(
             input_text=self._text("generation.input", context=context, question=self.question),
@@ -2184,81 +2209,6 @@ def rrf(lists: Sequence[Sequence[int]], k: int = RRF_K) -> list[tuple[int, float
             scores[item] = scores.get(item, 0.0) + 1.0 / (k + rank)
             best[item] = min(best.get(item, rank), rank)
     return sorted(scores.items(), key=lambda x: (-round(x[1], TIE_DIGITS), best[x[0]], x[0]))
-
-
-def _compared(key: str, item: Item) -> dict[str, Any]:
-    return {"key": key, "doc_id": item.doc_id, "title_text": item.title_text}
-
-
-def compare(a: _Lane, b: _Lane, lang: str = config.DEFAULT_LANGUAGE) -> dict[str, Any]:
-    """The two contexts, compared in Python (AD-1): excerpt by excerpt when both chains cut
-    the corpus alike, else document by document (a document's best rank). `summary_text`
-    in `lang` (languages 5/5)."""
-    same_cut = a.chunk_max_chars == b.chunk_max_chars and a.chunks == b.chunks
-    basis = "excerpt" if same_cut else "document"
-
-    def ranks(lane: _Lane) -> dict[str, tuple[int, Item]]:
-        found: dict[str, tuple[int, Item]] = {}
-        for item in lane.context:
-            chunk = lane.chunks[item.chunk_id - 1] if lane.chunks else None
-            key = f"{item.doc_id}#{chunk.position}" if same_cut and chunk else item.doc_id
-            if key not in found:
-                found[key] = (item.rank, item)
-        return found
-
-    in_a, in_b = ranks(a), ranks(b)
-    common, only_a, only_b, changes = [], [], [], []
-    for key, (rank, item) in in_a.items():
-        if key in in_b:
-            entry = _compared(key, item) | {"rank_a": rank, "rank_b": in_b[key][0]}
-            common.append(entry)
-            if rank != in_b[key][0]:
-                changes.append(entry)
-        else:
-            only_a.append(_compared(key, item) | {"rank_a": rank, "rank_b": None})
-    for key, (rank, item) in in_b.items():
-        if key not in in_a:
-            only_b.append(_compared(key, item) | {"rank_a": None, "rank_b": rank})
-    unit = _t(f"compare.unit_{basis}", lang, count=len(common))
-    parts = []
-    if not a.context or not b.context:
-        parts.append(_t("compare.one_empty", lang))
-    names = ", ".join(quoted(e["title_text"], lang) for e in common)
-    parts.append(
-        _t(
-            "compare.common",
-            lang,
-            count=len(common),
-            unit=unit,
-            names=f" ({names})" if names else "",
-            only_a=len(only_a),
-            only_b=len(only_b),
-        )
-    )
-    if changes:
-        moves = ", ".join(
-            _t(
-                "compare.move",
-                lang,
-                title=e["title_text"],
-                rank_a=rank_text(e["rank_a"], lang),
-                rank_b=rank_text(e["rank_b"], lang),
-            )
-            for e in changes
-        )
-        parts.append(_t("compare.gaps", lang, moves=moves))
-    elif common:
-        parts.append(_t("compare.no_gap", lang))
-    if not same_cut:
-        parts.append(_t("compare.other_cut", lang))
-    return {
-        "basis": basis,
-        "common": common,
-        "only_a": only_a,
-        "only_b": only_b,
-        "rank_changes": changes,
-        "summary_text": " ".join(parts),
-    }
 
 
 def last_run(envelopes: Sequence[Any]) -> list[dict[str, Any]]:

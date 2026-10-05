@@ -782,7 +782,6 @@ main:
       cancelled: "stopped"
       not_run: "not run"
     rag_lab_progress: "{done} of {total}"
-    rag_lab_compared: "{common} in common, {only_a} only in A, {only_b} only in B"
     languages:
       fr: "French"
       en: "English"
@@ -939,10 +938,6 @@ llm:
 
 rag:
   page_title: "WaveStack — RAG workshop"
-  chain_steps: "Steps of the RAG pipeline"
-  chain_b_steps: "Steps of pipeline B"
-  chain_a: "Pipeline A"
-  chain_b: "Pipeline B"
   chain: "Pipeline {label}"
   rank:
     one: "No. {count}"
@@ -955,10 +950,6 @@ rag:
   remove: "Remove"
   add: "Add a component"
   add_button: "Add"
-  comparison:
-    common: "{title} (A: {a}, B: {b})"
-    only: "{title} ({rank})"
-    changed: "{title}: {a} → {b}"
   empty_question: "Write a question first (500 characters at most)."
   unavailable: "RAG workshop unavailable ({cause}): reload the page."
 

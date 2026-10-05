@@ -139,6 +139,45 @@ lancedb_cost_mb = 180
 # sur le PC cible) ; le modèle lui-même est compté à part, par la taille de ses fichiers.
 fastembed_cost_mb = 150
 
+# Lot 5c-1 : les modèles d'embedding que l'atelier propose en plus de celui de la brique
+# ([rag.embedding], option « Modèle d'embedding de la brique RAG ») et de fastembed. Même schéma
+# que [rag.embedding] ; fichiers sous embedding/ (jamais proposés comme modèles de conversation),
+# sha256 vérifié au chargement. `id` : unique, 32 caractères au plus, ni « declared » ni
+# « fastembed » ni l'id de la brique ; une entrée invalide est écartée, les autres restent.
+# Lus dans ce fichier seulement (jamais dans settings.json). L'atelier ne les télécharge pas
+# encore : un fichier absent rend l'option indisponible, avec son chemin sous models/.
+# Valeurs de l'essai du 2026-10-05 (essai-modeles-5c.md) ; RSS mesuré sur le PC de
+# développement, à remesurer sur le PC cible.
+[[rag_lab.embeddings]]
+id = "multilingual-e5-small"
+backend = "llama_cpp"
+label_text = "multilingual-e5-small (intfloat, GGUF Q8_0)"
+license = "MIT"
+dims = 384        # pooling MEAN lu dans le GGUF
+max_tokens = 512
+query_prefix = "query: "      # convention d'e5 : un préfixe pour la question, un pour les passages
+passage_prefix = "passage: "
+load_path = "embedding/multilingual-e5-small-q8_0.gguf"
+measured_rss_mb = 440
+files = [
+    { url = "https://huggingface.co/TwinSunsLLC/multilingual-e5-small-gguf/resolve/b6cac9615d4ecce28d7f22539b7322d695fc2886/multilingual-e5-small-q8_0.gguf", path = "embedding/multilingual-e5-small-q8_0.gguf", size = 132439008, sha256 = "e011debc1208e31bf7b6aebee2d9fc8bd2ca11694a77ed66ac9d0c9d0a877c93" },
+]
+
+[[rag_lab.embeddings]]
+id = "qwen3-embedding-0.6b"
+backend = "llama_cpp"
+label_text = "Qwen3-Embedding 0.6B (Qwen, GGUF Q8_0)"
+license = "Apache-2.0"
+dims = 1024        # pooling LAST lu dans le GGUF
+max_tokens = 2048  # le RSS ci-dessous est mesuré à cette fenêtre
+query_prefix = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
+passage_prefix = ""
+load_path = "embedding/Qwen3-Embedding-0.6B-Q8_0.gguf"
+measured_rss_mb = 1055
+files = [
+    { url = "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/370f27d7550e0def9b39c1f16d3fbaa13aa67728/Qwen3-Embedding-0.6B-Q8_0.gguf", path = "embedding/Qwen3-Embedding-0.6B-Q8_0.gguf", size = 639150592, sha256 = "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439" },
+]
+
 [tools]
 # Bornes de la boucle de tour (AD-10), affichées sur la carte de la brique outils.
 # Appels au modèle par tour, dont les nouveaux essais après un appel mal formé.

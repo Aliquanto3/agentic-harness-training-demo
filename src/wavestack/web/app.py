@@ -36,7 +36,7 @@ from wavestack.messages import in_language, msg, render
 from wavestack.models import catalog
 from wavestack.models.cloud_base import session_spend
 from wavestack.models.engine import SAMPLING_BOUNDS, Sampling
-from wavestack.rag.lab import LANES_MAX, QUESTION_MAX, Pipeline
+from wavestack.rag.lab import QUESTION_MAX, Pipeline
 from wavestack.session.app_session import (
     AppSession,
     ArmRefused,
@@ -232,11 +232,11 @@ class LlmDistributionRequest(BaseModel):
 
 
 class RagLabRunIntention(BaseModel):
-    """Story 30: the question the RAG workshop's chains run on (500 characters at most), and
-    the chain (the shipped one when absent)."""
+    """Story 30: the question the RAG workshop's chain runs on (500 characters at most), and
+    the chain (the shipped one when absent). Lot 5c-1: one chain, a list of one (two: 422)."""
 
     question: str = Field(min_length=1, max_length=QUESTION_MAX)
-    pipelines: list[Pipeline] | None = Field(default=None, min_length=1, max_length=LANES_MAX)
+    pipelines: list[Pipeline] | None = Field(default=None, min_length=1, max_length=1)
 
     @field_validator("question")
     @classmethod
@@ -247,9 +247,10 @@ class RagLabRunIntention(BaseModel):
 
 
 class RagLabValidateRequest(BaseModel):
-    """Story 30, increment 4: the chains the page is editing, checked without running them."""
+    """Story 30, increment 4: the chain the page is editing, checked without running it
+    (lot 5c-1: a list of one)."""
 
-    pipelines: list[Pipeline] = Field(min_length=1, max_length=LANES_MAX)
+    pipelines: list[Pipeline] = Field(min_length=1, max_length=1)
 
 
 class McpLabConnectIntention(BaseModel):
@@ -545,16 +546,17 @@ def create_app(
 
     @app.post("/api/rag_lab/validate")
     def rag_lab_validate(request: RagLabValidateRequest) -> dict[str, object]:
-        """Story 30, increment 4, read only: why each chain would be refused, and the stage at
+        """Story 30, increment 4, read only: why the chain would be refused, and the stage at
         fault; nothing runs, nothing is emitted."""
-        return shown(app_session.validate_rag_lab(request.pipelines))
+        return shown(app_session.validate_rag_lab(request.pipelines[0]))
 
     @app.post("/api/intentions/rag_lab_run")
     def rag_lab_run(intention: RagLabRunIntention) -> dict[str, str]:
         """Story 30, class (b): accepted in `idle` only, the session in `rag_lab` until the run
         ends; « Arrêter » (`stop`) stops it. A chain refused: 409 with the reason."""
         try:
-            return {"run_id": app_session.run_rag_lab(intention.question, intention.pipelines)}
+            chain = intention.pipelines[0] if intention.pipelines else None
+            return {"run_id": app_session.run_rag_lab(intention.question, chain)}
         except SendRefused as refused:
             raise HTTPException(
                 status_code=409, detail=render(refused.reason_text, app_session.language)

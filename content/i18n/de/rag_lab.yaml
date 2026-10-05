@@ -214,7 +214,9 @@ steps:
       Das Embedding-Modell wandelt jeden Chunk in einen Zahlenvektor um. Zwei Texte mit
       ähnlicher Bedeutung ergeben nahe Vektoren, auch ohne gemeinsames Wort. Das wird einmal
       berechnet: Die Vektoren des Index des RAG-Bausteins werden neu gelesen, nicht neu
-      berechnet.
+      berechnet. Jedes angebotene Modell hat seinen eigenen Vektor-Cache. Ein Chunk, der länger
+      ist, als das Modell auf einmal liest (max_tokens), wird gekürzt: Der Schritt sagt, wie
+      viele.
   vector_store:
     label_text: "Indexing"
     action_text: "Die Vektoren im Vector Store ablegen"

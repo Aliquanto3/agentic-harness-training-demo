@@ -13399,11 +13399,9 @@ def _rag_lab_run(
     return ended, seq
 
 
-def _stage_ended(r: Run, seq: int, kind: str, lane: str = "a") -> dict[str, Any]:
+def _stage_ended(r: Run, seq: int, kind: str) -> dict[str, Any]:
     found = [
-        e["payload"]
-        for e in r.ev.since(seq, "rag_lab_stage_ended")
-        if e["payload"]["kind"] == kind and e["payload"]["lane"] == lane
+        e["payload"] for e in r.ev.since(seq, "rag_lab_stage_ended") if e["payload"]["kind"] == kind
     ]
     return found[-1] if found else {}
 
@@ -13551,6 +13549,25 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         and subs.get("reranker") == "Faux reranker (e2e)",
         "chaque ligne nomme son option livrée ; les tuiles Embedding model et Reranker aussi",
         f"{options} · {subs}",
+    )
+    # Lot 5c-1: the models of [[rag_lab.embeddings]] in the Embedding's select, after the
+    # brick's model and fastembed; their files are not on the e2e workstation: unavailable,
+    # the reason naming the file under the models folder.
+    choices = _seq_row(r, "embedding").evaluate(
+        "row => [...row.querySelectorAll('select.rag-option option')].map(o =>"
+        " ({ value: o.value, disabled: o.disabled, title: o.title }))"
+    )
+    e5 = next((c for c in choices if c["value"] == "multilingual-e5-small"), {})
+    notes = _seq_row(r, "embedding").locator(".rag-chain-unavailable").all_inner_texts()
+    r.check(
+        [c["value"] for c in choices][:2] == ["declared", "fastembed"]
+        and "qwen3-embedding-0.6b" in [c["value"] for c in choices]
+        and e5.get("disabled") is True
+        and "embedding/multilingual-e5-small-q8_0.gguf" in e5.get("title", "")
+        and any("embedding/multilingual-e5-small-q8_0.gguf" in n for n in notes),
+        "Embedding : multilingual-e5-small et Qwen3-Embedding dans le choix, indisponibles "
+        "sans leur fichier, la raison nommant embedding/…",
+        f"{choices} · {notes}",
     )
     r.check(
         "Même modèle" in page.inner_text('#rag-seq [data-step="embed_query"]'),
@@ -13740,6 +13757,26 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     _rag_lab_alt(r)
     _rag_lab_hybrid(r)
     _rag_lab_presets(r)
+
+    # (6) Lot 5c-1: the main page's journal reads the workshop's events (one chain per run,
+    # no lane): a summary per stage ended, its name read in `rag_lab_run_started`'s stages.
+    r.goto_app()
+    r.wait_idle()
+    page.click("#event-log-head")
+    try:
+        expect(page.locator("#event-log-list")).to_be_visible(timeout=5000)
+        rows = [x for x in page.evaluate(_LOG_ROWS_JS) if x["kind"] == "rag_lab_stage_ended"]
+        r.check(
+            bool(rows)
+            and all(x["summary"].strip() for x in rows)
+            and any(x["summary"].startswith("Dense retrieval · ") for x in rows)
+            and not errors,
+            "page principale : le journal résume chaque rag_lab_stage_ended (« Dense retrieval "
+            "· … »), sans pageerror",
+            f"{rows[:3]} · {errors[:3]}",
+        )
+    finally:
+        page.click("#event-log-head")
 
 
 # Lot 5a-2: what « Dérouler » shows now: the steps, tiles and band visible, the tiles just

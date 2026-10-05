@@ -979,9 +979,6 @@
   summary: Passer au vocabulaire « chunk » / « prompt » les refus de l'Atelier RAG et les comptes `rag_lab.noun` de `content/messages.yaml` (fr, en, de), qui disent encore « extrait » et « contexte ».
   evidence: `messages.yaml` est un fichier carrefour des lots 3 à 6 (ajouts seulement pendant le parallélisme) ; à faire après la fusion du lot 6.
 - source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
-  summary: Retirer les clés orphelines de la comparaison A/B (`rag.chain_a`, `rag.chain_b`, `rag.chain_b_steps`, `rag.comparison.*`) de `content/ui.yaml` et de ses copies en/de, avec la voie B du backend (5c-1).
-  evidence: Plus aucun appel depuis rag.js ; `rag.chain` reste utilisé par app.js. Gardées pendant le parallélisme (fichier carrefour).
-- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
   summary: Vérifier en E2E que la raison d'indisponibilité de FAISS ou LanceDB devient visible une fois la ligne Vector store choisie (branche sans l'extra rag-alt).
   evidence: low ; `_rag_lab_alt` lit `all_inner_texts()`, qui renvoie le texte même masqué. Pour trancher : `is_visible()` après `_focus_of(r, "vector_store")`.
 - source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5b-1-architectures-toutes-faites.md`
@@ -1002,3 +999,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-lot-6-atelier-llm-boucle-du-modele.md`
   summary: Reverser les sections UX du lot 6 (composants `llm-*`, règle 1366 × 768, arborescence de `/llm`, INPUT / TRANSFORMATION / OUTPUT, intention `llm_step`, bandeau D4) de `ux-lot-6-atelier-llm-2026-10-04/` dans le DESIGN.md et l'EXPERIENCE.md principaux.
   evidence: Notes de fusion du lot 6, « Sections UX à reverser après la fusion du lot 3 » ; les documents UX partagés étaient interdits pendant le parallélisme des lots 3 à 6.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-1-embedding-au-choix.md`
+  summary: Vérifier en E2E que l'avertissement de troncature (`.rag-stage-warning`) s'affiche dans le focus de la ligne Embedding et sa carte de `#rag-details`, et pas sur Embedding de la question.
+  evidence: medium, non vérifié dans la page ; la pile E2E branche `tests/fake_embedder.FakeEmbedder`, sans `max_tokens` ni `last_truncated` : aucun run ne tronque. Il faut un faux qui compte la troncature (ou un vrai modèle) pour que le contrôle ne passe pas à vide ; l'événement est couvert en pytest.

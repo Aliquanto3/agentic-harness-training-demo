@@ -782,7 +782,6 @@ main:
       cancelled: "gestoppt"
       not_run: "nicht ausgeführt"
     rag_lab_progress: "{done} von {total}"
-    rag_lab_compared: "{common} gemeinsam, {only_a} nur in A, {only_b} nur in B"
     languages:
       fr: "Französisch"
       en: "Englisch"
@@ -939,10 +938,6 @@ llm:
 
 rag:
   page_title: "WaveStack — RAG-Werkstatt"
-  chain_steps: "Schritte der RAG-Kette"
-  chain_b_steps: "Schritte der Kette B"
-  chain_a: "Kette A"
-  chain_b: "Kette B"
   chain: "Kette {label}"
   rank:
     one: "Nr. {count}"
@@ -955,10 +950,6 @@ rag:
   remove: "Entfernen"
   add: "Komponente hinzufügen"
   add_button: "Hinzufügen"
-  comparison:
-    common: "{title} (A: {a}, B: {b})"
-    only: "{title} ({rank})"
-    changed: "{title}: {a} → {b}"
   empty_question: "Schreiben Sie zuerst eine Frage (höchstens 500 Zeichen)."
   unavailable: "RAG-Werkstatt nicht verfügbar ({cause}): Laden Sie die Seite neu."
 

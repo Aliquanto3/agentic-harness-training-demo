@@ -793,7 +793,6 @@ main:
       cancelled: "arrêtée"
       not_run: "non exécutée"
     rag_lab_progress: "{done} sur {total}"
-    rag_lab_compared: "{common} en commun, {only_a} en A seulement, {only_b} en B seulement"
     languages:
       fr: "français"
       en: "anglais"
@@ -951,10 +950,6 @@ llm:
 
 rag:
   page_title: "WaveStack — Atelier RAG"
-  chain_steps: "Étapes de la chaîne RAG"
-  chain_b_steps: "Étapes de la chaîne B"
-  chain_a: "Chaîne A"
-  chain_b: "Chaîne B"
   chain: "Chaîne {label}"
   rank:
     one: "{count}er"
@@ -967,10 +962,6 @@ rag:
   remove: "Retirer"
   add: "Ajouter un composant"
   add_button: "Ajouter"
-  comparison:
-    common: "{title} (A : {a}, B : {b})"
-    only: "{title} ({rank})"
-    changed: "{title} : {a} → {b}"
   empty_question: "Écrivez d'abord une question (500 caractères au plus)."
   unavailable: "Atelier RAG indisponible ({cause}) : rechargez la page."
 

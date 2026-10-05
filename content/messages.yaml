@@ -503,13 +503,13 @@ session:
     fastembed_files: "Indisponible : les fichiers du modèle fastembed ne sont pas dans {folder}. Copiez-les à la main : l'atelier RAG ne télécharge rien."
     corpus_unreadable: "Le corpus de la brique RAG (content/rag.yaml) est illisible : l'atelier RAG ne peut rien découper."
     texts_unreadable: Textes de l'atelier RAG illisibles.
-    two_chains: "Deux chaînes au plus : A, puis B pour la comparaison."
-    lane: "Chaîne {chain} : {reason}"
     close_failed:
       message: Un modèle chargé par l'atelier RAG n'a pas pu être fermé.
       effect: "Il est oublié ; son créneau mémoire est libéré."
     no_embedding: Aucun modèle d'embedding n'est déclaré.
     embedding_absent: "Modèle d'embedding absent ({names} dans {folder}). Téléchargez-le depuis la carte RAG de l'atelier. Ou suivez docs/installation.md, section « Modèles du RAG »."
+    lab_embedding_absent: "Indisponible : fichier du modèle absent ({files} sous {folder}). L'atelier ne le télécharge pas encore : récupérez-le à l'adresse déclarée dans wavestack.toml ([[rag_lab.embeddings]]) et placez-le à cet endroit."
+    lab_embedding_effect: "Les autres modèles d'embedding de l'atelier restent proposés."
     noun:
       embedding: modèle d'embedding
       reranking: modèle de reranking
@@ -795,6 +795,13 @@ config:
   fastembed:
     absent: "Indisponible : aucun modèle fastembed n'est déclaré. Ajoutez une section [rag_lab.fastembed] (model_name, dims, label_text) à settings.json, WaveStack arrêté."
     invalid: "Indisponible : la section [rag_lab.fastembed] est invalide ({fields}). Corrigez-la, puis relancez WaveStack."
+  # Lot 5c-1: an entry of [[rag_lab.embeddings]] left out (the others are kept).
+  rag_lab_embeddings:
+    invalid: "Modèle d'embedding de l'atelier « {name} » écarté : déclaration invalide ({fields}). Corrigez [[rag_lab.embeddings]] dans wavestack.toml, puis relancez WaveStack."
+    too_long: "Modèle d'embedding de l'atelier « {name} » écarté : son id dépasse {max} caractères. Raccourcissez-le dans wavestack.toml, puis relancez WaveStack."
+    reserved: "Modèle d'embedding de l'atelier « {name} » écarté : son id est déjà celui d'une option de l'étape Embedding (declared, fastembed ou le modèle de la brique RAG). Renommez-le dans wavestack.toml, puis relancez WaveStack."
+    duplicate: "Modèle d'embedding de l'atelier « {name} » écarté : un autre modèle de [[rag_lab.embeddings]] porte déjà cet id. Renommez-le dans wavestack.toml, puis relancez WaveStack."
+    outside: "Modèle d'embedding de l'atelier « {name} » écarté : ses fichiers doivent être sous embedding/ dans le dossier des modèles (jamais proposés comme modèles de conversation). Corrigez load_path et files dans wavestack.toml, puis relancez WaveStack."
 
 # `greenops.py`: a call's footprint note (the method and its limits, or why there is none).
 greenops:
@@ -829,7 +836,7 @@ greenops:
     zero: " CodeCarbon n'a mesuré aucune énergie pour cet appel (trop court)."
 
 # The RAG workshop (story 30, `rag/lab.py`): its chain's refusals, its stages' texts, the
-# comparison of two chains. `{stage}`: a stage's name, read in `rag_lab.yaml`.
+# truncation of its chunks. `{stage}`: a stage's name, read in `rag_lab.yaml`.
 rag_lab:
   quoted: "« {text} »"
   list_separator: " ; "
@@ -850,6 +857,9 @@ rag_lab:
     vector:
       one: vecteur
       other: vecteurs
+    chunk:
+      one: chunk
+      other: chunks
     score:
       one: score
       other: scores
@@ -939,6 +949,9 @@ rag_lab:
     computed: "Passages calculés ({passages}) en {duration}, puis mis en cache (dossier {key})."
     computed_fact: "calculés ({passages})"
     null_vector: "La question ne donne aucun vecteur exploitable (vecteur nul) : reformulez-la avec des mots du corpus."
+    truncated:
+      one: "{chunks} sur {total} dépasse {max} tokens, tronqué : la fin de ce chunk n'entre pas dans son vecteur."
+      other: "{chunks} sur {total} dépassent {max} tokens, tronqués : la fin de ces chunks n'entre pas dans leur vecteur."
     input: "La question « {question} », et le découpage : {extracts}."
     output: "Question → vecteur de {n} nombres ({shown} ; …). {passages}"
   vector_store:
@@ -993,19 +1006,6 @@ rag_lab:
     question_only: "la question seule (aucun contexte construit)"
     with_context: "le contexte construit ({extracts}), puis la question"
     input: "Le modèle actif de l'atelier recevrait : son prompt système, {context} : « {question} »."
-  compare:
-    one_empty: "Une des deux chaînes n'a construit aucun contexte."
-    unit_excerpt:
-      one: extrait
-      other: extraits
-    unit_document:
-      one: document
-      other: documents
-    common: "En commun : {count} {unit}{names} ; seulement dans A : {only_a} ; seulement dans B : {only_b}."
-    gaps: "Écarts de rang : {moves}."
-    move: "« {title} » {rank_a} en A, {rank_b} en B"
-    no_gap: "Aucun écart de rang entre les extraits communs."
-    other_cut: "Les deux chaînes découpent le corpus autrement : comparaison par document."
 
 # The LLM workshop (story 29, `session/llm_lab.py`): its figures and its diagram.
 llm_lab:
@@ -1349,6 +1349,7 @@ models:
   capabilities:
     no_tool_parser: "aucun format d'appel connu pour cette famille de modèle"
     no_template: "Ce fichier GGUF ne contient pas de gabarit de conversation (tokenizer.chat_template) : WaveStack ne peut pas construire le prompt. Choisissez un autre modèle."
+    pooling: "Ce fichier GGUF est un modèle d'embedding ou de reranking (clé pooling_type dans son en-tête), pas un modèle de conversation : WaveStack ne le propose pas comme modèle actif. Choisissez un autre modèle."
     window_too_small: "Indisponible : la fenêtre de contexte ({window} tokens) ne laisse aucune place au contexte une fois réservés les {reserve} tokens de sortie du raisonnement. Agrandissez la fenêtre dans la configuration."
     reasoning:
       never: jamais

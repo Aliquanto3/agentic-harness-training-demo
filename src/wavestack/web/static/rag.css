@@ -845,6 +845,7 @@ body.rag-page {
 }
 
 .rag-stage-error,
+.rag-stage-warning,
 .rag-stage-borrowed {
   margin: var(--spacing-2) 0;
   padding: var(--spacing-1) var(--spacing-2);
@@ -859,10 +860,12 @@ body.rag-page {
   border-left: 3px solid var(--color-danger);
 }
 
+/* Lot 5c-1: a warning (chunks truncated by the embedding model), never an error. */
+.rag-stage-warning,
 .rag-stage-card[data-status="skipped"] .rag-stage-error,
 .rag-stage-card[data-status="cancelled"] .rag-stage-error {
+  border-left: 3px solid var(--color-warning);
   background: var(--color-warning-soft);
-  border-left-color: var(--color-warning);
 }
 
 .rag-stage-borrowed {

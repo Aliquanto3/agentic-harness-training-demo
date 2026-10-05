@@ -7,7 +7,8 @@
 // then RUN, a line per step), the architecture (the components the chain calls on, by
 // group) and the focus on one step, every step's detail folded under them. The table step →
 // components is the session's (`catalog.steps`). In « Composer » the chain's editor lives in
-// the sequence's lines; the A/B comparison is gone from the page.
+// the sequence's lines; the A/B comparison is gone from the page (lot 5c-1: and from the
+// session, one chain per run).
 //
 // Lot 5a-2: in « Dérouler » the steps and the components arrive one by one, by a stepper
 // (`diagram.createStepper`) whose frames are the sequence's steps: every step pushed for a
@@ -34,8 +35,8 @@ const store = {
   serverInstance: null,
   lastSeq: 0,
   pending: false, // a POST sent, not answered yet
-  run: null, // the projection of the last run: its lanes and their stages
-  pipelines: [], // the chain being edited (one: the A/B comparison is gone from the page)
+  run: null, // the projection of the last run: its question and its stages
+  pipelines: [], // the chain being edited (one: the session runs one chain)
   refusals: [], // why the session would refuse it (`POST /api/rag_lab/validate`)
   validating: 0, // the last validation asked, so that a late answer is dropped
   mode: "play", // « compose » or « play » (vues-atelier-rag.md §1)
@@ -197,7 +198,6 @@ function paramInput(stage, param) {
   input.max = String(param.max);
   input.step = "1";
   input.value = String(stage.params?.[param.name] ?? param.default);
-  input.dataset.lane = "a";
   input.dataset.stageId = stage.id;
   input.dataset.param = param.name;
   input.title = t("rag.param_range", { min: fmtInt(param.min), max: fmtInt(param.max), unit: param.unit_text }).trim();
@@ -220,7 +220,6 @@ function paramInput(stage, param) {
 function optionSelect(stage, info) {
   const select = el("select", "rag-option");
   select.setAttribute("aria-label", t("rag.option_label", { stage: info.label_text }));
-  select.dataset.lane = "a";
   select.dataset.stageId = stage.id;
   for (const option of info.options) {
     const item = el("option", null, option.available ? option.label_text : `${option.label_text} (${text("unavailable_text")})`);
@@ -275,7 +274,6 @@ function moveButtons(index) {
     b.setAttribute("aria-label", label);
     b.title = label;
     b.disabled = disabled;
-    b.dataset.lane = "a";
     b.dataset.stageId = stages[index].id;
     b.dataset.action = action;
     b.addEventListener("click", onClick);
@@ -370,7 +368,7 @@ async function askValidation() {
     validateChains();
     return;
   } else {
-    store.refusals = [{ lane: null, stage_id: null, reason_text: refusalText(answer) }];
+    store.refusals = [{ stage_id: null, reason_text: refusalText(answer) }];
   }
   renderRefusals();
   renderBusy();
@@ -616,11 +614,6 @@ function renderArchitecture(entries, shown) {
 
 // ---------- the run, as the sequence reads it ----------
 
-function runLane() {
-  const run = store.run;
-  return run ? (run.lanes.find((l) => l.lane === "a") ?? run.lanes[0] ?? null) : null;
-}
-
 // A stage's settings, those left out at their shipped value: a run and the chain compared.
 function settingsOf(kind, option, params) {
   const values = Object.fromEntries((optionInfo(kind, option)?.params ?? []).map((p) => [p.name, p.default]));
@@ -637,10 +630,9 @@ function shownRun() {
 // The last run, when it ran the chain being edited; else none.
 function chainRun() {
   if (!store.run) return null;
-  const lane = runLane();
   const stages = chain()?.stages ?? [];
-  if (!lane || lane.stages.length !== stages.length) return null;
-  const same = lane.stages.every((s, i) => {
+  if (store.run.stages.length !== stages.length) return null;
+  const same = store.run.stages.every((s, i) => {
     const mine = stages[i];
     return (
       s.stage_id === mine.id &&
@@ -654,7 +646,7 @@ function chainRun() {
 
 function runStage(step) {
   if (!step.stage || !shownRun()) return null;
-  return runLane()?.stages.find((s) => s.kind === step.stage) ?? null;
+  return store.run.stages.find((s) => s.kind === step.stage) ?? null;
 }
 
 // The pill of a line in « Dérouler », once a run is known: a stage's own status and duration;
@@ -735,6 +727,8 @@ function focusRun(box, step) {
   const ended = stage.ended;
   if (!ended) return;
   if (ended.error_text) box.append(el("p", "rag-stage-error", ended.error_text));
+  // Lot 5c-1: what the stage met without failing (chunks truncated), on its own lines only.
+  if (ended.warning_text && step.own) box.append(el("p", "rag-stage-warning", ended.warning_text));
   if (step.key === "documents") {
     box.append(focusIo([[text("input_text"), ended.input_text]]));
     return;
@@ -907,7 +901,7 @@ let quiet = false; // the stepper being rebuilt: one render at the end, not one 
 function playFrames(entries) {
   const run = shownRun();
   if (!run) return entries.map((e) => e.step.key);
-  const reached = new Set((runLane()?.stages ?? []).filter((s) => s.status !== "waiting").map((s) => s.stage_id));
+  const reached = new Set(run.stages.filter((s) => s.status !== "waiting").map((s) => s.stage_id));
   let last = -1;
   entries.forEach((e, i) => {
     if (e.step.own && e.stage && reached.has(e.stage.id)) last = i;
@@ -1005,8 +999,7 @@ function renderViews() {
 function stageOf(envelope) {
   const p = envelope.payload;
   if (!store.run || store.run.runId !== p.run_id) return null;
-  const lane = store.run.lanes.find((l) => l.lane === p.lane);
-  return lane?.stages.find((s) => s.stage_id === p.stage_id) ?? null;
+  return store.run.stages.find((s) => s.stage_id === p.stage_id) ?? null;
 }
 
 function applyEnvelope(envelope) {
@@ -1024,10 +1017,7 @@ function applyEnvelope(envelope) {
         question: p.question,
         startedAt: envelope.ts,
         ended: null,
-        lanes: p.lanes.map((lane) => ({
-          ...lane,
-          stages: lane.stages.map((s) => ({ ...s, status: "waiting", progress: null, ended: null })),
-        })),
+        stages: p.stages.map((s) => ({ ...s, status: "waiting", progress: null, ended: null })),
       };
       break;
     case "rag_lab_stage_started": {
@@ -1067,10 +1057,8 @@ function applyEnvelope(envelope) {
 function closeStaleRun() {
   const run = store.run;
   if (!run || run.ended) return false;
-  run.ended = { status: "error", duration_ms: null, comparison: null };
-  for (const lane of run.lanes) {
-    for (const stage of lane.stages) if (!stage.ended) stage.status = "skipped";
-  }
+  run.ended = { status: "error", duration_ms: null };
+  for (const stage of run.stages) if (!stage.ended) stage.status = "skipped";
   return true;
 }
 
@@ -1147,6 +1135,7 @@ function stageCard(stage, index) {
   const ended = stage.ended;
   if (!ended) return card;
   if (ended.error_text) card.append(el("p", "rag-stage-error", ended.error_text));
+  if (ended.warning_text) card.append(el("p", "rag-stage-warning", ended.warning_text));
   if (ended.borrowed) card.append(el("p", "rag-stage-borrowed", text("borrowed_text")));
   const dl = el("dl", "rag-stage-io");
   if (ended.input_text) dl.append(el("dt", null, text("input_text")), el("dd", "rag-stage-input", ended.input_text));
@@ -1167,8 +1156,8 @@ function stageCard(stage, index) {
   return card;
 }
 
-// Every step's detail (the former section 3), folded under the views: the chain's lane only
-// (a run of two lanes, from a page of before lot 5a, shows its A).
+// Every step's detail (the former section 3), folded under the views: one card per stage of
+// the run's chain.
 function renderResults() {
   const box = $("rag-results");
   box.replaceChildren();
@@ -1179,11 +1168,8 @@ function renderResults() {
   if (!run) return;
   const status = run.ended ? text(STATUS_KEYS[run.ended.status === "ok" ? "ok" : run.ended.status]) : text("status.running_text");
   summary.textContent = `${quote(run.question)} · ${status}${typeof run.ended?.duration_ms === "number" ? ` · ${fmtInt(run.ended.duration_ms)} ms` : ""}`;
-  const lane = runLane();
-  if (!lane) return;
   const column = el("section", "rag-lane");
-  column.dataset.lane = lane.lane;
-  lane.stages.forEach((stage, index) => column.append(stageCard(stage, index)));
+  run.stages.forEach((stage, index) => column.append(stageCard(stage, index)));
   box.append(column);
 }
 

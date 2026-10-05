@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from functools import cached_property
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 # ponytail: pydantic is imported before the network guard (cli imports config first); it
@@ -33,6 +33,9 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+if TYPE_CHECKING:  # `messages` imports `config`
+    from wavestack.messages import Message
 
 
 def data_dir() -> Path:
@@ -406,6 +409,18 @@ class EmbeddingModel(LocalModelSpec):
     dims: int = Field(gt=0)
     query_prefix: str = ""
     passage_prefix: str = ""
+
+
+# Lot 5c-1: `[[rag_lab.embeddings]]`, the workshop's own embedding models: their id is an
+# option of the Embedding stage, never one of its other options, at most this long.
+RAG_LAB_RESERVED_IDS = ("declared", "fastembed")
+RAG_LAB_ID_MAX = 32
+
+
+def _under_embedding(path: str) -> bool:
+    """Lot 5c-1: a path of the models folder under `embedding/` (« . » is not: no part)."""
+    parts = PureWindowsPath(path).parts
+    return bool(parts) and parts[0].casefold() == "embedding"
 
 
 class RerankerModel(LocalModelSpec):
@@ -885,6 +900,51 @@ class Config:
         return max(0, self._int("compression", "cost_mb", default=110)) * 1024 * 1024
 
     @cached_property
+    def rag_lab_embeddings(self) -> tuple[list[EmbeddingModel], list[Message]]:
+        """Lot 5c-1: the RAG workshop's own embedding models (`[[rag_lab.embeddings]]`, the
+        schema of `[rag.embedding]`), each an option of its Embedding stage, and why each
+        invalid entry was left out (a `Message`, rendered where it is shown): an id unique,
+        at most 32 characters, neither an option of the workshop (`declared`, `fastembed`)
+        nor the brick's id; its files under `embedding/` (never offered as chat models)."""
+        valid: list[EmbeddingModel] = []
+        errors: list[Message] = []
+        brick, _ = self.rag_embedding
+        reserved = {*RAG_LAB_RESERVED_IDS, *([brick.id] if brick is not None else [])}
+        raw = self.get("rag_lab", "embeddings", default=[])
+        for n, entry in enumerate(raw if isinstance(raw, list) else [], start=1):
+            name = entry.get("id", f"#{n}") if isinstance(entry, dict) else f"#{n}"
+            try:
+                model = EmbeddingModel.model_validate(entry)
+            except ValidationError as exc:
+                fields = ", ".join(
+                    ".".join(str(p) for p in e["loc"]) or "entrée" for e in exc.errors()
+                )
+                errors.append(
+                    _message("config.rag_lab_embeddings.invalid", name=name, fields=fields)
+                )
+                continue
+            paths = [model.load_path, *(f.path for f in model.files)]
+            if len(model.id) > RAG_LAB_ID_MAX:
+                why = "too_long"
+            elif model.id in reserved:
+                why = "reserved"
+            elif any(m.id == model.id for m in valid):
+                why = "duplicate"
+            elif not all(_under_embedding(p) for p in paths):
+                why = "outside"
+            else:
+                valid.append(model)
+                continue
+            errors.append(
+                _message(f"config.rag_lab_embeddings.{why}", name=name, max=RAG_LAB_ID_MAX)
+            )
+        return valid, errors
+
+    def rag_lab_embedding(self, model_id: str) -> EmbeddingModel | None:
+        """Lot 5c-1: a valid `[[rag_lab.embeddings]]` model by its id."""
+        return next((m for m in self.rag_lab_embeddings[0] if m.id == model_id), None)
+
+    @cached_property
     def rag_lab_fastembed(self) -> tuple[FastembedModel | None, str | None]:
         """Story 30: the workshop's fastembed model, or why there is none (French)."""
         raw = self.get("rag_lab", "fastembed")
@@ -1120,6 +1180,14 @@ def load_config() -> Config:
     models = _merge_cloud_models(_cloud_list(defaults), _cloud_list(settings))
     if models:  # AD-20: merged by `id`, where `_deep_merge` replaces lists
         values["cloud"] = {**(values.get("cloud") or {}), "models": models}
+    # Lot 5c-1: the workshop's embedding models are wavestack.toml's only, never settings.json's.
+    lab = values.get("rag_lab")
+    if isinstance(lab, dict) and "embeddings" in lab:
+        shipped = defaults.get("rag_lab")
+        lab = {k: v for k, v in lab.items() if k != "embeddings"}
+        if isinstance(shipped, dict) and "embeddings" in shipped:
+            lab["embeddings"] = shipped["embeddings"]
+        values["rag_lab"] = lab
     return Config(values=values)
 
 

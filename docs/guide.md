@@ -306,6 +306,20 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   dossier>` du dossier de données (par défaut `models--<model_name>`, « / » devenant « -- ») :
   l'atelier ne
   télécharge jamais rien. Une chaîne refusée dit pourquoi, en nommant l'étape.
+- **Embedding au choix.** L'étape Embedding propose, après le modèle de la brique RAG (Granite
+  Embedding 107M) et fastembed, les modèles déclarés en `[[rag_lab.embeddings]]` de
+  `wavestack.toml` (jamais dans `settings.json`) : **multilingual-e5-small** (384 dimensions,
+  512 tokens, préfixes `query: ` et `passage: `) et **Qwen3-Embedding 0.6B** (1 024 dimensions,
+  2 048 tokens, une instruction devant la question). Leur fichier va sous `models/embedding/`
+  du dossier de données ; absent, l'option est grisée et la raison nomme le fichier attendu
+  (l'atelier ne le télécharge pas encore). Chaque modèle est chargé le temps de l'exécution,
+  dans son propre emplacement du budget mémoire (`rag_lab.embedding.<id>`), sans jamais
+  décharger celui de la brique, et a son propre cache de vecteurs. Un chunk plus long que ce
+  que le modèle lit d'un coup (`max_tokens`) est tronqué : l'étape l'annonce en avertissement
+  (« 3 chunks sur 16 dépassent 512 tokens, tronqués »). Un GGUF d'embedding ou de reranking
+  (clé `pooling_type` dans son en-tête) n'est jamais proposé comme modèle de conversation, où
+  qu'il soit (dossier des modèles, cache Hugging Face, LM Studio) : Diagnostic et modèles le
+  montrent en rouge, avec la raison.
 - **Ajouter, retirer, déplacer.** Entre le vector store et le Prompt augmentation, les
   recherches, la fusion et le reranking se déplacent par leurs boutons « ▲ » et « ▼ » (au clavier
   aussi) et se retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le

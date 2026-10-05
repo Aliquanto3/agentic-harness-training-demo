@@ -1360,9 +1360,12 @@ def test_vocab_tokenizer_says_whether_the_vocabulary_asks_a_bos():
     """Lot 6 of 2026-10-04 (the OUTPUT's step): `adds_bos` on real GGUF files."""
     tokenizer = VocabTokenizer(str(TINY))
     assert tokenizer.adds_bos() is None  # this vocabulary adds none
+    assert tokenizer.metadata().pooling_type is None  # lot 5c-1: a chat model has none
     tokenizer.close()
     rank = VocabTokenizer(str(Path(__file__).parent / "fixtures" / "tiny-bert-rank.gguf"))
     assert rank.adds_bos() == 2
+    pooling = rank.metadata().pooling_type
+    assert pooling is not None and pooling > 0  # a reranker: never a chat model
     rank.close()
 
 

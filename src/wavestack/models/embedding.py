@@ -49,7 +49,7 @@ def model_path(model: EmbeddingModel) -> Path:
 
 class LlamaCppEmbedder:
     """In-process adapter: `Llama(embedding=True)`, the pooling read from the GGUF, one text
-    per call, truncated to `max_tokens` tokens."""
+    per call, truncated to `max_tokens` tokens (lot 5c-1: counted in `last_truncated`)."""
 
     def __init__(self, model: EmbeddingModel, path: Path | None = None) -> None:
         import llama_cpp
@@ -57,7 +57,8 @@ class LlamaCppEmbedder:
         self.model_id = model.id
         self.dims = model.dims
         self._model = model
-        n = model.max_tokens
+        n = self.max_tokens = model.max_tokens
+        self.last_truncated: int | None = None  # lot 5c-1: of the last call's texts
         self._llm = llama_cpp.Llama(
             model_path=str(path or model_path(model)),
             embedding=True,
@@ -78,10 +79,22 @@ class LlamaCppEmbedder:
             raise EmbedderRefused("models.embedding.not_pooled")
 
     def _embed(self, texts: Sequence[str], prefix: str) -> list[list[float]]:
-        return [
-            normalize(self._llm.embed(prefix + text, normalize=False, truncate=True))
-            for text in texts
-        ]
+        """Lot 5c-1: `last_truncated`, how many of `texts` llama.cpp cut at `max_tokens` (it
+        tokenizes each as `embed` does, then keeps its first `n_batch` tokens); `None` when the
+        tokenizer cannot be read."""
+        tokenize = getattr(self._llm, "tokenize", None)
+        cut: int | None = 0 if tokenize is not None else None
+        vectors = []
+        for text in texts:
+            full = prefix + text
+            if cut is not None:
+                try:
+                    cut += len(tokenize(full.encode("utf-8"))) > self.max_tokens  # type: ignore[misc]
+                except Exception:  # noqa: BLE001 - the count is a note, never a failure
+                    cut = None
+            vectors.append(normalize(self._llm.embed(full, normalize=False, truncate=True)))
+        self.last_truncated = cut
+        return vectors
 
     def embed_queries(self, texts: Sequence[str]) -> list[list[float]]:
         return self._embed(texts, self._model.query_prefix)

@@ -937,6 +937,8 @@ class AppSession:
         self._rag_lab_import_errors: dict[str, str] = {}
         # The catalog the validation of an edited chain reads (`_rag_lab_recent_catalog`).
         self._rag_lab_catalog_kept: tuple[float, Any, rag_lab.Catalog] | None = None
+        # Lot 5c-1: the `[[rag_lab.embeddings]]` entries left out, traced once each.
+        self._rag_lab_rejected_traced: set[str] = set()
         # Story 6 of 2026-09-30 (the MCP workshop): its exchanges, numbered (`mcp{n}`), the
         # first of its last connection, its own connection (never the brick's) and the tools
         # it listed, and its content error already traced.
@@ -9198,9 +9200,43 @@ class AppSession:
                 state.available, state.reason_text = False, self._rag_lab_import_errors[option]
             elif option not in self._rag_lab_imported and not rag_lab.installed(module):
                 state.available, state.reason_text = False, rag_lab.not_installed_fr(option)
+        # Lot 5c-1: the workshop's own embedding models, an option each (its id), offered only
+        # when its files are on the workstation (the workshop does not download them yet).
+        declared_models, rejected = self.cfg.rag_lab_embeddings
+        self._rag_lab_trace_rejected(rejected)
+        for lab_model in declared_models:
+            absent = self._rag_lab_absent(lab_model)
+            options[("embedding", lab_model.id)] = rag_lab.OptionState(
+                lab_model.label_text, available=absent is None, reason_text=absent
+            )
         return rag_lab.Catalog(
             texts, rag_lab.default_pipeline(self.cfg), options, lang=self._language
         )
+
+    def _rag_lab_absent(self, model: config.EmbeddingModel) -> Message | None:
+        """Lot 5c-1: why a declared embedding model of the workshop cannot be chosen (its files
+        missing, named by their path under the models folder), or `None`."""
+        missing = download_module.missing_files(model.files, config.models_dir())
+        if not missing:
+            return None
+        files = ", ".join(PurePosixPath(f.path).as_posix() for f in missing)
+        return Message(
+            "session.rag_lab.lab_embedding_absent", files=files, folder=config.models_dir()
+        )
+
+    def _rag_lab_trace_rejected(self, rejected: list[Message]) -> None:
+        """Lot 5c-1: each entry of `[[rag_lab.embeddings]]` left out, traced once as
+        `harness_error` (the others stay offered)."""
+        for reason in rejected:
+            if str(reason) in self._rag_lab_rejected_traced:
+                continue
+            self._rag_lab_rejected_traced.add(str(reason))
+            with scoped(**self._rag_lab_scope("rag_lab", None, brick=None)):
+                self._error(
+                    reason,
+                    "wavestack.toml [[rag_lab.embeddings]]",
+                    Message("session.rag_lab.lab_embedding_effect"),
+                )
 
     def _rag_lab_fastembed(self) -> tuple[config.FastembedModel | None, str | None]:
         """Story 30: the fastembed option, offered only installed, declared and on the
@@ -9245,12 +9281,13 @@ class AppSession:
             return self._content_errors.get("rag") or Message("session.rag_lab.corpus_unreadable")
         return None
 
-    def run_rag_lab(self, question: str, pipelines: list[rag_lab.Pipeline] | None = None) -> str:
+    def run_rag_lab(self, question: str, pipeline: rag_lab.Pipeline | None = None) -> str:
         """Intention `rag_lab_run` (story 30, class b): accepted in `idle` only (a reason
         there, such as no model loaded, does not matter: nothing is generated), switched to
         `rag_lab` under the lock in this call, then run on the worker; « Arrêter » (class c)
-        stops it between two stages, passages or candidates. A chain the workshop refuses:
-        `SendRefused` with the reason, nothing emitted. Returns the run's id, `lab{n}`."""
+        stops it between two stages, passages or candidates. One chain per run (lot 5c-1), the
+        shipped one when `pipeline` is `None`. A chain the workshop refuses: `SendRefused` with
+        the reason, nothing emitted. Returns the run's id, `lab{n}`."""
         texts, error_text = self._rag_lab_content()
         if texts is None:
             raise SendRefused(error_text or Message("session.rag_lab.texts_unreadable"))
@@ -9258,15 +9295,10 @@ class AppSession:
         if unavailable is not None:
             raise SendRefused(unavailable)
         catalog = self._rag_lab_catalog(texts)
-        chains = list(pipelines) if pipelines else [catalog.default]
-        if len(chains) > rag_lab.LANES_MAX:
-            raise SendRefused(Message("session.rag_lab.two_chains"))
-        for chain in chains:
-            reason = rag_lab.validate_pipeline(chain, catalog)
-            if reason is not None:
-                if len(chains) > 1:
-                    reason = Message("session.rag_lab.lane", chain=chain.label_text, reason=reason)
-                raise SendRefused(reason)
+        chain = pipeline or catalog.default
+        reason = rag_lab.validate_pipeline(chain, catalog)
+        if reason is not None:
+            raise SendRefused(reason)
         with self._lock:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
@@ -9277,7 +9309,7 @@ class AppSession:
             self.state, self.reason_text = "rag_lab", _RAG_LAB_FR
         self._emit_state()
         self._executor.submit(
-            self._run_rag_lab, run_id, question, chains, texts, catalog, cancel, previous
+            self._run_rag_lab, run_id, question, chain, texts, catalog, cancel, previous
         )
         return run_id
 
@@ -9293,30 +9325,24 @@ class AppSession:
         self._rag_lab_catalog_kept = (now, texts, catalog)
         return catalog
 
-    def validate_rag_lab(self, pipelines: list[rag_lab.Pipeline]) -> dict[str, Any]:
-        """`POST /api/rag_lab/validate` (story 30, increment 4), read only: the reason each
+    def validate_rag_lab(self, pipeline: rag_lab.Pipeline) -> dict[str, Any]:
+        """`POST /api/rag_lab/validate` (story 30, increment 4), read only: the reason the
         chain would be refused for, and the stage at fault, so that the page says it on the
-        stage's card before « Lancer » (AD-1: the rules are the session's)."""
+        stage's line before « Lancer » (AD-1: the rules are the session's)."""
         texts, error_text = self._rag_lab_content()
         if texts is None:
             reason = error_text or Message("session.rag_lab.texts_unreadable")
-            return {
-                "valid": False,
-                "refusals": [{"lane": None, "stage_id": None, "reason_text": reason}],
-            }
+            return {"valid": False, "refusals": [{"stage_id": None, "reason_text": reason}]}
         catalog = self._rag_lab_recent_catalog(texts)
-        refusals = []
-        for lane, chain in zip("ab", pipelines, strict=False):
-            refusal = rag_lab.check_pipeline(chain, catalog)
-            if refusal is not None:
-                refusals.append({"lane": lane, "stage_id": refusal[1], "reason_text": refusal[0]})
+        refusal = rag_lab.check_pipeline(pipeline, catalog)
+        refusals = [] if refusal is None else [{"stage_id": refusal[1], "reason_text": refusal[0]}]
         return {"valid": not refusals, "refusals": refusals}
 
     def _run_rag_lab(
         self,
         run_id: str,
         question: str,
-        chains: list[rag_lab.Pipeline],
+        chain: rag_lab.Pipeline,
         texts: rag_lab.RagLabContent,
         catalog: rag_lab.Catalog,
         cancel: CancelToken,
@@ -9351,7 +9377,7 @@ class AppSession:
                 rss=self._rss_now,
                 lang=self._language,
             )
-            lab_run = rag_lab.LabRun(run_id, question, chains, deps)
+            lab_run = rag_lab.LabRun(run_id, question, chain, deps)
             lab_run.run()
         except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
             with scoped(**self._rag_lab_scope(run_id, "rag_lab", brick=None)):
@@ -9392,6 +9418,9 @@ class AppSession:
         end; its errors are said in the stage, never as `harness_error`."""
         if option == "fastembed":
             return self._rag_lab_fastembed_lent(loans)
+        lab_model = self.cfg.rag_lab_embedding(option)
+        if lab_model is not None:
+            return self._rag_lab_declared_lent(lab_model, loans)
         model = self._rag_model
         if option != "declared" or model is None:
             raise rag_lab.StageFailed(
@@ -9423,6 +9452,33 @@ class AppSession:
                 model.measured_rss_mb, [f.size for f in model.files]
             ),
             slot=EMBEDDING,
+            open_model=open_model,
+        )
+
+    def _rag_lab_declared_lent(
+        self, model: config.EmbeddingModel, loans: rag_lab.Loans
+    ) -> rag_lab.Lent:
+        """Lot 5c-1: a `[[rag_lab.embeddings]]` model, loaded for the run in its own slot
+        (`rag_lab.embedding.<id>`: the brick's `embedding` slot is never touched), within the
+        budget, its declared sha256 checked, by the brick's factory; closed at the run's end."""
+
+        def open_model() -> Embedder:
+            path = embedding_module.model_path(model)
+            declared = model.load_file.sha256
+            # Kept per size and modification time: the file is not hashed again at each run.
+            if declared and rag_lab.file_digest(path) != declared.lower():
+                raise ValueRefused("session.rag.sha256", path=path, section="rag_lab.embeddings")
+            return self._embedder_factory(model)
+
+        return loans.lend(
+            borrowed=None,
+            label_text=model.label_text,
+            noun_text=Message("session.rag_lab.noun.embedding"),
+            unavailable_text=self._rag_lab_absent(model),
+            cost=self._load_registry.component_cost(
+                model.measured_rss_mb, [f.size for f in model.files]
+            ),
+            slot=f"{RAG_LAB_EMBEDDING}.{model.id}",
             open_model=open_model,
         )
 
@@ -9526,7 +9582,8 @@ class AppSession:
 
     def _rag_lab_identity(self, option: str) -> dict[str, Any]:
         """What identifies an embedding model, the key of the workshop's vector cache: its id,
-        its dimensions, its file's size and sha256 (declared, else computed once)."""
+        its dimensions, its file's size and sha256 (declared, else computed once); lot 5c-1:
+        its prefixes and `max_tokens` (they change the vectors), each model its own cache."""
         if option == "fastembed":
             model, _ = self._rag_lab_fastembed()
             assert model is not None  # the stage loaded it
@@ -9534,11 +9591,19 @@ class AppSession:
                 embedding_module.fastembed_dir() / model.folder_name
             )
             return {"id": model.model_name, "dims": model.dims, "size": size, "sha256": sha}
-        model = self._rag_model
+        model = self.cfg.rag_lab_embedding(option) or self._rag_model
         assert model is not None  # the stage loaded it
         declared = model.load_file
         sha = declared.sha256 or rag_lab.file_digest(embedding_module.model_path(model))
-        return {"id": model.id, "dims": model.dims, "size": declared.size, "sha256": sha.lower()}
+        return {
+            "id": model.id,
+            "dims": model.dims,
+            "size": declared.size,
+            "sha256": sha.lower(),
+            "query_prefix": model.query_prefix,
+            "passage_prefix": model.passage_prefix,
+            "max_tokens": model.max_tokens,
+        }
 
     def _rag_lab_reranker(self, option: str, loans: rag_lab.Loans) -> rag_lab.Lent:
         """The brick's reranker, borrowed or loaded as `_load_reranker` loads it; without its

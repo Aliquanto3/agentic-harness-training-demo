@@ -1221,13 +1221,12 @@ class LlmGenerationEndedPayload(BaseModel):
 
 # ---------- story 30: the RAG workshop (AD-2, AD-22), context `rag_lab`, no turn ----------
 
-RagLabLaneId = Literal["a", "b"]
 RagLabStageStatus = Literal["ok", "error", "skipped", "cancelled", "not_run"]
 
 
 class RagLabStageRef(BaseModel):
-    """A stage of a lane as the run draws it: its kind, its option and their French names,
-    its settings."""
+    """A stage of the chain as the run draws it: its kind, its option and their names, its
+    settings. Lot 5c-1: one chain per run, no lane."""
 
     stage_id: str
     kind: str
@@ -1237,22 +1236,15 @@ class RagLabStageRef(BaseModel):
     params: dict[str, int] = {}
 
 
-class RagLabLane(BaseModel):
-    lane: RagLabLaneId
-    label_text: str
-    stages: list[RagLabStageRef]
-
-
 class RagLabRunStartedPayload(BaseModel):
     run_id: str
     question: str
-    lanes: list[RagLabLane]
+    stages: list[RagLabStageRef]
     phase_label: str
 
 
 class RagLabStageStartedPayload(BaseModel):
     run_id: str
-    lane: RagLabLaneId
     stage_id: str
     kind: str
     option: str
@@ -1261,7 +1253,6 @@ class RagLabStageStartedPayload(BaseModel):
 
 class RagLabStageProgressPayload(BaseModel):
     run_id: str
-    lane: RagLabLaneId
     stage_id: str
     kind: str
     option: str
@@ -1300,7 +1291,6 @@ class RagLabStageEndedPayload(BaseModel):
     WaveStack's memory at its end (`None` for a stage that did not run)."""
 
     run_id: str
-    lane: RagLabLaneId
     stage_id: str
     kind: str
     option: str
@@ -1311,36 +1301,17 @@ class RagLabStageEndedPayload(BaseModel):
     items: list[RagLabItem] = []
     borrowed: bool = False  # the model was the RAG brick's, lent and not closed
     error_text: str | None = None
+    # Lot 5c-1: what the stage met without failing (chunks truncated by the embedding model).
+    warning_text: str | None = None
     duration_ms: int
     rss_bytes: int | None = None
     memory_text: str | None = None
-
-
-class RagLabCompared(BaseModel):
-    key: str  # an excerpt (`doc_id#position`) or a document (`doc_id`)
-    doc_id: str
-    title_text: str
-    rank_a: int | None = None
-    rank_b: int | None = None
-
-
-class RagLabComparison(BaseModel):
-    """The two contexts compared, in Python (AD-1): excerpt by excerpt when both chains cut
-    the corpus alike, else document by document."""
-
-    basis: Literal["excerpt", "document"]
-    common: list[RagLabCompared]
-    only_a: list[RagLabCompared]
-    only_b: list[RagLabCompared]
-    rank_changes: list[RagLabCompared]
-    summary_text: str
 
 
 class RagLabRunEndedPayload(BaseModel):
     run_id: str
     status: Literal["ok", "error", "cancelled"]
     duration_ms: int
-    comparison: RagLabComparison | None = None
 
 
 # ---------- the MCP workshop, context `mcp_lab` (story 6 of 2026-09-30; lot 4, AD-27) ----------

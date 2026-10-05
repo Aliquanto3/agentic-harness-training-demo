@@ -65,7 +65,7 @@ def test_unavailable_without_the_extra_with_the_command(index, without_extra, op
     stage(b, "chunking").params["chunk_max_chars"] = 300
     stage(b, "vector_store").option = option
     with pytest.raises(SendRefused) as refused:
-        session.run_rag_lab(QUESTION, [a, b])
+        session.run_rag_lab(QUESTION, b)
     assert INSTALL in refused.value.reason_text and "« Vector store »" in refused.value.reason_text
 
 
@@ -83,13 +83,13 @@ def test_the_budget_refuses_the_import(index, monkeypatch):  # noqa: F811
     values = rerank_config(index, budget_mb=100)
     session, _ = lab_session(values, rss=50 * 1024**2)
     a, b = _faiss_chain(session)
-    events = run(session, QUESTION, [a, b])
-    store = ended(events, "vector_store", "b")
+    events = run(session, QUESTION, b)
+    store = ended(events, "vector_store")
     assert (
         store["status"] == "error"
         and "Mémoire insuffisante pour charger FAISS" in store["error_text"]
     )
-    assert ended(events, "vector_store", "a")["status"] == "ok"  # lane A untouched
+    assert ended(run(session, QUESTION, a), "vector_store")["status"] == "ok"  # the shipped one
     assert session._load_registry.holder("rag_lab.faiss") is None
     assert "faiss" not in session._rag_lab_imported
 
@@ -106,8 +106,8 @@ def test_an_import_refused_is_said_in_french_then_unavailable(index, monkeypatch
     monkeypatch.setattr(importlib, "import_module", refuse)
     session, _ = ready(index)
     a, b = _faiss_chain(session)
-    events = run(session, QUESTION, [a, b])
-    store = ended(events, "vector_store", "b")
+    events = run(session, QUESTION, b)
+    store = ended(events, "vector_store")
     assert store["status"] == "error"
     assert store["error_text"].startswith(
         "Import refusé : FAISS n'a pas pu être chargé (ImportError"
@@ -117,7 +117,7 @@ def test_an_import_refused_is_said_in_french_then_unavailable(index, monkeypatch
     state = options(session)[("vector_store", "faiss")]
     assert not state["available"] and "Import refusé" in state["reason_text"]
     with pytest.raises(SendRefused):
-        session.run_rag_lab(QUESTION, [a, b])
+        session.run_rag_lab(QUESTION, b)
 
 
 @pytest.mark.parametrize("option", ["faiss", "lancedb"])
@@ -133,8 +133,9 @@ def test_ranks_as_the_memory_search(index, option):  # noqa: F811
     for i, question in enumerate(
         (QUESTION, "Quel plafond pour une nuit d'hôtel à Paris ?", QUESTION)
     ):
-        events = run(session, question, [a, b])
-        store = ended(events, "vector_store", "b")
+        memory = run(session, question, a)
+        events = run(session, question, b)
+        store = ended(events, "vector_store")
         assert store["status"] == "ok", store["error_text"]
         facts = {f["label_text"]: f["value_text"] for f in store["facts"]}
         if i == 0:
@@ -143,11 +144,11 @@ def test_ranks_as_the_memory_search(index, option):  # noqa: F811
         else:
             assert f"Index {label} relu (77 vecteurs)" in store["output_text"]
             assert facts["Import"].startswith("déjà fait")
-        searched = [ended(events, "vector_search", lane)["items"] for lane in "ab"]
+        searched = [ended(e, "vector_search")["items"] for e in (memory, events)]
         assert [(x["chunk_id"], x["score"]) for x in searched[0]] == [
             (x["chunk_id"], x["score"]) for x in searched[1]
         ]
-        contexts = [ended(events, "context", lane)["items"] for lane in "ab"]
+        contexts = [ended(e, "context")["items"] for e in (memory, events)]
         assert [x["chunk_id"] for x in contexts[0]] == [x["chunk_id"] for x in contexts[1]]
     slot = f"rag_lab.{option}"
     assert session._load_registry.holder(slot) == label  # counted for life, never released
@@ -285,18 +286,19 @@ def test_the_first_import_is_counted_for_life_with_fake_modules(
         stage(chain, "chunking").params["chunk_max_chars"] = 300
     stage(a, "vector_store").option = "memory"
     stage(b, "vector_store").option = option
-    first = run(session, QUESTION, [a, b])
-    store = ended(first, "vector_store", "b")
+    memory = run(session, QUESTION, a)
+    first = run(session, QUESTION, b)
+    store = ended(first, "vector_store")
     facts = {f["label_text"]: f["value_text"] for f in store["facts"]}
     assert (
         store["status"] == "ok" and f"Index {label} construit (77 vecteurs)" in store["output_text"]
     )
     assert facts["Import"].startswith("premier import") and "réservés à vie" in facts["Budget"]
     assert session._load_registry.holder(f"rag_lab.{option}") == label
-    searched = [ended(first, "vector_search", lane)["items"] for lane in "ab"]
+    searched = [ended(e, "vector_search")["items"] for e in (memory, first)]
     assert [i["chunk_id"] for i in searched[0]] == [i["chunk_id"] for i in searched[1]]
-    second = run(session, QUESTION, [a, b])
-    store = ended(second, "vector_store", "b")
+    second = run(session, QUESTION, b)
+    store = ended(second, "vector_store")
     facts = {f["label_text"]: f["value_text"] for f in store["facts"]}
     assert f"Index {label} relu (77 vecteurs)" in store["output_text"]
     assert facts["Import"].startswith("déjà fait")
@@ -315,8 +317,8 @@ def test_a_broken_install_is_recorded_then_unavailable(index, monkeypatch):  # n
     monkeypatch.setattr(importlib, "import_module", broken)
     session, _ = ready(index)
     a, b = _faiss_chain(session)
-    events = run(session, QUESTION, [a, b])
-    store = ended(events, "vector_store", "b")
+    events = run(session, QUESTION, b)
+    store = ended(events, "vector_store")
     assert store["status"] == "error" and store["error_text"].startswith("Import en échec : FAISS")
     state = options(session)[("vector_store", "faiss")]
     assert not state["available"] and "Import en échec" in state["reason_text"]
