@@ -309,6 +309,10 @@ stages:
       tag_text: "Exemple · probabilités d'illustration"
       note_text: "Exemple d'illustration, pas le calcul du modèle : les réglages le font bouger comme le vrai tirage."
       unsupported_text: "Il ne bouge que l'exemple."
+      # Correction F du 2026-10-05 : « Tirer le token suivant » tire dans l'exemple
+      # (POST /api/llm_lab/example_draw) ; la mention de la puce et son nom accessible.
+      drawn_text: "exemple"
+      chip_label_text: "{texte}, tiré dans l'exemple"
       candidates:
         - {text: " ?", p: 0.52}
         - {text: "?", p: 0.14}

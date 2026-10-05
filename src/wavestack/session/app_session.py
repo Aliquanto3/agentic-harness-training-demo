@@ -18,6 +18,7 @@ import inspect
 import json
 import logging
 import math
+import random
 import re
 import threading
 import time
@@ -125,7 +126,7 @@ from wavestack.models import embedding as embedding_module
 from wavestack.models import gguf_meta
 from wavestack.models import probe as probe_module
 from wavestack.models import reranker as reranker_module
-from wavestack.models.candidates import distribution, dropped_by
+from wavestack.models.candidates import distribution, draw_index, dropped_by
 from wavestack.models.capabilities import (
     NO_TOOL_PARSER_FR,
     TOOL_CALL_TAGS,
@@ -930,6 +931,9 @@ class AppSession:
         # `{token_text, p, texts, tail}`, with the engine that read them (a switch of model
         # makes them stale); in memory only, never in the journal. `None`: nothing kept.
         self._lab_top: tuple[Any, dict[int, dict[str, Any]]] | None = None
+        # Correction F of 2026-10-05: the generator of the OUTPUT example's draws
+        # (`llm_example_draw`); the tests replace it with a seeded one.
+        self._example_rng = random.Random()
         # Story 30 (the RAG workshop): its runs, numbered over the session's life (`lab{n}`),
         # and its content error already traced (once per message).
         self._rag_labs = 0
@@ -9045,6 +9049,22 @@ class AppSession:
             "dropped_by": dropped_by(values, example.tail, sampling),
             "example": True,
         }
+
+    def llm_example_draw(self, sampling: Sampling) -> dict[str, Any]:
+        """`POST /api/llm_lab/example_draw` (correction F of 2026-10-05), read only, in any
+        state, with or without a model: one of the OUTPUT example's kept candidates drawn
+        with `sampling`, by the chances `llm_example_distribution` shows
+        (`candidates.distribution`, then `draw_index`: AD-1, the session draws, never the
+        page). No event, no journal line, no model call: the example has nothing to follow.
+        Raises `DistributionMissing` when the texts cannot be read."""
+        content, error_text = self._lab_content()
+        if content is None:
+            raise DistributionMissing(error_text or Message("session.llm_lab.content_invalid"))
+        example = content.stages.output.example
+        rows = distribution([c.p for c in example.candidates], example.tail, sampling)
+        with self._lock:
+            index = draw_index(rows, self._example_rng)
+        return {"index": index, "token_text": example.candidates[index].text, "example": True}
 
     def _lab_candidates(self) -> dict[str, Any]:
         """`lab_state().candidates` (story 29, increment 4): the candidates' probabilities are

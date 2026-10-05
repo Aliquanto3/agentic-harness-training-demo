@@ -5,6 +5,7 @@ synthetic GGUF header, a scripted cloud provider."""
 from __future__ import annotations
 
 import json
+import random
 import shutil
 import threading
 import time
@@ -25,6 +26,7 @@ from wavestack.models.candidates import (
     TOP,
     candidates_from_logits,
     distribution,
+    draw_index,
     dropped_by,
     top_from_logits,
 )
@@ -1742,6 +1744,7 @@ def test_the_examples_are_valid_in_each_language(lang):
     assert stages.input.example_cloud_text
     example = stages.output.example
     assert example.tag_text and example.note_text and example.unsupported_text
+    assert example.drawn_text and "{texte}" in example.chip_label_text  # correction F
     values = [c.p for c in example.candidates]
     assert len(values) == 6 and values == sorted(values, reverse=True)
     assert sum(values) + example.tail == pytest.approx(1.0, abs=0.01)
@@ -1842,5 +1845,117 @@ def test_the_example_route_says_why_when_the_texts_cannot_be_read(monkeypatch):
     client = _web(session)
     answer = client.post(
         "/api/llm_lab/example_distribution", json={"sampling": OPEN}, headers=ORIGIN
+    )
+    assert answer.status_code == 404 and answer.json()["detail"] == "Contenu illisible (test)."
+
+
+# ---------- correction F of 2026-10-05: « Tirer » draws in the example ----------
+
+
+def _example_rows(sampling: Sampling) -> list[dict]:
+    example = llm_lab.load_lab_content("fr").stages.output.example
+    return distribution([c.p for c in example.candidates], example.tail, sampling)
+
+
+@pytest.mark.parametrize("sampling", EXAMPLE_SAMPLINGS)
+def test_draw_index_draws_among_the_kept_rows_only(sampling):
+    rows = _example_rows(sampling)
+    kept = {i for i, r in enumerate(rows) if r["kept"]}
+    rng = random.Random(7)
+    assert {draw_index(rows, rng) for _ in range(500)} <= kept
+
+
+@pytest.mark.parametrize("sampling", [Sampling(0.0, 0, 1.0, 0.0), Sampling(1.5, 1, 1.0, 0.0)])
+def test_draw_index_at_zero_temperature_or_top_k_one_is_the_first(sampling):
+    rows = _example_rows(sampling)
+    rng = random.Random(3)
+    assert {draw_index(rows, rng) for _ in range(200)} == {0}
+
+
+def test_draw_index_follows_the_chances_shown():
+    rows = _example_rows(Sampling(1.0, 0, 1.0, 0.0))
+    rng = random.Random(2026)
+    draws = 20000
+    counts = [0] * len(rows)
+    for _ in range(draws):
+        counts[draw_index(rows, rng)] += 1
+    for count, row in zip(counts, rows, strict=True):
+        assert count / draws == pytest.approx(row["p_sampled"], abs=0.015)
+
+
+def test_draw_index_without_weight_or_kept_row():
+    rng = random.Random(0)
+    flat = [{"kept": False, "p_sampled": 0.0}, {"kept": True, "p_sampled": 0.0}]
+    assert draw_index(flat, rng) == 1
+    with pytest.raises(ValueError):
+        draw_index([{"kept": False, "p_sampled": 0.0}], rng)
+
+
+@pytest.mark.parametrize("sampling", EXAMPLE_SAMPLINGS)
+def test_the_session_draws_in_the_example_by_its_chances(sampling):
+    session = AppSession(config.Config(values={}))  # never booted: no model at all
+    session._example_rng = random.Random(11)
+    expected = random.Random(11)
+    rows = _example_rows(sampling)
+    example = llm_lab.load_lab_content("fr").stages.output.example
+    mark = get_journal().last_seq()
+    for _ in range(20):
+        body = session.llm_example_draw(sampling)
+        index = draw_index(rows, expected)
+        assert body == {
+            "index": index,
+            "token_text": example.candidates[index].text,
+            "example": True,
+        }
+        assert rows[body["index"]]["kept"]
+    assert get_journal().events_since(mark) == []  # no event, nothing in the journal
+
+
+def test_the_example_draw_route_without_model_in_cloud_busy_and_invalid(monkeypatch):
+    example = llm_lab.load_lab_content("fr").stages.output.example
+    texts = [c.text for c in example.candidates]
+
+    clients: dict[int, TestClient] = {}
+
+    def draw(session, sampling=OPEN):
+        client = clients.setdefault(id(session), _web(session))
+        return client.post("/api/llm_lab/example_draw", json={"sampling": sampling}, headers=ORIGIN)
+
+    none = AppSession(config.Config(values={}))
+    answer = draw(none)
+    assert answer.status_code == 200 and answer.json()["example"] is True
+    assert answer.json()["token_text"] == texts[answer.json()["index"]]
+
+    provider = Provider(sse(delta(content="ok"), delta("stop")))
+    cloud = _cloud_session("groq", provider)
+    mark = get_journal().last_seq()
+    greedy = {"temperature": 0.0, "top_k": 20, "top_p": 1.0, "min_p": 0.0}
+    assert draw(cloud, greedy).json() == {"index": 0, "token_text": texts[0], "example": True}
+    one = OPEN | {"top_k": 1}
+    assert draw(cloud, one).json()["index"] == 0
+    cloud.state, cloud.reason_text = "turn", "Un tour est en cours."
+    assert draw(cloud).status_code == 200
+    # Nothing of the screen, nothing of the session (the diagnostic `_web` builds emits its
+    # own start, apart).
+    emitted = [
+        e for e in get_journal().events_since(mark) if e.payload.get("state") != "diagnostic"
+    ]
+    assert [(e.kind, e.context_id) for e in emitted] == []
+    for field, value in (("temperature", 2.5), ("top_k", -1), ("top_p", 0.01), ("min_p", 0.6)):
+        assert draw(cloud, OPEN | {field: value}).status_code == 422, field
+
+    server = FakeServer()
+    monkeypatch.setattr(servers, "default_transport", httpx.MockTransport(server))
+    served = _booted("llama_server")
+    assert served.lab_state()["candidates"]["available"] is False
+    answer = draw(served, OPEN | {"top_k": 2})
+    assert answer.status_code == 200 and answer.json()["index"] in (0, 1)
+
+
+def test_the_example_draw_route_says_why_when_the_texts_cannot_be_read(monkeypatch):
+    session = booted_session(FakeEngine(output="ab"))
+    monkeypatch.setattr(session, "_lab_content", lambda: (None, "Contenu illisible (test)."))
+    answer = _web(session).post(
+        "/api/llm_lab/example_draw", json={"sampling": OPEN}, headers=ORIGIN
     )
     assert answer.status_code == 404 and answer.json()["detail"] == "Contenu illisible (test)."
