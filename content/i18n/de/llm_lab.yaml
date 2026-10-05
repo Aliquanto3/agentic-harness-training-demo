@@ -114,6 +114,13 @@ stages:
     column_label_text: "{texte} → Token {token} → Kennung {id}"
     produced_label_text: "{texte} → Token {token} → Kennung {id}, von der Engine gezogen und angehängt"
     bos_text: "Vor diesen Tokens liest die Engine auch {bos}: das Textanfangs-Token, das dieses Modell verlangt."
+    example_tag_text: "Beispiel · illustrative Tokens"
+    example_text: >-
+      Beispiel: ein Text, zerlegt wie von einem Tokenizer, mit illustrativen IDs. Zerlegen Sie
+      Ihren Text: Seine echten Tokens ersetzen diese.
+    example_cloud_text: >-
+      Ein Beispiel der Zerlegung, nicht die dieses Modells: Sein Tokenizer liegt beim Anbieter.
+      Für Ihren Text gibt WaveStack nur die Schätzung daneben an.
   transfo:
     title_text: "TRANSFORMATION"
     subtitle_text: "die Zahlen durchlaufen die Schichten des Modells"
@@ -167,6 +174,7 @@ stages:
       Experten) unter vielen, und nur diese rechnen.
     example_text: "Beispiel: zerlegen Sie einen Text, seine echten Tokens ersetzen diese"
     example_tokens: ["Guten", " Tag", ",", " wie", " geht"]
+    example_ids: [64343, 12353, 11, 13368, 4791]
     labels:
       tokens_text: "Tokens"
       ids_text: "Kennungen"
@@ -288,6 +296,18 @@ stages:
     step_token_text: "Kandidaten des von der Engine gezogenen Tokens: {texte}."
     help_text: "Was diese Einstellung tut"
     tokenize_first_text: "Zerlegen Sie diesen Text zuerst in Tokens (Stufe 1)."
+    example:
+      tag_text: "Beispiel · illustrative Wahrscheinlichkeiten"
+      note_text: "Ein illustratives Beispiel, nicht die Rechnung des Modells: Die Einstellungen bewegen es wie die echte Ziehung."
+      unsupported_text: "Sie bewegt nur das Beispiel."
+      candidates:
+        - {text: " es", p: 0.71}
+        - {text: "'s", p: 0.06}
+        - {text: " Ihnen", p: 0.05}
+        - {text: " ihr", p: 0.03}
+        - {text: " das", p: 0.02}
+        - {text: " dir", p: 0.02}
+      tail: 0.11
 
 tokenization:
   prompt_label_text: "Zu zerlegender Text"

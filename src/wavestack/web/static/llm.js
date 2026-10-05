@@ -37,7 +37,12 @@ const store = {
   // then the `llm_token` events); `ticket`: the last request sent (the last answer wins).
   // Lot 6: `source`, whose token it is, a generation's (section 6) or the OUTPUT's step.
   // `stepped`: a step ran since the last generation (its chips no longer pick a token).
-  dist: { index: 0, tokens: 0, ticket: 0, timer: null, source: "generation", stepped: false },
+  // Correction C (2026-10-05): `example`, the bars show the session's example (nothing real
+  // to show); `why`, the reason said with it.
+  dist: { index: 0, tokens: 0, ticket: 0, timer: null, source: "generation", stepped: false, example: false, why: "" },
+  // Correction C (2026-10-05): the cut and the step the page asks by itself on its first load
+  // (engine in process only): "tokenize" until `llm_tokenized`, "step" until the step ends.
+  auto: null,
   valuesB: null, // the comparison's settings B, as `values`
   win: { reserve: 0, reserveText: "" }, // the window diagram's output reserve (section 5)
   // Lot 6 (2026-10-04): the three stages. `tokenized`: the last `llm_tokenized`; `step`: the
@@ -254,10 +259,32 @@ function inputTokens() {
   return [...own, ...store.step.added.map((token) => ({ ...token, produced: true }))];
 }
 
+// Correction C (2026-10-05): no exact cut to show (nothing cut yet, or a cloud model whose
+// tokenizer is at its provider): the example's tokens and ids (`stages.transfo.example_*`,
+// illustrative), said so by the badge and a note; else `null`.
+function inputExample() {
+  const example = store.tokenized?.exact ? [] : exampleTokens();
+  return example.length ? example : null; // no texts read: no example either
+}
+
+function exampleTokens() {
+  const transfo = store.content?.stages?.transfo;
+  const ids = transfo?.example_ids || [];
+  return (transfo?.example_tokens || []).map((piece, i) => ({ text: piece, id: ids[i] ?? null, example: true }));
+}
+
+// A stage's badge: « Réel · … », or « Exemple · … » for an example.
+function stageTag(id, example, realPath, examplePath) {
+  const tag = $(id);
+  tag.textContent = text(example ? examplePath : realPath);
+  tag.classList.toggle("is-example", example);
+}
+
 function inputColumn(token, index) {
   const column = el("li", "token-chip");
   column.dataset.parity = index % 2 ? "odd" : "even";
   if (token.produced) column.classList.add("is-produced");
+  if (token.example) column.classList.add("is-example");
   // The piece of text as typed: only the line breaks and tabs made visible (one line).
   const piece = el("span", "llm-input-seg", token.text.replace(/[\n\r\t]/g, (c) => BLANKS[c]));
   const arrow = () => {
@@ -267,7 +294,7 @@ function inputColumn(token, index) {
   };
   const chip = el("span", "token-chip-text", visibleBlanks(token.text));
   const id = el("span", "llm-input-id");
-  id.append(el("span", "token-chip-id", String(token.id)));
+  id.append(el("span", "token-chip-id", token.id === null ? "…" : String(token.id)));
   if (token.special) {
     column.classList.add("is-special");
     id.append(el("span", "token-chip-special", text("tokenization.special_text") || t("llm.special")));
@@ -296,10 +323,15 @@ function renderInput() {
   const list = $("token-chips");
   const counts = $("token-counts");
   const more = $("token-more");
-  const tokens = inputTokens();
+  const example = inputExample();
+  const tokens = example || inputTokens();
   list.replaceChildren(...tokens.map(inputColumn));
   counts.replaceChildren();
   $("token-empty").hidden = Boolean(tokens.length) || Boolean(p && !p.exact);
+  stageTag("input-tag", Boolean(example), "stages.input.tag_text", "stages.input.example_tag_text");
+  const note = $("token-example");
+  note.hidden = !example;
+  note.textContent = example ? text(p ? "stages.input.example_cloud_text" : "stages.input.example_text") : "";
   if (!p) {
     counts.hidden = true;
     more.hidden = true;
@@ -363,6 +395,28 @@ function renderTokenized(p) {
   store.steppers.input?.show(0); // « Découper en tokens » opens the first step: the text
   renderTransfo();
   renderStep();
+  // Correction C (2026-10-05): the first load's cut, then its step, real values with no click.
+  if (store.auto === "tokenize") {
+    store.auto = null;
+    if (p.exact && !store.dist.tokens && !anyPending() && !stepReason()) {
+      store.auto = "step";
+      drawStep();
+    }
+  }
+}
+
+// Correction C (2026-10-05): on the first load, with the engine in process (an exact
+// tokenizer and the candidates read) and the session at rest, the page asks the session to
+// cut the text of the field, then to draw one step (`renderTokenized`): the INPUT and the
+// OUTPUT show real values at once. Elsewhere they show the example, nothing is asked.
+function autoStart() {
+  const prompt = $("llm-prompt").value;
+  if (store.tokenized || !prompt.trim() || busyReason() || anyPending()) return;
+  if (!store.tokenizer?.exact || !store.candidates?.available) return;
+  if (store.dist.tokens) return; // the last generation's candidates stay shown, real
+
+  store.auto = "tokenize";
+  tokenize();
 }
 
 // The INPUT's step `index`: the columns cut apart from step 2, the ids shown at step 3.
@@ -403,6 +457,7 @@ async function tokenize() {
   $("tokenize-button").disabled = true;
   const answer = await post("/api/intentions/llm_tokenize", { text: value });
   if (!answer.ok) {
+    store.auto = null; // refused: no step follows
     status.classList.add("is-error");
     status.textContent = refusalText(answer);
     store.pending.tokenize = null;
@@ -461,9 +516,8 @@ function transfoModel() {
   const p = store.tokenized;
   const real = inputTokens();
   const example = !real.length;
-  const all = example
-    ? (store.content?.stages?.transfo?.example_tokens || []).map((piece) => ({ text: piece, id: null }))
-    : real;
+  // The example's ids too (correction C, 2026-10-05): the same columns as the INPUT's example.
+  const all = example ? exampleTokens() : real;
   const tokens = all.slice(-DRAWN_TOKENS);
   const seed = tokens.reduce((s, token) => (Math.imul(s, 31) + (token.id ?? token.text.length) + 1) >>> 0, 7);
   const random = seeded(seed);
@@ -982,7 +1036,9 @@ function samplingRow(name, values, prefix, changed, compact) {
     input.max = String(high);
     input.step = String(SAMPLING_STEP[name]);
     input.value = String(values[name]);
-    input.disabled = Boolean(reason);
+    // Correction C (2026-10-05): the OUTPUT's settings move its example's bars everywhere,
+    // even a setting the provider does not take (its reason stays said, for the real draw).
+    input.disabled = Boolean(reason) && !compact;
   }
   const sync = (source, other) => {
     source.addEventListener("input", () => {
@@ -1024,7 +1080,8 @@ function samplingRow(name, values, prefix, changed, compact) {
   }
   if (reason) {
     row.classList.add("is-unsupported");
-    const why = el("span", "sampling-row-reason", reason);
+    const only = compact ? text("stages.output.example.unsupported_text") : "";
+    const why = el("span", "sampling-row-reason", only ? `${reason} ${only}` : reason);
     why.id = `${prefix}-${name}-reason`;
     number.setAttribute("aria-describedby", why.id);
     range.setAttribute("aria-describedby", why.id);
@@ -1102,17 +1159,72 @@ function samplingFr(trace) {
 const DIST_ROWS = 6; // the bars shown; the others read are counted under them
 const DIST_DEBOUNCE_MS = 80;
 
-// Nothing to show: the reason the candidates are unavailable (a server, a cloud model), the
-// session's answer (`detail`), or what to do.
+// No real candidates to show: the reason the candidates are unavailable (a server, a cloud
+// model), the session's answer (`detail`), or what to do. Correction C (2026-10-05): the
+// OUTPUT is never empty, it then shows the session's example, drawn again for the settings
+// shown (`fetchExample`), the reason said under it.
 function renderDistributionIdle(detail) {
   store.dist.ticket += 1; // an answer still in flight is stale: it draws nothing
-  $("distribution-body").hidden = true;
-  $("logits-body").hidden = true;
   const offer = store.candidates;
   const why = offer && !offer.available ? offer.reason_text : detail || text("distribution.empty_text");
-  $("distribution-empty").textContent = why || "";
+  store.dist.why = why || "";
+  if (store.dist.example) {
+    // The example already drawn stays while the session draws it again (no blink).
+    setNote(exampleNote());
+  } else {
+    showNothing();
+  }
+  fetchExample();
+}
+
+// Nothing at all to show: the example could not be read either (the screen's texts).
+function showNothing() {
+  store.dist.example = false;
+  $("distribution-body").hidden = true;
+  $("logits-body").hidden = true;
+  $("distribution-empty").textContent = store.dist.why;
+  setNote("");
   $("logits-caption").textContent = text("stages.output.logits_start_text");
   $("distribution-token").textContent = "";
+  stageTag("output-tag", false, "stages.output.tag_text", "stages.output.example.tag_text");
+  renderStep();
+}
+
+// The example's note, a live region: written only when its text changes (a slider's move
+// redraws the bars, never re-announces the same note).
+function setNote(value) {
+  const note = $("distribution-note");
+  if (note.textContent !== value) note.textContent = value;
+}
+
+// The example's note, then why the real candidates are not shown (or what to do).
+function exampleNote() {
+  return [text("stages.output.example.note_text"), store.dist.why].filter(Boolean).join(" ");
+}
+
+// The settings as the sliders show them (bounded): the example follows each of them, even
+// one the provider does not take (`samplingToSend` would put the harness's value back).
+function exampleSampling() {
+  const sent = {};
+  for (const name of SAMPLING_ORDER) sent[name] = clampSetting(name, store.values?.[name] ?? store.sampling.defaults[name]);
+  return sent;
+}
+
+async function fetchExample() {
+  if (!store.sampling || !store.content) {
+    showNothing();
+    return;
+  }
+  store.dist.ticket += 1;
+  const ticket = store.dist.ticket;
+  const answer = await post("/api/llm_lab/example_distribution", { sampling: exampleSampling() });
+  if (ticket !== store.dist.ticket) return; // a later request was sent: its answer wins
+  if (!answer.ok) {
+    store.dist.why = [store.dist.why, refusalText(answer)].filter(Boolean).join(" ");
+    showNothing();
+    return;
+  }
+  renderDistribution(answer.body);
 }
 
 function scheduleDistribution(delay = DIST_DEBOUNCE_MS) {
@@ -1172,22 +1284,39 @@ function logitsCaption() {
   return tail ? text("stages.output.logits_text", { fin: tail }) : text("stages.output.logits_start_text");
 }
 
+// The example's Logits: the 6 words after the example's text (the INPUT's example, whole:
+// its last tokens alone may start on a comma).
+function exampleCaption() {
+  const tail = exampleTokens()
+    .map((token) => token.text)
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+  return tail ? text("stages.output.logits_text", { fin: tail }) : text("stages.output.logits_start_text");
+}
+
 function distText(value, className = "dist-text") {
   return el("span", className, visibleBlanks(value));
 }
 
 function renderDistribution(body) {
   const rows = body.candidates || [];
+  const example = Boolean(body.example);
   if (!rows.length) {
-    renderDistributionIdle();
+    if (example) showNothing();
+    else renderDistributionIdle();
     return;
   }
+  store.dist.example = example;
+  stageTag("output-tag", example, "stages.output.tag_text", "stages.output.example.tag_text");
   $("distribution-empty").textContent = "";
+  setNote(example ? exampleNote() : "");
   $("distribution-body").hidden = false;
   $("logits-body").hidden = false;
-  $("logits-caption").textContent = logitsCaption();
-  $("distribution-token").textContent =
-    store.dist.source === "step"
+  $("logits-caption").textContent = example ? exampleCaption() : logitsCaption();
+  $("distribution-token").textContent = example
+    ? ""
+    : store.dist.source === "step"
       ? text("stages.output.step_token_text", { texte: quote(visibleBlanks(body.token_text)) })
       : text("distribution.token_text", {
           index: decimals().format(body.index + 1),
@@ -1246,6 +1375,7 @@ function renderDistribution(body) {
     .filter(Boolean)
     .join(" ");
   markDistributionChip();
+  renderStep(); // the candidates' reason, said here or under « Tirer »
 }
 
 // The chip of section 6 whose candidates the OUTPUT shows (none for a step).
@@ -1253,7 +1383,7 @@ function markDistributionChip() {
   for (const chip of document.querySelectorAll("#generation-tokens .token-chip.is-dist-chosen")) {
     chip.classList.remove("is-dist-chosen");
   }
-  if (store.dist.source !== "generation") return;
+  if (store.dist.source !== "generation" || store.dist.example) return;
   const chip = document.querySelector(`#generation-tokens .token-chip[data-index="${store.dist.index}"]`);
   if (chip?.classList.contains("has-candidates")) chip.classList.add("is-dist-chosen");
 }
@@ -1334,7 +1464,12 @@ function renderStep() {
   const status = $("llm-step-status");
   status.classList.toggle("is-error", step.error);
   // The reason « Tirer » is greyed (a server, a cloud model), unless a status says more.
-  status.textContent = step.status || (pending ? "" : reason || "");
+  // Correction C (2026-10-05): the candidates' reason is said once, with the example under
+  // the Draw's chart (the button's title keeps it), so that the stage fits the screen.
+  const said = store.dist.example && reason && reason === store.candidates?.reason_text;
+  status.textContent = step.status || (pending || said ? "" : reason || "");
+  if (said) draw.setAttribute("aria-describedby", "distribution-note");
+  else draw.removeAttribute("aria-describedby");
 }
 
 function setStepStatus(message, error = false) {
@@ -1359,6 +1494,7 @@ async function drawStep() {
   });
   if (!answer.ok) {
     store.pending.step = null;
+    store.auto = null;
     setStepStatus(refusalText(answer), true);
     renderBusy();
     return;
@@ -1439,9 +1575,17 @@ function stepEvent(kind, p) {
       store.dist.tokens = p.index + 1;
       scheduleDistribution(0);
     }
-    store.steppers.output?.show(OUTPUT_STEPS.length - 1);
+    // The first load's own step leaves the OUTPUT at its first step (Logits), as the mockup.
+    if (store.auto !== "step") store.steppers.output?.show(OUTPUT_STEPS.length - 1);
     renderStep();
   } else if (kind === "llm_generation_ended") {
+    if (store.auto === "step") store.auto = null;
+    // Correction C (2026-10-05): no token shown (the end token, an error, « Arrêter », a text
+    // edited since): the session keeps nothing for it, the OUTPUT goes back to the example.
+    if (!store.step.drawn || !store.dist.tokens) {
+      store.dist.tokens = 0;
+      renderDistributionIdle();
+    }
     store.answered.add(p.request_id);
     if (store.pending.step === p.request_id) store.pending.step = null;
     if (p.status === "error") setStepStatus([text("generation.status.error"), p.message_text].filter(Boolean).join(" "), true);
@@ -1989,7 +2133,13 @@ function applyEnvelope(envelope) {
       // Story 5 (2026-09-30): the session has just let go of the last generation's
       // candidates (a new one, or the engine released): nothing to ask until it says.
       store.dist.tokens = 0;
-      renderDistributionIdle();
+      // Correction C (2026-10-05): our own step keeps the bars shown until its token comes
+      // (no blink to the example and back); an answer still in flight is stale.
+      if (p.state === "llm_lab" && store.pending.step) {
+        if (store.dist.timer) clearTimeout(store.dist.timer); // a slider's request waiting
+        store.dist.timer = null;
+        store.dist.ticket += 1;
+      } else renderDistributionIdle();
     }
     renderModel();
     renderBusy();
@@ -2075,6 +2225,7 @@ function applyEnvelope(envelope) {
       if (envelope.step_id) store.answered.add(envelope.step_id);
       if (envelope.step_id && envelope.step_id === store.pending.tokenize) {
         store.pending.tokenize = null;
+        store.auto = null; // correction C: the first load's cut failed, no step follows
         const status = $("tokenize-status");
         status.classList.add("is-error");
         status.textContent = [p.message_text, p.cause].filter(Boolean).join(" ");
@@ -2232,6 +2383,7 @@ async function main() {
   store.lastSeq = body.seq;
   document.body.dataset.labReady = "true";
   streamEvents();
+  autoStart(); // correction C (2026-10-05): real values at once with the engine in process
 }
 
 main();

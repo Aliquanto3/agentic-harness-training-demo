@@ -8900,6 +8900,34 @@ class AppSession:
             # Lot 6 of 2026-10-04: the setting that leaves each candidate out (`None`: kept),
             # in the candidates' order, for the OUTPUT's « écarté (top-p) ».
             "dropped_by": dropped_by(entry["p"], entry["tail"], sampling),
+            "example": False,  # correction C of 2026-10-05: read in the engine
+        }
+
+    def llm_example_distribution(self, sampling: Sampling) -> dict[str, Any]:
+        """`POST /api/llm_lab/example_distribution` (correction C of 2026-10-05), read only,
+        in any state, with or without a model: the OUTPUT's example (`stages.output.example`
+        of `llm_lab.yaml`, illustrative probabilities) drawn again with `sampling` by the same
+        `candidates.distribution` and `dropped_by` as the real candidates (AD-1: the session
+        computes, never the page); `llm_distribution`'s shape, `example` true, no token drawn.
+        Raises `DistributionMissing` when the texts cannot be read."""
+        content, error_text = self._lab_content()
+        if content is None:
+            raise DistributionMissing(error_text or Message("session.llm_lab.content_invalid"))
+        example = content.stages.output.example
+        values = [c.p for c in example.candidates]
+        rows = distribution(values, example.tail, sampling)
+        return {
+            "index": 0,
+            "token_text": None,
+            "candidates": [
+                {"text": c.text} | row for c, row in zip(example.candidates, rows, strict=True)
+            ],
+            "tail": example.tail,
+            "sampling": asdict(sampling),
+            "kept_count": sum(1 for row in rows if row["kept"]),
+            "tokens": 0,
+            "dropped_by": dropped_by(values, example.tail, sampling),
+            "example": True,
         }
 
     def _lab_candidates(self) -> dict[str, Any]:

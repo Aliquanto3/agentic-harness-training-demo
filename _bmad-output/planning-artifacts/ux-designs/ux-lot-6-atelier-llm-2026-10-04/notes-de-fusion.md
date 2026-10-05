@@ -100,6 +100,24 @@ sans valeur.
   bandeau, un token tiré par le moteur en 1,3 s, chaque étape dans l'écran à 1600 × 1000 et
   1366 × 768. En-tête du vrai Qwen3.5-2B : `hybrid`, une couche sur 4, 2 têtes K/V.
 
+## Correction C du 2026-10-05 : INPUT et OUTPUT jamais vides (exemple étiqueté)
+
+Spec : `spec-c-2026-10-05-atelier-llm-input-output-jamais-vides.md`. Décision d'Anaël :
+« exemple étiqueté ». Moteur en processus au repos : au premier chargement, la page fait
+découper le texte du champ puis tirer un pas (valeurs réelles sans clic). Ailleurs (cloud,
+serveur, avant tout pas) : l'INPUT montre `stages.transfo.example_tokens` / `example_ids`,
+l'OUTPUT `stages.output.example` tiré par la session pour les réglages affichés ; badges
+« Exemple », curseurs de l'OUTPUT toujours actifs.
+
+| Fichier | Nature | Contenu |
+| --- | --- | --- |
+| `src/wavestack/session/app_session.py` | ajouts (partie Atelier LLM) | `llm_example_distribution` après `llm_distribution`, qui gagne `"example": False`. |
+| `src/wavestack/web/app.py` | ajouts | `LlmExampleDistributionRequest`, `POST /api/llm_lab/example_distribution` après `/api/llm_lab/distribution`. |
+| `src/wavestack/session/llm_lab.py` | ajouts | `ExampleCandidate`, `OutputExample`, `TransfoStage.example_ids` (+ validateur), trois textes d'exemple d'`InputStage`, `OutputStage.example`. |
+| `content/llm_lab.yaml` + en + de | ajouts | les clés ci-dessus. |
+| `llm.html`, `llm.js`, `llm.css` | retouches | badges `#input-tag` / `#output-tag` (plus de `data-text`), notes `#token-example` (INPUT) et `#distribution-note` (sous le graphique du Tirage : note de l'exemple + raison, qui n'est plus répétée dans `#llm-step-status`), `autoStart`, `fetchExample` ; raisons des réglages de l'OUTPUT en taille « label » pour que l'étape tienne à 1366 × 768 en cloud. |
+| `tools/e2e/run_e2e.py` | ajouts, vérifications mises à jour | `_llm_loop_first_load`, `_llm_loop_example`, `_example_rows` ; `_LoopLab(exact=…)` ; l'ancien état vide (graphiques masqués, top-k grisé en cloud, aucune colonne en cloud) n'est plus attendu par `_llm_screen`, `_distribution_unavailable`, `_llm_live`, `_llm_loop_input`, `_llm_loop_output`. Captures `75-llm-boucle-premier-chargement`, `76-llm-boucle-exemple-cloud` ajoutées ; captures LLM `52`-`54`, `64`, `65`, `70`-`74` régénérées (celles des autres scénarios laissées à leur version). |
+
 ## Décision d'Anaël (2026-10-05) : le pas lit le texte de l'INPUT
 
 Spec : `spec-lot-6-pas-de-l-output-lit-le-texte-de-l-input.md`. Option B retenue : le pas se

@@ -115,6 +115,15 @@ stages:
     column_label_text: "{texte} → token {token} → identifiant {id}"
     produced_label_text: "{texte} → token {token} → identifiant {id}, tiré par le moteur et ajouté à la suite"
     bos_text: "Avant ces tokens, le moteur lit aussi {bos} : le token de début de texte que ce modèle demande."
+    # Correction C du 2026-10-05 : sans découpage exact, l'INPUT montre un exemple étiqueté
+    # (les tokens et identifiants d'exemple de la TRANSFORMATION).
+    example_tag_text: "Exemple · tokens d'illustration"
+    example_text: >-
+      Exemple : un texte découpé comme le ferait un tokenizer, avec des identifiants
+      d'illustration. Découpez votre texte : ses vrais tokens remplaceront ceux-ci.
+    example_cloud_text: >-
+      Exemple de découpage, pas celui de ce modèle : son tokenizer est chez son fournisseur.
+      Pour votre texte, WaveStack donne seulement l'estimation ci-contre.
   transfo:
     title_text: "TRANSFORMATION"
     subtitle_text: "les nombres traversent les couches du modèle"
@@ -170,6 +179,7 @@ stages:
       experts) parmi beaucoup, et seuls ceux-là calculent.
     example_text: "exemple : découpez un texte, ses vrais tokens remplaceront ceux-ci"
     example_tokens: ["Bonjour", ",", " comment", " allez", "-vous"]
+    example_ids: [81581, 11, 3681, 70593, 45844]  # d'illustration, un par token
     labels:
       tokens_text: "Tokens"
       ids_text: "Identifiants"
@@ -290,6 +300,22 @@ stages:
     step_token_text: "Candidats du token tiré par le moteur : {texte}."
     help_text: "Ce que fait ce réglage"
     tokenize_first_text: "Découpez d'abord ce texte en tokens (étape 1)."
+    # Correction C du 2026-10-05 : tant qu'aucun candidat réel n'est lisible, les candidats
+    # qui suivent les tokens d'exemple (stages.transfo.example_tokens), probabilités
+    # d'illustration dont la somme avec `tail` fait 1. La session les tire à nouveau pour
+    # chaque réglage, comme les vrais (POST /api/llm_lab/example_distribution).
+    example:
+      tag_text: "Exemple · probabilités d'illustration"
+      note_text: "Exemple d'illustration, pas le calcul du modèle : les réglages le font bouger comme le vrai tirage."
+      unsupported_text: "Il ne bouge que l'exemple."
+      candidates:
+        - {text: " ?", p: 0.52}
+        - {text: "?", p: 0.14}
+        - {text: " aujourd", p: 0.08}
+        - {text: ",", p: 0.06}
+        - {text: " bien", p: 0.04}
+        - {text: " ce", p: 0.03}
+      tail: 0.13
 
 tokenization:
   prompt_label_text: "Texte à découper"
