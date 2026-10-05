@@ -451,6 +451,61 @@ def test_bm25_ranks_a_hand_written_corpus():
     assert scores[0] == pytest.approx(idf_chat * 2.5 / tf_norm)
 
 
+def _bm25_before_b2(query, documents, lang="fr"):  # noqa: ANN001, ANN202
+    """`bm25()` as it was before B2 (one pass over the documents at each question): the
+    reference the index then the score must match."""
+    docs = [rag_lab.bm25_terms(d, lang) for d in documents]
+    n = len(docs)
+    if not n:
+        return []
+    mean = sum(len(d) for d in docs) / n or 1.0
+    df: dict[str, int] = {}
+    for words in docs:
+        for word in set(words):
+            df[word] = df.get(word, 0) + 1
+    terms = list(dict.fromkeys(rag_lab.bm25_terms(query, lang)))
+    scores = []
+    for words in docs:
+        counts: dict[str, int] = {}
+        for word in words:
+            counts[word] = counts.get(word, 0) + 1
+        score = 0.0
+        for term in terms:
+            tf = counts.get(term, 0)
+            if not tf:
+                continue
+            idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
+            norm = tf + 1.5 * (1 - 0.75 + 0.75 * len(words) / mean)
+            score += idf * tf * 2.5 / norm
+        scores.append(score)
+    return scores
+
+
+def test_the_lexical_index_holds_bm25s_counts():
+    """B2 (2026-10-05): the inverted index built at BUILD, its figures (the focus's)."""
+    docs = ["Le chat mange.", "Le chien aboie fort.", "Chat, chat noir !", "Un chat noir dort."]
+    built = rag_lab.lexical_index(docs)
+    assert built.n == 4 and built.lengths == [2, 3, 3, 3]
+    assert built.counts[2] == {"chat": 2, "noir": 1}
+    assert built.df["chat"] == 3 and built.df["noir"] == 2 and built.df["aboie"] == 1
+    assert built.vocabulary == 7  # chat, mange, chien, aboie, fort, noir, dort
+    assert built.occurrences == 11 and built.mean == 11 / 4
+    empty = rag_lab.lexical_index([])
+    assert (empty.n, empty.vocabulary, rag_lab.bm25_scores(empty, "chat")) == (0, 0, [])
+
+
+@pytest.mark.parametrize("lang", ["fr", "en", "de"])
+def test_bm25_split_into_index_and_score_gives_the_same_scores(lang):
+    """B2: the index built once, then each question scored on it: the scores of before."""
+    corpus = rag_lab.load_lab_content(lang)  # any text of the language will do
+    docs = [s.explain_text for s in corpus.stages.values()] + ["", "35 RH IT HR"]
+    built = rag_lab.lexical_index(docs, lang)
+    for query in ("BM25 RH 35", "embedding vecteur question", "the HR policy", "Homeoffice für"):
+        before = _bm25_before_b2(query, docs, lang)
+        assert rag_lab.bm25_scores(built, query, lang) == before
+        assert rag_lab.bm25(query, docs, lang) == before
+
+
 def test_rrf_fuses_reciprocal_ranks():
     fused = rag_lab.rrf([[1, 2, 3], [3, 1, 4]])
     assert [i for i, _ in fused] == [1, 3, 2, 4]
@@ -964,12 +1019,13 @@ def test_the_catalog_renders_the_sequence_its_components_groups_and_phases(index
     steps = {s["key"]: s for s in catalog["steps"]}
     assert list(steps) == list(rag_lab.STEPS)
     build = [k for k, s in steps.items() if s["phase"] == "build"]
-    assert build == ["documents", "chunking", "embed_passages", "vector_store"]
+    assert build == ["documents", "chunking", "embed_passages", "vector_store", "lexical_index"]
     assert steps["documents"] | {"explain_text": ""} == {
         "key": "documents",
         "phase": "build",
         "stage": "chunking",
         "own": False,
+        "part": None,
         "uses": [{"component": "documents", "how": "reads"}],
         "label_text": "Documents",
         "action_text": "Charger le corpus",
@@ -993,6 +1049,7 @@ def test_the_catalog_renders_the_sequence_its_components_groups_and_phases(index
     assert steps["generation"]["note_text"] is None  # lot 5c-3: it runs, no « not run » note
     assert [(s["key"], s["stage"]) for s in catalog["steps"] if not s["own"]] == [
         ("documents", "chunking"),
+        ("lexical_index", "lexical_search"),
         ("question", None),
         ("embed_query", "embedding"),
     ]
@@ -1002,6 +1059,7 @@ def test_the_catalog_renders_the_sequence_its_components_groups_and_phases(index
         "Documents",
         "Chunks",
         "Vector store",
+        "Index lexical (BM25)",
         "Embedding model",
         "Reranker",
         "LLM",
@@ -1174,6 +1232,121 @@ def test_the_hybrid_preset_runs_and_the_fusion_shows_both_ranks(index):
     for item in fusion:
         assert {s["kind"] for s in item["sources"]} == {"vector_search", "lexical_search"}
     assert len(ended(events, "context")["items"]) == 2
+
+
+def test_a_hybrid_run_builds_the_lexical_index_at_build(index, monkeypatch):
+    """B2 (2026-10-05): with BM25 in the chain, its index is built at the end of BUILD (after
+    the vector store, before the retrieval), with its own events (the BM25 stage's id, `kind`
+    « lexical_index », `part` « index »), figures and duration; BM25 reads it, scores as
+    before."""
+    session, _ = ready(index)
+    catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
+    hybrid = catalog.preset_pipeline("hybrid")
+    indexed: list[list[str]] = []
+    original = rag_lab.lexical_index
+
+    def spy(documents, lang="fr"):  # noqa: ANN001, ANN202
+        indexed.append(list(documents))
+        return original(documents, lang)
+
+    monkeypatch.setattr(rag_lab, "lexical_index", spy)
+    events = run(session, QUESTION, hybrid)
+    assert run_status(events) == "ok"
+    started = [e.payload["kind"] for e in events if e.kind == "rag_lab_stage_started"]
+    build = ["chunking", "embedding", "vector_store", "lexical_index"]
+    assert started[:5] == [*build, "vector_search"]
+    # The page files an event by its `part`: the index's, never the BM25 stage's own status.
+    parts = {
+        e.payload["kind"]: e.payload.get("part")
+        for e in events
+        if e.kind == "rag_lab_stage_started" and e.payload["kind"].startswith("lexical")
+    }
+    assert parts == {"lexical_index": "index", "lexical_search": None}
+    phase = next(
+        e.payload["phase_label"]
+        for e in events
+        if e.kind == "rag_lab_stage_started" and e.payload["kind"] == "lexical_index"
+    )
+    assert "Lexical indexing" in phase
+    built = ended(events, "lexical_index")
+    lexical = stage(hybrid, "lexical_search")
+    assert built["status"] == "ok" and built["part"] == "index"
+    assert built["stage_id"] == lexical.id and built["duration_ms"] >= 0
+    envelope = next(e for e in events if e.kind == "rag_lab_stage_ended" and e.payload is built)
+    assert envelope.component == "rag_lab.lexical_index"
+    assert envelope.step_id.endswith(".index")
+    facts = {f["label_text"]: f["value_text"] for f in built["facts"]}
+    chunks = int(ended(events, "chunking")["facts"][1]["value_text"].replace(" ", ""))
+    assert int(facts["Chunks indexés"].replace(" ", "")) == chunks
+    assert int(facts["Termes distincts"].replace(" ", "")) > 0
+    assert facts["Modèle"] == "aucun (algorithme statistique)"
+    assert facts["Paramètres BM25"] == "k1 = 1,5, b = 0,75"
+    assert "Index inversé" in built["output_text"] and "Aucun modèle appris" in built["output_text"]
+    # Built once, at BUILD; the search reads it: the scores of before (one pass per question).
+    assert len(indexed) == 1 and len(indexed[0]) == chunks
+    searched = ended(events, "lexical_search")
+    assert searched["status"] == "ok" and "l'index lexical" in searched["input_text"]
+    expected = _bm25_before_b2(QUESTION, indexed[0])
+    assert searched["items"]
+    for item in searched["items"]:
+        assert item["score"] == round(expected[item["chunk_id"] - 1], 3)
+
+
+def test_a_chain_without_bm25_builds_no_lexical_index(index):
+    session, _ = ready(index)
+    events = run(session)
+    assert not [e for e in events if e.payload.get("kind") == "lexical_index"]
+
+
+def test_the_lexical_index_is_skipped_after_a_failure(index):
+    """B2: BUILD failed before it (the brick's index absent): the index part and BM25 are
+    skipped, like the stages after a failure."""
+    session, _ = ready(index)
+    catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
+    hybrid = catalog.preset_pipeline("hybrid")
+    index.unlink()
+    events = run(session, QUESTION, hybrid)
+    assert ended(events, "vector_store")["status"] == "error"
+    assert ended(events, "lexical_index")["status"] == "skipped"
+    assert ended(events, "lexical_search")["status"] == "skipped"
+    assert run_status(events) == "error"
+
+
+def test_the_lexical_index_failing_stops_the_chain(index, monkeypatch):
+    """B2: the index part failing ends in error with its reason; the retrieval is skipped."""
+    session, _ = ready(index)
+    catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
+    hybrid = catalog.preset_pipeline("hybrid")
+
+    def broken(documents, lang="fr"):  # noqa: ANN001, ANN202
+        raise RuntimeError("index cassé")
+
+    monkeypatch.setattr(rag_lab, "lexical_index", broken)
+    events = run(session, QUESTION, hybrid)
+    built = ended(events, "lexical_index")
+    assert built["status"] == "error" and "index cassé" in built["error_text"]
+    assert ended(events, "vector_search")["status"] == "skipped"
+    assert ended(events, "lexical_search")["status"] == "skipped"
+    assert run_status(events) == "error"
+
+
+def test_stop_while_the_lexical_index_is_built(index, monkeypatch):
+    """B2: « Arrêter » during the index part: it ends, the retrieval is cancelled."""
+    session, _ = ready(index)
+    catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
+    hybrid = catalog.preset_pipeline("hybrid")
+    original = rag_lab.lexical_index
+
+    def stopping(documents, lang="fr"):  # noqa: ANN001, ANN202
+        session.stop()
+        return original(documents, lang)
+
+    monkeypatch.setattr(rag_lab, "lexical_index", stopping)
+    events = run(session, QUESTION, hybrid)
+    assert ended(events, "lexical_index")["status"] == "ok"
+    assert ended(events, "vector_search")["status"] == "cancelled"
+    assert ended(events, "lexical_search")["status"] == "skipped"
+    assert run_status(events) == "cancelled"
 
 
 @pytest.mark.parametrize("change", ["missing", "extra"])

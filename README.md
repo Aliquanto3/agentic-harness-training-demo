@@ -74,8 +74,10 @@ faites autoriser les domaines de
 
 **Modèles du RAG.** La brique RAG demande un modèle d'embedding (121 Mo) et, en option, un
 modèle de reranking (438 Mo) : téléchargez-les depuis la carte RAG de l'Atelier Harnais. Les
-modèles en plus de l'Atelier RAG (132 à 639 Mo chacun) se téléchargent depuis son étape
-Embedding ou Reranking, en mode Composer. Détails et copie à la main :
+modèles en plus de l'Atelier RAG (132 à 639 Mo chacun) se téléchargent depuis sa page (lien
+« RAG ») : cliquez sur « N modèles à télécharger » sous la tuile Embedding model ou Reranker
+(sans étape Reranking, la phrase au pied du groupe Modèles dit de l'ajouter), puis sur
+« Télécharger (≈ taille) » dans la ligne de l'étape. Détails et copie à la main :
 [Modèles du RAG](docs/installation.md#modèles-du-rag).
 
 **Pour commencer**, choisissez le scénario « LLM nu » en bas à gauche et suivez sa consigne ;

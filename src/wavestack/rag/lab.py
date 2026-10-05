@@ -104,6 +104,8 @@ COMPONENTS: dict[str, tuple[str, str, str | None]] = {
     "documents": ("data", "📄", None),
     "chunks": ("data", "🧩", None),
     "vector_store": ("data", "🗄️", "vector_store"),
+    # B2 (2026-10-05): BM25's inverted index, built at BUILD when the chain has BM25.
+    "lexical_index": ("data", "📇", None),
     "embedding_model": ("models", "🔢", "embedding"),
     "reranker": ("models", "⚖️", "rerank"),
     "llm": ("models", "🧠", "generation"),
@@ -119,7 +121,8 @@ class SequenceStep:
     its figures; the line is drawn only when the chain has it, `None`: always); `own`: the
     line is that stage's own (it carries its editor), else it reads it (Documents reads the
     Chunking's input, the question's Embedding is the Embedding stage's second half). The
-    components it reads, writes and calls."""
+    components it reads, writes and calls. B2 (2026-10-05): `part`, the part of its stage the
+    line shows with its own events, figures and duration (BM25's index, built at BUILD)."""
 
     phase: str
     stage: str | None
@@ -127,6 +130,7 @@ class SequenceStep:
     reads: tuple[str, ...] = ()
     writes: tuple[str, ...] = ()
     calls: tuple[str, ...] = ()
+    part: str | None = None
 
 
 # In the order drawn: BUILD, then RUN (whose retrieval segment follows the chain's order).
@@ -139,12 +143,21 @@ STEPS: dict[str, SequenceStep] = {
     "vector_store": SequenceStep(
         "build", "vector_store", reads=("embedding_model",), writes=("vector_store",)
     ),
+    # B2: BM25's first part, its inverted index, built once the vectors are stored.
+    "lexical_index": SequenceStep(
+        "build",
+        "lexical_search",
+        own=False,
+        reads=("chunks",),
+        writes=("lexical_index",),
+        part="index",
+    ),
     "question": SequenceStep("run", None, own=False, reads=("question",)),
     "embed_query": SequenceStep(
         "run", "embedding", own=False, reads=("question",), calls=("embedding_model",)
     ),
     "vector_search": SequenceStep("run", "vector_search", reads=("vector_store",)),
-    "lexical_search": SequenceStep("run", "lexical_search", reads=("chunks", "question")),
+    "lexical_search": SequenceStep("run", "lexical_search", reads=("lexical_index", "question")),
     "fusion": SequenceStep("run", "fusion"),
     "rerank": SequenceStep("run", "rerank", reads=("question",), calls=("reranker",)),
     "context": SequenceStep(
@@ -489,6 +502,9 @@ class Catalog:
                     "explain_text": text.explain_text,
                     "movable": kind in RETRIEVAL,
                     "options": options,
+                    # B1 (2026-10-05): the models to download from this stage, the figure the
+                    # architecture's tile says (« 2 modèles à télécharger »).
+                    "download_count": sum(1 for o in options if o["download"]),
                 }
             )
         return {
@@ -580,6 +596,7 @@ class Catalog:
                     "phase": step.phase,
                     "stage": step.stage,
                     "own": step.own,
+                    "part": step.part,
                     "uses": uses,
                     "label_text": text.label_text,
                     "action_text": text.action_text,
@@ -1383,6 +1400,7 @@ class _Chain:
     vectors: list[list[float]] | None = None  # the passages', when the store needs them
     key: str = ""  # the cache's folder of this corpus and model
     store: Any = None  # `MemoryStore`, `_SqliteStore`…
+    lexical: LexicalIndex | None = None  # B2: BM25's index, built at the end of BUILD
     lists: list[list[Item]] = field(default_factory=list)  # each search's, until fused
     list_kinds: list[str] = field(default_factory=list)  # the stage that made each list
     context: list[Item] = field(default_factory=list)
@@ -1399,7 +1417,9 @@ class LabRun:
     """One run of the workshop: one chain (`pipeline`) on one question (lot 5c-1: one chain
     per run, the A/B comparison is gone). `run()` emits `rag_lab_run_started`, a
     `rag_lab_stage_started` / `rag_lab_stage_ended` pair per stage run (only the latter for a
-    stage skipped or not run), and `rag_lab_run_ended`; it never raises."""
+    stage skipped or not run), and `rag_lab_run_ended`; it never raises. B2: a chain with
+    BM25 gets one pair more, its index part at the end of BUILD, under the BM25 stage's id
+    (`kind` « lexical_index », `part` « index », step id `….index`)."""
 
     def __init__(self, run_id: str, question: str, pipeline: Pipeline, deps: LabDeps) -> None:
         self.run_id = run_id
@@ -1498,7 +1518,11 @@ class LabRun:
 
     def _run_chain(self, chain: _Chain) -> None:
         stopped = False  # an earlier stage failed or was stopped: the rest is skipped
+        indexed = False  # B2: BM25's index part run (at the end of BUILD)
         for index, stage in enumerate(chain.pipeline.stages, start=1):
+            if not indexed and stage.kind not in FIXED_HEAD:
+                indexed = True
+                stopped = self._lexical_index_part(chain, stopped)
             step_id = self._step(index)
             component = f"rag_lab.{stage.kind}"
             base = {"stage_id": stage.id, "kind": stage.kind}
@@ -1549,6 +1573,55 @@ class LabRun:
                 chain.status, stopped = "error", True
             duration = _ms(time.monotonic() - started)
             self._ended(step_id, component, base, status, result, error_text, duration, rss_before)
+
+    def _lexical_index_part(self, chain: _Chain, stopped: bool) -> bool:
+        """B2 (2026-10-05): BM25's first part, its inverted index built from the Chunks at the
+        end of BUILD, when the chain has a BM25 stage: its own `rag_lab_stage_started` /
+        `rag_lab_stage_ended` (the BM25 stage's id, `kind` « lexical_index », `part` « index »),
+        figures and duration. Returns whether the rest of the chain is skipped."""
+        stages = chain.pipeline.stages
+        lexical = next((s for s in stages if s.kind == "lexical_search"), None)
+        if lexical is None:
+            return stopped
+        step_id = f"{self._step(stages.index(lexical) + 1)}.index"
+        step_label = self.deps.texts.steps["lexical_index"].label_text
+        component = "rag_lab.lexical_index"
+        base = {
+            "stage_id": lexical.id,
+            "kind": "lexical_index",
+            "option": lexical.option,
+            "part": "index",
+        }
+        if stopped:
+            self._ended(step_id, component, base, "skipped", _Result(), None, 0, None)
+            return stopped
+        if self.deps.cancelled():
+            self._ended(step_id, component, base, "cancelled", _Result(), None, 0, None)
+            chain.status = "cancelled"
+            return True
+        self._emit(
+            "rag_lab_stage_started",
+            base | {"phase_label": self._text("stage.running", stage=step_label)},
+            step_id,
+            component,
+        )
+        rss_before = self.deps.rss()
+        started = time.monotonic()
+        status, error_text, result = "ok", None, _Result()
+        try:
+            result = self._lexical_index(chain)
+        except StageFailed as failed:
+            status, error_text = "error", failed.render(self._lang)
+            chain.status, stopped = "error", True
+        except Exception as exc:  # noqa: BLE001 - AD-16: a stage's failure, never a crash
+            status = "error"
+            error_text = self._text(
+                "stage.failed", error=type(exc).__name__, cause=exception_text(exc, self._lang)
+            )
+            chain.status, stopped = "error", True
+        duration = _ms(time.monotonic() - started)
+        self._ended(step_id, component, base, status, result, error_text, duration, rss_before)
+        return stopped
 
     def _ended(
         self,
@@ -2083,12 +2156,49 @@ class LabRun:
         """The kind of the stage that made the chain's current list (a search or the fusion)."""
         return chain.list_kinds[-1] if chain.list_kinds else "vector_search"
 
+    def _lexical_index(self, chain: _Chain) -> _Result:
+        """B2: BM25's inverted index of the Chunks (`LexicalIndex`), kept for the search."""
+        if not chain.chunks:
+            raise StageFailed(Message("rag_lab.lexical_search.no_chunks"))
+        passages = [rag_index.passage_text(c) for c in chain.chunks]
+        built = chain.lexical = lexical_index(passages, self.deps.lang)
+        text, count = self._text, self._int
+        # BM25 normalises by this mean: one decimal, as it reads it.
+        mean = number(built.mean if built.occurrences else 0, self._lang, 1)
+        return _Result(
+            input_text=text(
+                "lexical_index.input", extracts=self._count(len(chain.chunks), "extract")
+            ),
+            output_text=text(
+                "lexical_index.output",
+                terms=count(built.vocabulary),
+                occurrences=count(built.occurrences),
+                mean=mean,
+            ),
+            facts=[
+                (text("lexical_index.chunks"), count(built.n)),
+                (text("lexical_index.terms"), count(built.vocabulary)),
+                (text("lexical_index.occurrences"), count(built.occurrences)),
+                (text("lexical_index.mean"), text("lexical_index.mean_value", n=mean)),
+                (
+                    text("lexical_index.params"),
+                    text(
+                        "lexical_index.params_value",
+                        k1=number(BM25_K1, self._lang, 1),
+                        b=number(BM25_B, self._lang, 2),
+                    ),
+                ),
+                (text("fact.model"), text("lexical_index.no_model")),
+            ],
+        )
+
     def _lexical_search(self, chain: _Chain, stage: Stage) -> _Result:
         if not chain.chunks:
             raise StageFailed(Message("rag_lab.lexical_search.no_chunks"))
         k = param(stage, "candidates", self.deps.catalog)
-        passages = [rag_index.passage_text(c) for c in chain.chunks]
-        scored = bm25(self.question, passages, self.deps.lang)
+        if chain.lexical is None:  # its part not run (never in a chain run): built here
+            self._lexical_index(chain)
+        scored = bm25_scores(chain.lexical, self.question, self.deps.lang)
         found = sorted(
             ((score, i + 1) for i, score in enumerate(scored) if score > 0),
             key=lambda x: (-round(x[0], TIE_DIGITS), x[1]),
@@ -2349,34 +2459,77 @@ def bm25_terms(text: str, lang: str = config.DEFAULT_LANGUAGE) -> list[str]:
     return [w for w in _WORD.findall(fold(text)) if len(w) >= 2 and w not in stop]
 
 
-def bm25(query: str, documents: Sequence[str], lang: str = config.DEFAULT_LANGUAGE) -> list[float]:
-    """Okapi BM25 of each document for the query, in pure Python: k1 = 1.5, b = 0.75, the
-    idf `ln(1 + (N − df + 0.5) / (df + 0.5))` (never negative); `lang`: whose stop words."""
+@dataclass(eq=False)
+class LexicalIndex:
+    """B2 (2026-10-05): BM25's inverted index, built once at BUILD (no learned model, only
+    counts): each document's terms and how often they occur in it, its length in terms, each
+    term's document frequency (the documents that contain it) and the mean length."""
+
+    counts: list[dict[str, int]]
+    lengths: list[int]
+    df: dict[str, int]
+    mean: float
+
+    @property
+    def n(self) -> int:
+        return len(self.lengths)
+
+    @property
+    def vocabulary(self) -> int:
+        """The distinct terms of the index."""
+        return len(self.df)
+
+    @property
+    def occurrences(self) -> int:
+        """Every term of every document, repeats included."""
+        return sum(self.lengths)
+
+
+def lexical_index(documents: Sequence[str], lang: str = config.DEFAULT_LANGUAGE) -> LexicalIndex:
+    """The inverted index BM25 reads (`bm25_terms` of each document; `lang`: whose stop
+    words)."""
     docs = [bm25_terms(d, lang) for d in documents]
-    n = len(docs)
-    if not n:
-        return []
-    mean = sum(len(d) for d in docs) / n or 1.0
+    counts: list[dict[str, int]] = []
     df: dict[str, int] = {}
     for words in docs:
-        for word in set(words):
+        tf: dict[str, int] = {}
+        for word in words:
+            tf[word] = tf.get(word, 0) + 1
+        counts.append(tf)
+        for word in tf:
             df[word] = df.get(word, 0) + 1
+    lengths = [len(d) for d in docs]
+    mean = (sum(lengths) / len(docs) or 1.0) if docs else 1.0
+    return LexicalIndex(counts=counts, lengths=lengths, df=df, mean=mean)
+
+
+def bm25_scores(
+    index: LexicalIndex, query: str, lang: str = config.DEFAULT_LANGUAGE
+) -> list[float]:
+    """Okapi BM25 of each document of `index` for the query: k1 = 1.5, b = 0.75, the idf
+    `ln(1 + (N − df + 0.5) / (df + 0.5))` (never negative), read from the index's counts."""
+    n = index.n
     terms = list(dict.fromkeys(bm25_terms(query, lang)))
     scores = []
-    for words in docs:
-        counts: dict[str, int] = {}
-        for word in words:
-            counts[word] = counts.get(word, 0) + 1
+    for counts, length in zip(index.counts, index.lengths, strict=True):
         score = 0.0
         for term in terms:
             tf = counts.get(term, 0)
             if not tf:
                 continue
-            idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
-            norm = tf + BM25_K1 * (1 - BM25_B + BM25_B * len(words) / mean)
+            df = index.df[term]
+            idf = math.log(1 + (n - df + 0.5) / (df + 0.5))
+            norm = tf + BM25_K1 * (1 - BM25_B + BM25_B * length / index.mean)
             score += idf * tf * (BM25_K1 + 1) / norm
         scores.append(score)
     return scores
+
+
+def bm25(query: str, documents: Sequence[str], lang: str = config.DEFAULT_LANGUAGE) -> list[float]:
+    """Okapi BM25 of each document for the query, in pure Python: the index built
+    (`lexical_index`), then the query scored on it (`bm25_scores`); `lang`: whose stop
+    words."""
+    return bm25_scores(lexical_index(documents, lang), query, lang)
 
 
 def rrf(lists: Sequence[Sequence[int]], k: int = RRF_K) -> list[tuple[int, float]]:

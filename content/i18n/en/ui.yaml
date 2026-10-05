@@ -953,6 +953,13 @@ rag:
   add_button: "Add"
   empty_question: "Write a question first (500 characters at most)."
   unavailable: "RAG workshop unavailable ({cause}): reload the page."
+  arch_downloads:
+    one: "{count} model to download"
+    other: "{count} models to download"
+  arch_downloads_title: "Opens the {stage} step in Compose mode, with its “Download” buttons"
+  arch_downloads_add:
+    one: "{component}: {count} model to download; add the {stage} step to download it"
+    other: "{component}: {count} models to download; add the {stage} step to download them"
 
 # Story 6 (2026-09-30), then lot 4 of 2026-10-04: the MCP workshop in sequence (`/mcp`).
 mcp:

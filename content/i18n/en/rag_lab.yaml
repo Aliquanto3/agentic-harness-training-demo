@@ -125,7 +125,8 @@ stages:
       A keyword search, with no embedding: chunks that share words with the question come
       first, a rare word weighing more than a common one (BM25); accents and short English
       function words (the, of, and…) are ignored. It finds an acronym, a code or an exact
-      number (“HR”, “IT”, “35”) that an embedding may miss.
+      number (“HR”, “IT”, “35”) that an embedding may miss. BM25 has no learned model: it is a
+      statistical algorithm, which reads for each question the lexical index built at BUILD.
   fusion:
     label_text: "Fusion (RRF)"
     explain_text: >-
@@ -232,6 +233,17 @@ steps:
   vector_store:
     label_text: "Indexing"
     action_text: "Store the vectors in the vector store"
+  lexical_index:
+    label_text: "Lexical indexing"
+    action_text: "Build the chunks' lexical index (BM25)"
+    explain_text: >-
+      BM25 has no learned model: it is a statistical algorithm. At indexing time, it splits each
+      chunk into terms (case, accents and stop words ignored, acronyms kept), counts how often
+      each term occurs in it and the chunk's length, then, for each term, how many chunks
+      contain it (its document
+      frequency): this is the inverted index, like a search engine's (Elasticsearch, Lucene).
+      For each question, BM25 reads these counts again instead of going through the text. The
+      workshop rebuilds this index at each run (it is fast); a search engine keeps it on disk.
   question:
     label_text: "Question"
     action_text: "Receive the question"
@@ -275,6 +287,9 @@ components:
   vector_store:
     label_text: "Vector store"
     note_text: "The chunks' vectors"
+  lexical_index:
+    label_text: "Lexical index (BM25)"
+    note_text: "The chunks' terms and their frequencies"
   embedding_model:
     label_text: "Embedding model"
     note_text: "The embedding model"

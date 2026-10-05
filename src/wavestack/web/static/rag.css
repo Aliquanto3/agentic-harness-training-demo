@@ -321,10 +321,10 @@ body.rag-page {
   display: none;
 }
 
-/* Lot 5c-4: « Télécharger » for a model missing, on the line selected only (like its reason),
-   unless it downloads (the progress and « Arrêter » stay said); the outcome likewise on the
-   line selected only. No opacity: a
-   disabled button keeps its contrast (AA sweep of the E2E). */
+/* Lot 5c-4: « Télécharger » for a model missing, in its stage's line; B1 (2026-10-05): on
+   every line, selected or not (they were hidden off the selected line, and nobody found
+   them), its progress and its outcome too. No opacity: a disabled button keeps its contrast
+   (AA sweep of the E2E). */
 .rag-chain-downloads {
   flex: 1 1 100%;
 }
@@ -342,11 +342,6 @@ body.rag-page {
   color: var(--color-ink);
   font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
     var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
-}
-
-.rag-seq-step:not(.is-selected) .rag-chain-download:not(.is-active),
-.rag-seq-step:not(.is-selected) .rag-chain-download-notice {
-  display: none;
 }
 
 .rag-chain-download-name {
@@ -454,6 +449,37 @@ body.rag-page {
   font: var(--typography-body-sm-font-weight) calc(var(--typography-body-sm-font-size) * 0.92) /
     1.25 var(--typography-body-sm-font-family);
   overflow-wrap: anywhere;
+}
+
+/* B1 (2026-10-05): « 2 modèles à télécharger » under a tile's subtitle, and, for a stage the
+   chain lacks, its sentence at the foot of the group: links to the stage in Composer. */
+.rag-arch-download,
+.rag-arch-download-hint {
+  justify-self: start;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary-deep);
+  font: var(--typography-label-font-weight) calc(var(--typography-body-sm-font-size) * 0.92) /
+    1.25 var(--typography-body-sm-font-family);
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.rag-arch-download {
+  grid-column: 2;
+}
+
+.rag-arch-download::before {
+  content: "⬇ " / "";
+}
+
+.rag-arch-download-hint {
+  display: block;
+  margin: 6px 0 0;
 }
 
 /* Lot 5a-2, « Dérouler »: the steps, the tiles, their groups and the RUN band after the frame
