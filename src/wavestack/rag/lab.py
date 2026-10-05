@@ -489,6 +489,9 @@ class Catalog:
                     "explain_text": text.explain_text,
                     "movable": kind in RETRIEVAL,
                     "options": options,
+                    # B1 (2026-10-05): the models to download from this stage, the figure the
+                    # architecture's tile says (« 2 modèles à télécharger »).
+                    "download_count": sum(1 for o in options if o["download"]),
                 }
             )
         return {

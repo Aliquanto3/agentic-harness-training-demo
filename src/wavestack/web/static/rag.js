@@ -782,12 +782,75 @@ function renderArchitecture(entries, shown) {
       const sub = el("span", "rag-arch-sub", subtitle(component));
       sub.title = sub.textContent;
       tile.append(icon, el("span", "rag-arch-name", component.label_text), sub);
+      const count = downloadCount(component.stage);
+      if (count) tile.append(downloadMention(component.stage, count));
       list.append(tile);
     }
     section.append(list);
+    // B1: a stage the chain lacks (no tile: the Reranker) with models to download, said at
+    // the foot of its group.
+    for (const component of store.catalog.components) {
+      if (component.group !== group.id || used.has(component.id)) continue;
+      const count = downloadCount(component.stage);
+      if (count && stageInfo(component.stage)?.movable) section.append(downloadHint(component, count));
+    }
     box.append(section);
   }
   seen = revealed;
+}
+
+// ---------- B1 (2026-10-05): where « Télécharger » is, said on the architecture ----------
+
+// The models a stage offers to download (the session's figure, AD-1), 0 for none.
+function downloadCount(kind) {
+  return (kind && stageInfo(kind)?.download_count) || 0;
+}
+
+// « 2 modèles à télécharger » on a tile: its click opens the stage's line in Composer.
+function downloadMention(kind, count) {
+  const button = el("button", "rag-arch-download", t("rag.arch_downloads", { count }));
+  button.type = "button";
+  button.dataset.stage = kind;
+  button.title = t("rag.arch_downloads_title", { stage: stageInfo(kind)?.label_text ?? kind });
+  // Two tiles may say the same: the accessible name says whose models.
+  const component = store.catalog.components.find((c) => c.stage === kind);
+  if (component) button.setAttribute("aria-label", labelled(component.label_text, button.textContent));
+  button.addEventListener("click", () => openDownloads(kind));
+  return button;
+}
+
+// « Reranker : 1 modèle à télécharger ; ajoutez l'étape Reranking… »: its click opens
+// Composer, the stage chosen in « Ajouter un composant ».
+function downloadHint(component, count) {
+  const stage = stageInfo(component.stage)?.label_text ?? component.stage;
+  const button = el("button", "rag-arch-download-hint", t("rag.arch_downloads_add", { count, component: component.label_text, stage }));
+  button.type = "button";
+  button.dataset.stage = component.stage;
+  button.title = t("rag.arch_downloads_title", { stage });
+  button.addEventListener("click", () => {
+    setMode("compose");
+    const select = document.querySelector("#rag-palette-a select");
+    if (!select) return;
+    select.value = component.stage;
+    const add = document.querySelector("#rag-palette-a .rag-palette-add");
+    add?.scrollIntoView({ block: "nearest" });
+    add?.focus();
+  });
+  return button;
+}
+
+// Composer, the stage's own line selected, its first « Télécharger » focused.
+function openDownloads(kind) {
+  const step = store.catalog?.steps.find((s) => s.own && s.stage === kind);
+  setMode("compose");
+  if (!step) return;
+  select(step.key);
+  const row = document.querySelector(`#rag-seq .rag-seq-step[data-step="${step.key}"]`);
+  // Its select when every button is disabled (the session busy, a download going on).
+  const button =
+    row?.querySelector(".rag-download:not(:disabled)") ?? row?.querySelector("select.rag-option") ?? row?.querySelector(".rag-seq-head");
+  row?.scrollIntoView({ block: "nearest" });
+  button?.focus();
 }
 
 // ---------- the run, as the sequence reads it ----------

@@ -1015,3 +1015,6 @@
 - source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-4-telechargement-modele-absent.md`
   summary: E2E de l'Atelier RAG — couvrir le refus d'un téléchargement dit dans l'étape (409 « Rien à télécharger » ou « Place insuffisante », classe `is-error`, catalogue relu), la réussite (« Modèle téléchargé », option disponible sans recharger), l'étape Reranking et l'option `declared` de la brique.
   evidence: medium ; revue 5c-4, constat 4 : la pile E2E est hors ligne et ne joue que le chemin accepté puis arrêté. Piste : un fichier de la taille déclarée (fichier creux) posé sous `models/embedding/` avant le clic pour le 409, ou un petit modèle servi en local pour la réussite.
+- source_spec: `_bmad-output/implementation-artifacts/spec-b1-atelier-rag-telecharger-visible.md`
+  summary: E2E de l'Atelier RAG — cliquer la mention « N modèles à télécharger » d'une tuile pendant un téléchargement (boutons désactivés) et vérifier que le focus va au choix d'option de la ligne.
+  evidence: medium ; revue B1 (verification-gap) : seul le chemin au repos est joué ; il faut un téléchargement tenu ouvert, ce que la pile E2E hors ligne ne fait pas de façon fiable.

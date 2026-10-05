@@ -13463,15 +13463,96 @@ def s_rag_lab(r: Run) -> None:
         r.goto_app()
 
 
+def _downloads_text(count: int) -> str:
+    """« 1 modèle à télécharger », « 2 modèles à télécharger » (ui.yaml, `rag.arch_downloads`)."""
+    return f"{count} modèle{'s' if count > 1 else ''} à télécharger"
+
+
+def _rag_lab_arch_downloads(r: Run) -> None:
+    """B1 (2026-10-05), in Composer with no line selected (the shipped chain): every
+    « Télécharger » of the Embedding and Reranking lines visible; the tiles Embedding model and
+    Reranker say « N modèles à télécharger », N the catalog's `download_count`. In Dérouler, the
+    tile's mention opens Composer, the Embedding line selected, its first « Télécharger »
+    focused."""
+    page = r.page
+    catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
+    counts = {s["kind"]: s.get("download_count") for s in catalog["stages"]}
+    lines = {
+        kind: _seq_row(r, kind).evaluate(
+            "row => [...row.querySelectorAll('.rag-chain-download')]"
+            ".filter(l => l.checkVisibility()).length"
+        )
+        for kind in ("embedding", "rerank")
+    }
+    mentions = page.eval_on_selector_all(
+        "#rag-arch .rag-arch-download",
+        "bs => Object.fromEntries(bs.map(b => [b.closest('.rag-arch-tile').dataset.component,"
+        " { text: b.textContent, visible: b.checkVisibility() }]))",
+    )
+    r.check(
+        not page.locator("#rag-seq .rag-seq-step.is-selected").count()
+        and counts["embedding"] == 2
+        and counts["rerank"] == 1
+        and lines == {"embedding": 2, "rerank": 1}
+        and mentions
+        == {
+            "embedding_model": {"text": _downloads_text(2), "visible": True},
+            "reranker": {"text": _downloads_text(1), "visible": True},
+        },
+        "B1 : en Composer, sans ligne choisie, les « Télécharger » d'Embedding (2) et de "
+        "Reranking (1) visibles ; tuiles « 2 modèles à télécharger », « 1 modèle à télécharger » "
+        "(download_count du catalogue)",
+        f"{counts} · {lines} · {mentions}",
+    )
+    # Dérouler: the tile revealed (▶ up to the Embedding of the chunks), its mention clicked.
+    _rag_mode(r, "play")
+    tile = page.locator('#rag-arch .rag-arch-tile[data-component="embedding_model"]')
+    nxt = page.locator("#rag-stepper .diagram-step-next")
+    for _ in range(12):
+        if "is-hidden" not in (tile.get_attribute("class") or ""):
+            break
+        nxt.click()
+    mention = tile.locator(".rag-arch-download")
+    played = mention.is_visible() and mention.inner_text().endswith(_downloads_text(2))
+    if not played:
+        r.check(False, "B1 : la tuile Embedding model révélée en Dérouler, sa mention visible")
+        _rag_mode(r, "compose")
+        return
+    mention.click()
+    expect(page.locator('#rag-modes [data-mode="compose"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    focus = page.evaluate(
+        "() => { const a = document.activeElement; return { cls: a.className,"
+        " target: a.dataset.target, step: a.closest('.rag-seq-step')?.dataset.step }; }"
+    )
+    selected = page.eval_on_selector_all(
+        "#rag-seq .rag-seq-step.is-selected", "rs => rs.map(r => r.dataset.step)"
+    )
+    r.check(
+        played
+        and selected == ["embed_passages"]
+        and "rag-download" in focus["cls"].split()
+        and focus["step"] == "embed_passages"
+        and focus["target"].startswith("rag_lab_embedding:"),
+        "B1 : en Dérouler, la mention de la tuile Embedding model passe en Composer, choisit la "
+        "ligne Embedding et met le focus sur son premier « Télécharger »",
+        f"{played} · {selected} · {focus}",
+    )
+    # Back to no line selected, as the scenario goes on.
+    _rag_mode(r, "play")
+    _rag_mode(r, "compose")
+
+
 def _rag_lab_download(r: Run) -> None:
-    """Lot 5c-4: « Télécharger » in the Embedding's line (selected) for a workshop's model
-    missing; its click enters `download`, the stage's « Arrêter » stops it, or (the e2e stack
-    being offline) it fails at once: the outcome, traced outside the brick, said in the stage,
-    the button active again. No real download is completed."""
+    """Lot 5c-4: « Télécharger » in the Embedding's line (B1: no line selected) for a
+    workshop's model missing; its click enters `download`, the stage's « Arrêter » stops it,
+    or (the e2e stack being offline) it fails at once: the outcome, traced outside the brick,
+    said in the stage, the button active again. No real download is completed."""
     page = r.page
     target = "rag_lab_embedding:qwen3-embedding-0.6b"
     row = _seq_row(r, "embedding")
-    row.locator(".rag-seq-head").click()
+    # B1 (2026-10-05): visible without selecting the line (no click on its head).
     button = row.locator(f'button.rag-download[data-target="{target}"]')
     expect(button).to_be_visible(timeout=5000)
     catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
@@ -13528,6 +13609,9 @@ def _rag_lab_download(r: Run) -> None:
     event = outcome() or {}
     notice = row.locator(".rag-chain-download-notice")
     expect(notice).to_contain_text("modèle d'embedding", timeout=5000)
+    # B1: the outcome said on the line, no line selected.
+    expect(notice).to_be_visible(timeout=5000)
+    expect(page.locator("#rag-seq .rag-seq-step.is-selected")).to_have_count(0)
     expect(button).to_be_enabled(timeout=5000)
     part = list((r.stack.data_dir / "models").rglob("*.part"))
     r.check(
@@ -13669,6 +13753,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "sans son fichier, la raison nommant reranker/…",
         f"{choices} · {notes}",
     )
+    _rag_lab_arch_downloads(r)
     _rag_lab_download(r)
     r.check(
         "Même modèle" in page.inner_text('#rag-seq [data-step="embed_query"]'),
@@ -14460,6 +14545,25 @@ def _rag_lab_presets(r: Run) -> None:
     page.locator('#rag-presets .rag-preset[data-preset="dense"]').click()
     time.sleep(0.8)
     dense = (_chain_kinds(r), _pressed_preset(r))
+    # B1 (2026-10-05): no Reranking, no Reranker tile: the Models group says to add the stage;
+    # its click proposes Reranking in « Ajouter un composant ».
+    hint = page.locator('#rag-arch .rag-arch-group[data-group="models"] .rag-arch-download-hint')
+    said = hint.inner_text() if hint.count() == 1 else ""
+    if hint.count() == 1:
+        hint.click()
+    picked = page.evaluate(
+        "() => ({ value: document.querySelector('#rag-palette-a select')?.value,"
+        " focused: document.activeElement?.classList.contains('rag-palette-add') })"
+    )
+    r.check(
+        not page.locator('#rag-arch .rag-arch-tile[data-component="reranker"]').count()
+        and said
+        == "Reranker : 1 modèle à télécharger ; ajoutez l'étape Reranking pour le télécharger"
+        and picked == {"value": "rerank", "focused": True},
+        "B1 : « RAG dense » (sans Reranking) : le groupe Modèles dit d'ajouter l'étape Reranking "
+        "pour télécharger son modèle ; le clic la propose dans « Ajouter un composant »",
+        f"{said} · {picked}",
+    )
     page.locator('#rag-presets .rag-preset[data-preset="rerank"]').click()
     time.sleep(0.8)
     r.check(

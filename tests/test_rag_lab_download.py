@@ -103,6 +103,41 @@ def test_the_bricks_models_absent_offer_the_cards_targets(index):
     session.close()
 
 
+def test_each_stage_counts_its_models_to_download(index):
+    """B1 (2026-10-05): the figure the architecture's tile says (« 2 modèles à
+    télécharger »), the session's (AD-1): the stage's options that offer « Télécharger »."""
+    session = lab_session(values(index, embeddings=[lab_entry()], rerankers=[reranker_entry()]))
+
+    stages = {s["kind"]: s for s in session.rag_lab_state()["catalog"]["stages"]}
+
+    for stage in stages.values():
+        offered = [o["id"] for o in stage["options"] if o["download"]]
+        assert stage["download_count"] == len(offered), stage["kind"]
+    # The brick's model and the workshop's, both missing in each stage.
+    assert stages["embedding"]["download_count"] == 2
+    assert stages["rerank"]["download_count"] == 2
+    assert stages["vector_store"]["download_count"] == 0
+    session.close()
+
+
+def test_a_downloaded_model_is_no_longer_counted(index):
+    """B1: the tile's figure follows the files (the page reads the catalog again)."""
+    session = lab_session(values(index, embeddings=[lab_entry()]))
+    before = next(
+        s for s in session.rag_lab_state()["catalog"]["stages"] if s["kind"] == "embedding"
+    )["download_count"]
+    path = model_file("embedding", E5)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\0" * SIZE)  # copied by hand
+
+    after = next(
+        s for s in session.rag_lab_state()["catalog"]["stages"] if s["kind"] == "embedding"
+    )["download_count"]
+
+    assert (before, after) == (2, 1)
+    session.close()
+
+
 def test_a_present_model_or_a_refused_reranker_offers_no_download(index):
     place_lab(QWEN, MINILM_HEADER)  # there, but a cross-encoder the adapter refuses
     session = lab_session(values(index, rerankers=[reranker_entry()]))

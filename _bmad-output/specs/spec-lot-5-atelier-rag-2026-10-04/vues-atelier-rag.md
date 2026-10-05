@@ -67,6 +67,11 @@ Bandeaux de phase : « BUILD · Indexing » + « une fois pour toutes, avant les
 
 - Trois groupes (Données, Modèles, Échange avec l'utilisateur), tuiles dans l'ordre du §2.
 - Une tuile n'existe que si une étape de la chaîne la sollicite (pas de Reranker sans reranking).
+- B1 (2026-10-05), dans les deux modes : la tuile d'un composant dont l'étape a des modèles à
+  télécharger (`download_count` du catalogue) porte « N modèle(s) à télécharger » ; clic :
+  Composer, ligne de l'étape choisie, focus sur son premier « Télécharger ». Sans l'étape dans
+  la chaîne (Reranking), une phrase au pied du groupe dit de l'ajouter ; clic : Composer, l'étape
+  présélectionnée dans « Ajouter un composant ».
 - Composants sollicités par étape (lu : composant → étape ; écrit, appelé : étape → composant) :
 
 | Étape | Lu | Écrit | Appelé |
@@ -115,6 +120,8 @@ reçoit, produit et coûte. »
 
 Toute la séquence et toutes les tuiles visibles ; l'étape sélectionnée (défaut : aucune, focus
 d'accueil) a ses flèches et son focus sans chiffres de run ; les architectures toutes faites.
+Les boutons « Télécharger » des modèles absents (5c-4) sont visibles sur chaque ligne d'étape,
+sélectionnée ou non (B1) ; les raisons d'indisponibilité restent sur la ligne sélectionnée.
 
 ## 8. Architectures toutes faites (5b)
 
