@@ -141,12 +141,14 @@ class ProviderError(KeyedError):
         }
 
 
-def mask_key(text: str, key: SecretStr | None) -> str:
-    """AD-15: the key, its first 4 and its last 4 characters never enter an event."""
-    if key is None:
-        return text
-    secret = key.get_secret_value()
-    for piece in (secret, secret[:4], secret[-4:]):
+def mask_key(text: str, key: SecretStr | None, former: Sequence[SecretStr] = ()) -> str:
+    """AD-15: the key, its first 4 and its last 4 characters never enter an event.
+    Correction A (2026-10-05), `former`: the keys it replaced, masked too; every whole key
+    first, then the pieces (one key's piece must not cut another key in two)."""
+    secrets = sorted(
+        (k.get_secret_value() for k in (key, *former) if k is not None), key=len, reverse=True
+    )
+    for piece in (*secrets, *(s[:4] for s in secrets), *(s[-4:] for s in secrets)):
         if piece:
             text = text.replace(piece, "•••")
     return text
@@ -458,11 +460,22 @@ class CloudEngine:
     ) -> None:
         self.entry = entry
         self._key = key
+        self._former_keys: tuple[SecretStr, ...] = ()
         timeout = httpx.Timeout(read_timeout_s, connect=connect_timeout_s)
         self._client = create_client(timeout=timeout, transport=transport)
 
+    def use_key(self, key: SecretStr) -> None:
+        """Correction A (2026-10-05): the key saved anew at the diagnostic, sent from the
+        next request on, without reloading the model. The former keys stay masked (AD-15):
+        a reply already on its way may still quote one."""
+        new = key.get_secret_value()
+        kept = {k.get_secret_value(): k for k in (*self._former_keys, self._key)}
+        kept.pop(new, None)  # each key once, the one in use apart
+        self._former_keys = tuple(kept.values())
+        self._key = key
+
     def mask(self, text: str) -> str:
-        return mask_key(text, self._key)
+        return mask_key(text, self._key, self._former_keys)
 
     def tokenize(self, text: str) -> list[int]:
         raise NotImplementedError(f"{self.api} has no local tokenizer (AD-5)")

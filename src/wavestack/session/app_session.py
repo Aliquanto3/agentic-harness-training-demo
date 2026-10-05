@@ -2465,6 +2465,23 @@ class AppSession:
             self._labels = labels
             self._active = ModelChoice("cloud", entry.id, entry)
 
+    def use_api_key(self, model_id: str) -> bool:
+        """Correction A (2026-10-05): after `set_api_key`, the active cloud model `model_id`
+        sends the key `config.cloud_key` reads now, from its next request on, without being
+        reloaded (re-choosing it stays `already_active`). Returns whether it took one."""
+        with self._lock:
+            entry, engine = self._cloud, self._engine
+        if entry is None or entry.id != model_id or not hasattr(engine, "use_key"):
+            return False
+        key = config.cloud_key(entry)
+        if key is None:
+            return False
+        with self._lock:
+            if self._engine is not engine:  # released or replaced meanwhile: nothing to do
+                return False
+            engine.use_key(key)
+        return True
+
     def _save_choice(self, choice: ModelChoice) -> str | None:
         """AD-20: `selected_model`, by the single applier (AD-23), after a success only.
         Returns the French notice when it could not be written; whatever the failure, the

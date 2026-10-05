@@ -895,14 +895,17 @@ def create_app(
 
     @app.post("/api/intentions/set_api_key")
     def set_api_key(intention: SetApiKeyIntention) -> dict[str, object]:
-        """Class (b): the key is saved with its host; the answer never repeats it (AD-15)."""
+        """Class (b): the key is saved with its host; the answer never repeats it (AD-15).
+        Correction A (2026-10-05): the active cloud model, if it is this one, sends it at once."""
         _diagnostic_class_b()
         try:
-            return shown(session.set_api_key(intention.id, intention.key))
+            answer = session.set_api_key(intention.id, intention.key)
         except Refused as refused:
             raise HTTPException(
                 status_code=409, detail=render(refused.reason_text, app_session.language)
             ) from None
+        app_session.use_api_key(intention.id)
+        return shown(answer)
 
     @app.post("/api/intentions/test_cloud_model")
     def test_cloud_model(intention: CloudTestIntention) -> dict[str, object]:

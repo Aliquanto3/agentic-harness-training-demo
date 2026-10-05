@@ -612,6 +612,11 @@ function applyEnvelope(envelope) {
       }
       break;
     case "effect_applied": {
+      // Correction A (2026-10-05): a key saved at the diagnostic changes the picker's rows.
+      if (p.effect === "api_key_set") {
+        scheduleModelList();
+        break;
+      }
       // Finition V1 (#20): a download stopped by « Arrêter », said on its card, neutral.
       if (!turn && envelope.brick === "rag" && p.effect === "model_download_stopped") {
         const notice = { text: p.lines.join(" "), error: false };
