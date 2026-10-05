@@ -488,6 +488,9 @@ session:
     step:
       too_many: "Höchstens {limit} angehängte Tokens: Entfernen Sie eines oder ändern Sie den Text."
       out_of_vocabulary: "Die Kennung {id} gehört nicht zum Vokabular des aktiven Modells ({count} Tokens): Ändern Sie den Text, um neu zu beginnen."
+      # Correction E of 2026-10-05: the first load's read, the next token's candidates only.
+      peek_reading: "Lesen der Wahrscheinlichkeiten des nächsten Tokens ({tokens} Tokens zu lesen, kein Token gezogen)"
+      peek_done: "Wahrscheinlichkeiten des nächsten Tokens gelesen: kein Token gezogen, nichts zum Text hinzugefügt."
     reading: "Lesen des Prompts ({tokens} Tokens)"
     sending: "Prompt wird an {provider} gesendet (≈ {tokens} Tokens)"
     too_long: "Prompt zu lang: {tokens} Tokens bei {usable} nutzbaren (Fenster von {window}, davon {reserve} für die Antwort reserviert). Kürzen Sie ihn: Der Aufruf wird nicht gesendet."

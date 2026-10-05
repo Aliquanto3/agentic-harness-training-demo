@@ -8776,7 +8776,13 @@ class AppSession:
         finally:
             self._lab_release(request_id)
 
-    def llm_step(self, prompt: str, continuation: Sequence[int], sampling: Sampling) -> str:
+    def llm_step(
+        self,
+        prompt: str,
+        continuation: Sequence[int],
+        sampling: Sampling,
+        candidates_only: bool = False,
+    ) -> str:
         """Intention `llm_step` (lot 6 of 2026-10-04, class b): the OUTPUT's « Tirer le token
         suivant ». The engine reads `prompt` without the chat template (the INPUT's very ids,
         its BOS first when the model asks one: unlike « Générer », it extends the text), then
@@ -8785,7 +8791,8 @@ class AppSession:
         reads its candidates (`llm_distribution(0, …)` draws them again). Accepted in `idle`
         with the engine in process only (`SendRefused` otherwise, as `llm_generate` with the
         candidates), with at most `llm_lab.STEP_LIMIT` ids, each in the vocabulary. Returns
-        `llm{n}.step`."""
+        `llm{n}.step`. Correction E of 2026-10-05: `candidates_only`, the same ids read, the
+        next token's candidates kept as the token 0, nothing drawn (`_run_peek`)."""
         ids = [int(token) for token in continuation]
         if len(ids) > llm_lab.STEP_LIMIT:
             raise SendRefused(
@@ -8809,6 +8816,9 @@ class AppSession:
             base, cancel, memory = self._lab_begin(False, True)
         request_id = f"{base}.step"
         self._emit_state()
+        if candidates_only:
+            self._executor.submit(self._run_peek, request_id, prompt, ids, sampling, cancel, memory)
+            return request_id
         self._executor.submit(
             self._run_lab,
             request_id,
@@ -8849,6 +8859,112 @@ class AppSession:
             id=f"{request_id}.1", kind=SegmentKind.USER_MESSAGE, text=shown, tokens=len(ids)
         )
         return RenderedContext(prompt=shown, ids=ids, segments=[segment])
+
+    def _run_peek(
+        self,
+        request_id: str,
+        prompt: str,
+        continuation: Sequence[int],
+        sampling: Sampling,
+        cancel: CancelToken,
+        memory: dict[int, dict[str, Any]] | None,
+    ) -> None:
+        """Correction E of 2026-10-05, the OUTPUT's first load: the step's ids
+        (`_step_context`) read by the engine in process, the next token's most probable
+        tokens kept as the token 0 (`llm_distribution(0, …)` draws them again), nothing
+        sampled: no `llm_token`, `llm_generation_started` and `llm_generation_ended` marked
+        `candidates_only`. No model call traced (nothing is generated); the main context's
+        engine state saved and restored around it, as `_run_lab`."""
+        started = time.monotonic()
+        journal = self._journal()
+        ended: dict[str, Any] = {
+            "request_id": request_id,
+            "status": "error",
+            "candidates_only": True,
+        }
+        touched, saved = False, None
+        with scoped(**self._lab_scope(request_id), trigger="user"):
+            try:
+                with self._lock:
+                    engine, window = self._engine, self._window
+                assert engine is not None
+                rendered = self._step_context(engine, request_id, prompt, continuation)
+                tokens = len(rendered.ids)
+                figures = {"prompt_tokens": self._n(tokens)}
+                started_payload = LlmGenerationStartedPayload(
+                    request_id=request_id,
+                    prompt=prompt,
+                    rendered=rendered.prompt,
+                    prompt_tokens=tokens,
+                    exact=True,
+                    sampling=self._sampling_trace(sampling),  # type: ignore[arg-type]
+                    reserve=0,
+                    usable=window,
+                    reasoning=False,
+                    phase_label=self._t(
+                        "session.llm_lab.step.peek_reading", tokens=figures["prompt_tokens"]
+                    ),
+                    unit="token",
+                    figures_text=figures
+                    | {"reserve": self._n(0), "usable": self._n(window), "window": self._n(window)},
+                    candidates_only=True,
+                )
+                journal.emit("llm_generation_started", started_payload.model_dump(mode="json"))
+                # The same bound as « Tirer » (`_run_lab`): a text read here is drawn after.
+                step_reserve = output_reserve(False)
+                if tokens > window - step_reserve:
+                    ended["message_text"] = self._t(
+                        "session.llm_lab.too_long",
+                        tokens=figures["prompt_tokens"],
+                        usable=self._n(window - step_reserve),
+                        window=self._n(window),
+                        reserve=self._n(step_reserve),
+                    )
+                    return
+                saved, touched = self._save_main_state(), True
+                read_at = time.monotonic()
+                top = engine.next_candidates(rendered.ids, cancel)
+                seconds = time.monotonic() - read_at  # the engine's read only
+                if top is None:
+                    ended["status"] = "cancelled"
+                    return
+                if memory is not None:
+                    with self._lock:
+                        memory[0] = {"token_text": None} | top
+                ended["status"] = "completed"
+                ended["message_text"] = self._t("session.llm_lab.step.peek_done")
+                evaluated = engine.last_evaluated
+                if evaluated and seconds > 0:
+                    ended["read_tps"] = round(evaluated / seconds, 1)
+            except Exception as exc:  # noqa: BLE001 - AD-16: the screen's call never breaks
+                ended["status"] = "error"
+                ended["message_text"] = Message("session.llm_lab.interrupted")
+                self._error(ended["message_text"], exc, Message("session.llm_lab.still_usable"))
+            finally:
+                try:
+                    if touched:
+                        self._lab_restore(saved, "llm")
+                    ended["duration_ms"] = _ms(time.monotonic() - started)
+                    ended["figures_text"] = {
+                        "reasoning_tokens": self._n(0),
+                        "answer_tokens": self._n(0),
+                    } | (
+                        {"read_tps": self._decimal(f"{ended['read_tps']:g}")}
+                        if ended.get("read_tps")
+                        else {}
+                    )
+                    payload = LlmGenerationEndedPayload.model_validate(
+                        in_language(ended, self._language)
+                    )
+                    journal.emit("llm_generation_ended", payload.model_dump(mode="json"))
+                except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
+                    self._error(
+                        Message("session.llm_lab.end_untraced"),
+                        exc,
+                        Message("session.llm_lab.back_to_idle"),
+                    )
+                finally:
+                    self._lab_release(request_id)
 
     def _lab_release(self, request_id: str) -> None:
         """The screen's request is over: no `CancelToken`, the session back to `idle`."""

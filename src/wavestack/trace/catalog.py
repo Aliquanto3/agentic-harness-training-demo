@@ -1170,6 +1170,9 @@ class LlmGenerationStartedPayload(BaseModel):
     # or a provider's stream (usually one token, not always).
     unit: Literal["token", "fragment"] = "token"
     figures_text: dict[str, str] = {}
+    # Correction E of 2026-10-05: the OUTPUT's first load reads the next token's candidates
+    # only, nothing drawn (no `llm_token` follows).
+    candidates_only: bool = False
 
 
 class LlmTokenPart(BaseModel):
@@ -1218,6 +1221,9 @@ class LlmGenerationEndedPayload(BaseModel):
     answer_tokens: int = 0
     message_text: str | None = None
     figures_text: dict[str, str] = {}
+    # Correction E of 2026-10-05: a read of the next token's candidates, nothing drawn;
+    # `completed`: they are kept as the token 0 (`/api/llm_lab/distribution`).
+    candidates_only: bool = False
 
 
 # ---------- story 30: the RAG workshop (AD-2, AD-22), context `rag_lab`, no turn ----------

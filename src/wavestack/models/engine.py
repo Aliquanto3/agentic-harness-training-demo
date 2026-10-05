@@ -390,6 +390,46 @@ class LlamaCppEngine:
             self._lib.llama_synchronize(llm.ctx)
         return evaluated
 
+    def next_candidates(self, prompt_ids: Sequence[int], cancel: CancelToken) -> dict | None:
+        """Correction E of 2026-10-05, the OUTPUT's first load: the `candidates.TOP` most
+        probable next tokens after `prompt_ids`, `{p, texts, tail}` (the shape of
+        `Fragment.top`), read from the logits of the last position, nothing sampled. The
+        cache is brought back to its common prefix with every id but the last (cut, else
+        `reset`, as `prefill`), then the rest evaluated by batches: the last id always is,
+        so that its logits are fresh. `None` when `cancel` came first; no id: `ValueError`."""
+        import numpy as np  # installed with llama-cpp-python
+
+        from wavestack.models.candidates import piece_text, top_from_logits
+
+        llm = self._llm
+        wanted = [int(t) for t in prompt_ids]
+        if not wanted:
+            raise ValueError("no id to read the next token after")
+        keep = min(common_prefix_len(llm.input_ids[: llm.n_tokens], wanted), len(wanted) - 1)
+        if keep < llm.n_tokens:
+            if keep > 0 and llm._ctx.kv_cache_seq_rm(-1, keep, -1):
+                llm.n_tokens = keep
+            else:
+                llm.reset()
+                keep = 0
+        self._last_evaluated = None
+        evaluated = 0
+        try:
+            for start in range(keep, len(wanted), PREFILL_BATCH):
+                if cancel.cancelled:
+                    return None
+                batch = wanted[start : start + PREFILL_BATCH]
+                llm.eval(batch)
+                evaluated += len(batch)
+        finally:
+            self._lib.llama_synchronize(llm.ctx)
+            self._last_evaluated = evaluated
+        pointer = self._lib.llama_get_logits_ith(llm.ctx, -1)
+        logits = np.ctypeslib.as_array(pointer, shape=(llm.n_vocab(),))
+        ids, probs, tail = top_from_logits(logits)
+        texts = [piece_text(piece) for piece in self.token_pieces(ids)]
+        return {"p": probs, "texts": texts, "tail": tail}
+
     def metadata(self) -> EngineMetadata:
         return self._tokenizer.metadata()
 

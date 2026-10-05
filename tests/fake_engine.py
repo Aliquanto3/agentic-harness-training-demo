@@ -7,7 +7,7 @@ import time
 from collections.abc import Iterator, Sequence
 
 from wavestack import config
-from wavestack.models.candidates import read_logits
+from wavestack.models.candidates import piece_text, read_logits, top_from_logits
 from wavestack.models.engine import (
     DEFAULT_SAMPLING,
     PREFILL_BATCH,
@@ -84,6 +84,8 @@ class FakeEngine:
         self.prefill_gate = prefill_gate
         self.prefills: list[list[int]] = []
         self.prefilled: list[int] = []
+        # Correction E of 2026-10-05: the ids of each `next_candidates` (nothing drawn).
+        self.peeks: list[list[int]] = []
 
     @property
     def last_evaluated(self) -> int | None:
@@ -128,6 +130,26 @@ class FakeEngine:
                 self.prefill_gate.wait(timeout=5)
         self.prefilled.append(evaluated)
         return evaluated
+
+    def next_candidates(self, prompt_ids: Sequence[int], cancel: CancelToken) -> dict | None:
+        """As `LlamaCppEngine.next_candidates` (correction E of 2026-10-05): the ids read
+        (`peeks`, never `calls`: nothing drawn), the cache on them, the first scripted logits
+        read by `top_from_logits` (`{p, texts, tail}`); `None` when cancelled first."""
+        wanted = list(prompt_ids)
+        self.peeks.append(wanted)
+        if not wanted:
+            raise ValueError("no id to read the next token after")
+        if cancel.cancelled:
+            return None
+        if self.fail:
+            raise RuntimeError("moteur en panne")
+        keep = min(common_prefix_len(self.cache, wanted), len(wanted) - 1)
+        self.evaluated.append(len(wanted) - keep)
+        self.cache = wanted
+        logits = (self.logits_script or [[1.0, 0.5, 0.0]])[0]
+        ids, probs, tail = top_from_logits(logits)
+        texts = [piece_text(p) for p in self.token_pieces(ids)]
+        return {"p": probs, "texts": texts, "tail": tail}
 
     def tokenize(self, text: str) -> list[int]:
         return list(text.encode("utf-8"))

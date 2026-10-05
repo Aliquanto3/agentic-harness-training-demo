@@ -290,6 +290,7 @@ stages:
     none_text: "noch kein Token gezogen"
     history_text: "letzte Ziehungen: {tirages}"
     running_text: "Die Engine zieht ein Token…"
+    reading_text: "Die Engine liest die Wahrscheinlichkeiten des nächsten Tokens, ohne eines zu ziehen…"
     end_text: "Die Engine hat ihr End-Token gezogen: für sie endet der Text hier. Nichts anzuhängen."
     raw_text: "Hier liest die Engine den Text so, wie er ist, ohne Chat-Vorlage: sie setzt ihn fort. „Generieren“ (Abschnitt 6) liest ihn als Nachricht und antwortet darauf."
     limit_text: "Höchstens 64 angehängte Tokens: entfernen Sie eines oder ändern Sie den Text."

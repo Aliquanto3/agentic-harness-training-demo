@@ -490,6 +490,9 @@ session:
     step:
       too_many: "Pas plus de {limit} tokens ajoutés à la suite : retirez-en un, ou changez le texte."
       out_of_vocabulary: "L'identifiant {id} n'est pas dans le vocabulaire du modèle actif ({count} tokens) : changez le texte pour repartir de zéro."
+      # Correction E of 2026-10-05: the first load's read, the next token's candidates only.
+      peek_reading: "Lecture des probabilités du token suivant ({tokens} tokens à lire, aucun token tiré)"
+      peek_done: "Probabilités du token suivant lues : aucun token tiré, rien ajouté au texte."
     reading: "Lecture du prompt ({tokens} tokens)"
     sending: "Envoi du prompt à {provider} (≈ {tokens} tokens)"
     too_long: "Prompt trop long : {tokens} tokens pour {usable} utilisables (fenêtre de {window} moins {reserve} réservés à la réponse). Raccourcissez-le : l'appel n'est pas envoyé."

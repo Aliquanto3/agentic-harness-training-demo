@@ -86,7 +86,7 @@ context:
 - E2E : les vérifications de l'ancien état vide (graphiques masqués, top-k grisé en cloud, aucune colonne en cloud, raison sous « Tirer ») sont réécrites pour le nouvel état ; captures `75-llm-boucle-premier-chargement`, `76-llm-boucle-exemple-cloud` ajoutées, captures LLM 52-54, 64, 65, 70-74 régénérées.
 
 - Vérification finale : ruff propre (src, tests, run_e2e) ; pytest `test_llm_lab`, `test_i18n`, `test_web_app`, `test_ui_texts`, `test_web_tokens`, `test_annex_language` : 348 réussis ; E2E `llm_loop llm_screen llm_live` en une passe : 109/109. Une passe antérieure de `llm_screen` a échoué une fois sur l'attente d'un `llm_token` du faux llama-server (20 s, machine chargée par deux autres agents), puis a réussi seule et dans la passe finale. Suite complète et `annex_language` non lancées (consigne : machine partagée).
-- Point ouvert pour Anaël : à chaque ouverture de `/llm` avec un GGUF chargé au repos, la page fait tirer un token (coût CPU d'un pas, quelques secondes) ; rien ne dit à l'écran que ce premier pas est automatique.
+- Point ouvert pour Anaël : à chaque ouverture de `/llm` avec un GGUF chargé au repos, la page fait tirer un token (coût CPU d'un pas, quelques secondes) ; rien ne dit à l'écran que ce premier pas est automatique. Correction E du 2026-10-05 : ce premier pas ne tire plus de token, la session lit seulement les candidats du token suivant (coût CPU d'une évaluation, sans tirage) ; la page dit « Le moteur lit les probabilités du token suivant, sans en tirer… » pendant la lecture.
 
 ## Spec Change Log
 

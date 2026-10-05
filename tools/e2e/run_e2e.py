@@ -12714,6 +12714,8 @@ class _LoopLab(_LiveLab):
         self.exact = exact
         self.busy = False
         self.refuse_step = False
+        # Correction E of 2026-10-05: the last step was a read of the candidates only.
+        self.peeked_last = False
 
     def lab(self, route) -> None:  # noqa: ANN001
         if not self.exact:
@@ -12757,7 +12759,8 @@ class _LoopLab(_LiveLab):
         route.fulfill(
             json={
                 "index": 0,
-                "token_text": self.draw["text"],
+                # Correction E of 2026-10-05: a read of the candidates names no token.
+                "token_text": None if self.peeked_last else self.draw["text"],
                 "candidates": [
                     {"text": text} | row
                     for (text, _), row in zip(self.draw["top"], rows, strict=True)
@@ -12811,11 +12814,46 @@ class _LoopLab(_LiveLab):
         }
         self.draw = draw
         self.kept = 1
+        self.peeked_last = False
         self.add_batch(
             ("llm_generation_started", started),
             ("llm_token", token),
             ("llm_generation_ended", ended),
         )
+        self.release()
+
+    def peeked(self, draw: dict[str, Any]) -> None:
+        """Correction E of 2026-10-05, a step asked `candidates_only`: as the session, a
+        read of the next token's candidates, nothing drawn: started then ended, both marked
+        `candidates_only`, no `llm_token`; `/distribution` names no token."""
+        rid = self.step_id
+        started = {
+            "request_id": rid,
+            "prompt": _LOOP_TEXT,
+            "rendered": _LOOP_TEXT,
+            "prompt_tokens": 5,
+            "exact": True,
+            "sampling": _LOOP_SAMPLING | {"source": "screen"},
+            "reserve": 0,
+            "usable": 4096,
+            "phase_label": "Lecture des probabilités du token suivant (e2e)",
+            "unit": "token",
+            "figures_text": {"prompt_tokens": "5", "reserve": "0", "window": "4 096"},
+            "candidates_only": True,
+        }
+        ended = {
+            "request_id": rid,
+            "status": "completed",
+            "duration_ms": 9,
+            "answer_tokens": 0,
+            "message_text": "Probabilités du token suivant lues : aucun token tiré (e2e).",
+            "figures_text": {"reasoning_tokens": "0", "answer_tokens": "0"},
+            "candidates_only": True,
+        }
+        self.draw = draw
+        self.kept = 1
+        self.peeked_last = True
+        self.add_batch(("llm_generation_started", started), ("llm_generation_ended", ended))
         self.release()
 
 
@@ -12857,6 +12895,7 @@ def s_llm_loop(r: Run) -> None:
     r.check(not errors, "/llm, boucle simulée : aucune erreur JavaScript", str(errors)[:300])
     _llm_loop_first_load(r)
     _llm_loop_cloud(r)
+    _llm_loop_journal(r)
 
 
 def _llm_loop_first_load(r: Run) -> None:
@@ -12897,8 +12936,19 @@ def _llm_loop_first_load(r: Run) -> None:
         live.add_batch(("llm_tokenized", _loop_tokenized()))
         live.release()
         stepped, _ = r.poll(pumped(lambda: len(live.steps) == 1), 10)
+        # Correction E of 2026-10-05: the first load's step asks the candidates only; the
+        # session reads them and draws nothing (no `llm_token`, `/distribution` unnamed).
+        peek = stepped and live.steps[0].get("candidates_only") is True
+        reading = page.inner_text("#llm-step-status")  # while the read is pending
+        reading_text = _content("fr", "llm_lab.yaml")["stages"]["output"]["reading_text"]
         if stepped:
-            live.drawn(_LOOP_DRAWS[0])
+            live.peeked(_LOOP_DRAWS[0])
+        r.check(
+            peek and reading == reading_text,
+            "1er chargement : le pas automatique demande les candidats seuls (aucun tirage"
+            " demandé ni émis), « le moteur lit les probabilités » pendant la lecture",
+            f"{live.steps[:1]} · {reading!r}",
+        )
         chip = page.locator("#llm-step-drawn .llm-output-chip")
         shown, _ = r.poll(lambda: page.inner_text("#output-tag").startswith("RÉEL"), 10)
         r.check(
@@ -13039,6 +13089,8 @@ def _llm_loop_first_load(r: Run) -> None:
         expect(legend).to_have_text(re.compile("^Candidats du token tiré par le moteur"))
         r.check(
             stepped
+            and live.steps[-2].get("candidates_only") is True  # the refused automatic one
+            and live.steps[-1].get("candidates_only") is False  # « Tirer » draws
             and position.inner_text() == "Étape 3 / 3"
             and page.inner_text("#llm-step-history") == "derniers tirages : ␣canapé"
             and page.locator("#logits-bars .dist-row.is-chosen").count() == 1
@@ -13055,6 +13107,50 @@ def _llm_loop_first_load(r: Run) -> None:
     r.check(
         not errors, "/llm, premier chargement simulé : aucune erreur JavaScript", str(errors)[:300]
     )
+
+
+def _llm_loop_journal(r: Run) -> None:
+    """Correction E of 2026-10-05: the Harnais workshop's event log names the first load's
+    read of the candidates (`candidates_only`) a read of the probabilities, never a
+    generation, and keeps « génération » and « tokens produits » for a step drawn. The two
+    steps' events fed by a routed `/api/stream` (as `_LoopLab` simulates them)."""
+    page = r.page
+    ui = _ui_catalogue("fr")
+    live = _LoopLab()
+    live.next_seq = max((e["seq"] for e in r.ev.since(0)), default=0) + 1000
+    live.peeked(_LOOP_DRAWS[0])
+    live.steps.append({})  # the next step's own id
+    live.drawn(_LOOP_DRAWS[0])
+    page.route("**/api/stream", live.stream)
+    try:
+        r.goto_app()
+        page.click("#event-log-head")
+        expect(page.locator("#event-log-list")).to_be_visible(timeout=5000)
+
+        def names() -> list[tuple[str, str]]:
+            rows = page.evaluate(_LOG_ROWS_JS)
+            return [(x["kind"], x["name"]) for x in rows if x["kind"].startswith("llm_")]
+
+        ok, _ = r.poll(lambda: len(names()) == 5, 10)
+        found = names()
+        r.check(
+            ok
+            and found
+            == [
+                ("llm_generation_started", ui["main.log.lab_peek.llm_generation_started"]),
+                ("llm_generation_ended", ui["main.log.lab_peek.llm_generation_ended"]),
+                ("llm_generation_started", ui["main.log.kinds.llm_generation_started"]),
+                ("llm_token", ui["main.log.lab_tokens"].replace("{count}", "1")),
+                ("llm_generation_ended", ui["main.log.kinds.llm_generation_ended"]),
+            ],
+            "journal du Harnais : la lecture du premier chargement s'appelle « lecture des"
+            " probabilités », un pas tiré « génération » et « tokens produits × 1 »",
+            str(found),
+        )
+        page.click("#event-log-head")
+    finally:
+        page.unroute("**/api/stream")
+        r.goto_app()
 
 
 _EXAMPLE_INPUT_JS = """() => [...document.querySelectorAll('#token-chips .token-chip')].map(c => ({

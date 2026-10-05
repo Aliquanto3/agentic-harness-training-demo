@@ -288,6 +288,7 @@ stages:
     none_text: "no token drawn yet"
     history_text: "last draws: {tirages}"
     running_text: "The engine is drawing a token…"
+    reading_text: "The engine is reading the next token's probabilities, drawing none…"
     end_text: "The engine drew its end token: for it, the text stops here. Nothing to add."
     raw_text: "Here, the engine reads the text as is, without the chat template: it continues it. “Generate” (section 6) reads it as a message and answers it."
     limit_text: "64 tokens added at most: remove one, or change the text."

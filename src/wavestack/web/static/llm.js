@@ -1500,16 +1500,21 @@ function setStepStatus(message, error = false) {
 async function drawStep() {
   const prompt = $("llm-prompt").value;
   if (!prompt.trim()) {
+    store.auto = null; // no read follows: the next « Tirer » draws
     setStepStatus(t("llm.empty_prompt"), true);
     return;
   }
+  // Correction E (2026-10-05): the first load's own step asks the next token's candidates
+  // only; the session reads them and draws nothing. « Tirer » draws.
+  const candidatesOnly = store.auto === "step";
   store.pending.step = "…";
-  setStepStatus(text("stages.output.running_text"));
+  setStepStatus(text(candidatesOnly ? "stages.output.reading_text" : "stages.output.running_text"));
   renderBusy();
   const answer = await post("/api/intentions/llm_step", {
     prompt,
     continuation: store.step.added.map((token) => token.id),
     sampling: samplingToSend(),
+    candidates_only: candidatesOnly,
   });
   if (!answer.ok) {
     store.pending.step = null;
@@ -1586,12 +1591,8 @@ function stepEvent(kind, p) {
   } else if (kind === "llm_token") {
     // Drawn for a text edited since: never shown, never added to the new one.
     if (store.step.prompt !== $("llm-prompt").value) return;
-    // Correction D (2026-10-05): the first load's own step reads the real candidates only;
-    // nothing is shown drawn (no chip, no « derniers tirages »): « Tirer » draws, as the mockup.
-    if (store.auto !== "step") {
-      store.step.drawn = { id: p.token_id, text: p.text };
-      store.step.history = [p.text, ...store.step.history].slice(0, HISTORY);
-    }
+    store.step.drawn = { id: p.token_id, text: p.text };
+    store.step.history = [p.text, ...store.step.history].slice(0, HISTORY);
     store.step.status = "";
     if (p.candidates?.length && store.candidates?.available) {
       store.dist.source = "step";
@@ -1599,16 +1600,26 @@ function stepEvent(kind, p) {
       store.dist.tokens = p.index + 1;
       scheduleDistribution(0);
     }
-    // The first load's own step leaves the OUTPUT at its first step (Logits), as the mockup.
-    if (store.auto !== "step") store.steppers.output?.show(OUTPUT_STEPS.length - 1);
+    store.steppers.output?.show(OUTPUT_STEPS.length - 1);
     renderStep();
   } else if (kind === "llm_generation_ended") {
-    const auto = store.auto === "step";
-    if (auto) store.auto = null;
-    // Correction C (2026-10-05): no token shown (the end token, an error, « Arrêter », a text
-    // edited since): the session keeps nothing for it, the OUTPUT goes back to the example.
-    // Correction D: the first load's step shows no token, its candidates only.
-    if ((!auto && !store.step.drawn) || !store.dist.tokens) {
+    if (store.auto === "step") store.auto = null;
+    // Correction E (2026-10-05): the first load's read (`candidates_only`): no token drawn,
+    // no `llm_token`; the session keeps the next token's candidates as the token 0, shown as
+    // real bars, the OUTPUT left on its first step (Logits), nothing shown drawn.
+    const read =
+      p.candidates_only &&
+      p.status === "completed" &&
+      store.step.prompt === $("llm-prompt").value &&
+      store.candidates?.available;
+    if (read) {
+      store.dist.source = "step";
+      store.dist.index = 0;
+      store.dist.tokens = 1;
+      scheduleDistribution(0);
+    } else if (p.candidates_only || !store.step.drawn || !store.dist.tokens) {
+      // Correction C (2026-10-05): no token shown (the end token, an error, « Arrêter », a
+      // text edited since): nothing kept for it, the OUTPUT goes back to the example.
       store.dist.tokens = 0;
       renderDistributionIdle();
     }
@@ -1616,7 +1627,7 @@ function stepEvent(kind, p) {
     if (store.pending.step === p.request_id) store.pending.step = null;
     if (p.status === "error") setStepStatus([text("generation.status.error"), p.message_text].filter(Boolean).join(" "), true);
     else if (p.status === "cancelled" && !store.step.drawn) setStepStatus(text("generation.status.cancelled"));
-    else if (auto) setStepStatus(""); // nothing shown drawn: no « token de fin » either
+    else if (p.candidates_only) setStepStatus(""); // nothing drawn: no « token de fin » either
     else if (!store.step.drawn) setStepStatus(p.message_text || text("stages.output.end_text"));
     else setStepStatus("");
     renderBusy();

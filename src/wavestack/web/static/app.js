@@ -6165,6 +6165,8 @@ const SESSION_STATES = section("main.log.session_states");
 
 // Story 29: how a generation of the « LLM nu » screen ended.
 const LAB_STATUS = section("main.log.lab_status");
+// Correction E (2026-10-05): its first load's read of the next token's probabilities.
+const LAB_PEEK_LABELS = section("main.log.lab_peek");
 // Correctif du 2026-10-02: how a RAG workshop's stage or run ended, and the language names.
 const RAG_LAB_STATUS = section("main.log.rag_lab_status");
 const LANGUAGE_NAMES = section("main.log.languages");
@@ -6459,13 +6461,16 @@ function logRow(i) {
   if (row.count !== count) {
     const merged = group.kind === "model_delta" && count > 1;
     const tokens = group.kind === "llm_token" ? group.events.filter((x) => x.kind === "llm_token").length : 0;
+    // Correction E (2026-10-05): the LLM workshop's first load reads the next token's
+    // probabilities only (`candidates_only`): named a read, never a generation.
+    const peek = group.events[0].payload?.candidates_only ? LAB_PEEK_LABELS[group.kind] : null;
     setText(
       row.name,
       merged
         ? t("main.log.deltas", { count: fmt(count) })
         : tokens
           ? t("main.log.lab_tokens", { count: fmt(tokens) })
-          : KIND_LABELS[group.kind] || group.kind
+          : (peek ?? (KIND_LABELS[group.kind] || group.kind))
     );
     const summary = eventSummary(group);
     setText(row.summary, summary);

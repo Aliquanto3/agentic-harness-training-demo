@@ -755,6 +755,10 @@ main:
       restored: "zurück zum vorigen Modell"
       cancelled: "Laden gestoppt"
       error: "fehlgeschlagen"
+    # Correction E of 2026-10-05: the LLM workshop's first load, a read of probabilities.
+    lab_peek:
+      llm_generation_started: "LLM-Werkstatt: Lesen der Wahrscheinlichkeiten begonnen"
+      llm_generation_ended: "LLM-Werkstatt: Lesen der Wahrscheinlichkeiten beendet"
     memory_ops:
       add: "Zum Gedächtnis hinzugefügt"
       replace: "Im Gedächtnis geändert"
