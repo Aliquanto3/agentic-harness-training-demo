@@ -112,6 +112,7 @@ session:
       subagent: "Der Sub-Agent hat den Cache der Engine belegt{why}."
       llm: "Die LLM-Werkstatt hat den Cache der Engine belegt{why}."
       mcp_lab: "Die MCP-Werkstatt hat den Cache der Engine belegt{why}."
+      rag_lab: "Die RAG-Werkstatt hat den Cache der Engine für ihre Generierung belegt{why}."
     evicted:
       stateless: ": Diese Engine kann den Zustand des Hauptkontexts nicht sichern"
       failed: ": Das Sichern oder Wiederherstellen des Zustands des Hauptkontexts ist fehlgeschlagen"
@@ -512,6 +513,10 @@ session:
     lab_reranker_absent: "Nicht verfügbar: Modelldatei fehlt ({files} unter {folder}). Die Werkstatt lädt sie noch nicht herunter: Holen Sie sie von der in wavestack.toml ([[rag_lab.rerankers]]) angegebenen Adresse und legen Sie sie dort ab."
     lab_reranker_refused: "Nicht verfügbar: {reason}."
     lab_reranker_effect: "Die anderen Reranking-Modelle der Werkstatt bleiben verfügbar."
+    # Lot 5c-3: the Generation stage run by the workshop's active model.
+    generation_active: "Aktives Modell der Werkstatt: {model}"
+    generation_no_model: "Kein Modell in der Werkstatt geladen: Der Schritt Generation wird übersprungen. Laden Sie ein Modell und starten Sie die Kette erneut."
+    generation_stops: "Die Generierung der RAG-Werkstatt bricht ab; WaveStack bleibt nutzbar."
     noun:
       embedding: Embedding-Modell
       reranking: Reranking-Modell
@@ -934,6 +939,8 @@ rag_lab:
     characters: Zeichen
     placement: Platzierung
     score_reading: Lesart des Scores
+    prompt_tokens: Tokens des Prompts
+    output_tokens: Erzeugte Tokens
   chunking:
     source_corpus: "dem Korpus (content/corpus), für diese Ausführung zerlegt"
     source_index: "dem Index des RAG-Bausteins (bei seiner Erstellung zerlegt)"
@@ -1019,6 +1026,16 @@ rag_lab:
     question_only: "die Frage allein (kein Kontext aufgebaut)"
     with_context: "den aufgebauten Kontext ({extracts}), dann die Frage"
     input: "Das aktive Modell der Werkstatt würde erhalten: seinen System-Prompt, {context}: „{question}“."
+    # Lot 5c-3: the generation run by the workshop's active model.
+    sent: "An das aktive Modell der Werkstatt gesendet: {system}, {context}: „{question}“."
+    system_prompt: "den System-Prompt der Werkstatt"
+    no_system: "keinen System-Prompt (Baustein „System-Prompt“ ausgeschaltet)"
+    no_model: "Kein Modell in der Werkstatt geladen: Die Generierung wird übersprungen. Laden Sie ein Modell und starten Sie die Kette erneut."
+    too_long: "Prompt zu lang: {tokens} Tokens bei {usable} nutzbaren (Fenster von {window}, davon {reserve} für die Antwort reserviert): Es wird nichts an das Modell gesendet. Behalten Sie weniger Chunks im Prompt, oder kürzere."
+    produced: "{done} von {reserve} (Ausgabereserve einer Runde)"
+    cut: "Antwort bei {max} Tokens abgeschnitten: Die Ausgabereserve einer Runde der Werkstatt ist erreicht."
+    empty: "Das Modell hat nichts geantwortet."
+    model_error: "Das Modell ist während der Generierung gescheitert: Das Ereignisprotokoll sagt, warum."
 
 # The LLM workshop (story 29, `session/llm_lab.py`): its figures and its diagram.
 llm_lab:

@@ -278,8 +278,7 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   composants que ces étapes sollicitent, en trois groupes (Données, Modèles, Échange avec
   l'utilisateur). À droite, le **focus** sur une étape : ce qu'elle fait, les composants qu'elle
   lit, écrit ou appelle, et après une exécution son entrée, sa sortie, ses chiffres et ses
-  extraits. Les noms techniques restent en anglais dans les trois langues. La Generation est
-  dessinée mais ne s'exécute pas ici : le focus montre ce que le modèle recevrait.
+  extraits. Les noms techniques restent en anglais dans les trois langues.
 - **Composer et Dérouler.** « ✎ Composer » montre toute la chaîne, réglable dans la séquence.
   « ▶ Dérouler » fait arriver les étapes et les composants un à un : sans exécution, c'est une
   visite guidée (◀ ▶) ; pendant une exécution, chaque étape atteinte s'allume avec ses
@@ -296,6 +295,23 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   sans reranker, le reranking est sauté et le contexte garde l'ordre de la recherche.
   « Arrêter » interrompt entre deux étapes. Pendant l'exécution, l'atelier attend (état
   « Atelier RAG : exécution en cours »).
+- **La Generation.** Par défaut (option « Modèle actif de l'atelier », nommée d'après lui), le
+  modèle actif de l'atelier génère la réponse. Il reçoit le prompt système de l'atelier tel
+  qu'un tour l'enverrait (personnalisé ou par défaut ; rien si la brique « Prompt système » est
+  éteinte ; jamais la mémoire globale, les skills ni les outils), puis un message avec le
+  contexte construit (son introduction et ses extraits) et la question. Les bornes sont celles
+  d'un tour : la réserve de sortie (512 tokens, 1 536 quand le modèle raisonne) et le budget de
+  raisonnement. La progression se compte en tokens (« 42 / 512 tokens »), la réponse s'écrit en
+  direct dans le focus, qui montre aussi le prompt envoyé tel quel (replié), et la tuile
+  « Réponse » en reprend le début. « Arrêter » coupe la génération et la chaîne. Une réponse qui
+  atteint la réserve est coupée, avec un avertissement ; un prompt plus long que la place utile
+  (fenêtre moins réserve) n'est pas envoyé, l'étape le dit en chiffres. Sans modèle chargé,
+  l'étape est sautée avec sa raison, le reste de la chaîne se termine. La dépense (FinOps,
+  GreenOps) compte dans celle de la session, jamais dans la jauge d'un tour, et la réponse ne
+  rejoint pas la conversation. En local, l'état du contexte principal est sauvegardé autour de
+  l'appel ; un moteur qui ne sait pas le faire relit tout au tour suivant, et Orchestration en
+  donne la cause (« Atelier RAG »). L'option « Ne pas générer » garde l'ancien comportement : rien
+  n'est envoyé, le focus montre ce que le modèle recevrait.
 - **Options et réglages.** Chaque étape propose ses options (les indisponibles sont grisées, la
   raison sous l'étape choisie) et ses réglages : taille des extraits (200 à 1 500 caractères), candidats
   retenus et extraits du contexte (1 à 20, jamais moins de candidats que d'extraits). La base

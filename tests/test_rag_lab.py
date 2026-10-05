@@ -89,8 +89,8 @@ def test_the_shipped_chain_runs_each_stage(index):
     kinds = [e.kind for e in events]
     assert kinds[0] == "rag_lab_run_started" and kinds[-1] == "rag_lab_run_ended"
     started = [e.payload["kind"] for e in events if e.kind == "rag_lab_stage_started"]
-    assert started == KINDS  # one pair per stage run, none for the generation
-    for kind in KINDS:
+    assert started == [*KINDS, "generation"]  # one pair per stage run (lot 5c-3: generation)
+    for kind in [*KINDS, "generation"]:
         stage = ended(events, kind)
         assert stage["status"] == "ok", (kind, stage["error_text"])
         assert stage["duration_ms"] >= 0 and stage["rss_bytes"] and "Mo" in stage["memory_text"]
@@ -123,10 +123,11 @@ def test_the_shipped_chain_runs_each_stage(index):
         assert item["text"].startswith(f"Extrait {position} — {item['title_text']} :\n")
     assert context["output_text"].startswith(content.intro_text)
 
+    # Lot 5c-3: the workshop's active model (FakeEngine) answers the augmented prompt.
     generation = ended(events, "generation")
-    assert generation["status"] == "not_run" and generation["rss_bytes"] is None
-    assert "Non exécutée dans l'atelier RAG" in generation["output_text"]
+    assert generation["output_text"] == "Quatorze caractères."
     assert "3 extraits" in generation["input_text"]
+    assert content.intro_text in generation["prompt_text"] and QUESTION in generation["prompt_text"]
     assert run_status(events) == "ok" and session.state == "idle"
     assert rerankers.made and rerankers.made[0].calls[0][0] == QUESTION
 
@@ -918,7 +919,8 @@ def test_state_catalog_default_chain_and_last_run(index):
     kinds = [e["kind"] for e in state["last_run"]]
     assert kinds[0] == "rag_lab_run_started" and kinds[-1] == "rag_lab_run_ended"
     assert all(e["payload"]["run_id"] == run_id for e in state["last_run"])
-    assert len(state["last_run"]) == len(events)
+    # Lot 5c-3: the generation's `model_*` events share the context, never `last_run`.
+    assert len(state["last_run"]) == len([e for e in events if e.kind.startswith("rag_lab_")])
 
 
 def test_catalog_notes_say_what_a_run_would_meet(index):
@@ -988,7 +990,7 @@ def test_the_catalog_renders_the_sequence_its_components_groups_and_phases(index
     content = rag_lab.load_lab_content()
     assert steps["rerank"]["explain_text"] == content.stages["rerank"].explain_text
     assert steps["question"]["stage"] is None and steps["question"]["explain_text"]
-    assert steps["generation"]["note_text"]
+    assert steps["generation"]["note_text"] is None  # lot 5c-3: it runs, no « not run » note
     assert [(s["key"], s["stage"]) for s in catalog["steps"] if not s["own"]] == [
         ("documents", "chunking"),
         ("question", None),

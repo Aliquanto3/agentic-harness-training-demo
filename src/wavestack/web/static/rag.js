@@ -43,6 +43,7 @@ const store = {
   current: null, // the step shown in the focus (its key), or none
   replaying: false, // `last_run` being read again: one render at its end, not one per event
   land: false, // a run just ended: its stepper lands on its last frame, or its failed step
+  promptOpen: false, // lot 5c-3: the generation's prompt unfolded, kept across the renders
 };
 
 // ---------- small helpers ----------
@@ -79,6 +80,9 @@ const QUESTION_KEY = "wavestack.ragLab.question";
 const CHAINS_KEY = "wavestack.ragLab"; // the chain being edited (a browser setting only)
 const MODE_KEY = "wavestack.ragLab.mode";
 const MODES = ["compose", "play"];
+// Lot 5c-3: the version of the saved chain. Before it (no version), Generation had a single
+// option, `not_run`: a chain saved then had not chosen « Ne pas générer ».
+const CHAINS_VERSION = 2;
 
 function stored(key) {
   try {
@@ -174,11 +178,17 @@ function loadChains() {
   };
   const pipelines = Array.isArray(saved?.pipelines) ? saved.pipelines.slice(0, 1).map(renamed) : [];
   if (!pipelines.length || !pipelines.every(shaped)) return [clone(store.defaultPipeline)];
+  if (saved.version === undefined) {
+    // Lot 5c-3: saved before the generation ran, its `not_run` was the only option.
+    for (const p of pipelines) {
+      for (const s of p.stages) if (s.kind === "generation" && s.option === "not_run") s.option = "active";
+    }
+  }
   return pipelines;
 }
 
 function saveChains() {
-  keep(CHAINS_KEY, JSON.stringify({ pipelines: store.pipelines }));
+  keep(CHAINS_KEY, JSON.stringify({ version: CHAINS_VERSION, pipelines: store.pipelines }));
 }
 
 function forgetChains() {
@@ -575,8 +585,28 @@ let seen = null;
 // A tile's subtitle: the chosen option of its stage (the embedding model, the reranker, the
 // store), else its own note.
 function subtitle(component) {
+  if (component.id === "answer") return answerOf(shownRun()) || component.note_text;
   const stage = component.stage ? chain()?.stages.find((s) => s.kind === component.stage) : null;
   return (stage && optionInfo(stage.kind, stage.option)?.label_text) || component.note_text;
+}
+
+// Lot 5c-3: the answer of a run's generation, as it arrives (the `model_delta` of the workshop's
+// context), then as its end says it; none when nothing was sent (« Ne pas générer », skipped).
+function answerOf(run) {
+  const stage = run?.stages.find((s) => s.kind === "generation");
+  if (!stage) return "";
+  if (stage.ended) return typeof stage.ended.prompt_text === "string" ? stage.ended.output_text : "";
+  return stage.status === "running" ? stage.live : "";
+}
+
+// The answer tile follows the run between two frames (its subtitle only).
+function renderAnswerTile() {
+  const sub = document.querySelector('#rag-arch .rag-arch-tile[data-component="answer"] .rag-arch-sub');
+  const component = store.catalog?.components.find((c) => c.id === "answer");
+  if (!sub || !component) return;
+  const said = subtitle(component);
+  if (sub.textContent !== said) sub.textContent = said;
+  sub.title = said;
 }
 
 function renderArchitecture(entries, shown) {
@@ -603,7 +633,9 @@ function renderArchitecture(entries, shown) {
       else if (playing && seen && !seen.has(component.id)) tile.classList.add("is-new");
       const icon = el("span", "rag-arch-icon", component.icon);
       icon.setAttribute("aria-hidden", "true");
-      tile.append(icon, el("span", "rag-arch-name", component.label_text), el("span", "rag-arch-sub", subtitle(component)));
+      const sub = el("span", "rag-arch-sub", subtitle(component));
+      sub.title = sub.textContent;
+      tile.append(icon, el("span", "rag-arch-name", component.label_text), sub);
       list.append(tile);
     }
     section.append(list);
@@ -697,6 +729,25 @@ function uses(step) {
   return box;
 }
 
+// Lot 5c-3: the prompt the generation sent, exactly, folded (its state kept across renders).
+function promptBlock(prompt) {
+  const details = el("details", "rag-prompt");
+  details.open = store.promptOpen;
+  details.addEventListener("toggle", () => {
+    store.promptOpen = details.open;
+  });
+  details.append(el("summary", null, text("prompt_sent_text")), el("pre", "rag-focus-pre", prompt));
+  return details;
+}
+
+// Lot 5c-3: the model's answer (`waiting`: before its first token).
+function answerBlock(answer, waiting = false) {
+  const box = el("div", "rag-answer");
+  box.append(el("span", "rag-view-label", text("answer_title_text")));
+  box.append(el("p", `rag-answer-text${waiting ? " is-waiting" : ""}`, answer));
+  return box;
+}
+
 function focusIo(rows) {
   const dl = el("dl", "rag-focus-io");
   for (const [label, value, className] of rows) {
@@ -725,6 +776,12 @@ function focusRun(box, step) {
   }
   box.append(el("p", "rag-focus-status", stepStatus(step, stage)));
   const ended = stage.ended;
+  if (!ended && step.stage === "generation" && stage.status === "running") {
+    // Lot 5c-3: the answer as the model writes it.
+    // Before its first word: the model reads the prompt, or reasons.
+    const waiting = stage.reasoning ? "answer_reasoning_text" : "answer_waiting_text";
+    box.append(stage.live ? answerBlock(stage.live) : answerBlock(text(waiting), true));
+  }
   if (!ended) return;
   if (ended.error_text) box.append(el("p", "rag-stage-error", ended.error_text));
   // Lot 5c-1: what the stage met without failing (chunks truncated), on its own lines only.
@@ -735,6 +792,10 @@ function focusRun(box, step) {
   }
   if (step.key === "embed_query") {
     box.append(focusIo([[text("input_text"), quote(run.question)]]));
+  } else if (step.stage === "generation" && typeof ended.prompt_text === "string") {
+    // Lot 5c-3: run by the active model: what it was sent, then its answer.
+    box.append(focusIo([[text("input_text"), ended.input_text]]), promptBlock(ended.prompt_text));
+    if (ended.output_text) box.append(answerBlock(ended.output_text));
   } else if (["context", "generation"].includes(step.stage)) {
     box.append(focusIo([[text("input_text"), ended.input_text]]));
     if (ended.output_text) box.append(el("pre", "rag-focus-pre", ended.output_text));
@@ -1017,7 +1078,7 @@ function applyEnvelope(envelope) {
         question: p.question,
         startedAt: envelope.ts,
         ended: null,
-        stages: p.stages.map((s) => ({ ...s, status: "waiting", progress: null, ended: null })),
+        stages: p.stages.map((s) => ({ ...s, status: "waiting", progress: null, ended: null, live: "", reasoning: false })),
       };
       break;
     case "rag_lab_stage_started": {
@@ -1036,6 +1097,18 @@ function applyEnvelope(envelope) {
         stage.status = p.status;
         stage.ended = p;
       }
+      break;
+    }
+    case "model_delta": {
+      // Lot 5c-3: the generation's answer as it arrives (AD-1: the session's text, never
+      // computed here); its reasoning's text is not shown, only that it is under way. A turn's
+      // deltas are not the workshop's.
+      if (envelope.context_id !== "rag_lab" || !["text", "reasoning"].includes(p.channel)) return;
+      const stage = store.run?.stages.find((s) => s.kind === "generation" && s.status === "running");
+      if (!stage) return;
+      if (p.channel === "text") stage.live += p.text;
+      else if (stage.reasoning) return; // already said: nothing to draw again
+      else stage.reasoning = true;
       break;
     }
     case "rag_lab_run_ended":
@@ -1075,7 +1148,10 @@ const STATUS_KEYS = {
 function statusLine(stage) {
   const label = text(STATUS_KEYS[stage.status] ?? "") || stage.status;
   if (stage.status === "running" && stage.progress) {
-    return `${label} · ${fmtInt(stage.progress.done)} / ${fmtInt(stage.progress.total)}`;
+    const { done, total } = stage.progress;
+    // Lot 5c-3: the generation counts tokens produced against the reserve.
+    const said = stage.kind === "generation" ? text("progress_tokens_text", { done: fmtInt(done), total: fmtInt(total) }) : `${fmtInt(done)} / ${fmtInt(total)}`;
+    return `${label} · ${said}`;
   }
   if (stage.ended && ["ok", "error", "cancelled"].includes(stage.status)) {
     return `${label} · ${fmtInt(stage.ended.duration_ms)} ms`;
@@ -1141,6 +1217,11 @@ function stageCard(stage, index) {
   if (ended.input_text) dl.append(el("dt", null, text("input_text")), el("dd", "rag-stage-input", ended.input_text));
   if (ended.output_text) dl.append(el("dt", null, text("output_text")), el("dd", "rag-stage-output", ended.output_text));
   if (dl.childElementCount) card.append(dl);
+  if (typeof ended.prompt_text === "string") {
+    const prompt = el("details", "rag-prompt");
+    prompt.append(el("summary", null, text("prompt_sent_text")), el("pre", "rag-focus-pre", ended.prompt_text));
+    card.append(prompt);
+  }
   if (ended.facts.length) {
     const facts = el("dl", "rag-stage-facts");
     for (const fact of ended.facts) facts.append(el("dt", null, fact.label_text), el("dd", null, fact.value_text));
@@ -1184,6 +1265,7 @@ function renderRun() {
   }
   store.land = false;
   renderPills();
+  renderAnswerTile();
   renderCurrent();
   renderLegend();
 }

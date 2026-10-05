@@ -13667,8 +13667,8 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     )
     started = {e["payload"]["kind"] for e in r.ev.since(seq, "rag_lab_stage_started")}
     r.check(
-        started == set(RAG_LAB_STAGES_KINDS[:-1]),
-        "une paire started/ended par étape exécutée, la génération non exécutée",
+        started == set(RAG_LAB_STAGES_KINDS),
+        "une paire started/ended par étape, la génération comprise (lot 5c-3)",
         str(sorted(started)),
     )
     _open_details(r)
@@ -13724,11 +13724,23 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "Prompt augmentation : les 3 extraits (top_k) au format de la brique",
         output[:200],
     )
-    gen = _result_card(r, "generation").inner_text()
+    # Lot 5c-3: the workshop's active model answers; the card folds the prompt sent.
+    generation = _stage_ended(r, seq, "generation")
+    gen = _result_card(r, "generation")
+    answer = generation.get("output_text") or ""
+    deltas = [e for e in r.ev.since(seq, "model_delta") if e.get("context_id") == "rag_lab"]
     r.check(
-        "non exécutée dans l'atelier rag" in gen.lower(),
-        "Generation : « non exécutée dans l'atelier RAG »",
-        gen[:200],
+        generation.get("status") == "ok"
+        and answer.strip()
+        and RAG_LAB_QUESTION in (generation.get("prompt_text") or "")
+        and " ".join(answer.split())[:40]
+        in " ".join(gen.locator(".rag-stage-output").inner_text().split())
+        and gen.locator("details.rag-prompt").count() == 1
+        and deltas
+        and all(e.get("turn_id") is None for e in deltas),
+        "Generation : le modèle actif répond (model_delta du contexte rag_lab, sans tour), "
+        "le prompt envoyé replié dans la carte",
+        f"{generation.get('status')} {answer[:120]!r} {generation.get('error_text')}",
     )
     # In « Dérouler », the focus shows what the step received and produced.
     _rag_mode(r, "play")
@@ -13861,6 +13873,9 @@ _WATCH_PLAY_JS = """() => {
       wires: [...document.querySelectorAll('#rag-views .diagram-path-core')]
         .map(p => p.dataset.component).sort(),
       flowing: document.querySelectorAll('#rag-views .diagram-path-core.is-flow').length,
+      // Lot 5c-3: the generation's answer in the focus, live (or its waiting text).
+      answer: document.querySelector('#rag-focus .rag-answer-text')?.textContent ?? null,
+      waiting: Boolean(document.querySelector('#rag-focus .rag-answer-text.is-waiting')),
     });
   };
   window.__ragPlayObserver?.disconnect();
@@ -13881,9 +13896,9 @@ def _rag_lab_views(r: Run) -> None:
     alone; each ▶ the next step and the tiles it calls on first, arriving, none moving with
     reduced motion; the steps after it keep their place); a run, from « Composer »: « Lancer »
     passes into « Dérouler », the steps arrive one by one, the step running lit with its
-    components, its wires flowing; at the end, Generation « non exécutée » and « rejouez avec
-    ◀ ▶ »; ◀ ▶ replay; the same state after a reload; a step in error: its ✖ and its error in
-    the focus."""
+    components, its wires flowing; at the end, Generation « terminée » with the model's answer
+    (lot 5c-3) and « rejouez avec ◀ ▶ »; ◀ ▶ replay; the same state after a reload; a step in
+    error: its ✖ and its error in the focus."""
     page = r.page
     state = r.api("GET", "/api/rag_lab").json()
     uses = {s["key"]: [u["component"] for u in s["uses"]] for s in state["catalog"]["steps"]}
@@ -13994,19 +14009,58 @@ def _rag_lab_views(r: Run) -> None:
         f"flèches vues en cours : {len(drawn)} · {unlit[:2]} · "
         f"{[s for s in drawn if s['flowing'] != len(s['wires'])][:2]}",
     )
+    # Lot 5c-3: while the generation runs, its pill counts tokens (« n / N tokens ») and the
+    # focus shows the answer as it comes (or that the model reasons).
+    tokens_form = texts["progress_tokens_text"].replace("{done}", "").replace("{total}", "")
+    unit = tokens_form.split("/")[-1].strip()
+    live = [
+        s
+        for s in states
+        if s["step"] == "generation"
+        and s["pill"].startswith("en cours")
+        and re.search(rf"\d+ / [\d\u202f\u00a0 ]+ {re.escape(unit)}$", s["pill"])
+        and (
+            (s["answer"] and s["answer"].strip() and not s["waiting"])
+            or s["answer"] == texts["answer_reasoning_text"]
+        )
+    ]
+    r.check(
+        bool(live),
+        "Generation en cours : pastille « n / N tokens » et réponse en direct dans le focus "
+        "(lot 5c-3)",
+        str(
+            [
+                (s["pill"], (s["answer"] or "")[:40], s["waiting"])
+                for s in states
+                if s["step"] == "generation"
+            ][:6]
+        ),
+    )
     end = _rag_play(r)
     r.check(
         end["rows"] == keys
         and end["focus"] == "generation"
-        and end["pill"] == texts["status"]["not_run_text"]
+        and end["pill"].startswith(texts["status"]["ok_text"])
         and end["legend"] == texts["legend_done_text"]
         and "◀ ▶" in end["legend"]
         and end["position"] == "Étape 10 / 10"
         and end["next"]
         and end["live_button"]
         and not end["flowing"],
-        "fin de run : dernière image Generation « non exécutée », légende « rejouez avec ◀ ▶ »",
+        "fin de run : dernière image Generation « terminée », légende « rejouez avec ◀ ▶ »",
         str({k: end[k] for k in ("focus", "pill", "legend", "position")}),
+    )
+    # Lot 5c-3: the focus shows the prompt sent (folded) and the answer; the Réponse tile, the
+    # answer's first lines (the whole in its tooltip).
+    focus_answer = page.locator("#rag-focus .rag-answer-text").inner_text()
+    tile = page.locator('#rag-arch .rag-arch-tile[data-component="answer"] .rag-arch-sub')
+    r.check(
+        focus_answer.strip()
+        and page.locator("#rag-focus details.rag-prompt").count() == 1
+        and (tile.get_attribute("title") or "").strip() == focus_answer.strip(),
+        "fin de run : le focus montre le prompt envoyé (replié) et la réponse ; la tuile Réponse "
+        "porte la réponse",
+        f"{focus_answer[:80]!r} · {(tile.get_attribute('title') or '')[:80]!r}",
     )
     prev.click()
     back = _rag_play(r)

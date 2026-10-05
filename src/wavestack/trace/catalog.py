@@ -660,6 +660,7 @@ PrefixCause = Literal[
     "subagent",
     "llm",  # story 29: the « LLM nu » screen took the engine's cache
     "mcp_lab",  # lot 4 of 2026-10-04: the MCP workshop's model took the engine's cache
+    "rag_lab",  # lot 5c-3: the RAG workshop's generation took the engine's cache
 ]
 
 
@@ -1303,6 +1304,9 @@ class RagLabStageEndedPayload(BaseModel):
     error_text: str | None = None
     # Lot 5c-1: what the stage met without failing (chunks truncated by the embedding model).
     warning_text: str | None = None
+    # Lot 5c-3: the generation's prompt as sent, rendered exactly (`None`: nothing was sent
+    # or rendered, or an older journal).
+    prompt_text: str | None = None
     duration_ms: int
     rss_bytes: int | None = None
     memory_text: str | None = None

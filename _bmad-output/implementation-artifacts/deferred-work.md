@@ -1005,3 +1005,6 @@
 - source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-2-rerankers-declares.md`
   summary: Rendre dans la langue de la session la cause d'un échec de chargement d'un modèle de l'Atelier RAG (`Loans.lend`, `cause=str(exc)` donne le français en en/de).
   evidence: antérieur à 5c (`rag/lab.py`, `Loans.lend`) ; les refus d'en-tête des rerankers déclarés sont déjà traduits au catalogue, seul un refus au chargement (en-tête illisible en Python, `no_score`, `not_finite`) reste en français.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-3-generation-executee-par-le-modele-actif.md`
+  summary: Mettre à jour `SPEC.md` du lot 5 en fin de lot 5c (CAP-5 dit encore « non implémentées dans ce lot », Notes de fusion de 5c à compléter).
+  evidence: Revue 5c-3, constat 5 ; ligne 35 de `SPEC.md` périmée depuis 5c-1.

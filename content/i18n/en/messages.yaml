@@ -110,6 +110,7 @@ session:
       subagent: "The sub-agent occupied the engine's cache{why}."
       llm: "The LLM workshop occupied the engine's cache{why}."
       mcp_lab: "The MCP workshop occupied the engine's cache{why}."
+      rag_lab: "The RAG workshop occupied the engine's cache for its generation{why}."
     evicted:
       stateless: ": this engine cannot save the state of the main context"
       failed: ": saving or restoring the state of the main context failed"
@@ -510,6 +511,10 @@ session:
     lab_reranker_absent: "Unavailable: model file missing ({files} under {folder}). The workshop does not download it yet: get it from the address declared in wavestack.toml ([[rag_lab.rerankers]]) and put it there."
     lab_reranker_refused: "Unavailable: {reason}."
     lab_reranker_effect: "The workshop's other reranking models are still offered."
+    # Lot 5c-3: the Generation stage run by the workshop's active model.
+    generation_active: "The workshop's active model: {model}"
+    generation_no_model: "No model loaded in the workshop: the Generation step will be skipped. Load a model, then run the chain again."
+    generation_stops: "The RAG workshop's generation stops; WaveStack remains usable."
     noun:
       embedding: embedding model
       reranking: reranking model
@@ -931,6 +936,8 @@ rag_lab:
     characters: Characters
     placement: Placement
     score_reading: Score reading
+    prompt_tokens: Prompt tokens
+    output_tokens: Tokens produced
   chunking:
     source_corpus: "the corpus (content/corpus), split for this run"
     source_index: "the RAG brick's index (split when it was built)"
@@ -1016,6 +1023,16 @@ rag_lab:
     question_only: "the question alone (no context built)"
     with_context: "the built context ({extracts}), then the question"
     input: "The workshop's active model would receive: its system prompt, {context}: “{question}”."
+    # Lot 5c-3: the generation run by the workshop's active model.
+    sent: "Sent to the workshop's active model: {system}, {context}: “{question}”."
+    system_prompt: "the workshop's system prompt"
+    no_system: "no system prompt (the “System prompt” brick is off)"
+    no_model: "No model loaded in the workshop: the generation is skipped. Load a model, then run the chain again."
+    too_long: "Prompt too long: {tokens} tokens for {usable} usable (window of {window} minus {reserve} reserved for the answer): nothing is sent to the model. Keep fewer chunks in the prompt, or shorter ones."
+    produced: "{done} of {reserve} (a turn's output reserve)"
+    cut: "Answer cut at {max} tokens: the output reserve of a workshop turn is reached."
+    empty: "The model gave no answer."
+    model_error: "The model failed during the generation: the event log says why."
 
 # The LLM workshop (story 29, `session/llm_lab.py`): its figures and its diagram.
 llm_lab:

@@ -516,6 +516,7 @@ main:
       subagent: "sous-agent"
       llm: "Atelier LLM"
       mcp_lab: "Atelier MCP"
+      rag_lab: "Atelier RAG"
     hook_decisions:
       allow: "laissé passer"
       modify: "modifié"

@@ -565,6 +565,48 @@ body.rag-page {
   font: 400 var(--typography-body-sm-font-size) / 1.45 var(--typography-number-font-family);
 }
 
+/* Lot 5c-3: the generation's prompt as sent, folded, then the model's answer. */
+.rag-prompt {
+  margin: 0 0 var(--spacing-3);
+}
+
+.rag-prompt > summary {
+  min-height: var(--spacing-hit-target-min);
+  color: var(--color-primary);
+  font-weight: 700;
+  line-height: var(--spacing-hit-target-min);
+  cursor: pointer;
+}
+
+.rag-answer {
+  margin: 0 0 var(--spacing-3);
+  padding: var(--spacing-3);
+  background: var(--color-accent-soft);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--rounded-sm);
+}
+
+.rag-answer-text {
+  margin: 0;
+  color: var(--color-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rag-answer-text.is-waiting {
+  color: var(--color-ink-soft);
+  font-style: italic;
+}
+
+/* The answer tile: the first lines of the answer, the whole in its tooltip. */
+.rag-arch-tile[data-component="answer"] .rag-arch-sub {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
 /* The head of a wire's arrow (diagram.js draws the wire). */
 .rag-arrow-head {
   fill: var(--color-ink);

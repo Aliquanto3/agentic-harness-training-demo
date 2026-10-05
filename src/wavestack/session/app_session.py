@@ -333,6 +333,7 @@ _PREFIX_CAUSES = (
     "subagent",
     "llm",
     "mcp_lab",  # lot 4 of 2026-10-04: the MCP workshop's model took the engine's cache
+    "rag_lab",  # lot 5c-3: the RAG workshop's generation took the engine's cache
 )
 _LAB_FR = Message("session.state.llm_lab")
 # Lot 4 of 2026-10-04 (AD-27): the slots of `ask_resource_text`, filled in one pass.
@@ -9082,10 +9083,13 @@ class AppSession:
         token: Callable[[str, int | None, str], None],
         ended: dict[str, Any],
         request_id: str,
+        effect: Message | None = None,
     ) -> str:
         """The screen's cloud call: `run_call` directly (neither `context_reconciled` nor the
         estimate's ratio: the workshop's gauge learns nothing from it), each fragment the
-        provider sends one `llm_token`. Returns the generation's status."""
+        provider sends one `llm_token`. Returns the generation's status. `effect`: what a
+        provider's refusal stops (the screen's generation by default; lot 5c-3: the RAG
+        workshop's)."""
         engine = _TokenTap(
             self._engine, lambda channel, text: token(text, None, channel, None, [(channel, text)])
         )
@@ -9108,7 +9112,7 @@ class AppSession:
         except ProviderError as error:
             self._journal().emit(
                 "harness_error",
-                error.payload(Message("session.llm_lab.stops"), lang=self._language),
+                error.payload(effect or Message("session.llm_lab.stops"), lang=self._language),
             )
             ended["message_text"] = error.message_text
             return "error"
@@ -9191,6 +9195,16 @@ class AppSession:
         if self._rerank_model is not None:
             rerank.label_text = self._rerank_model.label_text
         rerank.note_text = self._rerank_static_reason()
+        # Lot 5c-3: the generation by the workshop's active model, named after it; without a
+        # model loaded, it can still be chosen, its stage skipped (the note says so).
+        generation = options[("generation", "active")]
+        active = self.active_model()
+        if active is not None:
+            generation.label_text = self._t(
+                "session.rag_lab.generation_active", model=active["label"]
+            )
+        else:
+            generation.note_text = Message("session.rag_lab.generation_no_model")
         fastembed = options[("embedding", "fastembed")]
         declared, reason = self._rag_lab_fastembed()
         if declared is not None:
@@ -9311,9 +9325,10 @@ class AppSession:
 
     def run_rag_lab(self, question: str, pipeline: rag_lab.Pipeline | None = None) -> str:
         """Intention `rag_lab_run` (story 30, class b): accepted in `idle` only (a reason
-        there, such as no model loaded, does not matter: nothing is generated), switched to
-        `rag_lab` under the lock in this call, then run on the worker; « Arrêter » (class c)
-        stops it between two stages, passages or candidates. One chain per run (lot 5c-1), the
+        there, such as no model loaded, does not matter: the generation is then skipped, lot
+        5c-3), switched to `rag_lab` under the lock in this call, then run on the worker;
+        « Arrêter » (class c) stops it between two stages, passages or candidates, or during
+        the generation's tokens. One chain per run (lot 5c-1), the
         shipped one when `pipeline` is `None`. A chain the workshop refuses: `SendRefused` with
         the reason, nothing emitted. Returns the run's id, `lab{n}`."""
         texts, error_text = self._rag_lab_content()
@@ -9404,6 +9419,7 @@ class AppSession:
                 emit=self._rag_lab_emit,
                 rss=self._rss_now,
                 lang=self._language,
+                generator=lambda ask: self._rag_lab_generate(ask, cancel),
             )
             lab_run = rag_lab.LabRun(run_id, question, chain, deps)
             lab_run.run()
@@ -9436,9 +9452,150 @@ class AppSession:
         self, kind: str, payload: dict[str, Any], step_id: str, component: str
     ) -> None:
         model = PAYLOAD_MODELS[kind]
-        with scoped(**self._rag_lab_scope(step_id, component)):
+        # Lot 5c-3: the generation's progress is emitted during the model's call, never
+        # under its `origin`.
+        with scoped(**self._rag_lab_scope(step_id, component), origin=None):
             payload = in_language(payload, self._language)
             self._journal().emit(kind, model.model_validate(payload).model_dump(mode="json"))
+
+    def _rag_lab_generate(
+        self, ask: rag_lab.GenerationAsk, cancel: CancelToken
+    ) -> rag_lab.Generated:
+        """Lot 5c-3: the Generation stage of the RAG workshop, by the active model. Sent: the
+        system prompt brick's text as a turn would send it (custom or default; nothing when
+        the brick is off: neither the global memory nor the skills, whose meta-tools the
+        workshop does not offer), then one user message, the context the chain built and the
+        question. Within a turn's bounds: its output reserve and its reasoning budget. Local:
+        `_call_model` (its `model_*` events, CodeCarbon, the session's footprint), the main
+        context's engine state saved around it (`rag_lab` names a cache it could not keep).
+        Cloud: `_lab_cloud_call`, `run_call` directly (the session's spend, neither the gauge
+        nor the ratio). Scope `rag_lab`, the stage's step, no turn, no brick (a model's error
+        is not the RAG brick's). Raises `StageSkipped` without a model."""
+        with self._lock:
+            engine, caps, cloud, window = self._engine, self._caps, self._cloud, self._window
+        if engine is None or caps is None:
+            raise rag_lab.StageSkipped(Message("rag_lab.generation.no_model"))
+        state = self.build_turn_state()
+        reasons, reserve = self._reasoning_on(state), self._reserve_of(state)
+        system = "system_prompt" in state.effective and bool(state.system_prompt)
+        messages: list[dict[str, Any]] = []
+        if system:
+            prompt = Part(
+                SegmentKind.SYSTEM_PROMPT,
+                state.system_prompt,
+                "system_prompt",
+                "system_prompt.prompt",
+            )
+            messages.append({"role": "system", "content": [prompt]})
+        user = [Part(SegmentKind.USER_MESSAGE, ask.question)]
+        if ask.context_text:  # its introduction and its excerpts, before the question
+            user.insert(0, Part(SegmentKind.RAG_EXCERPT, ask.context_text, "rag", "rag.retriever"))
+        messages.append({"role": "user", "content": user})
+        model = self.active_model()
+        produced = 0
+
+        def token(*_: Any) -> None:
+            nonlocal produced
+            produced += 1
+            ask.progress(min(produced, reserve), reserve)
+
+        step_id = ask.step_id
+        scope = self._rag_lab_scope(step_id, "rag_lab.generation", brick=None)
+        with scoped(**scope | {"call_id": step_id}, origin="model"):
+            rendered: RenderedContext | RenderedChat
+            if cloud is None:
+                meta = engine.metadata()
+                template_vars: dict[str, Any] = {}
+                if caps.reasoning_variable:
+                    template_vars[caps.reasoning_variable] = reasons
+                rendered = render_context(
+                    engine,
+                    caps.chat_template or "",
+                    messages,
+                    call_id=step_id,
+                    special_tokens=meta.special_tokens,
+                    bos_token=meta.bos_token,
+                    eos_token=meta.eos_token,
+                    add_generation_prompt=True,
+                    **template_vars,
+                    lang=self._language,
+                )
+                text, tokens, exact = rendered.prompt, len(rendered.ids), True
+            else:
+                content = self._cloud_content or self._localized(load_cloud_content)
+                rendered = render_chat_body(
+                    messages,
+                    None,
+                    call_id=step_id,
+                    fields=chat_fields(cloud, reserve, reasoning=reasons),
+                    markers=self.cfg.cloud_markers,
+                    estimate=lambda t: config.estimate_tokens(t, self.cfg.chars_per_token),
+                    provider_label_text=content.provider_segment_text,
+                    lang=self._language,
+                    api=cloud.api,
+                )
+                text, tokens, exact = rendered.body, rendered.raw_total, False
+            got = rag_lab.Generated(
+                model_label=model["label"] if model is not None else "",
+                prompt_text=text,
+                prompt_tokens=tokens,
+                exact=exact,
+                window=window,
+                reserve=reserve,
+                system_prompt=system,
+            )
+            if tokens > window - reserve:  # AD-9: nothing leaves
+                got.status = "too_long"
+                return got
+            journal = self._journal()
+            mark = journal.last_seq()
+            ask.progress(0, reserve)  # the prompt being read: « 0 / 1 024 tokens »
+            if cloud is None:
+                saved = self._save_main_state()
+                try:
+                    out = self._call_model(rendered, cancel, (), reserve, reasons, on_token=token)
+                    got.status = out.status
+                    if out.status == "error":
+                        got.error_text = out.message_text or None
+                except Exception as exc:  # noqa: BLE001 - AD-16: the stage says it, prompt kept
+                    got.status = "error"
+                    got.error_text = Message(
+                        "rag_lab.stage.failed",
+                        error=type(exc).__name__,
+                        cause=rag_index.exception_text(exc, self._language),
+                    )
+                    self._error(got.error_text, exc, Message("session.rag_lab.generation_stops"))
+                finally:
+                    self._lab_restore(saved, "rag_lab")
+            else:
+                failed: dict[str, Any] = {}
+                trace = self._sampling_trace(None, reasons)
+                got.status = self._lab_cloud_call(
+                    rendered,
+                    cancel,
+                    cloud,
+                    tokens,
+                    trace,
+                    token,
+                    failed,
+                    step_id,
+                    effect=Message("session.rag_lab.generation_stops"),
+                )
+                got.error_text = failed.get("message_text")
+            call = next(
+                (
+                    e.payload
+                    for e in reversed(journal.events_since(mark))
+                    if e.kind == "model_call_ended" and e.step_id == step_id
+                ),
+                None,
+            )
+            if call is not None:
+                got.answer_text = call.get("text") or ""
+                got.output_tokens = int(call.get("output_tokens") or 0)
+            else:
+                got.output_tokens = produced
+            return got
 
     def _rag_lab_embedder(self, option: str, loans: rag_lab.Loans) -> rag_lab.Lent:
         """The brick's embedding model, borrowed when it holds it, else loaded as

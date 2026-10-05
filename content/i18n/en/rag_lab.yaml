@@ -14,8 +14,8 @@ chain_help_text: >-
   The sequence of steps, the components it calls on and the focus on the chosen step. In Play
   mode, the steps and their components arrive one by one, by hand (◀ ▶) or as a run goes. In
   Compose mode, the steps of the retrieval segment (Dense retrieval,
-  BM25, Fusion, Reranking) can be removed, added and moved; Generation is drawn to show what
-  the model would receive, but it does not run here.
+  BM25, Fusion, Reranking) can be removed, added and moved; Generation sends the augmented
+  prompt to the workshop's active model, or generates nothing if you choose so.
 
 question_label_text: "Question"
 question_placeholder_text: "Ask a question about Exemplia's documentation"
@@ -50,8 +50,14 @@ legend_replay_text: "Replaying the run."
 details_text: "Every step in detail (full tables, durations, memory)"
 results_empty_text: "Run the pipeline: each step will show here what it receives, what it produces, how long it takes and WaveStack's memory."
 generation_not_run_text: >-
-  Not run in the RAG workshop: generating an answer is a turn of the workshop, with its
-  gauge and its bounds. Here is what the model would receive.
+  Not run: you chose not to generate (the “Do not generate” option). Here is what the model
+  would receive.
+# Lot 5c-3: the generation by the workshop's active model.
+progress_tokens_text: "{done} / {total} tokens"
+prompt_sent_text: "Prompt rendered for the model, as is"
+answer_title_text: "Answer"
+answer_waiting_text: "The model is reading the prompt…"
+answer_reasoning_text: "The model is reasoning…"
 borrowed_text: "Borrowed from the RAG brick"
 loaded_text: "Loaded for this run, closed at the end"
 input_text: "Input"
@@ -140,7 +146,9 @@ stages:
     label_text: "Generation"
     explain_text: >-
       The LLM reads the augmented prompt and answers based on the chunks. A good answer
-      depends on what the previous steps brought it.
+      depends on what the previous steps brought it. Here, the workshop's active model answers,
+      with the workshop's system prompt and a turn's bounds (output reserve, reasoning budget);
+      the answer does not join the conversation.
 
 # Each option's name; those naming a declared model take its label.
 options:
@@ -177,8 +185,10 @@ options:
     excerpts:
       label_text: "Numbered excerpts (RAG brick format)"
   generation:
-    not_run:
+    active:
       label_text: "The workshop's active model"
+    not_run:
+      label_text: "Do not generate"
 
 # The settings: their name and unit.
 params:
@@ -249,7 +259,6 @@ steps:
   generation:
     label_text: "Generation"
     action_text: "Generate the answer"
-    note_text: "Not run in the RAG workshop for now: here is what the LLM would receive."
 
 # The architecture's tiles: their name, and their subtitle when no option gives one.
 components:
@@ -270,7 +279,7 @@ components:
     note_text: "The reranking model"
   llm:
     label_text: "LLM"
-    note_text: "The workshop's active model"
+    note_text: "The model that generates the answer"
   question:
     label_text: "Question"
     note_text: "The question asked"
@@ -279,7 +288,7 @@ components:
     note_text: "The chunks kept and the question"
   answer:
     label_text: "Answer"
-    note_text: "Not generated in the RAG workshop"
+    note_text: "The LLM's answer, once generated"
 
 groups:
   data:

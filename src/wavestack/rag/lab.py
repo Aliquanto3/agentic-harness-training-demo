@@ -71,7 +71,8 @@ OPTIONS: dict[str, tuple[str, ...]] = {
     "fusion": ("rrf",),
     "rerank": ("declared",),
     "context": ("excerpts",),
-    "generation": ("not_run",),
+    # Lot 5c-3: the workshop's active model generates (the shipped one), or nothing is sent.
+    "generation": ("active", "not_run"),
 }
 # The settings of an option, by name.
 PARAMS: dict[tuple[str, str], tuple[str, ...]] = {
@@ -206,7 +207,7 @@ class ColumnTexts(_Strict):
 
 class StepText(_Strict):
     """A line of the sequence: its technical name (English, the same in every language), its
-    action, its explanation (else its stage's) and a note (Generation: not run here)."""
+    action, its explanation (else its stage's) and an optional note."""
 
     label_text: str = Field(min_length=1)
     action_text: str = Field(min_length=1)
@@ -283,6 +284,14 @@ class RagLabContent(_Strict):
     details_text: str = Field(min_length=1)
     results_empty_text: str = Field(min_length=1)
     generation_not_run_text: str = Field(min_length=1)
+    # Lot 5c-3: the generation run by the active model: its progress in tokens (« {done} /
+    # {total} tokens »), the prompt rendered (folded), the answer, before its first token, and
+    # while the model reasons before answering.
+    progress_tokens_text: str = Field(min_length=1)
+    prompt_sent_text: str = Field(min_length=1)
+    answer_title_text: str = Field(min_length=1)
+    answer_waiting_text: str = Field(min_length=1)
+    answer_reasoning_text: str = Field(min_length=1)
     borrowed_text: str = Field(min_length=1)
     loaded_text: str = Field(min_length=1)
     input_text: str = Field(min_length=1)
@@ -391,7 +400,7 @@ def default_pipeline(cfg: config.Config) -> Pipeline:
         ("vector_search", "cosine", {"candidates": cfg.rag_rerank_candidates}),
         ("rerank", "declared", {}),
         ("context", "excerpts", {"top_k": cfg.rag_top_k}),
-        ("generation", "not_run", {}),
+        ("generation", "active", {}),
     ]
     return Pipeline(
         label_text="A",
@@ -1141,25 +1150,35 @@ def _keyed(text: str) -> Message:
 class StageFailed(KeyedError):
     """A stage cannot do its work: its reason, a `Message` (French as `str()` and
     `message_text`, `render(lang)` in the session's) or a text kept as it is. `soft`: the
-    chain goes on (the reranking), else the next stages are skipped."""
+    chain goes on (the reranking), else the next stages are skipped. Lot 5c-3: `result`, what
+    the stage still shows (the generation's prompt, too long to be sent)."""
 
-    def __init__(self, message_text: str, *, soft: bool = False) -> None:
+    def __init__(
+        self, message_text: str, *, soft: bool = False, result: _Result | None = None
+    ) -> None:
         super().__init__(_keyed(message_text))
         self.message_text: str = self.message
         self.soft = soft
+        self.result = result
 
 
 class StageSkipped(KeyedError):
     """A stage that does not run (the reranker is not on the workstation): why, as
-    `StageFailed` says it."""
+    `StageFailed` says it; `result`, what the stage still shows (lot 5c-3)."""
 
-    def __init__(self, reason_text: str) -> None:
+    def __init__(self, reason_text: str, *, result: _Result | None = None) -> None:
         super().__init__(_keyed(reason_text))
         self.reason_text: str = self.message
+        self.result = result
 
 
 class LabCancelled(Exception):
-    """« Arrêter », seen between two stages, two passages or two candidates."""
+    """« Arrêter », seen between two stages, two passages or two candidates (lot 5c-3: or
+    during the generation, `result` what it had produced)."""
+
+    def __init__(self, result: _Result | None = None) -> None:
+        super().__init__()
+        self.result = result
 
 
 @dataclass
@@ -1239,6 +1258,41 @@ class Loans:
         return errors
 
 
+@dataclass(frozen=True)
+class GenerationAsk:
+    """Lot 5c-3: what the generation hands the session: the context the chain built (its
+    introduction and its excerpts, empty when it built none), the question, the stage's step
+    id (the model call's scope), its progress callback (tokens produced, the reserve) and the
+    stop test."""
+
+    context_text: str
+    question: str
+    step_id: str
+    progress: Callable[[int, int], None]
+    cancelled: Callable[[], bool]
+
+
+@dataclass
+class Generated:
+    """Lot 5c-3: what the active model did with it. `status`: `completed`, `limit` (the
+    reserve reached), `cancelled`, `error` (`error_text` says why) or `too_long` (nothing
+    sent: `prompt_tokens` over `window − reserve`). `prompt_text`: the prompt rendered
+    exactly (the local engine's text, a cloud request's body); `exact`: its tokens counted
+    by the engine, else estimated. `system_prompt`: the workshop's system prompt was sent."""
+
+    model_label: str
+    prompt_text: str
+    prompt_tokens: int
+    exact: bool
+    window: int
+    reserve: int
+    system_prompt: bool
+    status: str = "completed"
+    answer_text: str = ""
+    output_tokens: int = 0
+    error_text: str | None = None
+
+
 @dataclass
 class LabDeps:
     """What a run is given: nothing else of the session reaches it."""
@@ -1263,6 +1317,9 @@ class LabDeps:
     rss: Callable[[], int | None]
     # Languages (4/5): the session's, the corpus's (`content` is `rag.yaml` read in it)
     lang: str = config.DEFAULT_LANGUAGE
+    # Lot 5c-3: the active model's generation, or `StageSkipped` (no model loaded); `None`:
+    # the stage is skipped.
+    generator: Callable[[GenerationAsk], Generated] | None = None
 
 
 @dataclass
@@ -1300,6 +1357,8 @@ class _Result:
     borrowed: bool = False
     # Lot 5c-1: what the stage met without failing (chunks truncated by the embedding model).
     warning_text: str | None = None
+    # Lot 5c-3: the generation's prompt, rendered as sent.
+    prompt_text: str | None = None
 
 
 @dataclass
@@ -1438,7 +1497,7 @@ class LabRun:
             if stopped:
                 self._ended(step_id, component, base, "skipped", _Result(), None, 0, None)
                 continue
-            if stage.kind == "generation":
+            if stage.kind == "generation" and stage.option == "not_run":
                 result = self._generation(chain)
                 self._ended(step_id, component, base, "not_run", result, None, 0, None)
                 continue
@@ -1457,18 +1516,20 @@ class LabRun:
             status, error_text, result = "ok", None, _Result()
             try:
                 result = self._run_stage(chain, stage, step_id, component, base)
-            except LabCancelled:
+            except LabCancelled as stop:
                 status, error_text = "cancelled", self._text("stage.stopped")
                 chain.status, stopped = "cancelled", True
+                result = stop.result or result
             except StageSkipped as skipped:
                 status, error_text = "skipped", skipped.render(self._lang)
-                result = self._passed_on(chain, error_text)
+                result = skipped.result or self._passed_on(chain, error_text)
             except StageFailed as failed:
                 status, error_text = "error", failed.render(self._lang)
                 if failed.soft:
                     result = self._passed_on(chain, error_text)
                 else:
                     chain.status, stopped = "error", True
+                    result = failed.result or result
             except Exception as exc:  # noqa: BLE001 - AD-16: a stage's failure, never a crash
                 status = "error"
                 error_text = self._text(
@@ -1519,6 +1580,7 @@ class LabRun:
                 "borrowed": result.borrowed,
                 "error_text": error_text,
                 "warning_text": result.warning_text,
+                "prompt_text": result.prompt_text,
                 "duration_ms": duration_ms,
                 "rss_bytes": rss,
                 "memory_text": memory_text,
@@ -1567,6 +1629,8 @@ class LabRun:
             return self._rerank(chain, stage, progress)
         if stage.kind == "context":
             return self._context(chain, stage)
+        if stage.kind == "generation":
+            return self._generation_run(chain, step_id, progress)
         raise StageFailed(Message("rag_lab.stage.unknown", kind=stage.kind))
 
     def _passed_on(self, chain: _Chain, reason_text: str) -> _Result:
@@ -2140,16 +2204,95 @@ class LabRun:
             items=items,
         )
 
-    def _generation(self, chain: _Chain) -> _Result:
+    def _generation_context(self, chain: _Chain) -> str:
+        """« le contexte construit (3 extraits), puis la question », or the question alone."""
         if chain.status != "ok" or not chain.context_text:
-            context = self._text("generation.question_only")
-        else:
-            kept = self._count(len(chain.context), "extract")
-            context = self._text("generation.with_context", extracts=kept)
+            return self._text("generation.question_only")
+        kept = self._count(len(chain.context), "extract")
+        return self._text("generation.with_context", extracts=kept)
+
+    def _generation(self, chain: _Chain) -> _Result:
+        """« Ne pas générer »: what the model would receive, nothing sent."""
+        context = self._generation_context(chain)
         return _Result(
             input_text=self._text("generation.input", context=context, question=self.question),
             output_text=self.deps.texts.generation_not_run_text,
         )
+
+    def _generation_run(
+        self, chain: _Chain, step_id: str, progress: Callable[[int, int], None]
+    ) -> _Result:
+        """Lot 5c-3: the workshop's active model reads the workshop's system prompt, the
+        context built and the question, within a turn's bounds (its output reserve, its
+        reasoning budget); its answer is the stage's output, the prompt sent shown as is.
+        Without a model, the stage is skipped; a prompt longer than the room fails it, nothing
+        sent; « Arrêter » stops it and the run; the reserve reached cuts the answer (a
+        warning)."""
+        context = self._generation_context(chain)
+        would = _Result(
+            input_text=self._text("generation.input", context=context, question=self.question)
+        )
+        if self.deps.generator is None:
+            raise StageSkipped(Message("rag_lab.generation.no_model"), result=would)
+        self._check()
+        ask = GenerationAsk(
+            context_text=chain.context_text if chain.status == "ok" else "",
+            question=self.question,
+            step_id=step_id,
+            progress=progress,
+            cancelled=self.deps.cancelled,
+        )
+        try:
+            got = self.deps.generator(ask)
+        except StageSkipped as skipped:
+            skipped.result = skipped.result or would
+            raise
+        text, count = self._text, self._int
+        system = text("generation.system_prompt" if got.system_prompt else "generation.no_system")
+        prompt_tokens = ("" if got.exact else "≈ ") + count(got.prompt_tokens)
+        facts = [
+            (text("fact.model"), got.model_label),
+            (text("fact.prompt_tokens"), prompt_tokens),
+        ]
+        result = _Result(
+            input_text=text(
+                "generation.sent", system=system, context=context, question=self.question
+            ),
+            facts=facts,
+            prompt_text=got.prompt_text,
+        )
+        if got.status == "too_long":
+            result.input_text = would.input_text  # nothing was sent: what it would receive
+            usable = got.window - got.reserve
+            raise StageFailed(
+                Message(
+                    "rag_lab.generation.too_long",
+                    tokens=prompt_tokens,
+                    usable=count(usable),
+                    window=count(got.window),
+                    reserve=count(got.reserve),
+                ),
+                result=result,
+            )
+        produced = ("" if got.exact else "≈ ") + count(got.output_tokens)
+        facts.append(
+            (
+                text("fact.output_tokens"),
+                text("generation.produced", done=produced, reserve=count(got.reserve)),
+            )
+        )
+        result.output_text = got.answer_text
+        if got.status == "cancelled":
+            raise LabCancelled(result)
+        if got.status not in ("completed", "limit"):  # `error`, or a status it does not know
+            raise StageFailed(
+                got.error_text or Message("rag_lab.generation.model_error"), result=result
+            )
+        if not got.answer_text.strip():
+            result.output_text = text("generation.empty")
+        if got.status == "limit":
+            result.warning_text = text("generation.cut", max=count(got.reserve))
+        return result
 
 
 def _ms(seconds: float) -> int:

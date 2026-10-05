@@ -16,8 +16,8 @@ chain_help_text: >-
   Schritt. Im Modus Abspielen erscheinen die Schritte und ihre Komponenten nacheinander, von
   Hand (◀ ▶) oder im Lauf einer Ausführung. Im Modus Zusammenstellen lassen sich die Schritte des Retrieval-Segments
   (Dense retrieval, BM25, Fusion, Reranking) entfernen, hinzufügen und verschieben; die
-  Generation ist eingezeichnet, um zu zeigen, was das Modell erhalten würde, wird hier aber
-  nicht ausgeführt.
+  Generation sendet den erweiterten Prompt an das aktive Modell der Werkstatt, oder generiert
+  nichts, wenn Sie es so wählen.
 
 question_label_text: "Frage"
 question_placeholder_text: "Stellen Sie eine Frage zur Dokumentation von Exemplia"
@@ -52,8 +52,14 @@ legend_replay_text: "Wiedergabe der Ausführung."
 details_text: "Alle Schritte im Detail (vollständige Tabellen, Dauer, Speicher)"
 results_empty_text: "Starten Sie die Kette: Jeder Schritt zeigt hier, was er erhält, was er erzeugt, seine Dauer und den Speicher von WaveStack."
 generation_not_run_text: >-
-  In der RAG-Werkstatt nicht ausgeführt: Eine Antwort zu generieren ist eine Runde der
-  Werkstatt, mit ihrem Füllstand und ihren Grenzen. Das würde das Modell erhalten.
+  Nicht ausgeführt: Sie haben gewählt, nicht zu generieren (Option „Nicht generieren“). Das
+  würde das Modell erhalten.
+# Lot 5c-3: the generation by the workshop's active model.
+progress_tokens_text: "{done} / {total} Tokens"
+prompt_sent_text: "Für das Modell gerenderter Prompt, unverändert"
+answer_title_text: "Antwort"
+answer_waiting_text: "Das Modell liest den Prompt…"
+answer_reasoning_text: "Das Modell denkt nach…"
 borrowed_text: "Vom RAG-Baustein übernommen"
 loaded_text: "Für diese Ausführung geladen, am Ende geschlossen"
 input_text: "Eingabe"
@@ -144,7 +150,9 @@ stages:
     label_text: "Generation"
     explain_text: >-
       Das LLM liest den erweiterten Prompt und antwortet gestützt auf die Chunks. Eine gute
-      Antwort hängt davon ab, was die vorigen Schritte ihm geliefert haben.
+      Antwort hängt davon ab, was die vorigen Schritte ihm geliefert haben. Hier antwortet das
+      aktive Modell der Werkstatt, mit dem System-Prompt der Werkstatt und den Grenzen einer
+      Runde (Ausgabereserve, Reasoning-Budget); die Antwort geht nicht in die Unterhaltung ein.
 
 # The name of each option; those naming a declared model take its label.
 options:
@@ -181,8 +189,10 @@ options:
     excerpts:
       label_text: "Nummerierte Auszüge (Format des RAG-Bausteins)"
   generation:
-    not_run:
+    active:
       label_text: "Aktives Modell der Werkstatt"
+    not_run:
+      label_text: "Nicht generieren"
 
 # The settings: their name and unit.
 params:
@@ -255,7 +265,6 @@ steps:
   generation:
     label_text: "Generation"
     action_text: "Die Antwort generieren"
-    note_text: "In der RAG-Werkstatt vorerst nicht ausgeführt: Das würde das LLM erhalten."
 
 # The architecture's tiles: their name, and their subtitle when no option gives one.
 components:
@@ -276,7 +285,7 @@ components:
     note_text: "Das Reranking-Modell"
   llm:
     label_text: "LLM"
-    note_text: "Das aktive Modell der Werkstatt"
+    note_text: "Das Modell, das die Antwort generiert"
   question:
     label_text: "Frage"
     note_text: "Die gestellte Frage"
@@ -285,7 +294,7 @@ components:
     note_text: "Die behaltenen Chunks und die Frage"
   answer:
     label_text: "Antwort"
-    note_text: "In der RAG-Werkstatt nicht generiert"
+    note_text: "Die Antwort des LLM, sobald generiert"
 
 groups:
   data:

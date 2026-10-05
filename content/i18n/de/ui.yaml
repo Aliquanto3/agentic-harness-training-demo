@@ -505,6 +505,7 @@ main:
       subagent: "Sub-Agent"
       llm: "LLM-Werkstatt"
       mcp_lab: "MCP-Werkstatt"
+      rag_lab: "RAG-Werkstatt"
     hook_decisions:
       allow: "durchgelassen"
       modify: "geändert"

@@ -356,6 +356,9 @@ def test_chunks_longer_than_the_model_are_said_truncated(index):
     session = lab_session(lab_values(index))
     _truncating(session)
     chain = chain_with(session, "declared", size=1500)
+    # Lot 5c-3: three chunks of 1 500 characters exceed the fake engine's window (a token per
+    # byte): the generation, which would refuse them, is not run here.
+    stage(chain, "generation").option = "not_run"
     events = run(session, QUESTION, chain)
     embedding = ended(events, "embedding")
     assert embedding["status"] == "ok" and run_status(events) == "ok"  # a warning, no error

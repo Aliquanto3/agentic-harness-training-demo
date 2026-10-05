@@ -16,8 +16,8 @@ chain_help_text: >-
   La séquence des étapes, les composants qu'elle sollicite et le focus sur l'étape choisie. En
   mode Dérouler, les étapes et leurs composants arrivent un à un, à la main (◀ ▶) ou au fil
   d'une exécution. En mode Composer, les étapes du segment de récupération (Dense retrieval,
-  BM25, Fusion, Reranking) se retirent, s'ajoutent et se déplacent ; la Generation est dessinée
-  pour montrer ce que le modèle recevrait, mais elle ne s'exécute pas ici.
+  BM25, Fusion, Reranking) se retirent, s'ajoutent et se déplacent ; la Generation envoie le
+  prompt augmenté au modèle actif de l'atelier, ou ne génère pas si vous le choisissez.
 
 question_label_text: "Question"
 question_placeholder_text: "Posez une question sur la documentation d'Exemplia"
@@ -53,8 +53,14 @@ legend_replay_text: "Relecture de l'exécution."
 details_text: "Toutes les étapes en détail (tableaux complets, durées, mémoire)"
 results_empty_text: "Lancez la chaîne : chaque étape affichera ici ce qu'elle reçoit, ce qu'elle produit, sa durée et la mémoire de WaveStack."
 generation_not_run_text: >-
-  Non exécutée dans l'atelier RAG : générer une réponse, c'est un tour de l'atelier, avec sa
-  jauge et ses bornes. Voici ce que le modèle recevrait.
+  Non exécutée : vous avez choisi de ne pas générer (option « Ne pas générer »). Voici ce que le
+  modèle recevrait.
+# Lot 5c-3 : la génération par le modèle actif de l'atelier.
+progress_tokens_text: "{done} / {total} tokens"
+prompt_sent_text: "Prompt rendu pour le modèle, tel quel"
+answer_title_text: "Réponse"
+answer_waiting_text: "Le modèle lit le prompt…"
+answer_reasoning_text: "Le modèle raisonne…"
 borrowed_text: "Emprunté à la brique RAG"
 loaded_text: "Chargé pour cette exécution, fermé à la fin"
 input_text: "Entrée"
@@ -143,7 +149,9 @@ stages:
     label_text: "Generation"
     explain_text: >-
       Le LLM lit le prompt augmenté et répond en s'appuyant sur les chunks. Une bonne réponse
-      dépend de ce que les étapes précédentes lui ont apporté.
+      dépend de ce que les étapes précédentes lui ont apporté. Ici, c'est le modèle actif de
+      l'atelier qui répond, avec le prompt système de l'atelier et les bornes d'un tour (réserve
+      de sortie, budget de raisonnement) ; la réponse ne rejoint pas la conversation.
 
 # Le nom de chaque option ; celles qui nomment un modèle déclaré prennent son libellé.
 options:
@@ -180,8 +188,10 @@ options:
     excerpts:
       label_text: "Extraits numérotés (format de la brique RAG)"
   generation:
-    not_run:
+    active:
       label_text: "Modèle actif de l'atelier"
+    not_run:
+      label_text: "Ne pas générer"
 
 # Les réglages : leur nom et leur unité.
 params:
@@ -252,7 +262,6 @@ steps:
   generation:
     label_text: "Generation"
     action_text: "Générer la réponse"
-    note_text: "Non exécutée dans l'atelier RAG pour l'instant : voici ce que le LLM recevrait."
 
 # Les tuiles de l'architecture : leur nom, et leur sous-titre quand aucune option ne le donne.
 components:
@@ -273,7 +282,7 @@ components:
     note_text: "Le modèle de reranking"
   llm:
     label_text: "LLM"
-    note_text: "Le modèle actif de l'atelier"
+    note_text: "Le modèle qui génère la réponse"
   question:
     label_text: "Question"
     note_text: "La question posée"
@@ -282,7 +291,7 @@ components:
     note_text: "Les chunks retenus et la question"
   answer:
     label_text: "Réponse"
-    note_text: "Non générée dans l'atelier RAG"
+    note_text: "La réponse du LLM, une fois générée"
 
 groups:
   data:
