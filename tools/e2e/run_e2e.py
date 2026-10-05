@@ -4866,14 +4866,15 @@ def s_mcp_full(r: Run) -> None:
         r.last_answer()[:200],
     )
     # Chat mode: each tool definition of the body (native and MCP) shown as a tree, not as
-    # the fragments of JSON the sentinels cut.
+    # the fragments of JSON the sentinels cut. Lot 1 of 2026-10-04: the root open, its sub-nodes
+    # folded, so `function.name` is read from the DOM (`text_contents`), not from what shows.
     tools_row = (
         r.page.locator("#ctx .ctx-call")
         .first.locator(".ctx-section")
         .filter(has=r.page.locator(".ctx-section-label", has_text="Descriptions d'outils"))
     )
     names = (
-        tools_row.first.locator(".json-tree .json-string").all_inner_texts()
+        tools_row.first.locator(".json-tree .json-string").all_text_contents()
         if tools_row.count()
         else []
     )
@@ -8650,6 +8651,20 @@ def _value_patterns(
     return patterns
 
 
+def _literals(french: dict[str, str], translated: dict[str, str]) -> set[str]:
+    """The values without variable of the catalogue in the page's language, whitespace folded:
+    a text that is exactly one of them is in that language, even when a French pattern reads
+    it too (« Augmented prompt », a label of `rag_lab.yaml` in `de`, against « {n} prompt »).
+    Never a French value whose translation differs: one copied by mistake into the
+    translated catalogue stays a French text left."""
+
+    def fold(value: str) -> str:
+        return " ".join(value.split())
+
+    left = {fold(v) for k, v in french.items() if fold(translated.get(k, "")) != fold(v)}
+    return {fold(v) for v in translated.values() if not _UI_VAR.search(v)} - left
+
+
 def _french_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
     """The French values of `common` and `main` whose `lang` value differs: a text without
     variable as itself, a text with variables as a pattern (each variable any text), kept
@@ -8686,11 +8701,13 @@ _VISIBLE_TEXTS_JS = """() => {
 }"""
 
 
-def _history_strings(r: Run) -> set[str]:
+def _history_strings(r: Run, errors: bool = False) -> set[str]:
     """The texts of the history the pages replay from the journal, emitted before the last
-    change of language: the last model load's steps and the startup diagnostic's checks, kept
-    as they were said. Every other text the session sends is in the current language
-    (languages 5/5): a card's reason or a state is never set aside."""
+    change of language: the last model load's steps and the startup diagnostic's checks, and
+    with `errors` the errors (`harness_error`, that /diagnostic replays as lines of its checks:
+    a provider's refusal, a failed download), kept as they were said. Every other text the
+    session sends is in the current language (languages 5/5): a card's reason or a state is
+    never set aside."""
     with r.ev._lock:
         items = list(r.ev.items)
     changes = [e["seq"] for e in items if e["kind"] == "language_changed"]
@@ -8709,6 +8726,8 @@ def _history_strings(r: Run) -> set[str]:
                 walk(item)
 
     history = ("model_load_started", "model_load_step", "model_load_ended", "diagnostic_check")
+    if errors:
+        history += ("harness_error",)
     walk([e.get("payload") for e in items if e["seq"] < changes[-1] and e["kind"] in history])
     return found
 
@@ -8716,12 +8735,18 @@ def _history_strings(r: Run) -> set[str]:
 def _french_left(r: Run, lang: str) -> list[str]:
     """The texts of the page that are a French value of the catalogue (whole texts), what
     the session sent included (languages 5/5: its messages are translated), the journal's
-    history before the change of language aside."""
+    history before the change of language and the literals of the `lang` catalogue
+    (`_literals`) aside."""
     patterns = _french_patterns(lang)
+    literals = _literals(
+        _ui_catalogue("fr") | _message_catalogue("fr"),
+        _ui_catalogue(lang) | _message_catalogue(lang),
+    )
     history = _history_strings(r)
     found = []
     for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
-        if " ".join(text.split()).removeprefix("— ") in history:
+        folded = " ".join(text.split())
+        if folded.removeprefix("— ") in history or folded in literals:
             continue
         for key, pattern in patterns:
             if pattern.fullmatch(text):
@@ -9153,11 +9178,14 @@ def _yaml_leaves(tree: Any, prefix: str = "") -> dict[str, str]:
     return found
 
 
-def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
+def _annex_patterns(
+    lang: str,
+) -> tuple[list[tuple[str, re.Pattern[str]]], set[str]]:
     """The French values of the story's scope whose `lang` value differs: the sections
     `common`, `llm`, `rag`, `diagnostic` and `models` of `ui.yaml`, and the workshops'
     `llm_lab.yaml` and `rag_lab.yaml`. As `_french_patterns`: a variable is any text, and
-    only fixed words of six letters at least say something."""
+    only fixed words of six letters at least say something. With them, the literals of the
+    `lang` catalogue (`_literals`)."""
     french, translated = {}, {}
     for key, value in _ui_catalogue("fr").items():
         if key.split(".")[0] in ("common", *ANNEX_PAGES, "models"):
@@ -9170,18 +9198,20 @@ def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
     # Languages 5/5 (story 7 of 2026-09-30): the backend's messages too.
     french |= _message_catalogue("fr")
     translated |= _message_catalogue(lang)
-    return _value_patterns(french, translated)
+    return _value_patterns(french, translated), _literals(french, translated)
 
 
 def _annex_french_left(r: Run, lang: str) -> list[str]:
     """As `_french_left`, on an annex page, with the annex catalogue (languages 5/5: what
     the session sent is no longer set aside, the journal's history excepted)."""
-    patterns = _annex_patterns(lang)
-    history = _history_strings(r)
+    patterns, literals = _annex_patterns(lang)
+    history = _history_strings(r, errors=True)
     found = []
     for where, text in r.page.evaluate(_VISIBLE_TEXTS_JS):
         text = " ".join(text.split())
         if text.removeprefix("— ") in history:  # a check's line: « — {its text} »
+            continue
+        if text in literals:  # a value of the page's language, whatever pattern reads it
             continue
         for key, pattern in patterns:
             if pattern.fullmatch(text):
