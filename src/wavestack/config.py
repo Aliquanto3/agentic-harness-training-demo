@@ -412,15 +412,17 @@ class EmbeddingModel(LocalModelSpec):
 
 
 # Lot 5c-1: `[[rag_lab.embeddings]]`, the workshop's own embedding models: their id is an
-# option of the Embedding stage, never one of its other options, at most this long.
+# option of the Embedding stage, never one of its other options, at most this long. Lot 5c-2:
+# `[[rag_lab.rerankers]]`, the same for the Reranking stage, whose only option is `declared`.
 RAG_LAB_RESERVED_IDS = ("declared", "fastembed")
+RAG_LAB_RERANKER_RESERVED_IDS = ("declared",)
 RAG_LAB_ID_MAX = 32
 
 
-def _under_embedding(path: str) -> bool:
-    """Lot 5c-1: a path of the models folder under `embedding/` (« . » is not: no part)."""
+def _under(path: str, folder: str) -> bool:
+    """Lot 5c-1: a path of the models folder under `folder/` (« . » is not: no part)."""
     parts = PureWindowsPath(path).parts
-    return bool(parts) and parts[0].casefold() == "embedding"
+    return bool(parts) and parts[0].casefold() == folder
 
 
 class RerankerModel(LocalModelSpec):
@@ -906,21 +908,55 @@ class Config:
         invalid entry was left out (a `Message`, rendered where it is shown): an id unique,
         at most 32 characters, neither an option of the workshop (`declared`, `fastembed`)
         nor the brick's id; its files under `embedding/` (never offered as chat models)."""
-        valid: list[EmbeddingModel] = []
-        errors: list[Message] = []
         brick, _ = self.rag_embedding
-        reserved = {*RAG_LAB_RESERVED_IDS, *([brick.id] if brick is not None else [])}
-        raw = self.get("rag_lab", "embeddings", default=[])
+        return self._rag_lab_models(
+            "embeddings", EmbeddingModel, "embedding", RAG_LAB_RESERVED_IDS, brick
+        )
+
+    def rag_lab_embedding(self, model_id: str) -> EmbeddingModel | None:
+        """Lot 5c-1: a valid `[[rag_lab.embeddings]]` model by its id."""
+        return next((m for m in self.rag_lab_embeddings[0] if m.id == model_id), None)
+
+    @cached_property
+    def rag_lab_rerankers(self) -> tuple[list[RerankerModel], list[Message]]:
+        """Lot 5c-2: the RAG workshop's own reranking models (`[[rag_lab.rerankers]]`, the
+        schema of `[rag.reranker]`), each an option of its Reranking stage, with the rules of
+        `rag_lab_embeddings`: neither `declared` nor the brick's id, files under `reranker/`."""
+        brick, _ = self.rag_reranker
+        return self._rag_lab_models(
+            "rerankers", RerankerModel, "reranker", RAG_LAB_RERANKER_RESERVED_IDS, brick
+        )
+
+    def rag_lab_reranker(self, model_id: str) -> RerankerModel | None:
+        """Lot 5c-2: a valid `[[rag_lab.rerankers]]` model by its id."""
+        return next((m for m in self.rag_lab_rerankers[0] if m.id == model_id), None)
+
+    def _rag_lab_models[M: LocalModelSpec](
+        self,
+        section: str,
+        schema: type[M],
+        folder: str,
+        reserved_ids: tuple[str, ...],
+        brick: LocalModelSpec | None,
+    ) -> tuple[list[M], list[Message]]:
+        """Lots 5c-1 and 5c-2: the entries of `[[rag_lab.<section>]]` validated one by one
+        against `schema`, and why each invalid one was left out (`config.rag_lab_<section>.*`):
+        an id unique, at most 32 characters, neither one of `reserved_ids` nor the brick's;
+        its files under `folder/`."""
+        valid: list[M] = []
+        errors: list[Message] = []
+        reserved = {*reserved_ids, *([brick.id] if brick is not None else [])}
+        raw = self.get("rag_lab", section, default=[])
         for n, entry in enumerate(raw if isinstance(raw, list) else [], start=1):
             name = entry.get("id", f"#{n}") if isinstance(entry, dict) else f"#{n}"
             try:
-                model = EmbeddingModel.model_validate(entry)
+                model = schema.model_validate(entry)
             except ValidationError as exc:
                 fields = ", ".join(
                     ".".join(str(p) for p in e["loc"]) or "entrée" for e in exc.errors()
                 )
                 errors.append(
-                    _message("config.rag_lab_embeddings.invalid", name=name, fields=fields)
+                    _message(f"config.rag_lab_{section}.invalid", name=name, fields=fields)
                 )
                 continue
             paths = [model.load_path, *(f.path for f in model.files)]
@@ -930,19 +966,15 @@ class Config:
                 why = "reserved"
             elif any(m.id == model.id for m in valid):
                 why = "duplicate"
-            elif not all(_under_embedding(p) for p in paths):
+            elif not all(_under(p, folder) for p in paths):
                 why = "outside"
             else:
                 valid.append(model)
                 continue
             errors.append(
-                _message(f"config.rag_lab_embeddings.{why}", name=name, max=RAG_LAB_ID_MAX)
+                _message(f"config.rag_lab_{section}.{why}", name=name, max=RAG_LAB_ID_MAX)
             )
         return valid, errors
-
-    def rag_lab_embedding(self, model_id: str) -> EmbeddingModel | None:
-        """Lot 5c-1: a valid `[[rag_lab.embeddings]]` model by its id."""
-        return next((m for m in self.rag_lab_embeddings[0] if m.id == model_id), None)
 
     @cached_property
     def rag_lab_fastembed(self) -> tuple[FastembedModel | None, str | None]:
@@ -1180,14 +1212,16 @@ def load_config() -> Config:
     models = _merge_cloud_models(_cloud_list(defaults), _cloud_list(settings))
     if models:  # AD-20: merged by `id`, where `_deep_merge` replaces lists
         values["cloud"] = {**(values.get("cloud") or {}), "models": models}
-    # Lot 5c-1: the workshop's embedding models are wavestack.toml's only, never settings.json's.
+    # Lots 5c-1 and 5c-2: the workshop's embedding and reranking models are wavestack.toml's
+    # only, never settings.json's.
     lab = values.get("rag_lab")
-    if isinstance(lab, dict) and "embeddings" in lab:
-        shipped = defaults.get("rag_lab")
-        lab = {k: v for k, v in lab.items() if k != "embeddings"}
-        if isinstance(shipped, dict) and "embeddings" in shipped:
-            lab["embeddings"] = shipped["embeddings"]
-        values["rag_lab"] = lab
+    shipped = defaults.get("rag_lab")
+    for section in ("embeddings", "rerankers"):
+        if isinstance(lab, dict) and section in lab:
+            lab = {k: v for k, v in lab.items() if k != section}
+            if isinstance(shipped, dict) and section in shipped:
+                lab[section] = shipped[section]
+            values["rag_lab"] = lab
     return Config(values=values)
 
 

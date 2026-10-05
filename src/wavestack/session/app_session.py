@@ -119,6 +119,7 @@ from wavestack.messages import (
     render,
     said,
 )
+from wavestack.models import catalog as model_catalog
 from wavestack.models import download as download_module
 from wavestack.models import embedding as embedding_module
 from wavestack.models import gguf_meta
@@ -157,6 +158,7 @@ from wavestack.models.load_registry import (
     RAG_LAB_FAISS,
     RAG_LAB_FASTEMBED,
     RAG_LAB_LANCEDB,
+    RAG_LAB_RERANKER,
     RERANKER,
     LoadRegistry,
     ModelChoice,
@@ -9203,30 +9205,56 @@ class AppSession:
         # Lot 5c-1: the workshop's own embedding models, an option each (its id), offered only
         # when its files are on the workstation (the workshop does not download them yet).
         declared_models, rejected = self.cfg.rag_lab_embeddings
-        self._rag_lab_trace_rejected(rejected)
+        self._rag_lab_trace_rejected(rejected, "embeddings")
         for lab_model in declared_models:
             absent = self._rag_lab_absent(lab_model)
             options[("embedding", lab_model.id)] = rag_lab.OptionState(
                 lab_model.label_text, available=absent is None, reason_text=absent
             )
+        # Lot 5c-2: the workshop's own reranking models, the same way; a file on the
+        # workstation that the adapter would refuse (its GGUF header: segment ids, an LLM
+        # without a rerank template) makes its option unavailable, with the reason.
+        lab_rerankers, rejected = self.cfg.rag_lab_rerankers
+        self._rag_lab_trace_rejected(rejected, "rerankers")
+        for lab_reranker in lab_rerankers:
+            refused = self._rag_lab_absent(lab_reranker) or self._rag_lab_refused(lab_reranker)
+            options[("rerank", lab_reranker.id)] = rag_lab.OptionState(
+                lab_reranker.label_text, available=refused is None, reason_text=refused
+            )
         return rag_lab.Catalog(
             texts, rag_lab.default_pipeline(self.cfg), options, lang=self._language
         )
 
-    def _rag_lab_absent(self, model: config.EmbeddingModel) -> Message | None:
-        """Lot 5c-1: why a declared embedding model of the workshop cannot be chosen (its files
-        missing, named by their path under the models folder), or `None`."""
+    def _rag_lab_absent(self, model: config.EmbeddingModel | RerankerModel) -> Message | None:
+        """Lot 5c-1: why a declared embedding model (lot 5c-2: or reranking model) of the
+        workshop cannot be chosen (its files missing, named by their path under the models
+        folder), or `None`."""
         missing = download_module.missing_files(model.files, config.models_dir())
         if not missing:
             return None
         files = ", ".join(PurePosixPath(f.path).as_posix() for f in missing)
+        kind = "reranker" if isinstance(model, RerankerModel) else "embedding"
         return Message(
-            "session.rag_lab.lab_embedding_absent", files=files, folder=config.models_dir()
+            f"session.rag_lab.lab_{kind}_absent", files=files, folder=config.models_dir()
         )
 
-    def _rag_lab_trace_rejected(self, rejected: list[Message]) -> None:
-        """Lot 5c-1: each entry of `[[rag_lab.embeddings]]` left out, traced once as
-        `harness_error` (the others stay offered)."""
+    @staticmethod
+    def _rag_lab_refused(model: RerankerModel) -> Message | None:
+        """Lot 5c-2: why the adapter would refuse a declared reranking model whose file is on
+        the workstation, read in its GGUF header (remembered per size and modification time),
+        or `None`; an unreadable header is left to the load, which says why."""
+        header = model_catalog.header_metadata(str(reranker_module.model_path(model)))
+        try:
+            reranker_module.rerank_format(header[1] if header is not None else None)
+        except reranker_module.RerankerRefused as exc:
+            return Message("session.rag_lab.lab_reranker_refused", reason=exc.message)
+        return None
+
+    def _rag_lab_trace_rejected(self, rejected: list[Message], section: str) -> None:
+        """Lot 5c-1: each entry of `[[rag_lab.embeddings]]` (lot 5c-2: or
+        `[[rag_lab.rerankers]]`) left out, traced once as `harness_error` (the others stay
+        offered)."""
+        kind = {"embeddings": "embedding", "rerankers": "reranker"}[section]
         for reason in rejected:
             if str(reason) in self._rag_lab_rejected_traced:
                 continue
@@ -9234,8 +9262,8 @@ class AppSession:
             with scoped(**self._rag_lab_scope("rag_lab", None, brick=None)):
                 self._error(
                     reason,
-                    "wavestack.toml [[rag_lab.embeddings]]",
-                    Message("session.rag_lab.lab_embedding_effect"),
+                    f"wavestack.toml [[rag_lab.{section}]]",
+                    Message(f"session.rag_lab.lab_{kind}_effect"),
                 )
 
     def _rag_lab_fastembed(self) -> tuple[config.FastembedModel | None, str | None]:
@@ -9467,7 +9495,8 @@ class AppSession:
             declared = model.load_file.sha256
             # Kept per size and modification time: the file is not hashed again at each run.
             if declared and rag_lab.file_digest(path) != declared.lower():
-                raise ValueRefused("session.rag.sha256", path=path, section="rag_lab.embeddings")
+                # Bracketed by the message: « [[rag_lab.embeddings]] », as in wavestack.toml.
+                raise ValueRefused("session.rag.sha256", path=path, section="[rag_lab.embeddings]")
             return self._embedder_factory(model)
 
         return loans.lend(
@@ -9607,7 +9636,11 @@ class AppSession:
 
     def _rag_lab_reranker(self, option: str, loans: rag_lab.Loans) -> rag_lab.Lent:
         """The brick's reranker, borrowed or loaded as `_load_reranker` loads it; without its
-        declaration or its file, the stage is skipped and the chain goes on."""
+        declaration or its file, the stage is skipped and the chain goes on. Lot 5c-2: a
+        `[[rag_lab.rerankers]]` model, by its id, in its own slot."""
+        lab_model = self.cfg.rag_lab_reranker(option)
+        if lab_model is not None:
+            return self._rag_lab_declared_reranker_lent(lab_model, loans)
         model = self._rerank_model
         if option != "declared" or model is None:
             raise rag_lab.StageSkipped(
@@ -9639,6 +9672,36 @@ class AppSession:
                 model.measured_rss_mb, [f.size for f in model.files]
             ),
             slot=RERANKER,
+            open_model=open_model,
+            soft=True,
+        )
+
+    def _rag_lab_declared_reranker_lent(
+        self, model: RerankerModel, loans: rag_lab.Loans
+    ) -> rag_lab.Lent:
+        """Lot 5c-2: a `[[rag_lab.rerankers]]` model, loaded for the run in its own slot
+        (`rag_lab.reranker.<id>`: the brick's `reranker` slot is never touched), within the
+        budget, its declared sha256 checked (kept per size and modification time), by the
+        brick's factory; closed at the run's end. As the brick's, a failure lets the chain go
+        on with the search's order."""
+
+        def open_model() -> Reranker:
+            path = reranker_module.model_path(model)
+            declared = model.load_file.sha256
+            if declared and rag_lab.file_digest(path) != declared.lower():
+                # The message wraps it in brackets: « [[rag_lab.rerankers]] », as in wavestack.toml.
+                raise ValueRefused("session.rag.sha256", path=path, section="[rag_lab.rerankers]")
+            return self._reranker_factory(model)
+
+        return loans.lend(
+            borrowed=None,
+            label_text=model.label_text,
+            noun_text=Message("session.rag_lab.noun.reranking"),
+            unavailable_text=self._rag_lab_absent(model) or self._rag_lab_refused(model),
+            cost=self._load_registry.component_cost(
+                model.measured_rss_mb, [f.size for f in model.files]
+            ),
+            slot=f"{RAG_LAB_RERANKER}.{model.id}",
             open_model=open_model,
             soft=True,
         )

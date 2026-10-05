@@ -13569,6 +13569,24 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "sans leur fichier, la raison nommant embedding/…",
         f"{choices} · {notes}",
     )
+    # Lot 5c-2: the models of [[rag_lab.rerankers]] in the Reranking's select, after the
+    # brick's model; Qwen3-Reranker's file is not on the e2e workstation: unavailable, the
+    # reason naming the file under the models folder.
+    choices = _seq_row(r, "rerank").evaluate(
+        "row => [...row.querySelectorAll('select.rag-option option')].map(o =>"
+        " ({ value: o.value, disabled: o.disabled, title: o.title }))"
+    )
+    qwen = next((c for c in choices if c["value"] == "qwen3-reranker-0.6b"), {})
+    notes = _seq_row(r, "rerank").locator(".rag-chain-unavailable").all_inner_texts()
+    r.check(
+        [c["value"] for c in choices] == ["declared", "qwen3-reranker-0.6b"]
+        and qwen.get("disabled") is True
+        and "reranker/qwen3-reranker-0.6b-q8_0.gguf" in qwen.get("title", "")
+        and any("reranker/qwen3-reranker-0.6b-q8_0.gguf" in n for n in notes),
+        "Reranking : Qwen3-Reranker dans le choix après le reranker de la brique, indisponible "
+        "sans son fichier, la raison nommant reranker/…",
+        f"{choices} · {notes}",
+    )
     r.check(
         "Même modèle" in page.inner_text('#rag-seq [data-step="embed_query"]'),
         "Embedding de la question : « même modèle que l'Embedding des chunks »",
@@ -13616,8 +13634,11 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     r.check(
         "is-selected" in (selected.get_attribute("class") or "")
         and shown["uses"] == ["question", "reranker"]
-        and shown["wires"] == ["question", "reranker"],
-        "Reranking sélectionné : flèches vers Question (lu) et Reranker (appelé)",
+        and shown["wires"] == ["question", "reranker"]
+        and "calibré à sa façon" in shown["explain"]
+        and "seul l'ordre que chacun donne compte" in shown["explain"],
+        "Reranking sélectionné : flèches vers Question (lu) et Reranker (appelé) ; "
+        "l'explication dit que les scores de rerankers différents ne se comparent pas (lot 5c-2)",
         str(shown)[:300],
     )
     page.locator('#rag-seq [data-step="chunking"] .rag-seq-head').focus()
@@ -13686,6 +13707,12 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         and sorted(i["before"] for i in rerank["items"]) == list(range(1, cfg_candidates + 1)),
         "Reranking : pour chaque extrait, le rang avant et le rang après",
         str([(i["rank"], i["before"], i["doc_id"]) for i in rerank.get("items", [])]),
+    )
+    facts = _result_card(r, "rerank").locator(".rag-stage-facts").inner_text()
+    r.check(
+        "lecture du score" in facts.casefold() and "sigmoïde du logit" in facts,  # dt uppercased
+        "Reranking : le détail dit comment le score est lu (sigmoïde du logit, lot 5c-2)",
+        facts[:300],
     )
     context = _stage_ended(r, seq, "context")
     output = _result_card(r, "context").locator(".rag-stage-output").inner_text()

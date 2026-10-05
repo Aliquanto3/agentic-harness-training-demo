@@ -510,6 +510,10 @@ session:
     embedding_absent: "Modèle d'embedding absent ({names} dans {folder}). Téléchargez-le depuis la carte RAG de l'atelier. Ou suivez docs/installation.md, section « Modèles du RAG »."
     lab_embedding_absent: "Indisponible : fichier du modèle absent ({files} sous {folder}). L'atelier ne le télécharge pas encore : récupérez-le à l'adresse déclarée dans wavestack.toml ([[rag_lab.embeddings]]) et placez-le à cet endroit."
     lab_embedding_effect: "Les autres modèles d'embedding de l'atelier restent proposés."
+    # Lot 5c-2: a model of [[rag_lab.rerankers]] that cannot be chosen, and why.
+    lab_reranker_absent: "Indisponible : fichier du modèle absent ({files} sous {folder}). L'atelier ne le télécharge pas encore : récupérez-le à l'adresse déclarée dans wavestack.toml ([[rag_lab.rerankers]]) et placez-le à cet endroit."
+    lab_reranker_refused: "Indisponible : {reason}."
+    lab_reranker_effect: "Les autres modèles de reranking de l'atelier restent proposés."
     noun:
       embedding: modèle d'embedding
       reranking: modèle de reranking
@@ -802,6 +806,13 @@ config:
     reserved: "Modèle d'embedding de l'atelier « {name} » écarté : son id est déjà celui d'une option de l'étape Embedding (declared, fastembed ou le modèle de la brique RAG). Renommez-le dans wavestack.toml, puis relancez WaveStack."
     duplicate: "Modèle d'embedding de l'atelier « {name} » écarté : un autre modèle de [[rag_lab.embeddings]] porte déjà cet id. Renommez-le dans wavestack.toml, puis relancez WaveStack."
     outside: "Modèle d'embedding de l'atelier « {name} » écarté : ses fichiers doivent être sous embedding/ dans le dossier des modèles (jamais proposés comme modèles de conversation). Corrigez load_path et files dans wavestack.toml, puis relancez WaveStack."
+  # Lot 5c-2: an entry of [[rag_lab.rerankers]] left out (the others are kept).
+  rag_lab_rerankers:
+    invalid: "Modèle de reranking de l'atelier « {name} » écarté : déclaration invalide ({fields}). Corrigez [[rag_lab.rerankers]] dans wavestack.toml, puis relancez WaveStack."
+    too_long: "Modèle de reranking de l'atelier « {name} » écarté : son id dépasse {max} caractères. Raccourcissez-le dans wavestack.toml, puis relancez WaveStack."
+    reserved: "Modèle de reranking de l'atelier « {name} » écarté : son id est déjà celui d'une option de l'étape Reranking (declared ou le modèle de la brique RAG). Renommez-le dans wavestack.toml, puis relancez WaveStack."
+    duplicate: "Modèle de reranking de l'atelier « {name} » écarté : un autre modèle de [[rag_lab.rerankers]] porte déjà cet id. Renommez-le dans wavestack.toml, puis relancez WaveStack."
+    outside: "Modèle de reranking de l'atelier « {name} » écarté : ses fichiers doivent être sous reranker/ dans le dossier des modèles (jamais proposés comme modèles de conversation). Corrigez load_path et files dans wavestack.toml, puis relancez WaveStack."
 
 # `greenops.py`: a call's footprint note (the method and its limits, or why there is none).
 greenops:
@@ -928,6 +939,7 @@ rag_lab:
     kept: Extraits gardés
     characters: Caractères
     placement: Placement
+    score_reading: Lecture du score
   chunking:
     source_corpus: "le corpus (content/corpus), découpé pour cette exécution"
     source_index: "l'index de la brique RAG (découpé à sa construction)"
@@ -985,6 +997,13 @@ rag_lab:
     unchanged: "L'ordre de la recherche ne change pas."
     input: "La question et {candidates} de la recherche, lus par paires."
     output: "{candidates} par le reranker. {climb}"
+    # Lot 5c-2: how the score is read, and the pairs cut at the model's length.
+    reading:
+      sigmoid: "sigmoïde du logit du modèle, ramené entre 0 et 1"
+      probability: "probabilité rendue par le modèle, lue telle quelle"
+    truncated:
+      one: "{candidates} sur {total} dépasse la longueur d'une paire : coupé à {max} tokens, le reranker ne lit pas la fin de cet extrait (ni celle d'une question très longue)."
+      other: "{candidates} sur {total} dépassent la longueur d'une paire : coupés à {max} tokens, le reranker ne lit pas la fin de ces extraits (ni celle d'une question très longue)."
   lexical_search:
     no_chunks: "Aucun extrait : le découpage n'a pas abouti."
     no_words: aucun
@@ -1457,6 +1476,9 @@ models:
     embedding_pooling: "le fichier déclare le pooling {pooling} dans ses métadonnées GGUF, pas RANK (4) : c'est un modèle d'embedding, pas un modèle de reranking"
     no_score: "le modèle ne note pas une paire question-extrait ({kind}) : ce n'est pas un modèle de reranking en pooling RANK"
     not_finite: "le modèle rend un score non fini pour une paire question-extrait : ce n'est pas un modèle de reranking utilisable"
+    # Lot 5c-2: what the GGUF header says the adapter cannot score.
+    segments: "le fichier déclare {count} types de segments (tokenizer.ggml.token_type_count) : c'est un cross-encoder BERT qui distingue la question de l'extrait par des identifiants de segment, que llama.cpp ne transmet pas ; ses scores n'auraient pas de sens"
+    no_rerank_template: "le modèle est d'architecture LLM ({arch}) et son fichier GGUF ne porte pas de gabarit de reranking utilisable (tokenizer.chat_template.rerank, avec les champs query et document) : WaveStack ne sait pas lui présenter une paire question-extrait"
 
 net:
   # `net/guard.py`, `net/factory.py` (AD-15): a destination the harness refuses, named as the

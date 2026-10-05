@@ -1,8 +1,11 @@
-"""Writes two synthetic BERT GGUFs of a few KB for the reranker's tests (story 16).
+"""Writes three synthetic BERT GGUFs of a few KB for the reranker's tests (story 16).
 
 - `tiny-bert-rank.gguf`: a reranker, pooling `RANK` declared, with its classification head
   (`cls`, `cls.output`); random weights, so its scores mean nothing, but llama-cpp-python
-  loads it, tokenizes a pair and gives one figure per pair, as bge-reranker does.
+  loads it, tokenizes a pair and gives one figure per pair, as bge-reranker does. Lot 5c-2:
+  one token type (`token_type_count = 1`), as bge-reranker-v2-m3's GGUF declares.
+- `tiny-bert-rank-segments.gguf` (lot 5c-2): the same with two token types, as ms-marco
+  MiniLM declares: a cross-encoder that needs segment ids, which the adapter must refuse.
 - `tiny-bert-cls.gguf`: the same without the head, pooling `CLS` declared: an embedding
   model, which the adapter must refuse.
 
@@ -31,7 +34,7 @@ def tokens() -> list[str]:
     return special + chars + ["##" + c for c in chars]
 
 
-def write(path: Path, rank: bool) -> None:
+def write(path: Path, rank: bool, token_types: int = 2) -> None:
     rng = np.random.default_rng(16 if rank else 15)
     toks = tokens()
     w = GGUFWriter(str(path), "bert")
@@ -48,7 +51,7 @@ def write(path: Path, rank: bool) -> None:
     w.add_tokenizer_model("bert")
     w.add_token_list(toks)
     w.add_token_types([TokenType.CONTROL] * 5 + [TokenType.NORMAL] * (len(toks) - 5))
-    w.add_token_type_count(2)
+    w.add_token_type_count(token_types)
     w.add_pad_token_id(0)
     w.add_unk_token_id(1)
     w.add_bos_token_id(2)
@@ -65,7 +68,7 @@ def write(path: Path, rank: bool) -> None:
         w.add_tensor(name, np.full(n, value, dtype=np.float32))
 
     t("token_embd.weight", len(toks), N_EMBD)
-    t("token_types.weight", 2, N_EMBD)
+    t("token_types.weight", token_types, N_EMBD)
     t("position_embd.weight", N_CTX, N_EMBD)
     const("token_embd_norm.weight", N_EMBD, 1.0)
     const("token_embd_norm.bias", N_EMBD, 0.0)
@@ -93,5 +96,6 @@ def write(path: Path, rank: bool) -> None:
 
 if __name__ == "__main__":
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent
-    write(out / "tiny-bert-rank.gguf", rank=True)
+    write(out / "tiny-bert-rank.gguf", rank=True, token_types=1)
+    write(out / "tiny-bert-rank-segments.gguf", rank=True, token_types=2)
     write(out / "tiny-bert-cls.gguf", rank=False)

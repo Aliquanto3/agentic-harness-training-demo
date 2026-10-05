@@ -128,7 +128,9 @@ stages:
       A reranker reads the question and each candidate together, and scores their relevance.
       Dense retrieval compared two vectors computed apart; the reranker reads both texts side
       by side: it judges better, but it is much slower. That is why it only sees the
-      candidates kept, then reorders them.
+      candidates kept, then reorders them. Each reranking model is calibrated its own way: the
+      same 0.8 does not mean the same thing from one reranker to another. Scores from different
+      rerankers therefore cannot be compared: only the order each one produces matters.
   context:
     label_text: "Prompt augmentation"
     explain_text: >-

@@ -68,10 +68,15 @@ Retour d'Anaël du 2026-10-04 : l'Atelier RAG montre une seule chaîne linéaire
 - « Avec reranking » (plan, 5b) est la chaîne dense + reranking, celle livrée.
 - Story Breakdown déroulé sans conversation (consigne d'enchaîner jusqu'au build) : checkpoints décidés par Claude, notés au memlog.
 
-## Open Questions
+## Décisions de 5c (Anaël, 2026-10-05)
 
-- 5c : la génération exécutée dans l'Atelier RAG compte-t-elle dans la dépense (FinOps/GreenOps) de l'atelier principal, et avec quel prompt système ?
-- 5c : quels rerankers et embeddings déclarer en plus (noms, tailles, licences) ?
+- Modèles déclarés en plus : voir `essai-modeles-5c.md` (embeddings multilingual-e5-small et Qwen3-Embedding-0.6B, reranker Qwen3-Reranker-0.6B), livrés par 5c-1 et 5c-2.
+- 5c-3, génération exécutée dans l'Atelier RAG :
+  1. **Dépense** : comptée dans la dépense de la session (FinOps/GreenOps, `consumption_updated`), comme l'Atelier LLM ; jamais dans la jauge d'un tour (aucun tour).
+  2. **Prompt système** : le prompt système effectif de l'atelier principal, tel qu'un tour l'enverrait (rien si la brique « prompt système » est éteinte), puis le contexte construit par la chaîne avec son introduction, puis la question ; le focus montre le prompt envoyé.
+  3. **Au choix** : une option sur la ligne Generation, « Modèle actif de l'atelier » (par défaut, exécutée) ou « Ne pas générer » (le comportement d'avant).
+  4. **Bornes** : celles de l'atelier principal (borne de sortie, budget de raisonnement) ; progression en tokens et « Arrêter » pour la lenteur.
+  5. **Cas limites** : sans modèle chargé, l'étape est sautée avec sa raison et le reste de la chaîne se termine ; le cache de préfixe de la conversation de l'atelier est écrasé, ce qu'on accepte, en ajoutant la cause « atelier RAG » à la ligne « Préfixe non réutilisé ».
 
 ## Notes de fusion
 

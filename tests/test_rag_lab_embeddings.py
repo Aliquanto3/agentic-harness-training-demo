@@ -329,7 +329,7 @@ def test_a_file_of_another_sha256_is_refused_and_nothing_granted(index):
     events = run(session, QUESTION, chain_with(session, E5))
     embedding = ended(events, "embedding")
     assert embedding["status"] == "error" and "sha256" in embedding["error_text"]
-    assert "rag_lab.embeddings" in embedding["error_text"]
+    assert "[[rag_lab.embeddings]]" in embedding["error_text"]
     assert session._load_registry.holder(f"rag_lab.embedding.{E5}") is None
 
 

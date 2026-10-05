@@ -1923,8 +1923,11 @@ class LabRun:
                 value = float(item.score)
             except (TypeError, ValueError):
                 raise StageFailed(Message("rag_lab.rerank.not_a_number"), soft=True) from None
-            scores.append(round(min(1.0, max(0.0, value)), 3))
-        # Stable, as the brick's: the reranker's score, then the search's rank.
+            scores.append(min(1.0, max(0.0, value)))
+        cut = sum(1 for item in raw if getattr(item, "truncated", False) is True)
+        # Stable, as the brick's: the reranker's score, then the search's rank. Lot 5c-2: on
+        # the score as the model gives it (bounded), rounded for display only: a reranker's
+        # saturated probabilities (0.99991, 0.99995) would otherwise tie at 1.000.
         order = sorted(range(len(candidates)), key=lambda i: (-scores[i], candidates[i].rank))
         items = []
         for rank, i in enumerate(order, start=1):
@@ -1935,7 +1938,7 @@ class LabRun:
                     c.doc_id,
                     c.title_text,
                     c.text,
-                    scores[i],
+                    round(scores[i], 3),
                     rank=rank,
                     before=c.rank,
                     sources=c.sources
@@ -1972,10 +1975,35 @@ class LabRun:
             facts=[
                 (text("fact.model"), lent.label_text),
                 (text("fact.pairs"), self._int(len(candidates))),
+                *self._score_reading(reranker),
                 (text("fact.provenance"), self._provenance(lent)),
             ],
             items=items,
             borrowed=lent.borrowed,
+            warning_text=self._pairs_cut(reranker, cut, len(candidates)),
+        )
+
+    def _score_reading(self, reranker: Reranker) -> list[tuple[str, str]]:
+        """Lot 5c-2: how the model's figure became the score (the sigmoid of a logit, or the
+        model's own probability), as a fact; none when the reranker does not say."""
+        reading = getattr(reranker, "score_reading", None)
+        if reading not in ("sigmoid", "probability"):
+            return []
+        return [(self._text("fact.score_reading"), self._text(f"rerank.reading.{reading}"))]
+
+    def _pairs_cut(self, reranker: Reranker, cut: int, total: int) -> str | None:
+        """Lot 5c-2: « 2 candidats sur 8 dépassent la longueur d'une paire : coupés à 1 024
+        tokens… », a warning (never an error); `None` when no pair was cut or the reranker
+        does not say its length."""
+        max_tokens = getattr(reranker, "max_tokens", None)
+        if not cut or not isinstance(max_tokens, int):
+            return None
+        return self._text(
+            "rerank.truncated",
+            count=cut,
+            candidates=self._count(cut, "candidate"),
+            total=self._int(total),
+            max=self._int(max_tokens),
         )
 
     def _made_by(self, chain: _Chain) -> str:

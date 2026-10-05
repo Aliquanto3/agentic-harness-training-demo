@@ -1002,3 +1002,6 @@
 - source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-1-embedding-au-choix.md`
   summary: Vérifier en E2E que l'avertissement de troncature (`.rag-stage-warning`) s'affiche dans le focus de la ligne Embedding et sa carte de `#rag-details`, et pas sur Embedding de la question.
   evidence: medium, non vérifié dans la page ; la pile E2E branche `tests/fake_embedder.FakeEmbedder`, sans `max_tokens` ni `last_truncated` : aucun run ne tronque. Il faut un faux qui compte la troncature (ou un vrai modèle) pour que le contrôle ne passe pas à vide ; l'événement est couvert en pytest.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-2-rerankers-declares.md`
+  summary: Rendre dans la langue de la session la cause d'un échec de chargement d'un modèle de l'Atelier RAG (`Loans.lend`, `cause=str(exc)` donne le français en en/de).
+  evidence: antérieur à 5c (`rag/lab.py`, `Loans.lend`) ; les refus d'en-tête des rerankers déclarés sont déjà traduits au catalogue, seul un refus au chargement (en-tête illisible en Python, `no_score`, `not_finite`) reste en français.

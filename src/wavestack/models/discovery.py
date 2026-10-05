@@ -84,12 +84,17 @@ def _key(path: Path) -> str:
 
 
 def _rag_model_files(cfg: config.Config) -> set[str]:
-    """The files `[rag.embedding]`, `[rag.reranker]` and (lot 5c-1) `[[rag_lab.embeddings]]`
-    declare under `models_dir()`, as `_key` gives them: never offered as a model, wherever
-    `load_path` puts them."""
+    """The files `[rag.embedding]`, `[rag.reranker]`, (lot 5c-1) `[[rag_lab.embeddings]]` and
+    (lot 5c-2) `[[rag_lab.rerankers]]` declare under `models_dir()`, as `_key` gives them:
+    never offered as a model, wherever `load_path` puts them."""
     root = config.models_dir()
     files: set[str] = set()
-    models = [cfg.rag_embedding[0], cfg.rag_reranker[0], *cfg.rag_lab_embeddings[0]]
+    models = [
+        cfg.rag_embedding[0],
+        cfg.rag_reranker[0],
+        *cfg.rag_lab_embeddings[0],
+        *cfg.rag_lab_rerankers[0],
+    ]
     for model in models:
         if model is not None:
             files |= {_key(root / model.load_path), *(_key(root / f.path) for f in model.files)}

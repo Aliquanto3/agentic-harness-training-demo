@@ -31,6 +31,8 @@ EMBEDDING = "embedding"  # story 15: the RAG brick's embedding model
 RERANKER = "reranker"  # story 16: the RAG brick's reranking model (its sub-option)
 COMPRESSOR = "compressor"  # story 20: Headroom, the compression brick's library
 RAG_LAB_EMBEDDING = "rag_lab.embedding"  # story 30: the RAG workshop's fastembed model
+# Lot 5c-2: a `[[rag_lab.rerankers]]` model, `rag_lab.reranker.<id>` (the brick's never touched).
+RAG_LAB_RERANKER = "rag_lab.reranker"
 # Story 30, increment 3: FAISS and LanceDB, counted from their first import, never released
 # (a Python module does not unload).
 RAG_LAB_FAISS = "rag_lab.faiss"

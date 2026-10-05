@@ -130,7 +130,9 @@ stages:
       Un reranker relit la question et chaque candidat ensemble, et note leur pertinence. Le
       Dense retrieval comparait deux vecteurs calculés séparément ; le reranker lit les deux
       textes côte à côte : il juge mieux, mais il est bien plus lent. C'est pourquoi il ne voit
-      que les candidats retenus, puis les réordonne.
+      que les candidats retenus, puis les réordonne. Chaque modèle de reranking est calibré à sa
+      façon : un même 0,8 ne veut pas dire la même chose d'un reranker à l'autre. Les scores de
+      rerankers différents ne se comparent donc pas : seul l'ordre que chacun donne compte.
   context:
     label_text: "Prompt augmentation"
     explain_text: >-

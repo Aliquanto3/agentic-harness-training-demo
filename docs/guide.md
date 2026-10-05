@@ -320,6 +320,24 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   (clé `pooling_type` dans son en-tête) n'est jamais proposé comme modèle de conversation, où
   qu'il soit (dossier des modèles, cache Hugging Face, LM Studio) : Diagnostic et modèles le
   montrent en rouge, avec la raison.
+- **Reranking au choix.** L'étape Reranking propose, après le modèle de la brique RAG (BGE
+  Reranker v2 M3), ceux déclarés en `[[rag_lab.rerankers]]` de `wavestack.toml` :
+  **Qwen3-Reranker 0.6B** (1 024 tokens par paire). Son fichier va sous `models/reranker/` ;
+  absent, l'option est grisée et la raison nomme le fichier attendu. Il est chargé le temps de
+  l'exécution dans son propre emplacement du budget (`rag_lab.reranker.<id>`, environ 937 Mo
+  mesurés sur le PC de développement), sans décharger celui de la brique. L'en-tête du GGUF dit
+  comment présenter la paire question-extrait : BGE (un cross-encoder) lit `[BOS] question
+  [EOS] [SEP] extrait [EOS]` et rend un logit, ramené entre 0 et 1 par une sigmoïde ;
+  Qwen3-Reranker (un LLM) lit la paire dans son propre gabarit (`tokenizer.chat_template.rerank`)
+  et rend déjà une probabilité, lue telle quelle. Le focus de l'étape dit cette lecture
+  (« Lecture du score »). Chaque modèle est calibré à sa façon : les scores de rerankers
+  différents ne se comparent pas, seul l'ordre que chacun donne compte. Un cross-encoder BERT
+  qui distingue la question de l'extrait par des identifiants de segment (ms-marco MiniLM :
+  `token_type_count` à 2) est refusé, llama.cpp ne les transmettant pas, comme un LLM sans
+  gabarit de reranking : l'option est grisée avec la raison. Une paire plus longue que
+  `max_tokens` est coupée (l'extrait d'abord, la question aussi si elle dépasse la moitié de
+  la place) : l'étape l'annonce en avertissement (« 2 candidats sur 8 dépassent la longueur
+  d'une paire : coupés à 1 024 tokens… »).
 - **Ajouter, retirer, déplacer.** Entre le vector store et le Prompt augmentation, les
   recherches, la fusion et le reranking se déplacent par leurs boutons « ▲ » et « ▼ » (au clavier
   aussi) et se retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le
