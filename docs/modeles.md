@@ -21,7 +21,9 @@ validation) :
   liste les fichiers GGUF du poste, les modèles d'un serveur local déjà lancé et les modèles
   cloud déclarés (grisés sans clé). Un modèle cloud affiche d'abord son avertissement. « Autre
   fichier ou clé API… » ouvre le diagnostic.
-- **Diagnostic** : « Choisir » en face d'un fichier ou d'un modèle cloud, ou un chemin saisi.
+- **Diagnostic** : « Choisir ce modèle » dans la carte d'un fichier ou d'un modèle servi,
+  « Choisir ce modèle… » dans celle d'un modèle cloud (qui ouvre d'abord l'avertissement), ou
+  « Choisir ce fichier » après un chemin saisi.
 
 **Lire le sélecteur.** Sa deuxième ligne est une légende : chaque option commence par où tourne
 le modèle, puis qui le sert :
@@ -187,7 +189,7 @@ lancement la mémoire de ce contexte entier, quelle que soit la longueur des con
 plusieurs emplacements (`-np N`), `-c` est partagé entre eux : gardez `-np 1`. Le diagnostic
 signale un contexte trop grand et conseille la commande à relancer. Au diagnostic, chaque
 modèle servi apparaît avec l'étiquette « Local », son serveur, son adresse et sa mémoire ;
-« Choisir » le charge, comme un fichier. Il est aussi dans le sélecteur de la barre du bas
+« Choisir ce modèle » le charge, comme un fichier. Il est aussi dans le sélecteur de la barre du bas
 (« Local · Ollama · … », « Local · llama-server · … »). Un modèle servi n'est jamais choisi
 d'office ; un choix mémorisé est repris au lancement si le serveur le sert encore. Les modèles
 « cloud » d'Ollama (`…-cloud`), qui tournent chez ollama.com, ne sont pas listés.
@@ -363,7 +365,8 @@ NVIDIA et OpenRouter y figurent en exemples commentés, avec leur avertissement.
    (deux appels au plus), et affiche la réponse, l'appel d'outil reçu et le débit. Les offres
    gratuites et leurs quotas changent souvent : seul ce test prouve que la clé et le préréglage
    fonctionnent le jour J.
-3. **Choisir.** « Choisir » affiche l'avertissement (ce qui part, ce qu'en fait le fournisseur, ce
+3. **Choisir.** « Choisir ce modèle… » affiche l'avertissement « Ce modèle tourne hors de votre
+   poste » (ce qui part, ce qu'en fait le fournisseur, ce
    que le harnais ne voit plus) ; « Utiliser ce modèle » le confirme. Le choix est repris aux
    lancements suivants, sans nouvel avertissement. Choisi après le chargement d'un modèle, il le
    remplace sans relance (voir [Changer de modèle](#changer-de-modèle)).
@@ -460,7 +463,7 @@ GPT-6.1 Sol figure en commentaire dans `wavestack.toml` (il raisonne toujours).
 ### Revenir au modèle local
 
 Choisissez un fichier GGUF dans le sélecteur de la barre du bas, ou
-cliquez sur « Choisir » en face d'un fichier sur la page de diagnostic : le modèle local est
+cliquez sur « Choisir ce modèle » dans la carte d'un fichier, page Diagnostic : le modèle local est
 rechargé sans relance, conversation gardée.
 
 ### Hôtes à autoriser

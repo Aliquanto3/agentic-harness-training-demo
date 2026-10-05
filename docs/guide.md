@@ -34,7 +34,8 @@ chaque écran est celui de l'onglet du navigateur et de la page :
 
 Le tableau des modèles et de leurs capacités est la page Diagnostic elle-même (voir
 [Changer de modèle](modeles.md#changer-de-modèle)) : une carte par modèle, locaux puis cloud,
-par éditeur ; l'entrée « Tableau des modèles… » du sélecteur de la barre du bas y mène, et
+par éditeur ; l'entrée « Tableau des modèles et de leurs capacités… » du sélecteur de la barre
+du bas y mène, et
 l'ancienne adresse `/models` y redirige.
 
 Le menu **Affichage ▾**, à droite, règle le thème, la [langue](#langue) et le mode projection
@@ -51,7 +52,9 @@ Le menu **Affichage ▾**, à droite, règle le thème, la [langue](#langue) et 
   suggérés du scénario et « Rejouer le dernier prompt ».
 - **② Contexte LLM** : ce que le modèle lit vraiment, dans l'ordre, segment par segment
   (gabarit, prompt système, descriptions d'outils, historique…), en « Lecture groupée » ou en
-  « Texte exact » ; « Comparer » met deux tours côte à côte.
+  « Texte exact » ; « Comparer » met deux tours côte à côte. Le JSON du contexte (définitions
+  et appels d'outils, corps envoyé à un modèle cloud) se lit en arbre : la racine ouverte, le
+  reste replié, un clic ouvre un nœud ; replié, un outil natif ou MCP garde son nom en vue (`local__define_term`).
 - **③ Orchestration** : ce que fait le harnais, pas à pas (appel au modèle, demande d'outil,
   exécution, réinjection du résultat), avec les tokens, la durée, le coût et l'empreinte de
   chaque appel. Le « Journal des événements » donne tout ce que le harnais émet, brut.
@@ -103,9 +106,9 @@ se termine par le message à retenir ; la réponse attendue, ci-dessous, est pou
 
 | Scénario | Durée | Réponse attendue |
 |---|---|---|
-| SOC : journal d'audit et garde-fou | 20 min | Un seul incident, le compte adm.leroy : connexion depuis un pays inhabituel à 02:14 UTC (accès initial, comptes valides), auto-ajout aux « Admins du domaine » à 02:15 (élévation de privilèges, manipulation de compte), antivirus arrêté à 02:21 (contournement des défenses), 2,3 Go sortants à 02:40 (exfiltration), pendant une fenêtre de maintenance où des alertes étaient en sourdine. Les échecs de svc-sauvegarde sont à investiguer à part. Au second prompt, H1 bloque l'inventaire des comptes à privilèges : l'agent doit escalader vers un analyste habilité, comme le prompt le lui demande ; s'il ne le fait pas (fréquent avec un petit modèle), le formateur conclut : l'agent n'a pas ce privilège, la décision revient à un analyste habilité. |
-| IAM : Entra ID avec Microsoft Learn | 15 min | MFA des administrateurs : une stratégie d'accès conditionnel qui cible les rôles d'administrateur et exige l'authentification multifacteur (modèle « Exiger l'authentification multifacteur pour les administrateurs »), ou les paramètres de sécurité par défaut pour un petit locataire. PIM : rôles attribués « éligibles », activés à la demande pour une durée limitée, avec justification, MFA et, au besoin, approbation. La réponse cite ses liens Microsoft Learn. |
-| Souveraineté : où partent les requêtes ? | 15 min | Deux flux sortent du poste : la recherche vers data.gouv.fr (opérateur public français) et celle vers Microsoft Learn (éditeur américain, soumis au Cloud Act même en Europe). Chaque requête révèle le sujet de la mission. Hébergement et qualification (SecNumCloud) de chaque serveur restent à vérifier ; le modèle local ne sort pas du poste, un modèle cloud y ajouterait un troisième flux. |
+| Métier SOC : journal d'audit et garde-fou | 20 min | Un seul incident, le compte adm.leroy : connexion depuis un pays inhabituel à 02:14 UTC (accès initial, comptes valides), auto-ajout aux « Admins du domaine » à 02:15 (élévation de privilèges, manipulation de compte), antivirus arrêté à 02:21 (contournement des défenses), 2,3 Go sortants à 02:40 (exfiltration), pendant une fenêtre de maintenance où des alertes étaient en sourdine. Les échecs de svc-sauvegarde sont à investiguer à part. Au second prompt, H1 bloque l'inventaire des comptes à privilèges : l'agent doit escalader vers un analyste habilité, comme le prompt le lui demande ; s'il ne le fait pas (fréquent avec un petit modèle), le formateur conclut : l'agent n'a pas ce privilège, la décision revient à un analyste habilité. |
+| Métier IAM : Entra ID avec Microsoft Learn | 15 min | MFA des administrateurs : une stratégie d'accès conditionnel qui cible les rôles d'administrateur et exige l'authentification multifacteur (modèle « Exiger l'authentification multifacteur pour les administrateurs »), ou les paramètres de sécurité par défaut pour un petit locataire. PIM : rôles attribués « éligibles », activés à la demande pour une durée limitée, avec justification, MFA et, au besoin, approbation. La réponse cite ses liens Microsoft Learn. |
+| Métier Souveraineté : où partent les requêtes ? | 15 min | Deux flux sortent du poste : la recherche vers data.gouv.fr (opérateur public français) et celle vers Microsoft Learn (éditeur américain, soumis au Cloud Act même en Europe). Chaque requête révèle le sujet de la mission. Hébergement et qualification (SecNumCloud) de chaque serveur restent à vérifier ; le modèle local ne sort pas du poste, un modèle cloud y ajouterait un troisième flux. |
 
 IAM et Souveraineté demandent un accès à `learn.microsoft.com` et `mcp.data.gouv.fr` : sur le
 réseau d'une entreprise, faites autoriser ces deux hôtes par le proxy avant la séance. Sans
@@ -224,44 +227,122 @@ actif, sans aucune brique (ni prompt système, ni historique, ni outil, ni mémo
 toucher à la conversation de l'atelier. Le modèle ne s'y change pas : le lien « Changer de modèle
 dans l'atelier » ramène au sélecteur de la barre du bas.
 
-- **Tokenisation et vectorisation.** « Découper en tokens » découpe le texte saisi (2 000
-  caractères au plus), sans gabarit, par le tokenizer du modèle actif : une puce par token avec
-  son identifiant (512 au plus), les blancs rendus visibles (`␣`, `↵`), un marqueur du gabarit
-  comme `<|im_end|>` en un seul token marqué « spécial ». Un schéma suit le chemin d'un token :
-  texte → tokens → identifiants → ligne de la table d'embedding (vocabulaire × dimension) →
-  vecteur → couches, avec les dimensions réelles du modèle (lues par llama.cpp, dans l'en-tête
-  GGUF, ou données par llama-server), ou « inconnue » et pourquoi. Un modèle cloud n'a pas de
-  tokenizer sur le poste : la page le dit et montre l'estimation du harnais.
-- **Réglages d'échantillonnage.** L'échantillonnage est un paramètre de chaque appel au
-  modèle : l'atelier envoie toujours les valeurs du harnais (température 0,7, top-k 20, top-p
-  0,8, min-p 0), l'écran envoie les siennes, réglables par curseur (température 0 à 2, top-k 0 à
-  100, 0 le désactivant, top-p 0,05 à 1, min-p 0 à 0,5), au moteur en processus, à llama-server et à Ollama. Un
-  modèle cloud ne prend que ce que son entrée déclare (`sampling`, voir [Modèles cloud](modeles.md#modèles-cloud)), les
-  autres réglages sont grisés avec leur raison. Chaque appel trace son échantillonnage dans
-  `model_call_started` (journal des événements).
-- **Lecture du prompt et génération.** « Générer » envoie le texte comme un seul message de
-  l'utilisateur, rendu par le gabarit du modèle, sans prompt système ni historique. La page
-  montre le prompt rendu, son nombre de tokens, le temps jusqu'au premier token et le débit de
-  lecture, puis les tokens un par un (des fragments pour un modèle cloud) et le débit de
-  sortie. « Arrêter » interrompt. Pendant la génération, l'atelier attend (état « écran LLM
-  nu ») ; sa conversation n'en reçoit rien, et l'état du moteur est restauré pour le tour
-  suivant.
-- **Chargement du modèle.** L'écran montre le dernier chargement fait dans l'atelier, étape
+Le haut de la page suit la boucle du modèle en trois étapes empilées, chacune tenant dans
+l'écran : **1. INPUT** (le texte devient des nombres), **2. TRANSFORMATION** (les nombres
+traversent les couches du modèle) et **3. OUTPUT** (du vecteur au token suivant). L'étiquette
+de chaque étape dit ce qu'elle montre : « Réel · tokenizer du modèle » et « Réel · probabilités
+et tirage » quand l'INPUT et l'OUTPUT montrent ce que le moteur a lu, « Illustratif · vraies
+dimensions » pour la TRANSFORMATION, toujours, et « Exemple · tokens d'illustration » ou
+« Exemple · probabilités d'illustration » quand l'INPUT ou l'OUTPUT montre un exemple (voir plus
+bas). Chaque étape se parcourt pas à pas : ◀ ▶ dans son en-tête, et « Tout montrer » (INPUT,
+TRANSFORMATION) ou « Suivre le direct » (OUTPUT) pour aller au dernier pas ; la légende sous
+l'étape explique le pas affiché. L'INPUT, l'OUTPUT et chaque section suivante ont leur encadré
+« Les questions que vous vous posez ».
+
+- **INPUT.** « Découper en tokens » découpe le texte du champ « Texte à découper » (2 000
+  caractères au plus), sans gabarit, par le tokenizer du modèle actif. Trois pas : « Texte » (le
+  texte d'un bloc), « Tokens » (une colonne par token, les blancs rendus visibles : `␣`, `↵`),
+  « Identifiants » (sous chaque token, son numéro dans le vocabulaire). 512 colonnes au plus ;
+  un marqueur du gabarit comme `<|im_end|>` est un seul token, marqué « spécial ». À droite, les
+  compteurs : tokens, caractères et identifiants (« N nombres entre 0 et … »). Quand le modèle
+  demande un token de début de texte (Gemma, Llama), une phrase le nomme : l'OUTPUT le lit avant
+  ces tokens. Le texte du champ et les réglages de l'OUTPUT sont gardés par le navigateur.
+- **TRANSFORMATION.** Le moteur n'expose ni les poids d'attention ni les états cachés : le
+  schéma est illustratif. Il dessine les derniers tokens de l'INPUT (5 au plus), 8 nombres par
+  vecteur et une poignée de neurones, en sept pas : les embeddings (chaque identifiant va
+  chercher sa ligne de la table d'embedding), l'attention puis le MLP de la couche 1, ceux de la
+  couche 2, « … et ainsi de suite, couche après couche », puis le vecteur du dernier token, qui
+  part vers l'OUTPUT. Le panneau « En vrai, pour … » donne les vraies dimensions du modèle
+  (largeur des vecteurs, table d'embedding, couches, têtes d'attention, MLP, experts), lues par
+  llama.cpp, dans l'en-tête GGUF, ou données par llama-server, et la pile des couches suit le
+  pas affiché. Pour un modèle hybride (des couches récurrentes, comme Qwen3.5) ou à mélange
+  d'experts (MoE), un bandeau « ⚠ Schéma simplifié, inexact pour cette architecture. » dit en
+  quoi il s'écarte du schéma. Une architecture non lue (un modèle servi, un en-tête illisible)
+  est dessinée en transformeur dense, et la page le dit ; des dimensions inconnues (un modèle
+  cloud) s'affichent « inconnue », avec la raison. Avant tout découpage, le schéma dessine les
+  tokens de l'exemple (voir plus bas).
+- **OUTPUT.** Trois pas, qui mettent en valeur une partie de l'étape à la fois :
+  - **Logits** : le vecteur du dernier token est comparé à chaque token du vocabulaire ; les
+    six candidats les plus probables après la fin du texte, en barres, avec leur probabilité.
+  - **Tirage** : les curseurs température (0 à 2), top-k (0 à 100, 0 le désactivant), top-p
+    (0,05 à 1) et min-p (0 à 0,5), appliqués dans l'ordre de llama.cpp : top-k, top-p, min-p,
+    puis la température. Le nom de chaque réglage porte son explication (survol, ou clic sur
+    « ? »). À chaque mouvement, la session recalcule, sans nouvelle génération, qui reste en
+    lice et la chance de chacun d'être tiré : un candidat écarté est marqué (« écarté
+    (top-p) »), la probabilité du modèle ne bouge pas, et le reste du vocabulaire n'est pas
+    tiré ici. « Revenir aux valeurs du harnais » remet celles que l'atelier envoie toujours
+    (température 0,7, top-k 20, top-p 0,8, min-p 0). Bouger un réglage efface le token tiré :
+    il l'avait été avec d'autres réglages.
+  - **Token tiré** : « 🎲 Tirer le token suivant » fait tirer un seul token au moteur, avec les
+    réglages affichés ; les Logits et le Tirage montrent alors ses vrais candidats, sa ligne
+    marquée, et « derniers tirages » rappelle les derniers tokens tirés au même endroit.
+    « ↺ Ajouter à la suite » l'ajoute à l'INPUT, en colonne marquée, pour tirer le suivant :
+    c'est toute la génération, un token à la fois. « Retirer le dernier » enlève le dernier
+    ajouté ; 64 ajouts au plus, et changer le texte les efface. Ce pas lit le texte tel quel,
+    sans gabarit de chat : il le prolonge (« Générer », section 6, le lit comme un message et y
+    répond). Quand le moteur tire son token de fin, la page le dit : rien à ajouter.
+
+  Après une génération avec « Montrer les tokens candidats » coché (section 6), les Logits et
+  le Tirage montrent aussi les candidats d'un token produit : le premier, ou celui dont on
+  clique la puce en section 6.
+- **Moteur en processus ou exemple.** Seul un fichier GGUF chargé par WaveStack (moteur en
+  processus) donne ses probabilités et tire un token. Avec lui, à l'ouverture de la page
+  (session au repos, aucune génération gardée), la page découpe le texte du champ et fait lire
+  les candidats du token suivant, sans rien tirer : l'INPUT et l'OUTPUT montrent des valeurs
+  réelles sans clic, et le journal des événements dit « Atelier LLM : lecture des probabilités
+  commencée », puis « terminée ». Un texte modifié doit être redécoupé avant « 🎲 Tirer le token
+  suivant » (« Découpez d'abord ce texte en tokens (étape 1). »). Sinon (modèle cloud, Ollama, llama-server ou aucun
+  modèle), l'INPUT et l'OUTPUT montrent un exemple étiqueté : l'INPUT, des tokens et des
+  identifiants d'illustration (« Bonjour, comment allez-vous ») jusqu'à un découpage exact ;
+  l'OUTPUT, six candidats d'illustration après ces tokens. Avec Ollama ou llama-server,
+  « Découper en tokens » remplace l'exemple de l'INPUT par le vrai découpage. Un modèle cloud
+  n'a pas de tokenizer sur le poste : l'INPUT garde l'exemple, qui ne se présente pas comme le
+  découpage du modèle, à côté de l'estimation du harnais pour votre texte (après « Découper en
+  tokens »). Les curseurs font bouger l'exemple comme le vrai tirage, même un réglage que le
+  fournisseur ne prend pas (sa raison reste affichée, suivie de « Il ne bouge que
+  l'exemple. »). « 🎲 Tirer le token
+  suivant » tire alors dans l'exemple : la session tire un des candidats gardés selon les
+  chances affichées, sans appel au modèle ni ligne au journal ; la puce porte la mention
+  « exemple », et « ↺ Ajouter à la suite » et « Retirer le dernier » sont masqués (l'exemple
+  n'a pas de suite).
+
+Les sections suivantes reprennent la génération complète :
+
+- **4. Chargement du modèle.** L'écran montre le dernier chargement fait dans l'atelier, étape
   par étape (libération du modèle précédent, sonde, contrôle du budget, création du moteur,
   prêt), avec les durées et la mémoire : RAM du processeur pour un fichier (pas de carte
   graphique), processus du serveur pour un modèle d'Ollama ou de llama-server, aucune mémoire
   sur le poste pour un modèle cloud. Un chargement en cours se suit en direct.
-- **Raisonnement.** « Raisonner avant de répondre » s'active quand le modèle sait raisonner
-  (grisé avec la raison sinon, verrouillé pour un modèle qui raisonne toujours) ; la réflexion
-  et la réponse s'affichent dans deux couloirs, avec la réserve de 1 536 tokens et, en local,
-  la coupe du harnais au budget de réflexion.
-- **Tokens candidats.** Avec un fichier GGUF chargé par WaveStack (moteur en processus),
-  « Montrer les tokens candidats » garde, pour chaque token produit, les cinq tokens que le
-  modèle jugeait les plus probables : survolez, donnez le focus ou cliquez une puce pour voir
-  leur probabilité, ceux que top-k, top-p ou min-p écartent et leur chance réelle d'être tirés
-  (la température appliquée), le token tiré marqué. La lecture coûte peu (le vocabulaire d'une
-  seule position par token). Avec llama-server, Ollama ou un modèle cloud, la case est grisée :
-  WaveStack ne lit pas leurs probabilités.
+- **5. Lecture du prompt.** « Générer » (section 6) envoie le texte comme un seul message de
+  l'utilisateur, rendu par le gabarit du modèle, sans prompt système ni historique. La section
+  montre le prompt rendu (pour un modèle cloud, le corps JSON envoyé au fournisseur, qui
+  applique le gabarit chez lui), son nombre de tokens et la réserve de sortie, le schéma « La
+  fenêtre, token après token », l'échantillonnage envoyé, le temps jusqu'au premier token et le
+  débit de lecture.
+- **6. Génération.** Les tokens arrivent un par un (des fragments pour un modèle cloud, les
+  morceaux du flux pour un serveur), avec le débit de sortie ; « Arrêter » interrompt. Pendant
+  la génération, l'atelier attend (« L'Atelier LLM génère une réponse : attendez sa fin ou
+  arrêtez-la. ») ; sa conversation n'en reçoit rien, et l'état du moteur est restauré pour le
+  tour suivant. « Générer » envoie les réglages de l'OUTPUT au moteur en processus, à
+  llama-server et à Ollama. Un modèle cloud ne prend que ce que son entrée déclare (`sampling`,
+  voir [Modèles cloud](modeles.md#modèles-cloud)) : pour les autres réglages, la valeur du
+  harnais part. Chaque appel trace son échantillonnage dans `model_call_started` (journal des
+  événements).
+  - **Tokens candidats.** Avec un fichier GGUF chargé par WaveStack (moteur en processus),
+    « Montrer les tokens candidats » garde, pour chaque token produit, les cinq tokens que le
+    modèle jugeait les plus probables : survolez, donnez le focus ou cliquez une puce pour voir
+    leur probabilité, ceux que top-k, top-p ou min-p écartent et leur chance réelle d'être tirés
+    (la température appliquée), le token tiré marqué. La lecture coûte peu (le vocabulaire d'une
+    seule position par token). Avec llama-server, Ollama ou un modèle cloud, la case est grisée :
+    WaveStack ne lit pas leurs probabilités.
+  - **Comparer deux réglages.** « Comparer » génère deux fois le même prompt : A avec les
+    réglages de l'OUTPUT, B avec les « Réglages B », côte à côte. Un seul modèle tourne sur le
+    processeur : B commence quand A a fini, et « Arrêter » arrête les deux. Les réglages B
+    qu'un modèle cloud ne prend pas sont grisés.
+- **7. Raisonnement.** « Raisonner avant de répondre » (section 6) s'active quand le modèle sait
+  raisonner (grisé avec la raison sinon, verrouillé pour un modèle qui raisonne toujours) ; la
+  réflexion et la réponse s'affichent dans deux couloirs, avec la réserve de 1 536 tokens et,
+  en local, la coupe du harnais au budget de réflexion.
 
 Les textes de la page sont dans `content/llm_lab.yaml`. Les événements de l'écran sont tracés
 dans le contexte `llm` : le journal des événements de l'atelier les liste, aucun volet ne les
@@ -280,8 +361,8 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   Prompt augmentation, Generation), à chaque question. Au milieu, l'**architecture** : les
   composants que ces étapes sollicitent, en trois groupes (Données, Modèles, Échange avec
   l'utilisateur). À droite, le **focus** sur une étape : ce qu'elle fait, les composants qu'elle
-  lit, écrit ou appelle, et après une exécution son entrée, sa sortie, ses chiffres et ses
-  extraits. Les noms techniques restent en anglais dans les trois langues.
+  lit, écrit ou appelle, et après une exécution, en mode Dérouler, son entrée, sa sortie, ses
+  chiffres et ses extraits. Les noms techniques restent en anglais dans les trois langues.
 - **Composer et Dérouler.** « ✎ Composer » montre toute la chaîne, réglable dans la séquence.
   « ▶ Dérouler » fait arriver les étapes et les composants un à un : sans exécution, c'est une
   visite guidée (◀ ▶) ; pendant une exécution, chaque étape atteinte s'allume avec ses
@@ -297,7 +378,8 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   fermés. Sans modèle d'embedding, l'étape le dit : téléchargez-le depuis son étape (voir plus
   bas) ou depuis la carte RAG de l'atelier ; sans reranker, le reranking est sauté et le
   contexte garde l'ordre de la recherche. « Arrêter » interrompt entre deux étapes. Pendant
-  l'exécution, l'atelier attend (état « Atelier RAG : exécution en cours »).
+  l'exécution, l'atelier attend (« Atelier RAG : exécution en cours ; attendez sa fin ou
+  arrêtez-la. »).
 - **La Generation.** Par défaut (option « Modèle actif de l'atelier », nommée d'après lui), le
   modèle actif de l'atelier génère la réponse. Il reçoit le prompt système de l'atelier tel
   qu'un tour l'enverrait (personnalisé ou par défaut ; rien si la brique « Prompt système » est
@@ -383,8 +465,8 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   durée dans son focus), et l'étape BM25 lit cet index à chaque question. Les
   autres étapes sont fixes. WaveStack vérifie la chaîne à chaque modification : une chaîne
   invalide (deux recherches sans fusion après elles, une fusion sans deux recherches avant elle,
-  un reranking avant toute recherche…) affiche sa raison sur l'étape fautive, et « Lancer » est
-  désactivé. Les chaînes en cours d'édition sont gardées par le navigateur ; « Revenir à la
+  un reranking avant toute recherche…) affiche sa raison sur l'étape fautive, et « Lancer la
+  chaîne » est désactivé. Les chaînes en cours d'édition sont gardées par le navigateur ; « Revenir à la
   chaîne livrée » les oublie.
 - **Le dossier `rag_lab`.** Hors de la chaîne livrée, les vecteurs du corpus sont calculés une
   fois par modèle et par taille d'extrait, puis relus (« relus du cache »), et les index sqlite-vec
@@ -438,30 +520,82 @@ uv run wavestack
 ## Atelier MCP
 
 Le lien **« MCP »** de la barre de navigation (ou « Voir le protocole dans l'atelier MCP → »
-sur la carte MCP) ouvre l'Atelier MCP (page `/mcp`) : le protocole MCP entre le harnais et un serveur, sans
-modèle. C'est un bac à sable : l'atelier ouvre ses propres connexions, la brique MCP de
-l'atelier (ses serveurs cochés, son mode, ses connexions) ne change pas, et rien n'est généré.
+sur la carte MCP) ouvre l'Atelier MCP (page `/mcp`) : le protocole MCP entre l'hôte (le
+harnais) et un serveur, message par message. C'est un bac à sable : l'atelier ouvre ses propres
+connexions, et la brique MCP de l'atelier (ses serveurs cochés, son mode, ses connexions) ne
+change pas.
+
+La page a quatre volets, comme l'Atelier Harnais : « Serveurs et commandes » à gauche, puis
+① « Séquence », ② « Ce que le modèle voit » et ③ « Architecture ». Chaque volet a son « Mode
+focus » (⛶) ; les autres que la Séquence se masquent (« Masquer le volet », —) et se
+réaffichent par leur bouton sous le titre de la page. Les pièces des trois volets numérotés
+apparaissent une à une, quand elles interviennent.
 
 - **Les serveurs.** Les trois de la brique : le glossaire local, un processus Python lancé sur
-  le poste et joint par stdio (sa commande de lancement est affichée), data.gouv.fr et
-  Microsoft Learn, joints en Streamable HTTP derrière la garde réseau (ce qui sort du poste est
-  dit). « Se connecter » ouvre la connexion de l'atelier ; une seule à la fois.
+  le poste et joint par « stdio (processus enfant) », data.gouv.fr et Microsoft Learn, joints en
+  « Streamable HTTP » derrière la garde réseau (étiquette « 🌐 RÉSEAU »). Le bouton ⓘ d'un
+  serveur donne sa commande de lancement ou son adresse, et ce qui sort du poste. « Se
+  connecter » ouvre la connexion de l'atelier, une seule à la fois : une nouvelle connexion
+  ferme la précédente. Un serveur injoignable est marqué « injoignable », avec la raison ; le
+  glossaire, local, reste disponible.
 - **La poignée de main.** Chaque message JSON-RPC tel qu'il passe sur le transport, capturé et
-  non reconstitué : `initialize`, la réponse du serveur (nom, version, capacités),
-  `notifications/initialized`, `tools/list` et sa réponse, avec leur sens et leur durée. Un
-  serveur public montre aussi ses requêtes HTTP sortantes ; hors ligne, la section dit l'erreur.
-- **La documentation des outils.** Pour chaque outil, son nom vu par le modèle
-  (`{serveur}__{outil}`), sa description et son schéma, et son poids en tokens dans le
-  contexte : en documentation complète, et en lazy loading (une ligne dans la description de
-  `load_tool_doc`). Compté par le modèle chargé, sinon estimé.
-- **L'appel.** Un champ par paramètre, des préréglages ; la requête `tools/call`, la réponse
-  brute et le texte que le harnais réinjecterait au modèle (borné comme un résultat d'outil).
-  Un terme inconnu du glossaire montre une réponse `is_error`. « Arrêter », pendant un échange, l'interrompt et ferme la connexion ; sinon, elle reste ouverte jusqu'à la connexion suivante, un changement de langue ou la fermeture de WaveStack.
-- **Ce que le modèle voit.** Le bloc « outils » du contexte avec ce serveur, dans les deux modes.
+  non reconstitué : `initialize` et la réponse du serveur (nom, version, capacités),
+  `notifications/initialized`, `tools/list`, puis `resources/list` et `prompts/list` quand le
+  serveur annonce des ressources et des prompts. « Pourquoi une poignée de main ? » l'explique
+  par une analogie, le restaurant.
+- **La Séquence.** Une colonne par acteur : « Utilisateur », le modèle (« SLM local », ou le
+  modèle cloud et son fournisseur), « Hôte WaveStack », « Client MCP », « Serveur MCP » et
+  « Source de données » ; un clic sur l'en-tête d'une colonne l'explique, avec une analogie (le
+  restaurant). Chaque flèche porte son origine (« capturé sur le transport », « dans l'hôte ·
+  déduit », « dans le serveur · non capturé », « événement du modèle »), son sens et sa durée ;
+  un clic l'ouvre : ce que fait la méthode, le JSON du message et, pour un serveur public, la
+  requête HTTP sortante
+  (« 🌐 RÉSEAU · Données sortantes », en-têtes et corps). Les flèches sont regroupées par
+  phase (« Poignée de main · … », « Appel d'outil · à la main »…), les phases passées repliées.
+  ◀ ▶ parcourent les flèches une à une ; « Suivre le direct » revient à la dernière, et
+  « ↓ N nouveaux messages » signale celles arrivées pendant une relecture.
+- **Les commandes.** Une fois connecté, trois onglets, avec le nombre annoncé par le serveur
+  (« ⊘ » quand il n'en annonce pas) : le glossaire local a deux outils, une ressource et un
+  prompt. Chaque onglet dit qui choisit la primitive :
+  - **Outils** (« Choisi par le modèle »). « Qui choisit l'outil » : « À la main », vous jouez
+    le modèle (l'outil, un préréglage, un champ par paramètre du schéma, puis « Appeler » :
+    la requête `tools/call` et la réponse du serveur) ; ou « Par le modèle », le modèle actif
+    reçoit votre question et les outils du serveur, puis choisit lui-même (« Envoyer au
+    modèle », lent sur CPU : 10 à 40 s). L'appel passe toujours par l'hôte et le client ;
+    l'atelier s'arrête au premier outil, la boucle complète est dans l'Atelier Harnais.
+    « Par le modèle » est indisponible sans modèle chargé ou avec un modèle qui n'appelle pas
+    d'outils. Un terme inconnu du glossaire montre une réponse `isError`, réinjectée telle
+    quelle.
+  - **Ressources** (« Choisie par l'application »). Vous jouez l'application : choisissez une
+    ressource (`glossary://terms` pour le glossaire), « Lire » (`resources/read`), puis
+    « Envoyer au modèle » envoie son contenu avec votre question.
+  - **Prompts** (« Choisi par l'utilisateur »). Choisissez un prompt (`explain_term`) et ses
+    arguments, « Obtenir le prompt » (`prompts/get`), puis « Envoyer au modèle » envoie ses
+    messages comme les vôtres.
+- **Ce que le modèle voit.** Le bloc « outils » du contexte avec ce serveur, au choix en
+  « Documentation complète » ou en « Lazy loading » : son poids total, puis, pour chaque outil,
+  son nom vu par le modèle (`{serveur}__{outil}`) et son poids en tokens (en lazy loading, sa
+  ligne dans le catalogue de `load_tool_doc`, et la définition de `load_tool_doc`), compté par
+  le modèle chargé, sinon estimé ; « Voir le JSON envoyé au modèle » montre le bloc tel quel.
+  Ressources et prompts n'y entrent pas. Suivent, au fil des échanges, le résultat réinjecté
+  (borné comme un résultat d'outil), le contenu d'une ressource, les messages d'un prompt, et
+  ce que chaque appel au modèle a lu (« Lu par le modèle : N tokens, gabarit compris », sans
+  prompt système).
+- **L'architecture.** « Avec MCP » : où tourne chaque pièce, sur le poste de travail ou sur le
+  réseau, de part et d'autre de la frontière du poste, avec le transport de chaque fil ; un clic
+  sur une pièce l'explique, comme dans la Séquence. « Avant MCP » : un schéma de principe, rien
+  n'est capturé (une intégration à écrire et à maintenir par outil).
 
-Les textes de la page sont dans `content/mcp_lab.yaml`. Les événements `mcp_lab_*` sont tracés
-dans le contexte `mcp_lab` : le journal des événements de l'atelier les liste, aucun volet ne
-les montre. Pendant un échange, l'atelier attend (état « Atelier MCP : échange en cours »).
+« Arrêter » interrompt l'échange en cours : une requête MCP arrêtée ferme la connexion, une
+génération arrêtée la garde. Sinon, la connexion reste ouverte jusqu'à la connexion suivante,
+un changement de langue, une réinitialisation ou la fermeture de WaveStack (« Connexion
+fermée : … Reconnectez-vous. »). Pendant un échange, l'atelier attend (« Atelier MCP : échange
+en cours ; attendez sa fin ou arrêtez-le. »). Après un rechargement, la page rejoue les
+derniers échanges.
+
+Les textes de la page sont dans `content/mcp_lab.yaml` (ses libellés dans `content/ui.yaml`,
+section `mcp`). Les événements `mcp_lab_*` sont tracés dans le contexte `mcp_lab` : le journal
+des événements de l'atelier les liste, aucun volet ne les montre.
 
 ## Langue
 
@@ -487,8 +621,8 @@ La langue change :
   langue (« 1 234 », « 1,234 », « 1.234 »). Ses textes sont dans `content/ui.yaml`.
 
 - **le reste** : les noms et explications des briques, les scénarios et leurs consignes,
-  les ateliers (« Atelier LLM », « Atelier RAG », « Atelier MCP ») et les pages « Diagnostic et
-  modèles » et « Modèles disponibles », le corpus RAG et les titres de ses documents, et les messages produits par le
+  les ateliers (« Atelier LLM », « Atelier RAG », « Atelier MCP ») et la page « Diagnostic et
+  modèles », le corpus RAG et les titres de ses documents, et les messages produits par le
   harnais (erreurs, raisons d'indisponibilité, erreurs d'outils lues par le modèle, marque de
   troncature, refus des hooks, résultat de `get_datetime`), tirés de `content/messages.yaml`.
 

@@ -1,8 +1,9 @@
 """Compose the README demo from drive.py's screenshots: captions, highlights, title and end cards.
 
-Writes `docs/assets/wavestack-demo.gif` and `.mp4` with ffmpeg. Fonts: Segoe UI and Segoe UI
-Emoji (Windows). Highlight boxes are in the 1600 × 900 pixels of the screenshots: check them
-against the new screenshots whenever the layout changes.
+Writes `docs/assets/wavestack-demo.gif` and `.mp4` with ffmpeg, and the guide's
+`docs/assets/atelier.jpg`. Fonts: Segoe UI and Segoe UI Emoji (Windows). A highlight is either
+named (measured by drive.py on each screenshot) or a box in the 1600 × 900 pixels of the
+screenshots: check those against the new screenshots whenever the layout changes.
 """
 
 from __future__ import annotations
@@ -23,7 +24,6 @@ SCALE = W / 1600
 PRIMARY, DEEP, ACCENT, ORANGE, LAVENDER = "#451DC7", "#250F6B", "#04F06A", "#E0762B", "#D9D0F6"
 FONTS = Path("C:/Windows/Fonts")
 EMOJI = ImageFont.truetype(str(FONTS / "seguiemj.ttf"), 109)  # bitmap strike, scaled after
-ANSWER = "answer"  # a highlight on the model's last bubble, wherever it is on the screenshot
 
 
 def font(name: str, size: int) -> ImageFont.FreeTypeFont:
@@ -110,9 +110,9 @@ class Film:
             img = screen(path)
             caption(img, step, text, icon)
             for box, *rest in highlights:
-                if box == ANSWER:  # measured by drive.py on this very screenshot
-                    box = self.entries[path].get("answer")
-                    if box is None:  # no model bubble in view
+                if isinstance(box, str):  # measured by drive.py on this very screenshot
+                    box = self.entries[path].get("boxes", {}).get(box)
+                    if box is None:  # not (whole) in view
                         continue
                 highlight(img, box, *rest)
             self.add(img, total / len(paths))
@@ -135,7 +135,6 @@ def build(frames: Path) -> Film:
     def main(name: str) -> list[Path]:
         return film.phase("main", name)
 
-    picker = (12, 838, 222, 890)
     bare = "Le LLM nu reçoit votre message, et rien d'autre"
     film.run(
         main("bare_scenario")[-2:],
@@ -143,7 +142,7 @@ def build(frames: Path) -> Film:
         "Le LLM nu : toutes les briques éteintes",
         1.4,
         "🤖",
-        [(picker, "Scénario « LLM nu »")],
+        [("picker", "Scénario « LLM nu »")],
     )
     film.run(main("bare_type"), "1", bare, 1.3, "🤖")
     film.run(main("bare_turn"), "1", bare, 3.0, "🤖")
@@ -153,7 +152,10 @@ def build(frames: Path) -> Film:
         "Sans outil, il ne peut pas connaître l'heure",
         3.2,
         "🤷",
-        [(ANSWER, "Réponse sans outil"), ((740, 262, 1148, 570), "Contexte : 17 tokens", PRIMARY)],
+        [
+            ("answer", "Réponse sans outil"),
+            ((740, 160, 1150, 566), "Contexte : 17 tokens", PRIMARY),
+        ],
     )
 
     film.run(
@@ -162,7 +164,7 @@ def build(frames: Path) -> Film:
         "On branche des briques : prompt système, mémoire, outils",
         1.8,
         "🧩",
-        [(picker, "Scénario « Outils natifs »")],
+        [("picker", "Scénario « Outils natifs »")],
     )
     film.run(main("tools_type"), "2", "Même question, avec le harnais", 1.2, "🧩")
     film.run(
@@ -173,7 +175,7 @@ def build(frames: Path) -> Film:
         "🔧",
     )
     final = main("tools_final")[-1:]
-    answer = (ANSWER, "Réponse avec l'outil")
+    answer = ("answer", "Réponse avec l'outil")
     done = "La bonne réponse, et chaque étape est visible"
     film.run(final, "2", done, 1.6, "✅", [answer])
     film.run(
@@ -184,39 +186,97 @@ def build(frames: Path) -> Film:
         "✅",
         [
             answer,
-            ((1188, 205, 1580, 355), "Cycle d'appel de get_datetime", ORANGE, "below"),
-            ((740, 262, 1148, 430), "Descriptions d'outils : 271 tokens", PRIMARY),
-            ((470, 652, 628, 776), "Schéma : outils sur le poste", PRIMARY),
+            ((1186, 200, 1580, 362), "Cycle d'appel de get_datetime", ORANGE, "below"),
+            ((748, 290, 1145, 330), "Descriptions d'outils : 271 tokens", PRIMARY),
+            ((476, 655, 626, 776), "Schéma : outils sur le poste", PRIMARY),
         ],
     )
 
-    lab = "Des ateliers pour regarder à l'intérieur : LLM nu, RAG, MCP"
-    vectors = "Le texte devient des tokens, puis des vecteurs"
-    film.run(film.phase("llm", "llm_intro")[-2:], "3", lab, 1.0, "🔬")
-    film.run(film.phase("llm", "llm_type"), "3", lab, 1.0, "🔬")
+    def lab(name: str) -> list[Path]:
+        return film.phase("llm", name)
+
+    inside = "L'Atelier LLM : ce qui se passe dans le modèle"
+    film.run(lab("llm_intro")[-2:] + lab("llm_type"), "3", inside, 2.0, "🔬")
+    numbers = "Le texte devient des tokens, puis des nombres"
     film.run(
-        film.phase("llm", "llm_tokens") + film.phase("llm", "llm_scroll"), "3", vectors, 1.6, "🔬"
+        lab("input_text") + lab("input_tokens") + lab("input_ids")[:-1], "3", numbers, 2.0, "🔢"
     )
     film.run(
-        film.phase("llm", "llm_done")[-1:],
+        lab("input_ids")[-1:],
         "3",
-        vectors,
-        3.4,
-        "🔬",
+        numbers,
+        2.2,
+        "🔢",
+        [("chips", "Le modèle ne lit que ces nombres", ORANGE, "below")],
+    )
+    layers = "Chaque nombre devient un vecteur, que les couches transforment"
+    film.run(lab("transfo_scroll") + lab("transfo_embedding"), "3", layers, 2.0, "🧠")
+    film.run(
+        lab("transfo_attention")[-1:],
+        "3",
+        layers,
+        2.6,
+        "🧠",
+        [("facts", "Vraies dimensions du modèle chargé", PRIMARY)],
+    )
+    film.run(
+        lab("output_scroll") + lab("output_logits")[:-1],
+        "3",
+        "Une probabilité pour chaque token suivant",
+        1.4,
+        "📊",
+    )
+    film.run(
+        lab("output_logits")[-1:],
+        "3",
+        "Une probabilité pour chaque token suivant",
+        2.2,
+        "📊",
+        [("logits", "Les 6 plus probables, en direct", PRIMARY, "below")],
+    )
+    film.run(
+        lab("output_draw")[-1:],
+        "3",
+        "Puis un token est tiré au sort : c'est toute la génération",
+        3.0,
+        "🎲",
+        [("token", "Token tiré selon ces chances")],
+    )
+
+    def rag(name: str) -> list[Path]:
+        return film.phase("rag", name)
+
+    chain = "L'Atelier RAG : la chaîne RAG, étape par étape"
+    film.run(rag("rag_intro") + rag("rag_steps"), "4", chain, 3.0, "📚")
+    film.run(
+        rag("rag_done")[-1:],
+        "4",
+        chain,
+        1.8,
+        "📚",
+        [("focus", "Ce que fait chaque étape", PRIMARY, "below")],
+    )
+
+    def mcp(name: str) -> list[Path]:
+        return film.phase("mcp", name)
+
+    protocol = "L'Atelier MCP : le protocole, message par message"
+    film.run(mcp("mcp_intro") + mcp("mcp_handshake"), "5", protocol, 3.0, "🔌")
+    film.run(
+        mcp("mcp_done")[-1:],
+        "5",
+        protocol,
+        2.2,
+        "🔌",
         [
-            ((74, 278, 390, 322), "5 tokens"),
-            (
-                (90, 408, 1510, 540),
-                "Du texte au vecteur, dimensions réelles du modèle",
-                PRIMARY,
-                "below",
-            ),
+            ("seq", "Les messages JSON-RPC, capturés", ORANGE, "below"),
+            ("model", "Le poids des outils en tokens", PRIMARY, "below"),
         ],
     )
 
     end = [
         ("uv run wavestack", "consolab.ttf", 64, ACCENT),
-        ("6 modules de formation · 5 h 15", "seguisb.ttf", 36, "white"),
+        ("6 modules de formation · 5 h 15 · 3 ateliers", "seguisb.ttf", 36, "white"),
         (
             "Raisonnement · mémoire · outils · RAG · MCP · skills · hooks · sous-agent",
             "segoeui.ttf",
@@ -253,10 +313,18 @@ def render(film: Film, work: Path) -> None:
     subprocess.run([*source, *video, "-movflags", "+faststart", str(mp4)], check=True)
 
 
+def still(film: Film) -> None:
+    """The guide's picture of the atelier: the last screenshot after the tools turn, bare."""
+    shot = Image.open(film.phase("main", "tools_final")[-1]).convert("RGB")
+    shot = shot.resize((W, SCREEN_H), Image.LANCZOS)
+    shot.save(ASSETS / "atelier.jpg", quality=88, optimize=True, progressive=True)
+
+
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit("usage : compose.py <dossier des captures>")
     frames = Path(sys.argv[1])
     film = build(frames)
     render(film, frames / "composed")
+    still(film)
     print(f"{len(film.shots)} images, {sum(s for _, s in film.shots):.1f} s -> {ASSETS}")
