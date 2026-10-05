@@ -12861,15 +12861,45 @@ def _llm_loop_first_load(r: Run) -> None:
         if stepped:
             live.drawn(_LOOP_DRAWS[0])
         chip = page.locator("#llm-step-drawn .llm-output-chip")
-        shown, _ = r.poll(lambda: chip.count() == 1 and chip.inner_text() == "␣canapé", 10)
+        shown, _ = r.poll(lambda: page.inner_text("#output-tag").startswith("RÉEL"), 10)
         r.check(
             asked and stepped and shown,
             "1er chargement : la page demande le découpage, puis le pas, sans clic",
-            f"{len(live.tokenizes)} découpage(s), {len(live.steps)} pas, puce {shown}"
+            f"{len(live.tokenizes)} découpage(s), {len(live.steps)} pas, barres réelles {shown}"
             f" · statut {page.inner_text('#llm-step-status')!r}"
             f" · {page.inner_text('#tokenize-status')!r} · {page.inner_text('#llm-busy')!r}",
         )
         ok, drawn = _llm_loop_rows(r, _LOOP_SAMPLING)
+        # Correction D of 2026-10-05: the first load's step reads the candidates only; no
+        # token shown drawn (chip, « derniers tirages », the Logits' legend, a marked row).
+        output = _content("fr", "llm_lab.yaml")["stages"]["output"]
+        page.wait_for_timeout(300)  # the step's end handled: nothing drawn shown after it
+        card = {
+            "drawn": page.inner_text("#llm-step-drawn"),
+            "history": page.inner_text("#llm-step-history"),
+            "legend": page.inner_text("#distribution-token"),
+            "chosen": page.locator(
+                "#logits-bars .is-chosen, #distribution-bars .is-chosen"
+            ).count(),
+            "status": page.inner_text("#llm-step-status"),
+        }
+        r.check(
+            ok
+            and chip.count() == 0
+            and card
+            == {
+                "drawn": output["none_text"],
+                "history": "",
+                "legend": "",
+                "chosen": 0,
+                "status": "",
+            }
+            and page.locator("#llm-step-append").is_disabled()
+            and page.locator("#llm-step-button").is_enabled(),
+            "1er chargement : le pas automatique lit les probabilités sans rien montrer de tiré"
+            " (ni puce, ni « derniers tirages », ni token tiré nommé ou marqué)",
+            str(card),
+        )
         first = page.evaluate(_INPUT_JS)
         logits = page.locator("#logits-bars .dist-row:not(.is-tail) .dist-text").all_inner_texts()
         tags = [page.locator(t) for t in ("#input-tag", "#output-tag")]
@@ -12917,10 +12947,15 @@ def _llm_loop_first_load(r: Run) -> None:
             kept
             and len(live.tokenizes) == cuts
             and len(live.steps) == steps
-            and page.locator("#token-chips .token-chip.is-example").count() == 5,
+            and page.locator("#token-chips .token-chip.is-example").count() == 5
+            # Correction D of 2026-10-05: the kept candidates may be a step's, never shown
+            # drawn: no token named nor marked.
+            and page.inner_text("#distribution-token") == ""
+            and page.locator("#logits-bars .is-chosen, #distribution-bars .is-chosen").count() == 0,
             "rechargement, distribution gardée : rien de demandé sans clic, barres réelles"
-            " gardées, l'INPUT sur l'exemple",
-            f"{len(live.tokenizes) - cuts} découpage(s), {len(live.steps) - steps} pas",
+            " gardées sans token nommé ni marqué, l'INPUT sur l'exemple",
+            f"{len(live.tokenizes) - cuts} découpage(s), {len(live.steps) - steps} pas"
+            f" · {page.inner_text('#distribution-token')!r}",
         )
 
         # The session busy (a workshop turn): nothing asked by itself, the example shown.
@@ -12961,10 +12996,17 @@ def _llm_loop_first_load(r: Run) -> None:
             live.drawn(_LOOP_DRAWS[0])
         expect(chip).to_have_text("␣canapé", timeout=10_000)
         position = page.locator("#output-stepper .diagram-step-position")
+        legend = page.locator("#distribution-token")
+        expect(legend).to_have_text(re.compile("^Candidats du token tiré par le moteur"))
         r.check(
-            stepped and position.inner_text() == "Étape 3 / 3",
-            "après le refus, un pas demandé au clic mène l'OUTPUT à son token tiré",
-            position.inner_text(),
+            stepped
+            and position.inner_text() == "Étape 3 / 3"
+            and page.inner_text("#llm-step-history") == "derniers tirages : ␣canapé"
+            and page.locator("#logits-bars .dist-row.is-chosen").count() == 1
+            and page.locator("#llm-step-append").is_enabled(),
+            "après le refus, un pas demandé au clic mène l'OUTPUT à son token tiré : puce,"
+            " « derniers tirages », token nommé et marqué, « Ajouter » actif",
+            f"{position.inner_text()} · {legend.inner_text()!r}",
         )
     finally:
         for pattern, _ in routes:
@@ -13039,6 +13081,14 @@ def _llm_loop_example(r: Run) -> None:
     )
     stepper = page.locator("#input-stepper")
     states = [page.evaluate(_INPUT_JS)]
+    # Correction D of 2026-10-05: step 1 shows the text in one block, never « Bonjour , ».
+    gaps = page.evaluate(_SEG_GAPS_JS)
+    r.check(
+        len(gaps) == len(want) - 1 and all(abs(g) < 0.5 for g in gaps),
+        "cloud A, exemple au pas 1 : le texte d'un bloc, aucun écart entre les morceaux"
+        " (ni avant la virgule)",
+        str(gaps),
+    )
     for _ in range(2):
         stepper.locator(".diagram-step-next").click()
         states.append(page.evaluate(_INPUT_JS))
@@ -13146,6 +13196,7 @@ def _llm_loop(r: Run, live: _LoopLab) -> None:
     page = r.page
     _goto_lab(r)
     expect(page.locator("#llm-step-button")).to_be_visible(timeout=5000)
+    _llm_loop_gaps(r, live)
     _llm_loop_input(r, live)
     _llm_loop_transfo(r)
     _llm_loop_output(r, live)
@@ -13173,6 +13224,67 @@ _INPUT_JS = """() => {
       : '',
   };
 }"""
+
+
+# Correction D of 2026-10-05: the horizontal gaps between the INPUT's successive pieces of
+# text (same line), in px: 0 at step 1 (the text in one block), the columns' gap from step 2.
+_SEG_GAPS_JS = """() => {
+  const boxes = [...document.querySelectorAll('#token-chips .token-chip .llm-input-seg')]
+    .map(s => s.getBoundingClientRect());
+  const gaps = [];
+  for (let i = 1; i < boxes.length; i++) {
+    if (Math.abs(boxes[i].top - boxes[i - 1].top) < 1) {
+      gaps.push(Math.round((boxes[i].left - boxes[i - 1].right) * 10) / 10);
+    }
+  }
+  return gaps;
+}"""
+
+_GAPS_TEXT = "Hello, how are you?"
+_GAPS_TOKENS = [(9707, "Hello"), (11, ","), (1246, " how"), (525, " are"), (498, " you"), (30, "?")]
+
+
+def _llm_loop_gaps(r: Run, live: _LoopLab) -> None:
+    """Correction D of 2026-10-05: an exact cut of « Hello, how are you? » (simulated): at
+    step 1 each piece touches the next (no gap before « , » nor « ? »), the tokens carrying
+    their own space (« ␣how »); at step 2 the columns part (26 px at least)."""
+    page = r.page
+    page.fill("#llm-prompt", _GAPS_TEXT)
+    expect(page.locator("#tokenize-button")).to_be_enabled(timeout=10_000)
+    tokenized = _loop_tokenized() | {
+        "text": _GAPS_TEXT,
+        "char_count": len(_GAPS_TEXT),
+        "tokens": [{"id": i, "text": t, "special": False} for i, t in _GAPS_TOKENS],
+        "token_count": len(_GAPS_TOKENS),
+        "figures_text": {"char_count": str(len(_GAPS_TEXT)), "token_count": "6", "more": "0"},
+    }
+    live.add_batch(("llm_tokenized", tokenized))
+    page.click("#tokenize-button")
+    live.release()
+    expect(page.locator("#token-chips .token-chip:not(.is-example)")).to_have_count(
+        6, timeout=10_000
+    )
+    first = page.evaluate(_INPUT_JS)
+    gaps = page.evaluate(_SEG_GAPS_JS)
+    text = page.inner_text("#token-chips .token-chip:first-child .llm-input-seg")
+    r.check(
+        not first["cut"]
+        and "".join(first["pieces"]) == _GAPS_TEXT
+        and text == "Hello"
+        and len(gaps) == 5
+        and all(abs(g) < 0.5 for g in gaps),
+        "INPUT pas 1, découpage exact de « Hello, how are you? » : le texte d'un bloc, aucun"
+        " écart avant « , » ni « ? »",
+        f"{gaps} · {first['pieces']}",
+    )
+    page.locator("#input-stepper .diagram-step-next").click()
+    parted, _ = r.poll(lambda: all(g >= 25.5 for g in page.evaluate(_SEG_GAPS_JS) or [0]), 5)
+    r.check(
+        parted and page.evaluate(_INPUT_JS)["chips"][2] == "␣how",
+        "INPUT pas 2 : les colonnes s'écartent, le token porte son espace (« ␣how »)",
+        str(page.evaluate(_SEG_GAPS_JS)),
+    )
+    page.locator("#input-stepper .diagram-step-prev").click()
 
 
 def _llm_loop_input(r: Run, live: _LoopLab) -> None:
@@ -13408,10 +13520,19 @@ def _llm_loop_output(r: Run, live: _LoopLab) -> None:
         "OUTPUT : la chance suit la température puis top-p, les écartés disent « écarté (top-p) »",
         f"{hot} · {cut}",
     )
+    chosen = page.locator("#logits-bars .is-chosen, #distribution-bars .is-chosen")
     r.check(
         page.locator("#llm-step-drawn .llm-output-chip").count() == 0
-        and page.locator("#llm-step-append").is_disabled(),
-        "un réglage bougé efface le token tiré (tiré avec les réglages d'avant), « Ajouter » grisé",
+        and page.locator("#llm-step-append").is_disabled()
+        # Correction D of 2026-10-05: its name and its marked rows go with it (the mockup);
+        # the last draws stay said.
+        and page.inner_text("#distribution-token") == ""
+        and chosen.count() == 0
+        and page.inner_text("#llm-step-history") == "derniers tirages : ␣canapé",
+        "un réglage bougé efface le token tiré (tiré avec les réglages d'avant), son nom et son"
+        " marquage ; « Ajouter » grisé, « derniers tirages » gardé",
+        f"{page.inner_text('#distribution-token')!r} · {chosen.count()}"
+        f" · {page.inner_text('#llm-step-history')!r}",
     )
     page.click("#llm-step-button")
     r.poll(lambda: len(live.steps) == 2, 5)
