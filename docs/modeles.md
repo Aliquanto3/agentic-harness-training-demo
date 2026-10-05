@@ -332,7 +332,10 @@ NVIDIA et OpenRouter y figurent en exemples commentés, avec leur avertissement.
 1. **Clé.** Créez une clé API dans la console du fournisseur, puis collez-la sur la page de
    diagnostic, dans la ligne du modèle (« Enregistrer la clé »). Elle est stockée sur ce poste
    seulement (`api_keys.json` dans le dossier de données), jamais affichée ni tracée, et envoyée au
-   seul hôte déclaré. Si l'adresse du fournisseur change, la clé est à ressaisir.
+   seul hôte déclaré. Si l'adresse du fournisseur change, la clé est à ressaisir. Une clé
+   enregistrée ou changée ici s'applique tout de suite, y compris au modèle cloud déjà actif dans
+   le harnais : inutile de relancer WaveStack (une variable d'environnement, elle, demande une
+   relance, voir ci-dessous).
 
    **Mistral : un plan d'abord.** Avant le premier appel, activez un plan dans la console
    Mistral, « Experiment » (gratuit) ou payant : sans plan, le compte n'a aucun quota et chaque

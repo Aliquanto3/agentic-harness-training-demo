@@ -1207,7 +1207,7 @@ diagnostic:
     key_undeclared: "The cloud model “{id}” is not declared (or is disabled)."
     key_empty: "Empty key: paste the API key given by the provider's console."
     key_not_saved: "The key could not be saved ({path}): {cause}."
-    key_saved: "Key saved for {provider}. Click “Test”."
+    key_saved: "Key saved for {provider}; it takes effect immediately, without restarting WaveStack. Click “Test”."
     test_refused: "Test refused: {reason}"
     test_impossible: "Test impossible: the file content/cloud.yaml is invalid."
     test_phase: "Test of {model} at {provider}"

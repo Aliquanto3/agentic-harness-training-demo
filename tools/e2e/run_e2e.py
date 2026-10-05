@@ -492,6 +492,26 @@ def s_diagnostic(r: Run) -> None:
         page.title(),
     )
     r.wait_idle()
+    _key_applied_at_once(r)
+
+
+def _key_applied_at_once(r: Run) -> None:
+    """Correction A (2026-10-05): a key saved at the diagnostic applies without a restart,
+    and the harness page reads its model list again on `effect_applied {api_key_set}`."""
+    r.page.wait_for_timeout(1_000)  # the page's own first reads of the list are done
+    with r.page.expect_request(
+        lambda q: q.method == "GET" and q.url.endswith("/api/diagnostic"), timeout=10_000
+    ):
+        answer = r.api(
+            "POST", "/api/intentions/set_api_key", {"id": MODEL_ENTRY_ID, "key": "e2e-fake-key"}
+        )
+    r.check(
+        answer.status_code == 200
+        and "sans relancer" in str(answer.json().get("message_text"))
+        and "e2e-fake-key" not in answer.text,
+        "clé enregistrée au diagnostic : « sans relancer », l'atelier relit sa liste de modèles",
+        answer.text[:200],
+    )
 
 
 def _diagnostic_cards(r: Run) -> None:
