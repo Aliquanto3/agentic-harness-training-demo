@@ -1013,10 +1013,22 @@ rag_lab:
     truncated:
       one: "{candidates} sur {total} dépasse la longueur d'une paire : coupé à {max} tokens, le reranker ne lit pas la fin de cet extrait (ni celle d'une question très longue)."
       other: "{candidates} sur {total} dépassent la longueur d'une paire : coupés à {max} tokens, le reranker ne lit pas la fin de ces extraits (ni celle d'une question très longue)."
+  # B2 (2026-10-05): BM25's inverted index, built at the end of BUILD.
+  lexical_index:
+    input: "Les {extracts} du Chunking, découpés en termes (casse, accents et mots vides comme « le », « de » ignorés ; sigles et nombres gardés)."
+    output: "Index inversé : {terms} termes distincts, chacun avec le nombre de chunks qui le contiennent ; {occurrences} occurrences, {mean} termes par chunk en moyenne. Aucun modèle appris : des comptes, relus par BM25 à chaque question."
+    chunks: Chunks indexés
+    terms: Termes distincts
+    occurrences: Occurrences
+    mean: Longueur moyenne
+    mean_value: "{n} termes"
+    params: Paramètres BM25
+    params_value: "k1 = {k1}, b = {b}"
+    no_model: "aucun (algorithme statistique)"
   lexical_search:
     no_chunks: "Aucun extrait : le découpage n'a pas abouti."
     no_words: aucun
-    input: "Les mots de la question ({words}), cherchés dans les {extracts}, sans embedding."
+    input: "Les mots de la question ({words}), cherchés dans l'index lexical des {extracts}, sans embedding."
     output: "Ceux qui partagent le plus de mots avec la question : {extracts}, pondérés par leur rareté (BM25, k1 = 1,5, b = 0,75) ; un extrait sans aucun mot commun n'est pas retenu."
   fusion:
     needs_two: "La fusion demande deux listes de recherche."
@@ -1216,7 +1228,7 @@ diagnostic:
     key_undeclared: "Le modèle cloud « {id} » n'est pas déclaré (ou est désactivé)."
     key_empty: "Clé vide : collez la clé API fournie par la console du fournisseur."
     key_not_saved: "La clé n'a pas pu être enregistrée ({path}) : {cause}."
-    key_saved: "Clé enregistrée pour {provider}. Cliquez sur « Tester »."
+    key_saved: "Clé enregistrée pour {provider}, prise en compte tout de suite, sans relancer WaveStack. Cliquez sur « Tester »."
     test_refused: "Test refusé : {reason}"
     test_impossible: "Test impossible : le fichier content/cloud.yaml est invalide."
     test_phase: "Test de {model} chez {provider}"

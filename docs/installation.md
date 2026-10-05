@@ -181,14 +181,21 @@ Les dossiers sont relatifs au dossier `models/` du dossier de données
 le modèle de reranking ». WaveStack vérifie la taille et le sha256 de chaque fichier.
 
 **Les modèles d'embedding de l'Atelier RAG** (multilingual-e5-small, Qwen3-Embedding 0.6B) sont
-des options de son étape Embedding, à côté de celui de la brique. En mode Composer, l'étape les
-télécharge par son bouton « Télécharger (≈ N Mo) », taille et sha256 vérifiés ; sinon,
-téléchargez-les à la main (adresses `url` des entrées `[[rag_lab.embeddings]]` de
-`wavestack.toml`) et copiez-les sous ces noms exacts dans `models/embedding/`. Sans son
-fichier, l'option est grisée, la raison nomme le fichier attendu ; WaveStack vérifie son sha256
-au chargement. **Le modèle de reranking de l'Atelier RAG** (Qwen3-Reranker 0.6B) se télécharge
-de même depuis l'étape Reranking, ou se place à la main, sous son nom exact, dans
-`models/reranker/` (adresse `url` de l'entrée `[[rag_lab.rerankers]]`).
+des options de son étape Embedding, à côté de celui de la brique. Pour les télécharger, ouvrez
+l'Atelier RAG (lien « RAG » de la barre de navigation) : dans la colonne ARCHITECTURE, la tuile
+Embedding model affiche, dans les deux modes, « N modèles à télécharger » (les modèles absents de
+l'étape, celui de la brique compris : 2 sur une installation neuve où il est déjà là) ; son clic
+passe en mode Composer et choisit la ligne Embedding de la séquence, où chaque modèle absent a
+son bouton « Télécharger (≈ taille) » (taille et sha256 vérifiés). En mode Composer, ces boutons
+sont visibles sans rien choisir. Sinon, téléchargez-les à la main (adresses `url` des entrées
+`[[rag_lab.embeddings]]` de `wavestack.toml`) et copiez-les sous ces noms exacts dans
+`models/embedding/`. Sans son fichier, l'option est grisée, la raison nomme le fichier attendu ;
+WaveStack vérifie son sha256 au chargement. **Le modèle de reranking de l'Atelier RAG**
+(Qwen3-Reranker 0.6B) se télécharge de même : « N modèles à télécharger » sous la tuile
+Reranker (celui de la brique compris s'il manque), puis le bouton de la ligne Reranking. Une chaîne sans étape Reranking (préréglages « RAG dense », « RAG hybride ») n'a ni
+tuile ni ligne Reranking : au pied du groupe MODÈLES, une phrase dit d'ajouter l'étape, et son
+clic la propose dans « Ajouter un composant ». Le fichier peut aussi se placer à la main, sous
+son nom exact, dans `models/reranker/` (adresse `url` de l'entrée `[[rag_lab.rerankers]]`).
 
 **Hors ligne, ou derrière un proxy qui bloque Hugging Face.** Téléchargez les fichiers sur un
 autre poste (adresses `url` des sections `[rag.embedding]` et `[rag.reranker]` de

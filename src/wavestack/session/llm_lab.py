@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from wavestack import config
 from wavestack.messages import join, msg, number, render
@@ -272,6 +272,11 @@ class InputStage(_Strict):
     column_label_text: str  # a column's accessible name
     produced_label_text: str  # the same, for a token the engine drew and the trainer added
     bos_text: str  # « Avant ces tokens, le moteur lit aussi {bos} » (the step's BOS)
+    # Correction C of 2026-10-05: the example shown with no exact tokenization (the
+    # TRANSFORMATION's `example_tokens` and `example_ids`), its badge and what it is.
+    example_tag_text: str  # the badge, in place of `tag_text`
+    example_text: str  # before any tokenization
+    example_cloud_text: str  # an approximate tokenizer (cloud): not the model's own cut
 
 
 class TransfoSteps(_Strict):
@@ -349,6 +354,8 @@ class TransfoStage(_Strict):
     moe_mlp_text: str  # appended to the MLP steps' text for a mixture of experts
     example_text: str
     example_tokens: list[str]  # drawn before any tokenization, said « exemple »
+    # Correction C of 2026-10-05: their ids, shown by the INPUT's example (illustrative).
+    example_ids: list[int]
     labels: TransfoLabels
     panel: TransfoPanel
     note_text: PluralText  # « {n} tokens, 8 nombres par vecteur… »
@@ -358,6 +365,46 @@ class TransfoStage(_Strict):
     banner_moe_text: str
     banner_moe_any_text: str
     unknown_architecture_text: str
+
+    @model_validator(mode="after")
+    def _ids_match_tokens(self) -> TransfoStage:
+        if not self.example_tokens:
+            raise ValueError("example_tokens: at least one token, the INPUT shows them")
+        if len(self.example_ids) != len(self.example_tokens):
+            raise ValueError("example_ids: one id per token of example_tokens")
+        if any(i < 0 for i in self.example_ids):
+            raise ValueError("example_ids: non-negative ids only")
+        return self
+
+
+class ExampleCandidate(_Strict):
+    """One word of the OUTPUT's example and its probability (illustrative, never read)."""
+
+    text: str
+    p: float = Field(gt=0.0, le=1.0)
+
+
+class OutputExample(_Strict):
+    """Correction C of 2026-10-05: the OUTPUT's example, the six most probable words after
+    the example's tokens and the rest of the vocabulary's mass; the session draws it again
+    for any sampling (`candidates.distribution`, AD-1), the page only lays it out."""
+
+    tag_text: str  # the badge, in place of `tag_text`
+    note_text: str  # before the reason the real candidates cannot be read, or what to do
+    unsupported_text: str  # after a setting's reason: it only moves the example
+    candidates: list[ExampleCandidate]
+    tail: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _a_distribution(self) -> OutputExample:
+        values = [c.p for c in self.candidates]
+        if len(values) != 6:
+            raise ValueError("candidates: six words, as the charts show")
+        if values != sorted(values, reverse=True):
+            raise ValueError("candidates: the most probable first")
+        if abs(sum(values) + self.tail - 1.0) > 0.01:
+            raise ValueError("candidates and tail: their probabilities add up to 1")
+        return self
 
 
 class OutputSteps(_Strict):
@@ -395,6 +442,7 @@ class OutputStage(_Strict):
     step_token_text: str
     help_text: str  # the « ? » of a setting's name, for screen readers
     tokenize_first_text: str  # « Tirer » waits for the tokens of the text typed
+    example: OutputExample  # correction C of 2026-10-05
 
 
 class StagesText(_Strict):

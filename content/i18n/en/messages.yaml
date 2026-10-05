@@ -1004,10 +1004,21 @@ rag_lab:
     truncated:
       one: "{candidates} out of {total} exceeds the length of a pair: cut to {max} tokens, the reranker does not read the end of this excerpt (nor that of a very long question)."
       other: "{candidates} out of {total} exceed the length of a pair: cut to {max} tokens, the reranker does not read the end of these excerpts (nor that of a very long question)."
+  lexical_index:
+    input: "The {extracts} of the Chunking, split into terms (case, accents and stop words such as “the”, “of” ignored; acronyms and numbers kept)."
+    output: "Inverted index: {terms} distinct terms, each with the number of chunks that contain it; {occurrences} occurrences, {mean} terms per chunk on average. No learned model: counts, read again by BM25 for each question."
+    chunks: Chunks indexed
+    terms: Distinct terms
+    occurrences: Occurrences
+    mean: Mean length
+    mean_value: "{n} terms"
+    params: BM25 parameters
+    params_value: "k1 = {k1}, b = {b}"
+    no_model: "none (statistical algorithm)"
   lexical_search:
     no_chunks: "No excerpt: chunking did not complete."
     no_words: none
-    input: "The question's words ({words}), searched for in the {extracts}, without embedding."
+    input: "The question's words ({words}), searched for in the lexical index of the {extracts}, without embedding."
     output: "Those that share the most words with the question: {extracts}, weighted by their rarity (BM25, k1 = 1.5, b = 0.75); an excerpt with no word in common is not kept."
   fusion:
     needs_two: "The fusion requires two search lists."
@@ -1207,7 +1218,7 @@ diagnostic:
     key_undeclared: "The cloud model “{id}” is not declared (or is disabled)."
     key_empty: "Empty key: paste the API key given by the provider's console."
     key_not_saved: "The key could not be saved ({path}): {cause}."
-    key_saved: "Key saved for {provider}. Click “Test”."
+    key_saved: "Key saved for {provider}; it takes effect immediately, without restarting WaveStack. Click “Test”."
     test_refused: "Test refused: {reason}"
     test_impossible: "Test impossible: the file content/cloud.yaml is invalid."
     test_phase: "Test of {model} at {provider}"

@@ -1250,6 +1250,9 @@ class RagLabStageStartedPayload(BaseModel):
     kind: str
     option: str
     phase_label: str
+    # B2 (2026-10-05): the part of the stage run apart (« index »: BM25's index, at BUILD;
+    # its `kind` « lexical_index »), `None` for the stage itself.
+    part: str | None = None
 
 
 class RagLabStageProgressPayload(BaseModel):
@@ -1259,6 +1262,9 @@ class RagLabStageProgressPayload(BaseModel):
     option: str
     done: int
     total: int
+    # B2 (2026-10-05): the part of the stage run apart (« index »: BM25's index, at BUILD;
+    # its `kind` « lexical_index »), `None` for the stage itself.
+    part: str | None = None
 
 
 class RagLabFact(BaseModel):
@@ -1310,6 +1316,9 @@ class RagLabStageEndedPayload(BaseModel):
     duration_ms: int
     rss_bytes: int | None = None
     memory_text: str | None = None
+    # B2 (2026-10-05): the part of the stage run apart (« index »: BM25's index, at BUILD;
+    # its `kind` « lexical_index »), `None` for the stage itself.
+    part: str | None = None
 
 
 class RagLabRunEndedPayload(BaseModel):

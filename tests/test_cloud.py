@@ -538,6 +538,111 @@ def test_confirmed_choice_boots_then_a_relaunch_takes_it_back_without_request(mo
     _no_sentinel(json.dumps(state), json.dumps(body), config.settings_path().read_text("utf-8"))
 
 
+NEW_KEY = "gsk_NEWKEY_9876543210_zyxwvuTSRQ"
+
+
+def _auth(provider: Provider) -> str:
+    return provider.requests[-1].headers["authorization"]
+
+
+def test_a_key_changed_at_the_diagnostic_reaches_the_active_cloud_model(monkeypatch):
+    """Correction A (2026-10-05): the active cloud model sends the new key from its next
+    request on, without a restart nor a reload; re-choosing it stays `already_active`."""
+    provider = Provider(GROQ_TEXT)
+    session, app_session, _, client = _app(monkeypatch, provider)
+    session.check_model()
+
+    def set_key(model_id: str, key: str) -> httpx.Response:
+        return client.post(
+            "/api/intentions/set_api_key", json={"id": model_id, "key": key}, headers=ORIGIN
+        )
+
+    def choose() -> dict:
+        body = client.post(
+            "/api/intentions/select_model",
+            json={"kind": "cloud", "ref": "groq", "acknowledged": True},
+            headers=ORIGIN,
+        ).json()
+        app_session.join()
+        return body
+
+    set_key("groq", SENTINEL)
+    choose()
+    _turn(app_session, "Bonjour")
+    assert _auth(provider) == f"Bearer {SENTINEL}"
+    mark = get_journal().last_seq()
+
+    # Another model's key, then a key that cannot be written: the active one is unchanged.
+    assert set_key("mistral", NEW_KEY).status_code == 200
+    with monkeypatch.context() as patched:
+        patched.setattr(config, "write_api_key", _raise_os_error)
+        assert set_key("groq", NEW_KEY).status_code == 409
+    _turn(app_session, "Bonjour")
+    assert _auth(provider) == f"Bearer {SENTINEL}"
+
+    answer = set_key("groq", NEW_KEY)
+    assert answer.status_code == 200 and NEW_KEY not in answer.text
+    assert "sans relancer" in answer.json()["message_text"]
+    _turn(app_session, "Bonjour")
+    assert _auth(provider) == f"Bearer {NEW_KEY}"
+
+    body = choose()  # the same model chosen again: no reload, the new key kept
+    assert body["switching"] is False and "déjà actif" in body["message_text"]
+    _turn(app_session, "Bonjour")
+    assert _auth(provider) == f"Bearer {NEW_KEY}"
+    events = get_journal().events_since(mark)
+    assert not _of(events, "model_load_started")
+    applied = [e.payload for e in _of(events, "effect_applied")]
+    assert {"effect": "api_key_set", "id": "groq", "key_set": True} in applied
+    _no_sentinel(_journal_text())
+    assert NEW_KEY not in _journal_text()
+
+
+def _raise_os_error(*args, **kwargs) -> None:  # noqa: ANN002, ANN003
+    raise PermissionError(13, "Accès refusé")
+
+
+def test_a_key_saved_without_an_active_cloud_model_is_taken_at_its_choice(monkeypatch):
+    """Correction A: no cloud model active (or another one): nothing to hand the key to."""
+    provider = Provider(GROQ_TEXT)
+    session, app_session, _, client = _app(monkeypatch, provider)
+
+    assert app_session.use_api_key("groq") is False
+    client.post("/api/intentions/set_api_key", json={"id": "groq", "key": NEW_KEY}, headers=ORIGIN)
+    session.check_model()
+    client.post(
+        "/api/intentions/select_model",
+        json={"kind": "cloud", "ref": "groq", "acknowledged": True},
+        headers=ORIGIN,
+    )
+    app_session.join()
+    _turn(app_session, "Bonjour")
+
+    assert _auth(provider) == f"Bearer {NEW_KEY}"
+    assert app_session.use_api_key("mistral") is False
+
+
+def test_use_key_masks_the_former_keys_too():
+    """AD-15: a reply sent with the former key may quote it; neither key enters an event,
+    nor their first or last 4 characters, even when one key holds a piece of the other."""
+    former, new = "sk-FORMER_0123456789_abcdTAIL", "gsk_newTAILmiddle_key_9876_HEAD"
+    entry = config.load_config().cloud_model("groq")
+    engine = OpenAIChatEngine(
+        entry, SecretStr(former), transport=httpx.MockTransport(Provider(GROQ_TEXT))
+    )
+    engine.use_key(SecretStr(new))
+    engine.use_key(SecretStr(former))  # back and forth: each key kept once
+    engine.use_key(SecretStr(new))
+
+    text = engine.mask(f"a {former} b {new} c {former[:4]} {former[-4:]} d {new[:4]} {new[-4:]}")
+    engine.close()
+
+    assert len(engine._former_keys) == 1
+    for piece in (former, former[4:-4], former[:4], former[-4:], new, new[4:-4], "middle_key"):
+        assert piece not in text
+    assert new[:4] not in text and new[-4:] not in text
+
+
 def test_cloud_test_makes_two_calls_without_key_in_the_trace(monkeypatch, caplog):
     caplog.set_level(logging.DEBUG)
     provider = Provider(GROQ_TOOL, GROQ_TEXT)

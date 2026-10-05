@@ -127,7 +127,8 @@ stages:
       Une recherche par mots-clés, sans embedding : les chunks qui partagent des mots avec la
       question passent devant, un mot rare pesant plus qu'un mot courant (BM25) ; les accents et
       les petits mots (le, de, et…) sont ignorés. Elle retrouve un sigle, un code ou un nombre
-      exact (« RH », « 35 ») qu'un embedding peut manquer.
+      exact (« RH », « 35 ») qu'un embedding peut manquer. BM25 n'a pas de modèle appris : c'est
+      un algorithme statistique, qui lit à chaque question l'index lexical construit au BUILD.
   fusion:
     label_text: "Fusion (RRF)"
     explain_text: >-
@@ -235,6 +236,19 @@ steps:
   vector_store:
     label_text: "Indexing"
     action_text: "Ranger les vecteurs dans le vector store"
+  # B2 (2026-10-05): BM25's inverted index, built at BUILD (only with a BM25 stage).
+  lexical_index:
+    label_text: "Lexical indexing"
+    action_text: "Construire l'index lexical (BM25) des chunks"
+    explain_text: >-
+      BM25 n'a pas de modèle appris : c'est un algorithme statistique. À l'indexation, il
+      découpe chaque chunk en termes (casse, accents et mots vides ignorés, sigles gardés),
+      compte combien de fois chaque terme y paraît et la longueur du chunk, puis, pour chaque
+      terme, combien de
+      chunks le contiennent (sa fréquence documentaire) : c'est l'index inversé, comme celui
+      d'un moteur de recherche (Elasticsearch, Lucene). À chaque question, BM25 relit ces
+      comptes au lieu de reparcourir le texte. L'atelier reconstruit cet index à chaque
+      exécution (il est rapide) ; un moteur de recherche le garde sur disque.
   question:
     label_text: "Question"
     action_text: "Recevoir la question"
@@ -278,6 +292,9 @@ components:
   vector_store:
     label_text: "Vector store"
     note_text: "Les vecteurs des chunks"
+  lexical_index:
+    label_text: "Index lexical (BM25)"
+    note_text: "Les termes des chunks et leurs fréquences"
   embedding_model:
     label_text: "Embedding model"
     note_text: "Le modèle d'embedding"

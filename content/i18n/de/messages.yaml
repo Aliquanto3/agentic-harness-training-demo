@@ -1007,10 +1007,21 @@ rag_lab:
     truncated:
       one: "{candidates} von {total} überschreitet die Länge eines Paares: auf {max} Tokens gekürzt, der Reranker liest das Ende dieses Auszugs nicht (ebenso wenig das einer sehr langen Frage)."
       other: "{candidates} von {total} überschreiten die Länge eines Paares: auf {max} Tokens gekürzt, der Reranker liest das Ende dieser Auszüge nicht (ebenso wenig das einer sehr langen Frage)."
+  lexical_index:
+    input: "Die {extracts} des Chunkings, in Begriffe zerlegt (Groß-/Kleinschreibung, Akzente und Füllwörter wie „der“, „und“ ignoriert; Kürzel und Zahlen bleiben)."
+    output: "Invertierter Index: {terms} verschiedene Begriffe, jeder mit der Zahl der Chunks, die ihn enthalten; {occurrences} Vorkommen, im Mittel {mean} Begriffe pro Chunk. Kein gelerntes Modell: Zählungen, die BM25 bei jeder Frage erneut liest."
+    chunks: Indexierte Chunks
+    terms: Verschiedene Begriffe
+    occurrences: Vorkommen
+    mean: Mittlere Länge
+    mean_value: "{n} Begriffe"
+    params: BM25-Parameter
+    params_value: "k1 = {k1}, b = {b}"
+    no_model: "keines (statistischer Algorithmus)"
   lexical_search:
     no_chunks: "Kein Auszug: Das Chunking wurde nicht abgeschlossen."
     no_words: keine
-    input: "Die Wörter der Frage ({words}), gesucht in den {extracts}, ohne Embedding."
+    input: "Die Wörter der Frage ({words}), gesucht im lexikalischen Index der {extracts}, ohne Embedding."
     output: "Diejenigen, die die meisten Wörter mit der Frage teilen: {extracts}, gewichtet nach ihrer Seltenheit (BM25, k1 = 1,5, b = 0,75); ein Auszug ohne gemeinsames Wort wird nicht behalten."
   fusion:
     needs_two: "Die Fusion verlangt zwei Suchlisten."
@@ -1210,7 +1221,7 @@ diagnostic:
     key_undeclared: "Das Cloud-Modell „{id}“ ist nicht deklariert (oder deaktiviert)."
     key_empty: "Leerer Schlüssel: Fügen Sie den API-Schlüssel aus der Konsole des Anbieters ein."
     key_not_saved: "Der Schlüssel konnte nicht gespeichert werden ({path}): {cause}."
-    key_saved: "Schlüssel für {provider} gespeichert. Klicken Sie auf „Testen“."
+    key_saved: "Schlüssel für {provider} gespeichert und sofort wirksam, ohne WaveStack neu zu starten. Klicken Sie auf „Testen“."
     test_refused: "Test abgelehnt: {reason}"
     test_impossible: "Test nicht möglich: Die Datei content/cloud.yaml ist ungültig."
     test_phase: "Test von {model} bei {provider}"

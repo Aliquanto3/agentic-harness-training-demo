@@ -783,6 +783,7 @@ main:
       cancelled: "gestoppt"
       not_run: "nicht ausgeführt"
     rag_lab_progress: "{done} von {total}"
+    rag_lab_lexical_index: "Lexical indexing"
     languages:
       fr: "Französisch"
       en: "Englisch"
@@ -953,6 +954,13 @@ rag:
   add_button: "Hinzufügen"
   empty_question: "Schreiben Sie zuerst eine Frage (höchstens 500 Zeichen)."
   unavailable: "RAG-Werkstatt nicht verfügbar ({cause}): Laden Sie die Seite neu."
+  arch_downloads:
+    one: "{count} Modell zum Herunterladen"
+    other: "{count} Modelle zum Herunterladen"
+  arch_downloads_title: "Öffnet den Schritt {stage} im Modus Zusammenstellen, mit seinen Schaltflächen „Herunterladen“"
+  arch_downloads_add:
+    one: "{component}: {count} Modell zum Herunterladen; fügen Sie den Schritt {stage} hinzu, um es herunterzuladen"
+    other: "{component}: {count} Modelle zum Herunterladen; fügen Sie den Schritt {stage} hinzu, um sie herunterzuladen"
 
 # Story 6 (2026-09-30), then lot 4 of 2026-10-04: the MCP workshop in sequence (`/mcp`).
 mcp:

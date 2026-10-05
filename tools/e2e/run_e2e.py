@@ -492,6 +492,26 @@ def s_diagnostic(r: Run) -> None:
         page.title(),
     )
     r.wait_idle()
+    _key_applied_at_once(r)
+
+
+def _key_applied_at_once(r: Run) -> None:
+    """Correction A (2026-10-05): a key saved at the diagnostic applies without a restart,
+    and the harness page reads its model list again on `effect_applied {api_key_set}`."""
+    r.page.wait_for_timeout(1_000)  # the page's own first reads of the list are done
+    with r.page.expect_request(
+        lambda q: q.method == "GET" and q.url.endswith("/api/diagnostic"), timeout=10_000
+    ):
+        answer = r.api(
+            "POST", "/api/intentions/set_api_key", {"id": MODEL_ENTRY_ID, "key": "e2e-fake-key"}
+        )
+    r.check(
+        answer.status_code == 200
+        and "sans relancer" in str(answer.json().get("message_text"))
+        and "e2e-fake-key" not in answer.text,
+        "clé enregistrée au diagnostic : « sans relancer », l'atelier relit sa liste de modèles",
+        answer.text[:200],
+    )
 
 
 def _diagnostic_cards(r: Run) -> None:
@@ -11775,8 +11795,11 @@ def _llm_screen(r: Run) -> None:
         event["payload"]["exact"] is False
         and "chez Faux fournisseur (e2e)" in info
         and "≈" in counts
-        and page.locator("#token-chips li").count() == 0,
-        "cloud A : le tokenizer est chez le fournisseur, estimation, aucune puce",
+        and page.locator("#token-chips li").count()
+        == page.locator("#token-chips li.is-example").count()
+        == 5,
+        "cloud A : le tokenizer est chez le fournisseur, estimation, les colonnes de l'exemple"
+        " seulement (correction C du 2026-10-05)",
         f"{info} · {counts}",
     )
     dark = _contrast_sweep(r, ["main"])
@@ -11804,13 +11827,16 @@ def _llm_screen(r: Run) -> None:
     r.ev.wait("turn_ended", seq, timeout=30)
     expect(button).to_be_enabled(timeout=10_000)
 
-    # (3c) The fake cloud A takes temperature and top-p only; top-k is disabled, with why.
+    # (3c) The fake cloud A takes temperature and top-p only; top-k says why. Correction C
+    # of 2026-10-05: its slider stays active, it moves the OUTPUT's example only.
     _set_lab_sampling(r)
     top_k = page.locator("#sampling-top_k")
     reason = page.inner_text('.sampling-row[data-setting="top_k"] .sampling-row-reason')
     r.check(
-        top_k.is_disabled() and "non réglable chez Faux fournisseur (e2e)" in reason,
-        "cloud A : top-k désactivé, sa raison visible",
+        top_k.is_enabled()
+        and "non réglable chez Faux fournisseur (e2e)" in reason
+        and "ne bouge que l'exemple" in reason,
+        "cloud A : top-k actif pour l'exemple, sa raison visible pour le vrai tirage",
         reason,
     )
     ended = _lab_generate(r, "Bonjour")
@@ -11838,8 +11864,19 @@ def _llm_screen(r: Run) -> None:
     r.goto_app()
     _pick_served(r, LLAMA_OPTION)
     bubbles = page.locator("#chat .bubble").count()
+    seq = r.ev.mark()
     _goto_lab(r)
     expect(page.locator("#llm-model")).to_contain_text("Local · llama-server", timeout=5000)
+    # Correction C of 2026-10-05: a served model (exact tokenizer, no candidates read): the
+    # example until « Découper en tokens », nothing cut nor drawn by the page itself.
+    expect(page.locator("#output-tag")).to_have_class(re.compile("is-example"), timeout=5000)
+    page.wait_for_timeout(1000)
+    r.check(
+        page.locator("#token-chips .token-chip.is-example").count() == 5
+        and not r.ev.since(seq, "llm_tokenized")
+        and not r.ev.since(seq, "llm_generation_started"),
+        "llama-server, 1er chargement : l'exemple étiqueté, rien de découpé ni tiré sans clic",
+    )
     # Increment 3: the last load, its steps and its memory.
     steps = page.locator("#loading-steps .load-step").all_inner_texts()
     memory = page.inner_text("#loading-memory")
@@ -12009,15 +12046,21 @@ def _candidates_unavailable(r: Run, name: str, where: str) -> None:
 
 
 def _distribution_unavailable(r: Run, name: str, where: str) -> None:
-    """Story 5 (2026-09-30): no model in process, no live distribution in section 2: the
-    candidates' reason (naming `name`) instead of the bars; a direct read answers 404."""
+    """Story 5 (2026-09-30): no model in process, no live distribution in the OUTPUT: the
+    candidates' reason (naming `name`); a direct read answers 404. Correction C of
+    2026-10-05: the example's bars meanwhile, badge « Exemple »."""
     page = r.page
-    expect(page.locator("#distribution-empty")).to_contain_text(name, timeout=5000)
+    expect(page.locator("#distribution-note")).to_contain_text(name, timeout=5000)
+    expect(page.locator("#output-tag")).to_have_class(re.compile("is-example"), timeout=5000)
     read = r.api("POST", "/api/llm_lab/distribution", {"index": 0, "sampling": _LAB_SAMPLING})
     r.check(
-        page.locator("#distribution-body").is_hidden() and read.status_code == 404,
-        f"{where} : distribution vivante indisponible, sa raison en section 2, lecture 404",
-        f"{page.inner_text('#distribution-empty')} · {read.status_code}",
+        page.locator("#distribution-body").is_visible()
+        and page.locator("#distribution-bars .dist-row:not(.is-tail)").count() == 6
+        and page.inner_text("#distribution-note").startswith("Exemple d'illustration")
+        and read.status_code == 404,
+        f"{where} : distribution réelle indisponible, sa raison dite, l'exemple à la place,"
+        " lecture 404",
+        f"{page.inner_text('#distribution-note')} · {read.status_code}",
     )
 
 
@@ -12422,12 +12465,16 @@ def _llm_live(r: Run, live: _LiveLab, errors: list[str]) -> None:
     expect(page.locator("#candidates-toggle")).to_be_enabled(timeout=5000)
     for name, value in _LIVE_SAMPLING.items():
         _set_live(r, name, value)
+    # Correction C of 2026-10-05: nothing kept, the session's example meanwhile, labelled.
+    ok_example, example = _example_rows(r, _LIVE_SAMPLING)
     r.check(
-        page.locator("#distribution-body").is_hidden()
-        and "Générez une réponse" in page.inner_text("#distribution-empty")
+        ok_example
+        and page.locator("#distribution-body").is_visible()
+        and "Générez une réponse" in page.inner_text("#distribution-note")
         and not live.requests,
-        "distribution vivante : rien de gardé, la section 2 dit quoi faire, rien n'est demandé",
-        f"{page.inner_text('#distribution-empty')} · {len(live.requests)} requêtes",
+        "distribution vivante : rien de gardé, l'exemple étiqueté et quoi faire, aucune lecture"
+        " réelle demandée",
+        f"{page.inner_text('#distribution-note')} · {len(live.requests)} requêtes · {example}",
     )
 
     # (1) The generation starts, its first token comes with its candidates.
@@ -12617,16 +12664,42 @@ class _LoopLab(_LiveLab):
     `/api/llm_lab/distribution` the candidates of the last token drawn (the session's own
     `candidates.distribution` and `dropped_by`)."""
 
-    def __init__(self) -> None:
+    def __init__(self, exact: bool = False) -> None:
         super().__init__()
         self.steps: list[dict[str, Any]] = []
+        self.tokenizes: list[dict[str, Any]] = []
         self.draw = _LOOP_DRAWS[0]
+        # Correction C of 2026-10-05: the in-process engine's exact tokenizer too, which
+        # makes the page cut its text and draw a step by itself on its first load; `busy`:
+        # the session in a workshop turn; `refuse_step`: `llm_step` answers 409.
+        self.exact = exact
+        self.busy = False
+        self.refuse_step = False
+
+    def lab(self, route) -> None:  # noqa: ANN001
+        if not self.exact:
+            super().lab(route)
+            return
+        response = route.fetch()
+        body = response.json()
+        self.next_seq = self.next_seq or body["seq"] + 1000
+        body["candidates"] = {**body["candidates"], "available": True, "reason_text": None}
+        body["sampling"]["supported"] = dict.fromkeys(body["sampling"]["supported"])
+        body["distribution"] = {"tokens": self.kept}
+        body["tokenizer"] = {"exact": True, "reason_text": "Découpage exact (e2e)."}
+        if self.busy:
+            body["session_state"] = {"state": "turn", "reason_text": "Un tour est en cours (e2e)."}
+        route.fulfill(response=response, json=body)
 
     def tokenize(self, route) -> None:  # noqa: ANN001
+        self.tokenizes.append(route.request.post_data_json)
         route.fulfill(json={"request_id": _LIVE_ID})
 
     def step(self, route) -> None:  # noqa: ANN001
         self.steps.append(route.request.post_data_json)
+        if self.refuse_step:
+            route.fulfill(status=409, json={"detail": "Pas refusé (e2e)."})
+            return
         route.fulfill(json={"request_id": self.step_id})
 
     @property
@@ -12743,31 +12816,313 @@ def s_llm_loop(r: Run) -> None:
         page.set_viewport_size({"width": 1600, "height": 1000})
         r.goto_app()
     r.check(not errors, "/llm, boucle simulée : aucune erreur JavaScript", str(errors)[:300])
+    _llm_loop_first_load(r)
     _llm_loop_cloud(r)
 
 
-def _llm_loop_cloud(r: Run) -> None:
-    """The spec's « Cloud » row, on the fake cloud A as it is (no route): the INPUT's
-    estimate without a column, the TRANSFORMATION's dimensions « inconnue » and « Architecture
-    non lue », « Tirer le token suivant » greyed with the candidates' reason, a direct call
-    refused (409)."""
+def _llm_loop_first_load(r: Run) -> None:
+    """Correction C of 2026-10-05: an engine in process at rest (`_LoopLab(exact=True)`),
+    the page opened: with no click, it asks the session to cut the field's text, then to
+    draw one step; real columns and real bars, badges « Réel », the OUTPUT left on its first
+    step; the INPUT's cut still shown step by step."""
     page = r.page
+    page.evaluate("t => localStorage.setItem('wavestack.llm.prompt', t)", _LOOP_TEXT)
+    live = _LoopLab(exact=True)
+    routes = [
+        ("**/api/llm_lab", live.lab),
+        ("**/api/llm_lab/distribution", live.distribution),
+        ("**/api/stream", live.stream),
+        ("**/api/intentions/llm_tokenize", live.tokenize),
+        ("**/api/intentions/llm_step", live.step),
+    ]
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    for pattern, handler in routes:
+        page.route(pattern, handler)
+    try:
+        for name, value in _LOOP_SAMPLING.items():  # the step's settings, saved by the page
+            page.evaluate(
+                "([k, v]) => { const s = JSON.parse(localStorage.getItem("
+                "'wavestack.llm.sampling') || '{}'); s[k] = v; "
+                "localStorage.setItem('wavestack.llm.sampling', JSON.stringify(s)); }",
+                [name, value],
+            )
+        _goto_lab(r)
+
+        def pumped(condition: Callable[[], bool]) -> Callable[[], bool]:
+            # The routes' handlers run only while Playwright works: wait in the page.
+            return lambda: page.wait_for_timeout(50) is None and condition()
+
+        asked, _ = r.poll(pumped(lambda: len(live.tokenizes) == 1), 10)
+        live.add_batch(("llm_tokenized", _loop_tokenized()))
+        live.release()
+        stepped, _ = r.poll(pumped(lambda: len(live.steps) == 1), 10)
+        if stepped:
+            live.drawn(_LOOP_DRAWS[0])
+        chip = page.locator("#llm-step-drawn .llm-output-chip")
+        shown, _ = r.poll(lambda: chip.count() == 1 and chip.inner_text() == "␣canapé", 10)
+        r.check(
+            asked and stepped and shown,
+            "1er chargement : la page demande le découpage, puis le pas, sans clic",
+            f"{len(live.tokenizes)} découpage(s), {len(live.steps)} pas, puce {shown}"
+            f" · statut {page.inner_text('#llm-step-status')!r}"
+            f" · {page.inner_text('#tokenize-status')!r} · {page.inner_text('#llm-busy')!r}",
+        )
+        ok, drawn = _llm_loop_rows(r, _LOOP_SAMPLING)
+        first = page.evaluate(_INPUT_JS)
+        logits = page.locator("#logits-bars .dist-row:not(.is-tail) .dist-text").all_inner_texts()
+        tags = [page.locator(t) for t in ("#input-tag", "#output-tag")]
+        r.check(
+            asked
+            and stepped
+            and live.tokenizes[0].get("text") == _LOOP_TEXT
+            and live.steps[0]["prompt"] == _LOOP_TEXT
+            and live.steps[0]["continuation"] == []
+            and first["chips"] == ["Le", "␣chat", "␣dort", "␣sur", "␣le"]
+            and page.locator("#token-chips .token-chip.is-example").count() == 0
+            and page.locator("#token-example").is_hidden()
+            and ok
+            and logits == ["␣canapé", "␣lit", "␣tapis", "␣toit", "␣rebord", "␣sol"]
+            and all(t.inner_text().startswith("RÉEL") for t in tags)
+            and not any("is-example" in (t.get_attribute("class") or "") for t in tags),
+            "1er chargement, moteur en processus : découpage et premier pas sans clic, colonnes"
+            " et barres réelles, badges « Réel »",
+            f"{len(live.tokenizes)} découpage(s), {len(live.steps)} pas · {logits} · {drawn}",
+        )
+        stepper = page.locator("#input-stepper")
+        r.check(
+            not first["cut"]
+            and page.inner_text("#output-caption").startswith("Logits.")
+            and page.locator("#output-stepper .diagram-step-position").inner_text()
+            == "Étape 1 / 3",
+            "1er chargement : l'INPUT s'ouvre sur le texte d'un bloc, l'OUTPUT sur les Logits",
+            page.inner_text("#output-caption")[:80],
+        )
+        stepper.locator(".diagram-step-next").click()
+        second = page.evaluate(_INPUT_JS)
+        r.check(
+            second["cut"] and second["tokens"] and not second["ids"],
+            "1er chargement : ▶ découpe le texte réel en tokens, pas à pas",
+        )
+        r.shot_element("75-llm-boucle-premier-chargement", "#stage-output")
+
+        # The page opened again while the session keeps a distribution (the step's): nothing
+        # asked by itself, the real bars kept.
+        cuts, steps = len(live.tokenizes), len(live.steps)
+        _goto_lab(r)
+        kept, _ = r.poll(pumped(lambda: page.inner_text("#output-tag").startswith("RÉEL")), 10)
+        page.wait_for_timeout(1500)
+        r.check(
+            kept
+            and len(live.tokenizes) == cuts
+            and len(live.steps) == steps
+            and page.locator("#token-chips .token-chip.is-example").count() == 5,
+            "rechargement, distribution gardée : rien de demandé sans clic, barres réelles"
+            " gardées, l'INPUT sur l'exemple",
+            f"{len(live.tokenizes) - cuts} découpage(s), {len(live.steps) - steps} pas",
+        )
+
+        # The session busy (a workshop turn): nothing asked by itself, the example shown.
+        live.kept, live.busy = 0, True
+        cuts = len(live.tokenizes)
+        _goto_lab(r)
+        page.wait_for_timeout(1500)
+        r.check(
+            len(live.tokenizes) == cuts
+            and page.locator("#token-chips .token-chip.is-example").count() == 5
+            and page.inner_text("#output-tag").startswith("EXEMPLE"),
+            "1er chargement, session occupée : rien de demandé sans clic, l'exemple montré",
+            f"{len(live.tokenizes) - cuts} découpage(s)",
+        )
+
+        # The automatic step refused (409): the usual error, the example stays; the next step,
+        # asked by a click, is a manual one (the OUTPUT moves to its token).
+        live.busy, live.refuse_step = False, True
+        cuts, steps = len(live.tokenizes), len(live.steps)
+        _goto_lab(r)
+        r.poll(pumped(lambda: len(live.tokenizes) == cuts + 1), 10)
+        live.add_batch(("llm_tokenized", _loop_tokenized()))
+        live.release()
+        refused, _ = r.poll(pumped(lambda: len(live.steps) == steps + 1), 10)
+        status = page.locator("#llm-step-status")
+        expect(status).to_have_text("Pas refusé (e2e).", timeout=10_000)
+        r.check(
+            refused
+            and "is-error" in (status.get_attribute("class") or "")
+            and page.inner_text("#output-tag").startswith("EXEMPLE"),
+            "1er chargement, pas automatique refusé : l'erreur habituelle, l'exemple reste",
+            status.inner_text(),
+        )
+        live.refuse_step = False
+        page.click("#llm-step-button")
+        stepped, _ = r.poll(pumped(lambda: len(live.steps) == steps + 2), 10)
+        if stepped:
+            live.drawn(_LOOP_DRAWS[0])
+        expect(chip).to_have_text("␣canapé", timeout=10_000)
+        position = page.locator("#output-stepper .diagram-step-position")
+        r.check(
+            stepped and position.inner_text() == "Étape 3 / 3",
+            "après le refus, un pas demandé au clic mène l'OUTPUT à son token tiré",
+            position.inner_text(),
+        )
+    finally:
+        for pattern, _ in routes:
+            page.unroute(pattern)
+        page.remove_listener("pageerror", listener)
+        r.goto_app()
+    r.check(
+        not errors, "/llm, premier chargement simulé : aucune erreur JavaScript", str(errors)[:300]
+    )
+
+
+_EXAMPLE_INPUT_JS = """() => [...document.querySelectorAll('#token-chips .token-chip')].map(c => ({
+  example: c.classList.contains('is-example'),
+  chip: c.querySelector('.token-chip-text').textContent,
+  id: c.querySelector('.token-chip-id').textContent,
+}))"""
+
+
+def _example_rows(r: Run, sampling: dict[str, float], lang: str = "fr") -> tuple[bool, str]:
+    """Whether the Draw's chart shows the content's example for `sampling` (polled), the
+    badge « Exemple » above it."""
+    example = _content(lang, "llm_lab.yaml")["stages"]["output"]["example"]
+    values = [c["p"] for c in example["candidates"]]
+    want = live_distribution(values, example["tail"], Sampling(**sampling))
+    why = live_dropped_by(values, example["tail"], Sampling(**sampling))
+    texts = [c["text"].replace(" ", "␣") for c in example["candidates"]]
+
+    def same() -> bool:
+        got = _dist_rows(r)
+        return (
+            "is-example" in (r.page.locator("#output-tag").get_attribute("class") or "")
+            and [g["text"] for g in got] == texts
+            and all(
+                g["dropped"] == (not w["kept"])
+                and abs(g["chanceWidth"] - w["p_sampled"] * 100) < 0.01
+                and (w["kept"] or g["chance"] == f"écarté ({reason})")
+                for g, w, reason in zip(got, want, why, strict=True)
+            )
+        )
+
+    ok, _ = r.poll(same, 10)
+    got = _dist_rows(r)
+    return ok, str([(g["text"], g["chance"]) for g in got])
+
+
+def _llm_loop_example(r: Run) -> None:
+    """Correction C of 2026-10-05, the fake cloud A as it is (no route), the page opened: the
+    INPUT shows the example's 5 columns (badge « Exemple », its note), cut step by step by
+    ◀ ▶; the OUTPUT the example's Logits and Draw with the provider's reason; top-k, which
+    the provider does not take, active: it moves the example's bars. Nothing asked by itself.
+    Each stage within the screen at 1366 × 768."""
+    page = r.page
+    seq = r.ev.mark()
     _goto_lab(r)
     expect(page.locator("#llm-model")).to_contain_text("RÉSEAU", timeout=5000)
+    transfo = _content("fr", "llm_lab.yaml")["stages"]["transfo"]
+    want = [
+        {"example": True, "chip": t.replace(" ", "␣"), "id": str(i)}
+        for t, i in zip(transfo["example_tokens"], transfo["example_ids"], strict=True)
+    ]
+    expect(page.locator("#token-chips .token-chip.is-example")).to_have_count(5, timeout=5000)
+    columns = page.evaluate(_EXAMPLE_INPUT_JS)
+    tag = page.inner_text("#input-tag")
+    note = _plain(page.inner_text("#token-example"))
+    r.check(
+        columns == want
+        and tag.startswith("EXEMPLE")
+        and note.startswith("Exemple : un texte découpé")
+        and page.locator("#token-empty").is_hidden(),
+        "cloud A, 1er chargement : l'INPUT montre 5 colonnes d'exemple, badge « Exemple », sa note",
+        f"{tag} · {columns}",
+    )
+    stepper = page.locator("#input-stepper")
+    states = [page.evaluate(_INPUT_JS)]
+    for _ in range(2):
+        stepper.locator(".diagram-step-next").click()
+        states.append(page.evaluate(_INPUT_JS))
+    r.check(
+        [(s["cut"], s["tokens"], s["ids"]) for s in states]
+        == [(False, False, False), (True, True, False), (True, True, True)]
+        and states[2]["idVisible"] == "visible",
+        "cloud A, exemple : ◀ ▶ découpent le texte en tokens, puis en identifiants, pas à pas",
+        str([(s["cut"], s["tokens"], s["ids"]) for s in states]),
+    )
+    harness = {"temperature": 0.7, "top_k": 20, "top_p": 0.8, "min_p": 0.0}
+    for name, value in harness.items():
+        _set_live(r, name, value)
+    ok_start, start = _example_rows(r, harness)
+    empty = page.inner_text("#distribution-note")
+    r.check(
+        ok_start
+        and page.locator("#distribution-body").is_visible()
+        and page.locator("#logits-body").is_visible()
+        and page.inner_text("#output-tag").startswith("EXEMPLE")
+        and empty.startswith("Exemple d'illustration")
+        and "Faux fournisseur (e2e)" in empty
+        and "après « Bonjour, comment allez-vous »" in page.inner_text("#logits-caption"),
+        "cloud A, 1er chargement : l'OUTPUT montre Logits et Tirage d'exemple, badge « Exemple »,"
+        " la raison du fournisseur",
+        f"{start} · {empty[:160]}",
+    )
+    top_k = page.locator("#sampling-top_k")
+    reason = page.inner_text('.sampling-row[data-setting="top_k"] .sampling-row-reason')
+    _set_live(r, "top_k", 2, slider=True)
+    ok_k, cut = _example_rows(r, harness | {"top_k": 2})
+    r.check(
+        top_k.is_enabled()
+        and "non réglable chez Faux fournisseur (e2e)" in reason
+        and "ne bouge que l'exemple" in reason
+        and ok_k
+        and "écarté (top-k)" in cut,
+        "cloud A : top-k (non pris par le fournisseur) actif, sa raison dite, il bouge l'exemple",
+        f"{reason} · {cut}",
+    )
+    _set_live(r, "top_k", 20)
+    page.set_viewport_size({"width": 1366, "height": 768})
+    time.sleep(0.6)
+    heights = page.evaluate(_STAGE_HEIGHTS_JS)
+    parts = page.evaluate(_OUTPUT_PARTS_JS)
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    r.check(
+        all(h <= 768 for _, h in heights),
+        "cloud A, exemple : chaque étape tient dans l'écran à 1366 × 768",
+        f"{heights} · {parts}",
+    )
+    r.check(
+        not r.ev.since(seq, "llm_tokenized") and not r.ev.since(seq, "llm_generation_started"),
+        "cloud A : la page ne demande ni découpage ni pas par elle-même",
+    )
+    r.shot("76-llm-boucle-exemple-cloud", full_page=True)
+
+
+def _llm_loop_cloud(r: Run) -> None:
+    """The spec's « Cloud » row, on the fake cloud A as it is (no route): the example first
+    (correction C of 2026-10-05), then the INPUT's estimate beside the example's columns, the
+    TRANSFORMATION's dimensions « inconnue » and « Architecture non lue », « Tirer le token
+    suivant » greyed with the candidates' reason, a direct call refused (409)."""
+    page = r.page
+    _llm_loop_example(r)
     _lab_tokenize(r, "Bonjour tout le monde")
     facts = page.inner_text("#transfo-facts")
     unknown = page.inner_text("#transfo-unknown")
     r.check(
         "≈" in page.inner_text("#token-counts")
-        and page.locator("#token-chips .token-chip").count() == 0
+        and page.locator("#token-chips .token-chip.is-example").count() == 5
+        and _plain(page.inner_text("#token-example")).startswith(
+            "Exemple de découpage, pas celui de ce modèle"
+        )
         and "inconnue" in facts
         and page.locator("#transfo-unknown").is_visible()
         and unknown.startswith("Architecture non lue"),
-        "cloud A : INPUT estimé sans colonne, TRANSFORMATION « inconnue », architecture non lue",
+        "cloud A : INPUT estimé à côté des colonnes d'exemple (pas le découpage du modèle),"
+        " TRANSFORMATION « inconnue », architecture non lue",
         f"{facts.replace(chr(10), ' ')[:160]} · {unknown}",
     )
     button = page.locator("#llm-step-button")
-    status = page.inner_text("#llm-step-status")
+    # Correction C of 2026-10-05: the reason said once, with the example at the OUTPUT's top.
+    status = page.inner_text("#distribution-note")
     refused = r.api(
         "POST",
         "/api/intentions/llm_step",
@@ -12777,10 +13132,11 @@ def _llm_loop_cloud(r: Run) -> None:
         button.is_disabled()
         and "Faux fournisseur (e2e)" in (button.get_attribute("title") or "")
         and "Faux fournisseur (e2e)" in status
+        and page.inner_text("#llm-step-status") == ""
         and refused.status_code == 409
         and page.locator("#llm-step-raw").is_hidden(),
-        "cloud A : « Tirer le token suivant » grisé avec la raison des candidats, appel direct 409,"
-        " pas de phrase « sans gabarit »",
+        "cloud A : « Tirer le token suivant » grisé avec la raison des candidats (dite une fois,"
+        " avec l'exemple), appel direct 409, pas de phrase « sans gabarit »",
         f"{button.get_attribute('title')} · {status} · {refused.status_code}",
     )
     r.goto_app()
@@ -12828,9 +13184,17 @@ def _llm_loop_input(r: Run, live: _LoopLab) -> None:
     live.add_batch(("llm_tokenized", _loop_tokenized()))
     page.click("#tokenize-button")
     live.release()
+    # Correction C of 2026-10-05: the example's 5 columns until then, never the session's.
+    expect(page.locator("#token-chips .token-chip.is-example")).to_have_count(0, timeout=10_000)
     expect(page.locator("#token-chips .token-chip")).to_have_count(5, timeout=10_000)
     stepper = page.locator("#input-stepper")
     first = page.evaluate(_INPUT_JS)
+    r.check(
+        page.inner_text("#input-tag").startswith("RÉEL")
+        and page.locator("#token-example").is_hidden(),
+        "INPUT découpé exactement : badge « Réel », plus de note d'exemple",
+        page.inner_text("#input-tag"),
+    )
     r.check(
         not first["cut"]
         and first["idVisible"] == "hidden"
@@ -12985,10 +13349,16 @@ def _llm_loop_output(r: Run, live: _LoopLab) -> None:
         "OUTPUT : le nom d'un réglage porte son aide, au survol (title) et au clic, Échap la ferme",
         f"{opened} · {shown[:60]!r} · fermé {closed}",
     )
+    # Correction C of 2026-10-05: before the first step, the example, labelled, never empty.
+    ok_example, example = _example_rows(r, _LOOP_SAMPLING)
     r.check(
-        page.locator("#distribution-body").is_hidden()
-        and "Tirez le token suivant" in page.inner_text("#distribution-empty"),
-        "OUTPUT avant le premier pas : graphiques masqués, quoi faire",
+        ok_example
+        and page.locator("#distribution-body").is_visible()
+        and page.inner_text("#output-tag").startswith("EXEMPLE")
+        and "Tirez le token suivant" in page.inner_text("#distribution-note")
+        and not live.requests,
+        "OUTPUT avant le premier pas : Logits et Tirage d'exemple, badge « Exemple », quoi faire",
+        example,
     )
 
     # A step: « Tirer le token suivant », the engine draws « ␣canapé ».
@@ -13007,6 +13377,8 @@ def _llm_loop_output(r: Run, live: _LoopLab) -> None:
         and sent["sampling"]["temperature"] == 0.7
         and logits == ["␣canapé", "␣lit", "␣tapis", "␣toit", "␣rebord", "␣sol"]
         and page.locator("#logits-bars .dist-row.is-chosen").count() == 1
+        and page.inner_text("#output-tag").startswith("RÉEL")
+        and page.inner_text("#distribution-note") == ""
         and page.inner_text("#distribution-token").startswith(
             "Candidats du token tiré par le moteur"
         )
@@ -13051,6 +13423,7 @@ def _llm_loop_output(r: Run, live: _LoopLab) -> None:
     # « Ajouter à la suite »: the token in the INPUT (a produced column), sent with the next.
     page.click("#llm-step-append")
     expect(page.locator("#token-chips .token-chip")).to_have_count(6, timeout=5000)
+    expect(page.locator("#output-tag")).to_have_class(re.compile("is-example"), timeout=5000)
     state = page.evaluate(_INPUT_JS)
     r.poll(lambda: abs((page.locator("#stage-input").bounding_box() or {"y": 999})["y"]) < 60, 5)
     top = page.locator("#stage-input").bounding_box()
@@ -13059,10 +13432,11 @@ def _llm_loop_output(r: Run, live: _LoopLab) -> None:
         and state["ids_"][-1] == "107233"
         and state["ids"]
         and page.locator("#llm-step-drawn .llm-output-chip").count() == 0
-        and page.locator("#distribution-body").is_hidden()
+        and page.inner_text("#output-tag").startswith("EXEMPLE")
         and top is not None
         and abs(top["y"]) < 60,
-        "« Ajouter à la suite » : ␣canapé en puce « produit » au bout de l'INPUT, la page remonte",
+        "« Ajouter à la suite » : ␣canapé en puce « produit » au bout de l'INPUT, la page remonte,"
+        " l'OUTPUT repasse à l'exemple",
         f"{state['produced']} · {state['ids_'][-1:]} · {top}",
     )
     page.click("#llm-step-button")
@@ -13131,6 +13505,15 @@ def _llm_loop_output(r: Run, live: _LoopLab) -> None:
     expect(page.locator("#distribution-body")).to_be_visible(timeout=10_000)
 
 
+# The OUTPUT's parts, their heights: what makes the stage taller than the screen.
+_OUTPUT_PARTS_JS = """() => ['#part-logits', '#part-draw', '#part-token', '#distribution-note',
+  '#logits-body', '.llm-output-side', '.llm-output-knobs', '.llm-output-draw > :last-child',
+  '#sampling-controls', '#output-caption'].map(s => {
+  const node = document.querySelector(s);
+  return [s, node ? Math.round(node.getBoundingClientRect().height) : null];
+})"""
+
+
 _STAGE_HEIGHTS_JS = """() => ['stage-input', 'stage-transfo', 'stage-output'].map(id => {
   const box = document.getElementById(id).getBoundingClientRect();
   return [id, Math.round(box.height)];
@@ -13149,7 +13532,7 @@ def _llm_loop_heights(r: Run) -> None:
         r.check(
             all(h <= height for _, h in heights) and not wide,
             f"chaque étape tient dans l'écran à {width} × {height}",
-            f"{heights} · défilement horizontal {wide}",
+            f"{heights} · défilement horizontal {wide} · {page.evaluate(_OUTPUT_PARTS_JS)}",
         )
         for _, selector in (("input", "#stage-input"), ("output", "#stage-output")):
             page.locator(selector).scroll_into_view_if_needed()
@@ -13260,13 +13643,33 @@ def _llm_loop_bos(r: Run, live: _LoopLab) -> None:
 
 def _llm_loop_end(r: Run, live: _LoopLab) -> None:
     """A step whose token is the model's end token: no `llm_token`, the step ends
-    `completed`; the OUTPUT says the text stops there for the model."""
+    `completed`; the OUTPUT says the text stops there for the model. Correction C of
+    2026-10-05: the session's `llm_lab` state, as it comes, leaves the bars shown during the
+    step (no blink); the step over without a token, the OUTPUT goes back to the example."""
     page = r.page
     expect(page.locator("#llm-step-button")).to_be_enabled(timeout=5000)
+    model = r.state().get("active_model")
+    tag = page.locator("#output-tag")
+    expect(tag).not_to_have_class(re.compile("is-example"), timeout=10_000)  # a real draw
     before = len(live.steps)
     page.click("#llm-step-button")
     r.poll(lambda: len(live.steps) == before + 1, 5)
     rid = live.step_id
+    live.add_batch(
+        (
+            "session_state",
+            {"state": "llm_lab", "reason_text": "Écran LLM (e2e).", "active_model": model},
+        )
+    )
+    live.release()
+    expect(page.locator("#llm-busy")).to_contain_text("Écran LLM (e2e).", timeout=10_000)
+    page.wait_for_timeout(500)
+    r.check(
+        page.locator("#distribution-body").is_visible()
+        and "is-example" not in (tag.get_attribute("class") or ""),
+        "pas en cours (session en llm_lab) : les barres montrées restent, sans clignoter",
+        tag.inner_text(),
+    )
     live.add_batch(
         (
             "llm_generation_started",
@@ -13294,16 +13697,20 @@ def _llm_loop_end(r: Run, live: _LoopLab) -> None:
                 "figures_text": {"reasoning_tokens": "0", "answer_tokens": "0"},
             },
         ),
+        ("session_state", {"state": "idle", "reason_text": None, "active_model": model}),
     )
     live.release()
     end_text = _content("fr", "llm_lab.yaml")["stages"]["output"]["end_text"]
     status = page.locator("#llm-step-status")
     expect(status).to_have_text(end_text, timeout=10_000)
+    expect(tag).to_have_class(re.compile("is-example"), timeout=10_000)
     r.check(
-        status.inner_text() == end_text,
-        "OUTPUT, token de fin tiré : le texte s'arrête là pour le modèle, rien à ajouter",
+        status.inner_text() == end_text and page.locator("#distribution-body").is_visible(),
+        "OUTPUT, token de fin tiré : le texte s'arrête là pour le modèle, rien à ajouter ;"
+        " l'OUTPUT repasse à l'exemple (la session ne garde rien de ce pas)",
         status.inner_text(),
     )
+    expect(page.locator("#llm-step-button")).to_be_enabled(timeout=10_000)
 
 
 # ---------- story 30: the RAG workshop ----------
@@ -13463,15 +13870,96 @@ def s_rag_lab(r: Run) -> None:
         r.goto_app()
 
 
+def _downloads_text(count: int) -> str:
+    """« 1 modèle à télécharger », « 2 modèles à télécharger » (ui.yaml, `rag.arch_downloads`)."""
+    return f"{count} modèle{'s' if count > 1 else ''} à télécharger"
+
+
+def _rag_lab_arch_downloads(r: Run) -> None:
+    """B1 (2026-10-05), in Composer with no line selected (the shipped chain): every
+    « Télécharger » of the Embedding and Reranking lines visible; the tiles Embedding model and
+    Reranker say « N modèles à télécharger », N the catalog's `download_count`. In Dérouler, the
+    tile's mention opens Composer, the Embedding line selected, its first « Télécharger »
+    focused."""
+    page = r.page
+    catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
+    counts = {s["kind"]: s.get("download_count") for s in catalog["stages"]}
+    lines = {
+        kind: _seq_row(r, kind).evaluate(
+            "row => [...row.querySelectorAll('.rag-chain-download')]"
+            ".filter(l => l.checkVisibility()).length"
+        )
+        for kind in ("embedding", "rerank")
+    }
+    mentions = page.eval_on_selector_all(
+        "#rag-arch .rag-arch-download",
+        "bs => Object.fromEntries(bs.map(b => [b.closest('.rag-arch-tile').dataset.component,"
+        " { text: b.textContent, visible: b.checkVisibility() }]))",
+    )
+    r.check(
+        not page.locator("#rag-seq .rag-seq-step.is-selected").count()
+        and counts["embedding"] == 2
+        and counts["rerank"] == 1
+        and lines == {"embedding": 2, "rerank": 1}
+        and mentions
+        == {
+            "embedding_model": {"text": _downloads_text(2), "visible": True},
+            "reranker": {"text": _downloads_text(1), "visible": True},
+        },
+        "B1 : en Composer, sans ligne choisie, les « Télécharger » d'Embedding (2) et de "
+        "Reranking (1) visibles ; tuiles « 2 modèles à télécharger », « 1 modèle à télécharger » "
+        "(download_count du catalogue)",
+        f"{counts} · {lines} · {mentions}",
+    )
+    # Dérouler: the tile revealed (▶ up to the Embedding of the chunks), its mention clicked.
+    _rag_mode(r, "play")
+    tile = page.locator('#rag-arch .rag-arch-tile[data-component="embedding_model"]')
+    nxt = page.locator("#rag-stepper .diagram-step-next")
+    for _ in range(12):
+        if "is-hidden" not in (tile.get_attribute("class") or ""):
+            break
+        nxt.click()
+    mention = tile.locator(".rag-arch-download")
+    played = mention.is_visible() and mention.inner_text().endswith(_downloads_text(2))
+    if not played:
+        r.check(False, "B1 : la tuile Embedding model révélée en Dérouler, sa mention visible")
+        _rag_mode(r, "compose")
+        return
+    mention.click()
+    expect(page.locator('#rag-modes [data-mode="compose"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    focus = page.evaluate(
+        "() => { const a = document.activeElement; return { cls: a.className,"
+        " target: a.dataset.target, step: a.closest('.rag-seq-step')?.dataset.step }; }"
+    )
+    selected = page.eval_on_selector_all(
+        "#rag-seq .rag-seq-step.is-selected", "rs => rs.map(r => r.dataset.step)"
+    )
+    r.check(
+        played
+        and selected == ["embed_passages"]
+        and "rag-download" in focus["cls"].split()
+        and focus["step"] == "embed_passages"
+        and focus["target"].startswith("rag_lab_embedding:"),
+        "B1 : en Dérouler, la mention de la tuile Embedding model passe en Composer, choisit la "
+        "ligne Embedding et met le focus sur son premier « Télécharger »",
+        f"{played} · {selected} · {focus}",
+    )
+    # Back to no line selected, as the scenario goes on.
+    _rag_mode(r, "play")
+    _rag_mode(r, "compose")
+
+
 def _rag_lab_download(r: Run) -> None:
-    """Lot 5c-4: « Télécharger » in the Embedding's line (selected) for a workshop's model
-    missing; its click enters `download`, the stage's « Arrêter » stops it, or (the e2e stack
-    being offline) it fails at once: the outcome, traced outside the brick, said in the stage,
-    the button active again. No real download is completed."""
+    """Lot 5c-4: « Télécharger » in the Embedding's line (B1: no line selected) for a
+    workshop's model missing; its click enters `download`, the stage's « Arrêter » stops it,
+    or (the e2e stack being offline) it fails at once: the outcome, traced outside the brick,
+    said in the stage, the button active again. No real download is completed."""
     page = r.page
     target = "rag_lab_embedding:qwen3-embedding-0.6b"
     row = _seq_row(r, "embedding")
-    row.locator(".rag-seq-head").click()
+    # B1 (2026-10-05): visible without selecting the line (no click on its head).
     button = row.locator(f'button.rag-download[data-target="{target}"]')
     expect(button).to_be_visible(timeout=5000)
     catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
@@ -13528,6 +14016,9 @@ def _rag_lab_download(r: Run) -> None:
     event = outcome() or {}
     notice = row.locator(".rag-chain-download-notice")
     expect(notice).to_contain_text("modèle d'embedding", timeout=5000)
+    # B1: the outcome said on the line, no line selected.
+    expect(notice).to_be_visible(timeout=5000)
+    expect(page.locator("#rag-seq .rag-seq-step.is-selected")).to_have_count(0)
     expect(button).to_be_enabled(timeout=5000)
     part = list((r.stack.data_dir / "models").rglob("*.part"))
     r.check(
@@ -13669,6 +14160,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "sans son fichier, la raison nommant reranker/…",
         f"{choices} · {notes}",
     )
+    _rag_lab_arch_downloads(r)
     _rag_lab_download(r)
     r.check(
         "Même modèle" in page.inner_text('#rag-seq [data-step="embed_query"]'),
@@ -14428,6 +14920,22 @@ def _rag_lab_presets(r: Run) -> None:
         f"{kinds} · {names} · {chunk}/{top_k} · {candidates}/{served_candidates} · "
         f"{dense_id}/{kept_id} · {_pressed_preset(r)}",
     )
+    # B2 (2026-10-05): BM25's index, built at BUILD: its line after « Indexing », its tile
+    # « Index lexical (BM25) » in Données, read by BM25.
+    build_names = page.locator("#rag-seq-build .rag-seq-name").all_inner_texts()
+    data_tiles = page.eval_on_selector_all(
+        '#rag-arch .rag-arch-group[data-group="data"] .rag-arch-tile',
+        "ts => ts.map(t => [t.dataset.component, t.querySelector('.rag-arch-name').textContent])",
+    )
+    bm25_uses = _focus_of(r, "lexical_search")["uses"]
+    r.check(
+        build_names == ["Documents", "Chunking", "Embedding", "Indexing", "Lexical indexing"]
+        and ["lexical_index", "Index lexical (BM25)"] in data_tiles
+        and bm25_uses == ["lexical_index", "question"],
+        "B2 : « RAG hybride » : la ligne BUILD « Lexical indexing » après « Indexing », la tuile "
+        "« Index lexical (BM25) » dans Données, BM25 lit l'index lexical et la question",
+        f"{build_names} · {data_tiles} · {bm25_uses}",
+    )
     page.reload()
     expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
     time.sleep(0.4)
@@ -14438,7 +14946,26 @@ def _rag_lab_presets(r: Run) -> None:
         f"{_chain_kinds(r)} · {_pressed_preset(r)}",
     )
     r.shot("59-atelier-rag-architectures")
-    ended, seq = _rag_lab_run(r, compose=True)
+    ended, seq = _rag_lab_run(r)
+    # B2: in « Dérouler », the line « Lexical indexing »: its own pill (duration) and, in its
+    # focus, the index's figures, « aucun modèle », its duration.
+    indexed = _stage_ended(r, seq, "lexical_index")
+    _focus_of(r, "lexical_index")
+    focus = page.inner_text("#rag-focus")
+    pill = page.inner_text('#rag-seq .rag-seq-step[data-step="lexical_index"] .rag-seq-status')
+    r.check(
+        indexed.get("status") == "ok"
+        and indexed.get("part") == "index"
+        and "Termes distincts" in focus
+        and "Chunks indexés" in focus
+        and "aucun (algorithme statistique)" in focus
+        and "Durée" in focus
+        and "ms" in pill,
+        "B2 : en Dérouler après le run hybride, le focus de « Lexical indexing » montre les "
+        "chiffres de l'index (chunks, termes distincts), « aucun modèle » et sa durée",
+        f"{indexed.get('status')} · {pill} · {focus[:300]}",
+    )
+    _rag_mode(r, "compose")
     fusion = _stage_ended(r, seq, "fusion").get("items", [])
     r.check(
         ended["payload"]["status"] == "ok"
@@ -14460,6 +14987,25 @@ def _rag_lab_presets(r: Run) -> None:
     page.locator('#rag-presets .rag-preset[data-preset="dense"]').click()
     time.sleep(0.8)
     dense = (_chain_kinds(r), _pressed_preset(r))
+    # B1 (2026-10-05): no Reranking, no Reranker tile: the Models group says to add the stage;
+    # its click proposes Reranking in « Ajouter un composant ».
+    hint = page.locator('#rag-arch .rag-arch-group[data-group="models"] .rag-arch-download-hint')
+    said = hint.inner_text() if hint.count() == 1 else ""
+    if hint.count() == 1:
+        hint.click()
+    picked = page.evaluate(
+        "() => ({ value: document.querySelector('#rag-palette-a select')?.value,"
+        " focused: document.activeElement?.classList.contains('rag-palette-add') })"
+    )
+    r.check(
+        not page.locator('#rag-arch .rag-arch-tile[data-component="reranker"]').count()
+        and said
+        == "Reranker : 1 modèle à télécharger ; ajoutez l'étape Reranking pour le télécharger"
+        and picked == {"value": "rerank", "focused": True},
+        "B1 : « RAG dense » (sans Reranking) : le groupe Modèles dit d'ajouter l'étape Reranking "
+        "pour télécharger son modèle ; le clic la propose dans « Ajouter un composant »",
+        f"{said} · {picked}",
+    )
     page.locator('#rag-presets .rag-preset[data-preset="rerank"]').click()
     time.sleep(0.8)
     r.check(

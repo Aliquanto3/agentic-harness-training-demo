@@ -794,6 +794,7 @@ main:
       cancelled: "arrêtée"
       not_run: "non exécutée"
     rag_lab_progress: "{done} sur {total}"
+    rag_lab_lexical_index: "Lexical indexing"
     languages:
       fr: "français"
       en: "anglais"
@@ -965,6 +966,16 @@ rag:
   add_button: "Ajouter"
   empty_question: "Écrivez d'abord une question (500 caractères au plus)."
   unavailable: "Atelier RAG indisponible ({cause}) : rechargez la page."
+  # B1 (2026-10-05): the models to download, said on the architecture's tile (both modes);
+  # its click opens the stage in Composer, where « Télécharger » is.
+  arch_downloads:
+    one: "{count} modèle à télécharger"
+    other: "{count} modèles à télécharger"
+  arch_downloads_title: "Ouvre l'étape {stage} en mode Composer, avec ses boutons « Télécharger »"
+  # The chain without that stage (no tile): said at the foot of the tile's group.
+  arch_downloads_add:
+    one: "{component} : {count} modèle à télécharger ; ajoutez l'étape {stage} pour le télécharger"
+    other: "{component} : {count} modèles à télécharger ; ajoutez l'étape {stage} pour les télécharger"
 
 # Story 6 (2026-09-30), then lot 4 of 2026-10-04: the MCP workshop in sequence (`/mcp`); its
 # pedagogical texts are in mcp_lab.yaml.

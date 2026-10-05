@@ -782,12 +782,75 @@ function renderArchitecture(entries, shown) {
       const sub = el("span", "rag-arch-sub", subtitle(component));
       sub.title = sub.textContent;
       tile.append(icon, el("span", "rag-arch-name", component.label_text), sub);
+      const count = downloadCount(component.stage);
+      if (count) tile.append(downloadMention(component.stage, count));
       list.append(tile);
     }
     section.append(list);
+    // B1: a stage the chain lacks (no tile: the Reranker) with models to download, said at
+    // the foot of its group.
+    for (const component of store.catalog.components) {
+      if (component.group !== group.id || used.has(component.id)) continue;
+      const count = downloadCount(component.stage);
+      if (count && stageInfo(component.stage)?.movable) section.append(downloadHint(component, count));
+    }
     box.append(section);
   }
   seen = revealed;
+}
+
+// ---------- B1 (2026-10-05): where « Télécharger » is, said on the architecture ----------
+
+// The models a stage offers to download (the session's figure, AD-1), 0 for none.
+function downloadCount(kind) {
+  return (kind && stageInfo(kind)?.download_count) || 0;
+}
+
+// « 2 modèles à télécharger » on a tile: its click opens the stage's line in Composer.
+function downloadMention(kind, count) {
+  const button = el("button", "rag-arch-download", t("rag.arch_downloads", { count }));
+  button.type = "button";
+  button.dataset.stage = kind;
+  button.title = t("rag.arch_downloads_title", { stage: stageInfo(kind)?.label_text ?? kind });
+  // Two tiles may say the same: the accessible name says whose models.
+  const component = store.catalog.components.find((c) => c.stage === kind);
+  if (component) button.setAttribute("aria-label", labelled(component.label_text, button.textContent));
+  button.addEventListener("click", () => openDownloads(kind));
+  return button;
+}
+
+// « Reranker : 1 modèle à télécharger ; ajoutez l'étape Reranking… »: its click opens
+// Composer, the stage chosen in « Ajouter un composant ».
+function downloadHint(component, count) {
+  const stage = stageInfo(component.stage)?.label_text ?? component.stage;
+  const button = el("button", "rag-arch-download-hint", t("rag.arch_downloads_add", { count, component: component.label_text, stage }));
+  button.type = "button";
+  button.dataset.stage = component.stage;
+  button.title = t("rag.arch_downloads_title", { stage });
+  button.addEventListener("click", () => {
+    setMode("compose");
+    const select = document.querySelector("#rag-palette-a select");
+    if (!select) return;
+    select.value = component.stage;
+    const add = document.querySelector("#rag-palette-a .rag-palette-add");
+    add?.scrollIntoView({ block: "nearest" });
+    add?.focus();
+  });
+  return button;
+}
+
+// Composer, the stage's own line selected, its first « Télécharger » focused.
+function openDownloads(kind) {
+  const step = store.catalog?.steps.find((s) => s.own && s.stage === kind);
+  setMode("compose");
+  if (!step) return;
+  select(step.key);
+  const row = document.querySelector(`#rag-seq .rag-seq-step[data-step="${step.key}"]`);
+  // Its select when every button is disabled (the session busy, a download going on).
+  const button =
+    row?.querySelector(".rag-download:not(:disabled)") ?? row?.querySelector("select.rag-option") ?? row?.querySelector(".rag-seq-head");
+  row?.scrollIntoView({ block: "nearest" });
+  button?.focus();
 }
 
 // ---------- the run, as the sequence reads it ----------
@@ -822,10 +885,19 @@ function chainRun() {
   return same ? store.run : null;
 }
 
+// What a step shows of the run: its stage, or (B2) the part of it the step names, waiting
+// until the part's first event (a run ended without it, one of before B2: not run).
 function runStage(step) {
   if (!step.stage || !shownRun()) return null;
-  return store.run.stages.find((s) => s.kind === step.stage) ?? null;
+  const stage = store.run.stages.find((s) => s.kind === step.stage) ?? null;
+  if (!stage || !step.part) return stage;
+  const status = store.run.ended ? "skipped" : "waiting";
+  return stage.parts?.[step.part] ?? { kind: step.key, status, progress: null, ended: null };
 }
+
+// A line with figures of its own (status line with its duration, warning, duration and
+// memory in the focus): its stage's own line, or (B2) a part of it run apart.
+const ownFigures = (step) => Boolean(step.own || step.part);
 
 // The pill of a line in « Dérouler », once a run is known: a stage's own status and duration;
 // Documents and the question's Embedding take their stage's status without a duration.
@@ -840,7 +912,7 @@ function pillOf(step) {
 // A step's status: its stage's own line (progress, duration), or only its status for a step
 // that reads a stage (its duration is the stage's, not its own).
 function stepStatus(step, stage) {
-  return step.own ? statusLine(stage) : text(STATUS_KEYS[stage.status] ?? "") || stage.status;
+  return ownFigures(step) ? statusLine(stage) : text(STATUS_KEYS[stage.status] ?? "") || stage.status;
 }
 
 function renderPills() {
@@ -931,7 +1003,7 @@ function focusRun(box, step) {
   if (!ended) return;
   if (ended.error_text) box.append(el("p", "rag-stage-error", ended.error_text));
   // Lot 5c-1: what the stage met without failing (chunks truncated), on its own lines only.
-  if (ended.warning_text && step.own) box.append(el("p", "rag-stage-warning", ended.warning_text));
+  if (ended.warning_text && ownFigures(step)) box.append(el("p", "rag-stage-warning", ended.warning_text));
   if (step.key === "documents") {
     box.append(focusIo([[text("input_text"), ended.input_text]]));
     return;
@@ -959,7 +1031,7 @@ function focusRun(box, step) {
     box.append(facts);
   }
   if (step.key !== "embed_query" && ended.items?.length) box.append(itemsTable(ended.items));
-  if (step.own && ["ok", "error", "cancelled"].includes(stage.status)) {
+  if (ownFigures(step) && ["ok", "error", "cancelled"].includes(stage.status)) {
     const foot = el("p", "rag-stage-figures");
     foot.append(el("span", "rag-stage-duration", labelled(text("duration_text"), `${fmtInt(ended.duration_ms)} ms`)));
     if (ended.memory_text) foot.append(el("span", "rag-stage-memory", labelled(text("memory_text"), ended.memory_text)));
@@ -1109,9 +1181,15 @@ function playFrames(entries) {
   const run = shownRun();
   if (!run) return entries.map((e) => e.step.key);
   const reached = new Set(run.stages.filter((s) => s.status !== "waiting").map((s) => s.stage_id));
+  // B2: a part run apart (BM25's index, at BUILD) is reached on its own first event.
+  const partReached = (e) => {
+    const stage = run.stages.find((s) => s.stage_id === e.stage.id);
+    return Boolean(stage?.parts?.[e.step.part] && stage.parts[e.step.part].status !== "waiting");
+  };
   let last = -1;
   entries.forEach((e, i) => {
-    if (e.step.own && e.stage && reached.has(e.stage.id)) last = i;
+    if (!e.stage) return;
+    if (e.step.part ? partReached(e) : e.step.own && reached.has(e.stage.id)) last = i;
   });
   return entries.slice(0, last + 1).map((e) => e.step.key);
 }
@@ -1121,7 +1199,7 @@ function landing(keys = stepper?.frames ?? []) {
   const steps = store.catalog?.steps ?? [];
   const failed = keys.findIndex((key) => {
     const step = steps.find((s) => s.key === key);
-    return Boolean(step?.own) && ["error", "cancelled"].includes(runStage(step)?.status);
+    return Boolean(step && ownFigures(step)) && ["error", "cancelled"].includes(runStage(step)?.status);
   });
   return failed >= 0 ? failed : keys.length - 1;
 }
@@ -1209,6 +1287,16 @@ function stageOf(envelope) {
   return store.run.stages.find((s) => s.stage_id === p.stage_id) ?? null;
 }
 
+// B2: what an event updates: its stage, or the part of it it names (`part`, BM25's index),
+// kept apart so that the stage's own status is not touched.
+function partOf(envelope) {
+  const stage = stageOf(envelope);
+  const part = envelope.payload.part;
+  if (!stage || !part) return stage;
+  stage.parts[part] ??= { kind: envelope.payload.kind, status: "waiting", progress: null, ended: null };
+  return stage.parts[part];
+}
+
 function applyEnvelope(envelope) {
   store.lastSeq = Math.max(store.lastSeq, envelope.seq);
   const p = envelope.payload;
@@ -1237,21 +1325,22 @@ function applyEnvelope(envelope) {
         question: p.question,
         startedAt: envelope.ts,
         ended: null,
-        stages: p.stages.map((s) => ({ ...s, status: "waiting", progress: null, ended: null, live: "", reasoning: false })),
+        // B2: `parts`, a stage's parts run apart (BM25's index, at BUILD), by name.
+        stages: p.stages.map((s) => ({ ...s, status: "waiting", progress: null, ended: null, live: "", reasoning: false, parts: {} })),
       };
       break;
     case "rag_lab_stage_started": {
-      const stage = stageOf(envelope);
+      const stage = partOf(envelope);
       if (stage) stage.status = "running";
       break;
     }
     case "rag_lab_stage_progress": {
-      const stage = stageOf(envelope);
+      const stage = partOf(envelope);
       if (stage) stage.progress = { done: p.done, total: p.total };
       break;
     }
     case "rag_lab_stage_ended": {
-      const stage = stageOf(envelope);
+      const stage = partOf(envelope);
       if (stage) {
         stage.status = p.status;
         stage.ended = p;
@@ -1290,7 +1379,11 @@ function closeStaleRun() {
   const run = store.run;
   if (!run || run.ended) return false;
   run.ended = { status: "error", duration_ms: null };
-  for (const stage of run.stages) if (!stage.ended) stage.status = "skipped";
+  for (const stage of run.stages) {
+    if (!stage.ended) stage.status = "skipped";
+    // B2: a part run apart (BM25's index) never stays « en cours » either.
+    for (const part of Object.values(stage.parts ?? {})) if (!part.ended) part.status = "skipped";
+  }
   return true;
 }
 

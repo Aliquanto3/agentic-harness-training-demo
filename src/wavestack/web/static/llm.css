@@ -351,7 +351,9 @@ body.llm-page {
 }
 
 /* Illustrative: the dashes carry the meaning, not the colour alone. */
-.llm-stage-tag.is-illustrative {
+/* Correction C (2026-10-05): « Exemple », an INPUT or an OUTPUT showing illustrative data. */
+.llm-stage-tag.is-illustrative,
+.llm-stage-tag.is-example {
   background: var(--color-surface-raised);
   color: var(--color-ink);
   border: var(--spacing-stroke-min) dashed var(--color-ink-soft);
@@ -564,6 +566,11 @@ body.llm-page {
 .llm-input-cols .token-chip.is-produced .token-chip-text {
   background: var(--color-produced-soft);
   border: var(--spacing-stroke-min) dashed var(--color-ink-soft);
+}
+
+/* Correction C (2026-10-05): an example's token, dotted (a produced one is dashed). */
+.llm-input-cols .token-chip.is-example .token-chip-text {
+  border: var(--spacing-stroke-min) dotted var(--color-ink-soft);
 }
 
 .llm-input-cols .token-chip.is-produced .llm-input-seg {
@@ -1130,6 +1137,10 @@ body.llm-page {
 
 .sampling-row.is-compact .sampling-row-reason {
   grid-column: 1 / -1;
+  /* Correction C (2026-10-05): the setting stays active (it moves the example); its reason,
+     in the label's size, keeps the OUTPUT within 1366 × 768 with a cloud model. */
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
 }
 
 .sampling-row-name {
@@ -1496,6 +1507,7 @@ body.llm-page {
 }
 
 .distribution-empty:empty,
+.llm-output-example-note:empty,
 .distribution-body[hidden] {
   display: none;
 }

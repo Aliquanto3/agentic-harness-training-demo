@@ -274,7 +274,8 @@ RAG, dessinée pièce par pièce, puis exécutée sur une question, étape par �
 sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne change pas.
 
 - **Trois vues.** À gauche la **séquence** des étapes, en deux temps : « BUILD · Indexing »
-  (Documents, Chunking, Embedding des chunks, Indexing dans le vector store), fait une fois pour
+  (Documents, Chunking, Embedding des chunks, Indexing dans le vector store, puis Lexical
+  indexing quand la chaîne a BM25), fait une fois pour
   toutes, puis « RUN · Retrieval » (Question, Embedding de la question, recherches, Reranking,
   Prompt augmentation, Generation), à chaque question. Au milieu, l'**architecture** : les
   composants que ces étapes sollicitent, en trois groupes (Données, Modèles, Échange avec
@@ -355,9 +356,12 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   raison. Une paire plus longue que `max_tokens` est coupée (l'extrait d'abord, la question
   aussi si elle dépasse la moitié de la place) : l'étape l'annonce en avertissement
   (« 2 candidats sur 8 dépassent la longueur d'une paire : coupés à 1 024 tokens… »).
-- **Télécharger un modèle absent.** En Composer, l'étape Embedding (ou Reranking) choisie
-  montre « Télécharger (≈ N Mo) » pour chaque modèle dont le fichier manque : ceux de l'atelier
-  et celui de la brique RAG. Le clic vérifie d'abord la place sur le disque
+- **Télécharger un modèle absent.** Dans les deux modes, la tuile Embedding model (ou
+  Reranker) de l'architecture dit « N modèles à télécharger » ; son clic passe en Composer et
+  choisit la ligne de l'étape. En Composer, la ligne Embedding (ou Reranking) montre, sans
+  rien choisir, « Télécharger (≈ N Mo) » pour chaque modèle dont le fichier manque : ceux de
+  l'atelier et celui de la brique RAG. Sans étape Reranking dans la chaîne, une phrase au pied
+  du groupe Modèles invite à l'ajouter. Le clic vérifie d'abord la place sur le disque
   (« Place insuffisante pour le modèle d'embedding : 640 Mo à télécharger, 200 Mo libres
   dans … », rien ne démarre), puis télécharge depuis l'adresse déclarée, sha256 vérifié : la progression
   s'affiche dans l'étape avec « Arrêter le téléchargement » (le bouton « Arrêter » de la page
@@ -372,7 +376,11 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   aussi) et se retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le
   Prompt augmentation : la **recherche par mots-clés BM25** (par mots, sans embedding, k1 = 1,5 et b = 0,75 ; accents et petits
   mots ignorés, sigles et nombres gardés, comme « RH » ou « 35 ») et la **fusion**
-  des rangs réciproques (k = 60), qui combine deux recherches en une recherche hybride. Les
+  des rangs réciproques (k = 60), qui combine deux recherches en une recherche hybride. BM25
+  est un algorithme statistique, sans modèle appris : avec lui, le BUILD gagne la ligne
+  « Lexical indexing », qui construit l'index inversé des chunks (termes, fréquences
+  documentaires, longueurs ; tuile « Index lexical (BM25) » du groupe Données, chiffres et
+  durée dans son focus), et l'étape BM25 lit cet index à chaque question. Les
   autres étapes sont fixes. WaveStack vérifie la chaîne à chaque modification : une chaîne
   invalide (deux recherches sans fusion après elles, une fusion sans deux recherches avant elle,
   un reranking avant toute recherche…) affiche sa raison sur l'étape fautive, et « Lancer » est

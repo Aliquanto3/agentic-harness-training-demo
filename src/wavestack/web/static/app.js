@@ -612,6 +612,11 @@ function applyEnvelope(envelope) {
       }
       break;
     case "effect_applied": {
+      // Correction A (2026-10-05): a key saved at the diagnostic changes the picker's rows.
+      if (p.effect === "api_key_set") {
+        scheduleModelList();
+        break;
+      }
       // Finition V1 (#20): a download stopped by « Arrêter », said on its card, neutral.
       if (!turn && envelope.brick === "rag" && p.effect === "model_download_stopped") {
         const notice = { text: p.lines.join(" "), error: false };
@@ -6159,8 +6164,10 @@ const LANGUAGE_NAMES = section("main.log.languages");
 
 // A RAG workshop stage, « Dense retrieval »: its label is in the run's
 // `rag_lab_run_started` (lot 5c-1: one chain per run, its `stages`), its kind when that event
-// is not on the page.
+// is not on the page. B2 (2026-10-05): BM25's index, built at BUILD (`part` « index »), keeps
+// the BM25 stage's id but has its own name.
 function ragLabStage(p) {
+  if (p.part === "index") return t("main.log.rag_lab_lexical_index");
   const run = store.journal.findLast((e) => e.kind === "rag_lab_run_started" && e.payload.run_id === p.run_id);
   const stage = run?.payload.stages?.find((s) => s.stage_id === p.stage_id);
   return stage?.label_text ?? p.kind;

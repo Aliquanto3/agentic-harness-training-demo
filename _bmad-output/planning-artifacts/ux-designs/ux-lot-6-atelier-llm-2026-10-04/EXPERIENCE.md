@@ -24,7 +24,8 @@ Maquette de référence : [mockups/llm-loop.html](mockups/llm-loop.html) (v3).
 - **Système d'interface** : le schéma commun du lot 2 (`static/diagram.js`) : blocs,
   allumage, explication au clic, pas à pas (`createStepper`). Le lot 6 l'étend par ajout.
 - **Règle AD-1** : la page ne calcule aucun chiffre. Tokens, identifiants et dimensions
-  viennent de `llm_tokenized` ; probabilités et chances de `POST /api/llm_lab/distribution` ;
+  viennent de `llm_tokenized` ; probabilités et chances de `POST /api/llm_lab/distribution`
+  (celles de l'exemple de `POST /api/llm_lab/example_distribution`, correction C du 2026-10-05) ;
   le token tiré du moteur (`llm_step`) ; l'architecture de
   `llm_tokenized.dimensions.architecture`.
 - **Portée (D4)** : la TRANSFORMATION détaille le transformeur décodeur dense (Qwen3, Llama,
@@ -85,7 +86,8 @@ pas ».
 | Gardés | {gardés} gardés sur {lus} · la chance est partagée entre eux seuls (le reste du vocabulaire, {reste}, n'est pas tiré ici). |
 | Aide des réglages | les textes existants `sampling.settings.*.help_text` (au survol et au clic du nom) |
 | Token tiré | 🎲 Tirer le token suivant — ↺ Ajouter à la suite — Retirer le dernier — derniers tirages : … |
-| Sans moteur en processus | la raison existante `candidates.reason_text` (serveur, cloud), dans l'OUTPUT, à la place des graphiques |
+| Sans moteur en processus | la raison existante `candidates.reason_text` (serveur, cloud), dans l'OUTPUT, sous le graphique du Tirage, après la note de l'exemple (correction C du 2026-10-05 : les graphiques d'exemple restent ; la raison n'est plus répétée sous « Tirer », dont le titre la garde, pour que l'étape tienne à 1366 × 768) |
+| Exemple (correction C du 2026-10-05) | Badges « Exemple · tokens d'illustration », « Exemple · probabilités d'illustration » — Exemple : un texte découpé comme le ferait un tokenizer, avec des identifiants d'illustration. Découpez votre texte : ses vrais tokens remplaceront ceux-ci. — Exemple de découpage, pas celui de ce modèle : son tokenizer est chez son fournisseur. Pour votre texte, WaveStack donne seulement l'estimation ci-contre. — Exemple d'illustration, pas le calcul du modèle : les réglages le font bouger comme le vrai tirage. — Il ne bouge que l'exemple. |
 
 ## Component Patterns
 
@@ -103,10 +105,12 @@ pas ».
 
 | État | INPUT | TRANSFORMATION | OUTPUT |
 | --- | --- | --- | --- |
-| Avant toute tokenisation | Champ et bouton ; colonnes vides, « Découpez un texte : ses tokens apparaîtront ici. » | Dessin avec les tokens d'exemple du texte par défaut, dit « exemple » | Graphiques masqués, « Tirez le token suivant, ou générez une réponse avec les tokens candidats. » |
-| Tokenisé | Colonnes réelles | Tokens réels, dimensions réelles | idem |
-| Pas tiré / génération avec candidats | Ajouts en puces « produit » | Les ajouts comptent comme tokens | Graphiques réels |
-| Serveur ou cloud | Cloud : « ≈ N tokens », pas de colonnes (tokenizer chez le fournisseur) | Dimensions « inconnue » si non lues | Raison de session ; « Tirer » désactivé avec la même raison |
+| Premier chargement, moteur en processus au repos (correction C du 2026-10-05) | La page fait découper le texte du champ sans clic : colonnes réelles, badge « Réel » | Tokens réels, dimensions réelles | La page fait tirer un premier pas sans clic (sauf distribution déjà gardée) : graphiques réels, étape au pas 1 (Logits) |
+| Rechargement, moteur en processus, distribution déjà gardée (correction C) | Rien d'automatique : colonnes d'exemple jusqu'à « Découper en tokens » | Tokens d'exemple | Graphiques réels de la dernière génération (ou du dernier pas), badge « Réel » |
+| Avant toute tokenisation | Colonnes d'**exemple** (`stages.transfo.example_tokens` et `example_ids`), badge « Exemple · tokens d'illustration », note « Exemple : … » ; ◀ ▶ les découpent pas à pas | Dessin avec les tokens d'exemple, dit « exemple » | Graphiques d'**exemple** (`stages.output.example`, tirés par la session pour les réglages affichés), badge « Exemple · probabilités d'illustration », note + « Tirez le token suivant… » |
+| Tokenisé | Colonnes réelles, badge « Réel » | Tokens réels, dimensions réelles | Exemple jusqu'au premier pas |
+| Pas tiré / génération avec candidats | Ajouts en puces « produit » | Les ajouts comptent comme tokens | Graphiques réels, badge « Réel » ; un ajout ou un retrait repasse à l'exemple |
+| Serveur ou cloud | Cloud : colonnes d'exemple + « ≈ N tokens » du texte tapé, note « Exemple de découpage, pas celui de ce modèle » ; serveur : exemple puis colonnes réelles après « Découper » | Dimensions « inconnue » si non lues | Graphiques d'exemple avec la raison de session ; tous les curseurs actifs (un réglage non pris garde sa raison, « il ne bouge que l'exemple ») ; « Tirer » désactivé avec la raison |
 | Session occupée (tour de l'atelier, chargement) | Boutons désactivés avec la raison (existant) | — | « Tirer » désactivé avec la raison |
 | Hybride / MoE | — | Bandeau ; MoE : routeur et experts au pas MLP | — |
 | Architecture non lue | — | Note sous le panneau | — |
@@ -153,11 +157,21 @@ projeté, Qwen3.5-2B chargé dans WaveStack.
 
 ### Flux 2 — Inès prépare sa session sur un modèle servi
 
-1. Avec llama-server, l'INPUT fonctionne (tokens exacts) ; la TRANSFORMATION porte la note
-   « Architecture non lue ».
-2. L'OUTPUT dit que les candidats ne sont lus qu'avec un modèle chargé dans WaveStack ;
-   « Tirer » est grisé avec la même raison.
-3. **Temps fort** : elle charge le GGUF dans WaveStack avant la session.
+1. Avec llama-server, l'INPUT s'ouvre sur l'exemple étiqueté, puis « Découper en tokens »
+   donne les tokens exacts ; la TRANSFORMATION porte la note « Architecture non lue ».
+2. L'OUTPUT montre l'exemple étiqueté : ses curseurs font bouger les barres, ce qui suffit à
+   expliquer le tirage ; il dit que les vrais candidats ne sont lus qu'avec un modèle chargé
+   dans WaveStack, et « Tirer » est grisé avec la même raison.
+3. **Temps fort** : elle charge le GGUF dans WaveStack avant la session ; à l'ouverture de
+   `/llm`, l'INPUT et l'OUTPUT montrent alors des valeurs réelles sans clic.
+
+### Flux 3 — Anaël avec un modèle cloud (correction C du 2026-10-05)
+
+1. Gemma chez Google AI Studio : à l'ouverture, l'INPUT montre l'exemple (« Exemple · tokens
+   d'illustration ») que ◀ ▶ découpent pas à pas ; « Découper en tokens » ajoute
+   l'estimation « ≈ N tokens » du texte tapé, l'exemple restant dit « pas celui de ce modèle ».
+2. L'OUTPUT montre Logits et Tirage d'exemple ; température, top-k, top-p, min-p les font
+   bouger, même top-k et min-p que le fournisseur ne prend pas (leur raison reste dite).
 
 ## Inspiration & Anti-patterns
 
