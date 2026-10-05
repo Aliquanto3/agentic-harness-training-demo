@@ -75,4 +75,28 @@ Retour d'Anaël du 2026-10-04 : l'Atelier RAG montre une seule chaîne linéaire
 
 ## Notes de fusion
 
-À compléter à la fin du build (fichiers carrefour touchés, ajouts à `diagram.js`, conflits probables avec les lots 3, 4 et 6).
+Branche `feat/lot-5-atelier-rag-2026-10-04`, base `370bb36` (lot 2), commits « lot 5a » puis « lot 5b ».
+
+**Ajouts à `static/diagram.js` : aucun.** Le lot n'importe que `block`, `light`, `wire`, `wireLayer` et `createStepper`, sans en changer ni signature ni comportement. `explain` n'est plus utilisé par le RAG.
+
+**`app_session.py` : non modifié.** Le catalogue (étapes, composants, préréglages) est produit par `Catalog.payload()` dans `rag/lab.py`, rendu tel quel par `rag_lab_state`.
+
+**Fichiers carrefour touchés**
+
+| Fichier | Nature | Zone |
+| --- | --- | --- |
+| `tools/e2e/run_e2e.py` | réécriture et ajouts dans les fonctions RAG seulement | de `# ---------- story 30: the RAG workshop` (≈ l. 11686) jusqu'à `RAG_LAB_STAGES_KINDS` (≈ l. 12880) ; liste `SCENARIOS` inchangée |
+| `tests/test_i18n.py` | ajout de 26 lignes dans la branche `rel == "rag_lab.yaml"` | entre la branche `llm_lab.yaml` et la branche `mcp_lab.yaml` de `test_translated_file_mirrors_the_french_one` |
+| `_bmad-output/implementation-artifacts/deferred-work.md` | 4 entrées ajoutées en fin de fichier | fin de fichier |
+| `docs/guide.md` | section « Atelier RAG » réécrite (puces) | l. 268-322, titres inchangés |
+
+Non touchés : `content/ui.yaml`, `content/messages.yaml` et leurs copies en/de, `pages.css`, `tokens.css`, `app.js`, `tests/test_ui_texts.py`, `tests/test_web_app.py`, `src/wavestack/web/app.py`, `diagram.js`, `app_session.py`, et tous les fichiers des lots 3, 4 et 6.
+
+Fichiers propres au RAG modifiés : `rag.html`, `rag.js`, `rag.css`, `rag/lab.py`, `content/rag_lab.yaml` et `content/i18n/{en,de}/rag_lab.yaml`, `tests/test_rag_lab.py`, `tests/test_rag_lab_alt.py`, captures `55` à `59-atelier-rag-*.jpg` (`57-atelier-rag-comparaison.jpg` supprimée, remplacée par `57-atelier-rag-composer.jpg`), `annex-language-de-rag-{1280,1600}.jpg`.
+
+**Conflits probables**
+
+- **Lot 3 (Diagnostic et modèles)** : `run_e2e.py`, ses scénarios (`s_diagnostic`, `s_model_catalog`, `_models_*`) sont loin de la zone RAG, donc pas de conflit textuel attendu. Si le lot 3 régénère les captures `annex-language-de-rag-*.jpg` ou corrige `s_annex_language`, garder les captures de ce lot (la page /rag a changé). `test_readme_is_a_short_onboarding_page` est rouge avant ce lot (README à 121 lignes) ; le lot 3 ou une correction à part le solde. 5c attend la fusion du lot 3 (`app_session.py`, `_rag_lab_catalog`).
+- **Lot 4 (Atelier MCP)** : `test_i18n.py`, si le lot 4 modifie la branche `mcp_lab.yaml`, juste après l'ajout RAG, conflit de voisinage : garder les deux. `diagram.js` : les ajouts du lot 4 n'interagissent pas avec le RAG (aucun appel modifié). `deferred-work.md` : conflit d'ajouts en fin de fichier, garder toutes les entrées.
+- **Lot 6 (Atelier LLM)** : `run_e2e.py`, `s_llm_live` se termine juste avant le bloc `# ---------- story 30: the RAG workshop` ; un ajout du lot 6 en fin de `s_llm_live` touche la frontière, garder les deux blocs. `test_i18n.py` : la branche `llm_lab.yaml` précède immédiatement l'ajout RAG, même règle. `docs/guide.md` : section « Atelier LLM » distincte de « Atelier RAG ».
+- **Après fusion** (registre `deferred-work.md`) : retirer les clés orphelines `rag.chain_a`, `rag.chain_b`, `rag.chain_b_steps`, `rag.chain_steps`, `rag.comparison.*` d'`ui.yaml` ; passer au vocabulaire chunk / prompt les refus `rag_lab.check.*` et les comptes `rag_lab.noun` de `messages.yaml` ; mettre à jour les lignes `rag-screen`, `rag-chain` et `rag-stage-card` d'EXPERIENCE.md d'après `vues-atelier-rag.md`.

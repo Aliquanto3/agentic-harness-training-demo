@@ -2,7 +2,7 @@
 
 Décisions UX du lot 5, tenues ici et non dans les documents UX partagés (consigne de
 parallélisme). Référence visuelle : `maquette-atelier-rag.html` (v2, validée par Anaël le
-2026-10-05). Inspiration : `Images_Lot_5/RAG/` (RAG_0 à RAG_6, RAG_3 pour les flèches).
+2026-10-05 ; ses libellés en français précèdent le choix des noms anglais : le §2 fait foi). Inspiration : `Images_Lot_5/RAG/` (RAG_0 à RAG_6, RAG_3 pour les flèches).
 
 ## 1. Page
 

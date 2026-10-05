@@ -12116,6 +12116,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     _rag_lab_compare(r)
     _rag_lab_alt(r)
     _rag_lab_hybrid(r)
+    _rag_lab_presets(r)
 
 
 # Lot 5a-2: what « Dérouler » shows now: the steps, tiles and band visible, the tiles just
@@ -12518,6 +12519,176 @@ def _rag_lab_hybrid(r: Run) -> None:
         f"{refused.status_code} {refused.text[:160]}",
     )
     page.locator("#rag-reset-chain").click()
+
+
+def _rag_presets(r: Run) -> dict[str, dict[str, Any]]:
+    """The ready-made architectures' row (Composer): each button's text, pressed, marked."""
+    return r.page.eval_on_selector_all(
+        "#rag-presets .rag-preset",
+        "bs => Object.fromEntries(bs.map(b => [b.dataset.preset, { text: b.textContent,"
+        " pressed: b.getAttribute('aria-pressed'), title: b.title,"
+        " unavailable: b.classList.contains('is-unavailable') }]))",
+    )
+
+
+def _pressed_preset(r: Run) -> list[str]:
+    return [k for k, v in _rag_presets(r).items() if v["pressed"] == "true"]
+
+
+def _rag_lab_presets(r: Run) -> None:
+    """Lot 5b: the ready-made architectures, in Composer only. The shipped chain is « RAG +
+    reranking » (pressed); « RAG hybride » replaces the retrieval segment only (Dense
+    retrieval, BM25, Fusion (RRF)), the chunk size and the `top_k` edited kept, the chain valid;
+    reloaded, the chain kept and « RAG hybride » still pressed; a run: the Fusion shows both
+    searches' ranks, `ok`. A segment composed by hand: none pressed. A preset that would not
+    run (served unavailable by `page.route`): marked, still clickable."""
+    page = r.page
+    _rag_mode(r, "compose")
+    page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
+    catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
+    served = {p["id"]: p for p in catalog.get("presets", [])}
+    shown = _rag_presets(r)
+    r.check(
+        list(served) == ["dense", "hybrid", "rerank"]
+        and all(p["available"] for p in served.values())
+        and [s["kind"] for s in served["hybrid"]["segment"]]
+        == ["vector_search", "lexical_search", "fusion"]
+        and list(shown) == list(served)
+        and all(shown[k]["text"] == served[k]["label_text"] for k in served)
+        and all(served[k]["explain_text"] in shown[k]["title"] for k in served)
+        and _pressed_preset(r) == ["rerank"]
+        and page.locator("#rag-presets").is_visible(),
+        "Composer : trois architectures toutes faites (catalog.presets), « RAG + reranking » "
+        "pressé sur la chaîne livrée, l'explication en infobulle",
+        f"{list(served)} · {shown}",
+    )
+    _set_stage(r, "chunking", chunk_max_chars=300)
+    _set_stage(r, "context", top_k=2)
+    _set_stage(r, "vector_search", candidates=5)  # back to its served value by the preset
+    time.sleep(0.4)
+    dense_id = _seq_row(r, "vector_search").get_attribute("data-stage-id")
+    page.locator('#rag-presets .rag-preset[data-preset="hybrid"]').click()
+    time.sleep(0.8)  # the session's verdict
+    kinds = _chain_kinds(r)
+    served_candidates = str(served["hybrid"]["segment"][0]["params"]["candidates"])
+    candidates = (
+        _seq_row(r, "vector_search").locator('input[data-param="candidates"]').input_value()
+    )
+    kept_id = _seq_row(r, "vector_search").get_attribute("data-stage-id")
+    names = page.locator("#rag-seq-run .rag-seq-name").all_inner_texts()
+    chunk = _seq_row(r, "chunking").locator('input[data-param="chunk_max_chars"]').input_value()
+    top_k = _seq_row(r, "context").locator('input[data-param="top_k"]').input_value()
+    r.check(
+        kinds
+        == [
+            "chunking",
+            "embedding",
+            "vector_store",
+            "vector_search",
+            "lexical_search",
+            "fusion",
+            "context",
+            "generation",
+        ]
+        and names[2:5] == ["Dense retrieval", "BM25", "Fusion (RRF)"]
+        and (chunk, top_k) == ("300", "2")
+        and candidates == served_candidates != "5"
+        and kept_id == dense_id
+        and _pressed_preset(r) == ["hybrid"]
+        and not page.locator("#rag-seq .rag-chain-refusal").count()
+        and page.locator("#rag-run").is_enabled(),
+        "« RAG hybride » : le segment devient Dense retrieval, BM25, Fusion (RRF), le reste "
+        "inchangé (300 caractères, top_k 2 gardés), les candidats du Dense retrieval à la "
+        "valeur servie, son id gardé, le bouton pressé, la chaîne valide",
+        f"{kinds} · {names} · {chunk}/{top_k} · {candidates}/{served_candidates} · "
+        f"{dense_id}/{kept_id} · {_pressed_preset(r)}",
+    )
+    page.reload()
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    time.sleep(0.4)
+    r.check(
+        _chain_kinds(r)[3:6] == ["vector_search", "lexical_search", "fusion"]
+        and _pressed_preset(r) == ["hybrid"],
+        "après rechargement, la chaîne hybride est gardée, « RAG hybride » reste pressé",
+        f"{_chain_kinds(r)} · {_pressed_preset(r)}",
+    )
+    r.shot("59-atelier-rag-architectures")
+    ended, seq = _rag_lab_run(r, compose=True)
+    fusion = _stage_ended(r, seq, "fusion").get("items", [])
+    r.check(
+        ended["payload"]["status"] == "ok"
+        and fusion
+        and all(
+            {s["kind"] for s in i["sources"]} == {"vector_search", "lexical_search"} for i in fusion
+        )
+        and len(_stage_ended(r, seq, "context").get("items", [])) == 2,
+        "« RAG hybride » exécuté : la Fusion donne les rangs des deux recherches, run `ok`",
+        f"{ended['payload'].get('status')} · {len(fusion)} extraits",
+    )
+    _add_stage(r, "Reranking")
+    r.check(
+        _chain_kinds(r)[3:7] == ["vector_search", "lexical_search", "fusion", "rerank"]
+        and _pressed_preset(r) == [],
+        "segment composé à la main (hybride + reranking) : aucun bouton pressé",
+        f"{_chain_kinds(r)} · {_pressed_preset(r)}",
+    )
+    page.locator('#rag-presets .rag-preset[data-preset="dense"]').click()
+    time.sleep(0.8)
+    dense = (_chain_kinds(r), _pressed_preset(r))
+    page.locator('#rag-presets .rag-preset[data-preset="rerank"]').click()
+    time.sleep(0.8)
+    r.check(
+        dense[0][3:5] == ["vector_search", "context"]
+        and dense[1] == ["dense"]
+        and _chain_kinds(r)[3:6] == ["vector_search", "rerank", "context"]
+        and _pressed_preset(r) == ["rerank"],
+        "« RAG dense » puis « RAG + reranking » : chaque fois le segment remplacé, le bouton "
+        "pressé",
+        f"{dense} · {_chain_kinds(r)} · {_pressed_preset(r)}",
+    )
+    _rag_mode(r, "play")
+    r.check(
+        page.locator("#rag-presets").is_hidden(), "Dérouler : pas d'architectures toutes faites"
+    )
+    _rag_mode(r, "compose")
+
+    # A preset the session says would not run (the reranker absent, served by `page.route`):
+    # marked « indisponible », still clickable.
+    def unavailable(route) -> None:  # noqa: ANN001
+        response = route.fetch()
+        body = response.json()
+        for preset in (body.get("catalog") or {}).get("presets", []):
+            if preset["id"] == "rerank":
+                preset["available"], preset["reason_text"] = False, "Reranker absent (e2e)."
+        route.fulfill(response=response, json=body)
+
+    page.locator('#rag-presets .rag-preset[data-preset="dense"]').click()
+    time.sleep(0.8)
+    page.route("**/api/rag_lab", unavailable)
+    try:
+        page.reload()
+        expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+        marked = _rag_presets(r).get("rerank", {})
+        sweep = _contrast_sweep(r, ["#rag-presets"])
+        page.locator('#rag-presets .rag-preset[data-preset="rerank"]').click()
+        time.sleep(0.8)
+        r.check(
+            marked.get("unavailable")
+            and "indisponible" in marked.get("text", "")
+            and "Reranker absent (e2e)." in marked.get("title", "")
+            and _chain_kinds(r)[3:5] == ["vector_search", "rerank"]
+            and not sweep,
+            "préréglage indisponible : marqué « indisponible », la raison en infobulle, "
+            "cliquable (il s'applique), contrastes AA",
+            f"{marked} · {_chain_kinds(r)} · {sweep}",
+        )
+    finally:
+        page.unroute("**/api/rag_lab", unavailable)
+    page.reload()  # the real catalog again, not the faked one
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
 
 
 def _rag_lab_alt(r: Run) -> None:

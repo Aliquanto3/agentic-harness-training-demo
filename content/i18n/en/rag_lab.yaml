@@ -41,6 +41,8 @@ calls_text: "called"
 same_model_text: "Same model as the chunks' Embedding"
 question_received_text: "received"
 focus_play_hint_text: "The figures of this chain's last run are in Play mode."
+# Lot 5b: the ready-made architectures (Composer mode).
+presets_title_text: "Ready-made architectures"
 legend_tour_text: "Guided tour: the steps and components arrive one by one, move on with ▶."
 legend_live_text: "Run in progress…"
 legend_done_text: "Run finished: replay it with ◀ ▶."
@@ -292,3 +294,25 @@ phases:
     tag_text: "RUN"
     label_text: "Retrieval"
     help_text: "for each question"
+
+# Lot 5b: the ready-made architectures; applying one replaces the retrieval segment only,
+# its steps at their shipped settings. The explanation is the tooltip.
+presets:
+  dense:
+    label_text: "Dense RAG"
+    explain_text: >-
+      A single search, by meaning (Dense retrieval): the simplest RAG. Fast, but it may miss an
+      acronym or an exact number.
+  hybrid:
+    label_text: "Hybrid RAG (BM25 + dense)"
+    explain_text: >-
+      One search by meaning (Dense retrieval) and one by keywords (BM25), then the Fusion (RRF)
+      of their two rankings: the exact acronym and the paraphrase are both found. Two searches
+      instead of one: slower than dense RAG. A Reranking can be added by hand after the
+      Fusion.
+  rerank:
+    label_text: "RAG + reranking"
+    explain_text: >-
+      Dense retrieval keeps candidates, then the Reranker reads them again with the question and
+      reorders them: more accurate, slower. Only the retrieval segment goes back to the shipped
+      pipeline's: your Chunking, Embedding, vector store and prompt settings are kept.

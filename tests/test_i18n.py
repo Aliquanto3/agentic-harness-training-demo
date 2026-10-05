@@ -271,6 +271,12 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
             assert (tr.steps[key].explain_text is None) == (step.explain_text is None), key
         assert tr.groups["data"].label_text != fr.groups["data"].label_text
         assert tr.compose_text != fr.compose_text and tr.details_text != fr.details_text
+        # Lot 5b: the same ready-made architectures, exactly those of `PRESETS`, explained in
+        # the page's language.
+        assert list(tr.presets) == list(fr.presets) == list(rag_lab.PRESETS)
+        for key, preset in fr.presets.items():
+            assert tr.presets[key].explain_text != preset.explain_text, key
+        assert tr.presets_title_text != fr.presets_title_text
     elif rel == "mcp_lab.yaml":  # story 6 (2026-09-30): the same transports and methods
         fr, tr = mcp_lab.load_lab_content("fr"), mcp_lab.load_lab_content(lang)
         assert tr.title_text != fr.title_text and tr.intro_text != fr.intro_text

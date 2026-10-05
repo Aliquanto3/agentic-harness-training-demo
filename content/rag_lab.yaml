@@ -43,6 +43,8 @@ calls_text: "appelé"
 same_model_text: "Même modèle que l'Embedding des chunks"
 question_received_text: "reçue"
 focus_play_hint_text: "Les chiffres de la dernière exécution de cette chaîne sont en mode Dérouler."
+# Lot 5b : les architectures toutes faites (mode Composer).
+presets_title_text: "Architectures toutes faites"
 # Lot 5a-2 : la légende du pas-à-pas en mode Dérouler.
 legend_tour_text: "Visite guidée : les étapes et les composants arrivent un à un, avancez avec ▶."
 legend_live_text: "Exécution en cours…"
@@ -295,3 +297,26 @@ phases:
     tag_text: "RUN"
     label_text: "Retrieval"
     help_text: "à chaque question"
+
+# Lot 5b : les architectures toutes faites ; appliquer l'une remplace le segment de
+# récupération seulement, ses étapes aux réglages livrés. L'explication est l'infobulle.
+presets:
+  dense:
+    label_text: "RAG dense"
+    explain_text: >-
+      Une seule recherche, par le sens (Dense retrieval) : le RAG le plus simple. Rapide, mais
+      il peut manquer un sigle ou un nombre exact.
+  hybrid:
+    label_text: "RAG hybride (BM25 + dense)"
+    explain_text: >-
+      Une recherche par le sens (Dense retrieval) et une par mots-clés (BM25), puis la Fusion
+      (RRF) de leurs deux classements : le sigle exact et la paraphrase se retrouvent tous deux.
+      Deux recherches au lieu d'une : plus lent que le RAG dense. Un Reranking s'ajoute à la
+      main après la Fusion.
+  rerank:
+    label_text: "RAG + reranking"
+    explain_text: >-
+      Le Dense retrieval retient des candidats, puis le Reranker les relit avec la question et
+      les réordonne : plus juste, plus lent. Seul le segment de récupération revient à celui de
+      la chaîne livrée : les réglages du Chunking, de l'Embedding, du vector store et du prompt
+      restent les vôtres.

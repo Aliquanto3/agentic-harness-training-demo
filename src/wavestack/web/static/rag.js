@@ -406,6 +406,77 @@ function renderRefusals() {
   wires?.schedule();
 }
 
+// ---------- lot 5b: the ready-made architectures (vues-atelier-rag.md §8) ----------
+
+// The preset whose segment (kind, option, in order) is the chain's retrieval segment, if any.
+function currentPreset() {
+  const segment = (chain()?.stages ?? []).filter(isMovable);
+  return (
+    (store.catalog?.presets ?? []).find(
+      (preset) =>
+        preset.segment.length === segment.length &&
+        preset.segment.every((s, i) => s.kind === segment[i].kind && s.option === segment[i].option),
+    ) ?? null
+  );
+}
+
+// Applying a preset replaces the retrieval segment only, its stages at the settings the
+// session gives (the shipped ones); the session then says whether the chain runs. A stage of a
+// kind already there keeps its id.
+function applyPreset(preset) {
+  const pipeline = chain();
+  if (!pipeline) return;
+  const old = pipeline.stages.filter(isMovable);
+  const kept = pipeline.stages.filter((s) => !isMovable(s));
+  const used = new Set(kept.map((s) => s.id));
+  const idOf = (kind) => {
+    const same = old.find((s) => s.kind === kind && !used.has(s.id));
+    if (same) return same.id;
+    let n = 1;
+    while (used.has(`s${n}`) || old.some((s) => s.id === `s${n}`)) n += 1;
+    return `s${n}`;
+  };
+  const segment = preset.segment.map((s) => {
+    const stage = { id: idOf(s.kind), kind: s.kind, option: s.option, params: clone(s.params ?? {}) };
+    used.add(stage.id);
+    return stage;
+  });
+  const before = kept.findIndex((s) => s.kind === store.catalog.insert_before);
+  kept.splice(before < 0 ? kept.length : before, 0, ...segment);
+  pipeline.stages = kept;
+  changed();
+  document.querySelector(`#rag-presets .rag-preset[data-preset="${preset.id}"]`)?.focus();
+}
+
+function renderPresets() {
+  const box = $("rag-presets");
+  box.replaceChildren();
+  const presets = store.catalog?.presets ?? [];
+  box.hidden = store.mode !== "compose" || !presets.length || !chain();
+  if (box.hidden) return;
+  const title = text("presets_title_text");
+  box.setAttribute("aria-label", title);
+  box.append(el("span", "rag-presets-label", title));
+  const current = currentPreset();
+  for (const preset of presets) {
+    const label = preset.available ? preset.label_text : `${preset.label_text} (${text("unavailable_text")})`;
+    const button = el("button", "rag-preset", label);
+    button.type = "button";
+    button.dataset.preset = preset.id;
+    button.classList.toggle("is-unavailable", !preset.available);
+    // The explanation, why it would not run, what a run would meet: the tooltip, and the
+    // same text described to the keyboard and screen readers (`title` reaches neither).
+    const help = [preset.explain_text, preset.reason_text, preset.note_text].filter(Boolean).join("\n");
+    button.title = help;
+    const described = el("span", "rag-visually-hidden", help);
+    described.id = `rag-preset-help-${preset.id}`;
+    button.setAttribute("aria-describedby", described.id);
+    button.setAttribute("aria-pressed", String(preset.id === current?.id));
+    button.addEventListener("click", () => applyPreset(preset));
+    box.append(button, described);
+  }
+}
+
 function resetChains() {
   store.pipelines = [clone(store.defaultPipeline)];
   forgetChains();
@@ -920,6 +991,7 @@ function renderViews() {
   // « Composer »: everything visible; « Dérouler »: up to the frame shown.
   const shown = store.mode === "play" ? (stepper?.index ?? -1) : entries.length - 1;
   renderModes();
+  renderPresets();
   renderSequence(entries, shown);
   renderArchitecture(entries, shown);
   renderPills();

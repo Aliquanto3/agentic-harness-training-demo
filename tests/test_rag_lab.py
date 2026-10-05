@@ -1078,6 +1078,131 @@ def test_the_comparison_texts_are_gone_from_the_content():
     assert not fields & gone
 
 
+# ---------- lot 5b: the ready-made architectures ----------
+
+
+def test_the_catalog_renders_the_presets_their_segment_and_availability(index):
+    """AD-1: `catalog.presets`, three entries (id, texts, segment at its shipped settings,
+    availability), in the order of `PRESETS`; the shipped chain is « RAG + reranking »."""
+    session, _ = ready(index)
+    catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
+    presets = {p["id"]: p for p in session.rag_lab_state()["catalog"]["presets"]}
+    assert list(presets) == ["dense", "hybrid", "rerank"] == list(rag_lab.PRESETS)
+    content = rag_lab.load_lab_content()
+    candidates = rag_lab.param(catalog.default.stages[3], "candidates", catalog)
+    assert presets["hybrid"] == {
+        "id": "hybrid",
+        "label_text": "RAG hybride (BM25 + dense)",
+        "explain_text": content.presets["hybrid"].explain_text,
+        "segment": [
+            {"kind": "vector_search", "option": "cosine", "params": {"candidates": candidates}},
+            {"kind": "lexical_search", "option": "bm25", "params": {"candidates": candidates}},
+            {"kind": "fusion", "option": "rrf", "params": {}},
+        ],
+        "available": True,
+        "reason_text": None,
+        "note_text": None,
+    }
+    assert all(p["note_text"] is None for p in presets.values())  # every model on the PC
+    assert [s["kind"] for s in presets["dense"]["segment"]] == ["vector_search"]
+    assert [s["kind"] for s in presets["rerank"]["segment"]] == ["vector_search", "rerank"]
+    assert all(p["available"] and p["label_text"] for p in presets.values())
+    # « RAG + reranking » is the shipped chain; each preset only replaces its segment.
+    shipped = catalog.preset_pipeline("rerank")
+    assert shipped.model_dump() == catalog.default.model_dump()
+    for key, segment in rag_lab.PRESETS.items():
+        chain = catalog.preset_pipeline(key)
+        assert [(s.kind, s.option) for s in chain.stages[3:-2]] == list(segment)
+        fixed = [s.model_dump(exclude={"id"}) for s in (*chain.stages[:3], *chain.stages[-2:])]
+        default = catalog.default.stages
+        assert fixed == [s.model_dump(exclude={"id"}) for s in (*default[:3], *default[-2:])]
+        assert rag_lab.check_pipeline(chain, catalog) is None, key
+    # No « hybride + reranking »: it is composed by hand.
+    assert not any(
+        {k for k, _ in s} >= {"lexical_search", "rerank"} for s in rag_lab.PRESETS.values()
+    )
+
+
+def test_a_preset_says_what_a_run_would_meet_in_its_options_notes(index):
+    """The reranker's files missing: « RAG + reranking » runs (the stage is skipped), its
+    note says why, the reranking option's own; the others have none."""
+    place_model()
+    session, _ = lab_session(rerank_config(index))  # no reranker file
+    catalog = session.rag_lab_state()["catalog"]
+    presets = {p["id"]: p for p in catalog["presets"]}
+    rerank = next(s for s in catalog["stages"] if s["kind"] == "rerank")["options"][0]
+    assert presets["rerank"]["available"] and "modèle absent" in rerank["note_text"]
+    assert presets["rerank"]["note_text"] == rerank["note_text"]
+    assert presets["dense"]["note_text"] is None and presets["hybrid"]["note_text"] is None
+
+
+@pytest.mark.parametrize("absent", ["removed", "unavailable"])
+def test_a_preset_the_session_would_refuse_is_unavailable_with_its_reason(index, absent):
+    """A catalog without a reranker: « RAG + reranking » unavailable, the session's refusal
+    (on the Reranking's line) as its reason; the two others available."""
+    session, _ = ready(index)
+    catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
+    if absent == "removed":
+        del catalog.options[("rerank", "declared")]
+    else:
+        state = catalog.options[("rerank", "declared")]
+        state.available, state.reason_text = False, "fichiers du reranker absents"
+    presets = {p["id"]: p for p in catalog.payload()["presets"]}
+    assert presets["dense"]["available"] and presets["hybrid"]["available"]
+    assert presets["rerank"]["available"] is False
+    reason, stage_id = rag_lab.check_pipeline(catalog.preset_pipeline("rerank"), catalog)
+    assert presets["rerank"]["reason_text"] == reason and "« Reranking »" in reason
+    assert catalog.preset_pipeline("rerank").find("rerank").id == stage_id  # on its line
+    if absent == "unavailable":
+        assert "fichiers du reranker absents" in reason
+
+
+def test_the_hybrid_preset_runs_and_the_fusion_shows_both_ranks(index):
+    """« RAG hybride » on a chain whose chunk size and `top_k` were edited: they are kept, the
+    segment's stages at their shipped settings; the run ends `ok`, the Fusion gives each
+    excerpt's rank in both searches."""
+    session, _ = ready(index)
+    catalog = session._rag_lab_catalog(rag_lab.load_lab_content())
+    hybrid = catalog.preset_pipeline("hybrid")
+    stage(hybrid, "chunking").params["chunk_max_chars"] = 300
+    stage(hybrid, "context").params["top_k"] = 2
+    assert rag_lab.check_pipeline(hybrid, catalog) is None
+    events = run(session, QUESTION, [hybrid])
+    assert run_status(events) == "ok"
+    assert {e.payload["kind"] for e in events if e.kind == "rag_lab_stage_ended"} >= {
+        "vector_search",
+        "lexical_search",
+        "fusion",
+    }
+    assert not [
+        e for e in events if e.kind == "rag_lab_stage_ended" and e.payload["kind"] == "rerank"
+    ]
+    fusion = ended(events, "fusion")["items"]
+    assert fusion
+    for item in fusion:
+        assert {s["kind"] for s in item["sources"]} == {"vector_search", "lexical_search"}
+    assert len(ended(events, "context")["items"]) == 2
+
+
+@pytest.mark.parametrize("change", ["missing", "extra"])
+def test_the_content_refuses_presets_other_than_the_declared_ones(change):
+    data = yaml.safe_load(config.content_file("rag_lab.yaml").read_text(encoding="utf-8"))
+    if change == "missing":
+        del data["presets"]["hybrid"]
+    else:
+        data["presets"]["hybrid_rerank"] = dict(data["presets"]["hybrid"])
+    with pytest.raises(ValueError, match="presets : il faut exactement dense, hybrid, rerank"):
+        rag_lab.RagLabContent.model_validate(data)
+
+
+@pytest.mark.parametrize("lang", ["fr", "en", "de"])
+def test_every_language_names_the_three_presets(lang):
+    content = rag_lab.load_lab_content(lang)
+    assert list(content.presets) == list(rag_lab.PRESETS)
+    assert content.presets_title_text
+    assert all(p.label_text and p.explain_text for p in content.presets.values())
+
+
 _SKIP = {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", "screenshots"}
 
 

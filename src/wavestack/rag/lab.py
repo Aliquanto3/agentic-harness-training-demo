@@ -155,6 +155,17 @@ STEPS: dict[str, SequenceStep] = {
     ),
 }
 
+# ---------- lot 5b: the ready-made architectures (vues-atelier-rag.md §8) ----------
+
+# Each preset's retrieval segment, (kind, option) in order: applying one replaces the chain's
+# segment only, its stages at their shipped settings. No « hybride + reranking »: it is
+# composed by hand.
+PRESETS: dict[str, tuple[tuple[str, str], ...]] = {
+    "dense": (("vector_search", "cosine"),),
+    "hybrid": (("vector_search", "cosine"), ("lexical_search", "bm25"), ("fusion", "rrf")),
+    "rerank": (("vector_search", "cosine"), ("rerank", "declared")),  # the shipped chain's
+}
+
 
 # ---------- the page's texts (content/rag_lab.yaml, AD-19) ----------
 
@@ -215,6 +226,13 @@ class GroupText(_Strict):
     label_text: str = Field(min_length=1)
 
 
+class PresetText(_Strict):
+    """A ready-made architecture: its button's name and its explanation (the tooltip)."""
+
+    label_text: str = Field(min_length=1)
+    explain_text: str = Field(min_length=1)
+
+
 class PhaseText(_Strict):
     """A band of the sequence: « BUILD · Indexing », « une fois pour toutes… »."""
 
@@ -256,6 +274,8 @@ class RagLabContent(_Strict):
     question_received_text: str = Field(min_length=1)
     # Composer, the last run being the edited chain's: its figures are in « Dérouler ».
     focus_play_hint_text: str = Field(min_length=1)
+    # Lot 5b: the row of the ready-made architectures (Composer).
+    presets_title_text: str = Field(min_length=1)
     # Lot 5a-2: the stepper's legend in « Dérouler » (guided tour, live, ended, replay).
     legend_tour_text: str = Field(min_length=1)
     legend_live_text: str = Field(min_length=1)
@@ -288,11 +308,12 @@ class RagLabContent(_Strict):
     components: dict[str, ComponentText]
     groups: dict[str, GroupText]
     phases: dict[str, PhaseText]
+    presets: dict[str, PresetText]
 
     @model_validator(mode="after")
     def _every_kind_option_and_setting(self) -> RagLabContent:
-        """A text for each kind, option, setting, step, component, group and phase the
-        workshop offers, and no other."""
+        """A text for each kind, option, setting, step, component, group, phase and preset
+        the workshop offers, and no other."""
         if set(self.stages) != set(KINDS):
             raise ValueError(f"stages : il faut exactement {', '.join(KINDS)}")
         for name, keys in (
@@ -300,6 +321,7 @@ class RagLabContent(_Strict):
             ("components", COMPONENTS),
             ("groups", GROUPS),
             ("phases", PHASES),
+            ("presets", PRESETS),
         ):
             if set(getattr(self, name)) != set(keys):
                 raise ValueError(f"{name} : il faut exactement {', '.join(keys)}")
@@ -452,7 +474,66 @@ class Catalog:
                     "options": options,
                 }
             )
-        return {"stages": stages, "insert_before": FIXED_TAIL[0], **self._views()}
+        return {
+            "stages": stages,
+            "insert_before": FIXED_TAIL[0],
+            **self._views(),
+            "presets": self._presets(),
+        }
+
+    def preset_pipeline(self, preset: str) -> Pipeline:
+        """The shipped chain, its retrieval segment replaced by the preset's, each stage of
+        it at its shipped settings."""
+        segment = [
+            (kind, option, self._shipped_params(kind, option)) for kind, option in PRESETS[preset]
+        ]
+        head = [s for s in self.default.stages if s.kind in FIXED_HEAD]
+        tail = [s for s in self.default.stages if s.kind in FIXED_TAIL]
+        stages = [(s.kind, s.option, dict(s.params)) for s in head]
+        stages += segment + [(s.kind, s.option, dict(s.params)) for s in tail]
+        return Pipeline(
+            label_text=self.default.label_text,
+            stages=[
+                Stage(id=f"s{i}", kind=kind, option=option, params=params)
+                for i, (kind, option, params) in enumerate(stages, start=1)
+            ],
+        )
+
+    def _shipped_params(self, kind: str, option: str) -> dict[str, int]:
+        probe = Stage(id="x", kind=kind, option=option)
+        return {name: param(probe, name, self) for name in PARAMS.get((kind, option), ())}
+
+    def _presets(self) -> list[dict[str, Any]]:
+        """Lot 5b: the ready-made architectures, their texts, their segment (kind, option,
+        shipped settings) and whether they run now: the session's verdict (`check_pipeline`)
+        on the shipped chain with that segment, its refusal as the reason; the notes of its
+        options (what a run would meet: the reranker's files missing), in its language."""
+        presets = []
+        for key in PRESETS:
+            chain = self.preset_pipeline(key)
+            segment = chain.stages[len(FIXED_HEAD) : -len(FIXED_TAIL)]
+            refusal = check_pipeline(chain, self)
+            notes = []
+            for stage in segment:
+                state = self.options.get((stage.kind, stage.option))
+                note = _rendered(state.note_text, self.lang) if state else None
+                if note and note not in notes:
+                    notes.append(note)
+            presets.append(
+                {
+                    "id": key,
+                    "label_text": self.content.presets[key].label_text,
+                    "explain_text": self.content.presets[key].explain_text,
+                    "segment": [
+                        {"kind": s.kind, "option": s.option, "params": dict(s.params)}
+                        for s in segment
+                    ],
+                    "available": refusal is None,
+                    "reason_text": refusal[0] if refusal else None,
+                    "note_text": " ".join(notes) or None,
+                }
+            )
+        return presets
 
     def _views(self) -> dict[str, Any]:
         """Lot 5a: the sequence's steps (the table step → components), the architecture's

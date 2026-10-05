@@ -643,6 +643,50 @@ body.rag-page {
   outline-offset: -4px;
 }
 
+/* Lot 5b: the ready-made architectures (Composer), the current one pressed; one that would
+   not run now is marked (dashed, « indisponible ») and stays clickable. */
+.rag-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.rag-presets-label {
+  color: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  text-transform: uppercase;
+}
+
+.rag-preset {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--rounded-full);
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1
+    var(--typography-label-font-family);
+  cursor: pointer;
+}
+
+.rag-preset[aria-pressed="true"] {
+  border-width: 2px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-deep);
+}
+
+.rag-preset[aria-pressed="true"]::before {
+  content: "● " / "";
+}
+
+.rag-preset.is-unavailable {
+  border-style: dashed;
+  border-color: var(--color-ink-soft);
+  color: var(--color-ink-soft);
+}
+
 /* Lot 5a-2: « Dérouler »'s stepper (diagram.js, its rules in pages.css) and its legend. */
 .rag-stepper-box {
   display: flex;
