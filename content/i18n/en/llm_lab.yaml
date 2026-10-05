@@ -1,7 +1,7 @@
 # English translation of content/llm_lab.yaml (languages 4/5, AD-19): same keys, same
 # placeholders. Validated by wavestack.session.llm_lab.LabContent.
 
-title_text: "Bare LLM: inside the model"
+title_text: "LLM workshop: inside the model"
 intro_text: >-
   No bricks here: no system prompt, no history, no tools, no memory. We look at what the
   model does by itself: split the text into tokens, turn them into vectors, then produce

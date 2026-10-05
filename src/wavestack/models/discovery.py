@@ -58,6 +58,9 @@ class ModelCandidate(BaseModel):
     publisher_hint: str | None = None
     params_label: str | None = None
     size_bytes: int | None = None
+    # Lot 3 of 2026-10-04: a served model's quantization (Ollama's `quantization_level`),
+    # the third rule of the cards' grouping (`catalog.group_sources`).
+    quantization: str | None = None
     server_template: str | None = Field(default=None, exclude=True)
     native_context: int | None = Field(default=None, exclude=True)
     server_context: int | None = Field(default=None, exclude=True)
@@ -198,6 +201,7 @@ def _server_candidates(
             publisher_hint=model.family,
             params_label=model.parameter_size,
             size_bytes=model.size,
+            quantization=model.quantization,
         )
         if model.engine == "ollama":
             blob = blobs.get(model.name)

@@ -344,6 +344,8 @@ def test_reload_failure_brings_the_same_model_back_with_its_window(tmp_path):
     assert "context" not in config.read_settings()
     assert (session.configured_window, session._window) == (4096, 4096)
     assert session.active_model()["label"] == "Qwen3.5-2B"
+    # Lot 3 of 2026-10-04: a window refused leaves the model's card as it was, never « Erreur ».
+    assert session.load_errors() == []
 
 
 def test_stop_during_the_reload_brings_the_old_window_back(tmp_path):

@@ -3,10 +3,23 @@
 // excerpts, their ranks and scores, the durations and the memory are built in Python. The
 // page lays them out and runs no computation of its own.
 //
+// Lot 5a: one section, three views side by side (vues-atelier-rag.md): the sequence (BUILD
+// then RUN, a line per step), the architecture (the components the chain calls on, by
+// group) and the focus on one step, every step's detail folded under them. The table step →
+// components is the session's (`catalog.steps`). In « Composer » the chain's editor lives in
+// the sequence's lines; the A/B comparison is gone from the page.
+//
+// Lot 5a-2: in « Dérouler » the steps and the components arrive one by one, by a stepper
+// (`diagram.createStepper`) whose frames are the sequence's steps: every step pushed for a
+// guided tour without a run, else one frame per step the run reached (its `rag_lab_*` events,
+// live). The frame shown lights its step and its components, its wires flow while it runs,
+// the focus shows its figures; the steps and tiles after it keep their place, invisible.
+//
 // Languages (4/5): the page's own texts come from `content/ui.yaml` (section `rag`) through
 // `t()`, its formats from the language (`i18n.js`); the workshop's texts stay those of
 // `content/rag_lab.yaml`, read in the session's language by `GET /api/rag_lab`.
 
+import { createStepper, light, svgEl, wire, wireLayer } from "./diagram.js";
 import { numberFormat, ready as textsReady, t } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
@@ -22,9 +35,13 @@ const store = {
   lastSeq: 0,
   pending: false, // a POST sent, not answered yet
   run: null, // the projection of the last run: its lanes and their stages
-  pipelines: [], // the chains being edited: A, and B when compared
-  refusals: [], // why the session would refuse them (`POST /api/rag_lab/validate`)
+  pipelines: [], // the chain being edited (one: the A/B comparison is gone from the page)
+  refusals: [], // why the session would refuse it (`POST /api/rag_lab/validate`)
   validating: 0, // the last validation asked, so that a late answer is dropped
+  mode: "play", // « compose » or « play » (vues-atelier-rag.md §1)
+  current: null, // the step shown in the focus (its key), or none
+  replaying: false, // `last_run` being read again: one render at its end, not one per event
+  land: false, // a run just ended: its stepper lands on its last frame, or its failed step
 };
 
 // ---------- small helpers ----------
@@ -55,23 +72,26 @@ const fmtScore = (x) => {
 };
 // « 1er », « 2ᵉ » (« No. 2 », « Nr. 2 »): a plural pair of the catalogue, by the rank.
 const fmtRank = (n) => (typeof n === "number" ? t("rag.rank", { count: n }) : t("rag.rank_absent"));
+const labelled = (label, value) => t("common.format.label_value", { label, value });
 
 const QUESTION_KEY = "wavestack.ragLab.question";
-const CHAINS_KEY = "wavestack.ragLab"; // the chains being edited (a browser setting only)
+const CHAINS_KEY = "wavestack.ragLab"; // the chain being edited (a browser setting only)
+const MODE_KEY = "wavestack.ragLab.mode";
+const MODES = ["compose", "play"];
 
-function loadQuestion() {
+function stored(key) {
   try {
-    return localStorage.getItem(QUESTION_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function saveQuestion(value) {
+function keep(key, value) {
   try {
-    localStorage.setItem(QUESTION_KEY, value);
+    localStorage.setItem(key, value);
   } catch {
-    // no storage (private window, blocked data): the question lives with the page
+    // no storage (private window, blocked data): the value lives with the page
   }
 }
 
@@ -114,11 +134,16 @@ function optionInfo(kind, option) {
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
-// The chains remembered by the browser, when they still have the shipped chain's stages.
+function chain() {
+  return store.pipelines[0] ?? null;
+}
+
+// The chain remembered by the browser, when it still has the shipped chain's shape. A page
+// of before lot 5a may have saved two (A and B): only A is kept.
 function loadChains() {
   let saved = null;
   try {
-    saved = JSON.parse(localStorage.getItem(CHAINS_KEY) || "null");
+    saved = JSON.parse(stored(CHAINS_KEY) || "null");
   } catch {
     saved = null;
   }
@@ -146,17 +171,13 @@ function loadChains() {
     const { label_fr: label, ...rest } = p;
     return { label_text: label, ...rest };
   };
-  const pipelines = Array.isArray(saved?.pipelines) ? saved.pipelines.slice(0, 2).map(renamed) : [];
+  const pipelines = Array.isArray(saved?.pipelines) ? saved.pipelines.slice(0, 1).map(renamed) : [];
   if (!pipelines.length || !pipelines.every(shaped)) return [clone(store.defaultPipeline)];
   return pipelines;
 }
 
 function saveChains() {
-  try {
-    localStorage.setItem(CHAINS_KEY, JSON.stringify({ pipelines: store.pipelines }));
-  } catch {
-    // no storage: the chains live with the page
-  }
+  keep(CHAINS_KEY, JSON.stringify({ pipelines: store.pipelines }));
 }
 
 function forgetChains() {
@@ -167,7 +188,7 @@ function forgetChains() {
   }
 }
 
-function paramInput(lane, stage, param) {
+function paramInput(stage, param) {
   const label = el("label", "rag-param");
   label.append(el("span", "rag-param-name", param.label_text));
   const input = el("input", "rag-param-input");
@@ -176,7 +197,7 @@ function paramInput(lane, stage, param) {
   input.max = String(param.max);
   input.step = "1";
   input.value = String(stage.params?.[param.name] ?? param.default);
-  input.dataset.lane = lane;
+  input.dataset.lane = "a";
   input.dataset.stageId = stage.id;
   input.dataset.param = param.name;
   input.title = t("rag.param_range", { min: fmtInt(param.min), max: fmtInt(param.max), unit: param.unit_text }).trim();
@@ -196,10 +217,10 @@ function paramInput(lane, stage, param) {
   return label;
 }
 
-function optionSelect(lane, stage, info) {
+function optionSelect(stage, info) {
   const select = el("select", "rag-option");
   select.setAttribute("aria-label", t("rag.option_label", { stage: info.label_text }));
-  select.dataset.lane = lane;
+  select.dataset.lane = "a";
   select.dataset.stageId = stage.id;
   for (const option of info.options) {
     const item = el("option", null, option.available ? option.label_text : `${option.label_text} (${text("unavailable_text")})`);
@@ -215,60 +236,49 @@ function optionSelect(lane, stage, info) {
     // The option's own settings, at their shipped values.
     stage.params = Object.fromEntries((option?.params ?? []).map((p) => [p.name, p.default]));
     changed();
-    document.querySelector(`select.rag-option[data-lane="${lane}"][data-stage-id="${stage.id}"]`)?.focus();
+    document.querySelector(`select.rag-option[data-stage-id="${stage.id}"]`)?.focus();
   });
   return select;
 }
 
-function chainCard(lane, stage, index) {
+// A chain stage's editor, in its line of the sequence (Composer): its option, its settings,
+// what a run would meet, and ▲ ▼ Retirer for the retrieval segment.
+function stageControls(stage, index) {
   const info = stageInfo(stage.kind);
   const option = optionInfo(stage.kind, stage.option);
-  const card = el("li", "rag-chain-card");
-  card.dataset.kind = stage.kind;
-  card.dataset.stageId = stage.id;
-  if (stage.kind === "generation") card.classList.add("is-model");
-  const head = el("p", "rag-chain-head");
-  head.append(el("span", "rag-chain-number", String(index + 1)), el("span", "rag-chain-name", info?.label_text ?? stage.kind));
-  card.append(head);
-  card.append(el("p", "rag-chain-option", option?.label_text ?? stage.option));
-  if (info && info.options.length > 1) card.append(optionSelect(lane, stage, info));
-  for (const param of option?.params ?? []) card.append(paramInput(lane, stage, param));
-  if (option?.note_text) card.append(el("p", "rag-chain-note", option.note_text));
+  const box = el("div", "rag-seq-controls");
+  if (info && info.options.length > 1) box.append(optionSelect(stage, info));
+  else box.append(el("span", "rag-chain-option", option?.label_text ?? stage.option));
+  for (const param of option?.params ?? []) box.append(paramInput(stage, param));
+  if (info?.movable) box.append(moveButtons(index));
+  if (option?.note_text) box.append(el("p", "rag-chain-note", option.note_text));
   for (const other of info?.options ?? []) {
     if (!other.available && other.reason_text) {
-      card.append(
-        el("p", "rag-chain-unavailable", t("common.format.label_value", { label: other.label_text, value: other.reason_text }))
-      );
+      box.append(el("p", "rag-chain-unavailable", labelled(other.label_text, other.reason_text)));
     }
   }
-  card.append(el("p", "rag-chain-explain", info?.explain_text ?? ""));
-  if (info?.movable) card.append(moveButtons(lane, index));
-  return card;
+  return box;
 }
 
 // Increment 4: a stage of the retrieval segment moves by buttons (keyboard included), never
 // by drag and drop, and can be removed; the session says whether the chain still runs.
-function pipelineOf(lane) {
-  return store.pipelines[lane === "a" ? 0 : 1];
-}
-
 function isMovable(stage) {
   return Boolean(stage && stageInfo(stage.kind)?.movable);
 }
 
-function moveButtons(lane, index) {
-  const stages = pipelineOf(lane).stages;
+function moveButtons(index) {
+  const stages = chain().stages;
   const box = el("div", "rag-chain-moves");
-  const button = (label, symbol, disabled, action) => {
+  const button = (label, symbol, action, disabled, onClick) => {
     const b = el("button", "rag-move-button", symbol);
     b.type = "button";
     b.setAttribute("aria-label", label);
     b.title = label;
     b.disabled = disabled;
-    b.dataset.lane = lane;
+    b.dataset.lane = "a";
     b.dataset.stageId = stages[index].id;
-    b.dataset.action = symbol === "◀" ? "before" : symbol === "▶" ? "after" : "remove";
-    b.addEventListener("click", action);
+    b.dataset.action = action;
+    b.addEventListener("click", onClick);
     return b;
   };
   const move = (delta) => () => {
@@ -276,26 +286,27 @@ function moveButtons(lane, index) {
     stages.splice(index + delta, 0, stage);
     changed();
     const action = delta < 0 ? "before" : "after";
-    const again = document.querySelector(`.rag-move-button[data-lane="${lane}"][data-stage-id="${stage.id}"][data-action="${action}"]`);
-    (again && !again.disabled ? again : document.querySelector(`.rag-chain[data-lane="${lane}"] [data-stage-id="${stage.id}"] .rag-move-button:not(:disabled)`))?.focus();
+    const again = document.querySelector(`.rag-move-button[data-stage-id="${stage.id}"][data-action="${action}"]`);
+    (again && !again.disabled ? again : document.querySelector(`#rag-seq [data-stage-id="${stage.id}"] .rag-move-button:not(:disabled)`))?.focus();
   };
+  const remove = text("remove_text") || t("rag.remove");
   box.append(
-    button(text("move_before_text") || t("rag.move_before"), "◀", !isMovable(stages[index - 1]), move(-1)),
-    button(text("move_after_text") || t("rag.move_after"), "▶", !isMovable(stages[index + 1]), move(1)),
-    button(text("remove_text") || t("rag.remove"), text("remove_text") || t("rag.remove"), false, () => {
+    button(text("move_before_text") || t("rag.move_before"), "▲", "before", !isMovable(stages[index - 1]), move(-1)),
+    button(text("move_after_text") || t("rag.move_after"), "▼", "after", !isMovable(stages[index + 1]), move(1)),
+    button(remove, remove, "remove", false, () => {
       stages.splice(index, 1);
       changed();
-      document.querySelector(`#rag-palette-${lane} select`)?.focus();
+      document.querySelector("#rag-palette-a select")?.focus();
     }),
   );
   return box;
 }
 
-function renderPalette(lane) {
-  const box = $(`rag-palette-${lane}`);
+function renderPalette() {
+  const box = $("rag-palette-a");
   box.replaceChildren();
-  const pipeline = pipelineOf(lane);
-  if (!pipeline || !store.catalog) return;
+  const pipeline = chain();
+  if (!pipeline || !store.catalog || store.mode !== "compose") return;
   const present = new Set(pipeline.stages.map((s) => s.kind));
   const absent = store.catalog.stages.filter((s) => s.movable && !present.has(s.kind));
   if (!absent.length) return;
@@ -326,18 +337,18 @@ function renderPalette(lane) {
     const before = pipeline.stages.findIndex((s) => s.kind === store.catalog.insert_before);
     pipeline.stages.splice(before < 0 ? pipeline.stages.length : before, 0, stage);
     changed();
-    document.querySelector(`#rag-palette-${lane} select`)?.focus();
+    document.querySelector("#rag-palette-a select")?.focus();
   });
   box.append(label, add);
 }
 
 function changed() {
   saveChains();
-  renderChains();
+  redraw();
   validateChains();
 }
 
-// The session's verdict on the chains being edited, shown on the card at fault.
+// The session's verdict on the chain being edited, shown on the line at fault.
 // Asked once the edits pause (a run's fields send several at once): one request, the last.
 let validationTimer = null;
 function validateChains() {
@@ -355,7 +366,7 @@ async function askValidation() {
     // A chain the session cannot even read: back to the shipped one.
     store.pipelines = [clone(store.defaultPipeline)];
     forgetChains();
-    renderChains();
+    redraw();
     validateChains();
     return;
   } else {
@@ -376,68 +387,617 @@ function announceRefusals() {
 
 function renderRefusals() {
   for (const node of document.querySelectorAll(".rag-chain-refusal")) node.remove();
-  for (const card of document.querySelectorAll(".rag-chain-card.is-invalid")) card.classList.remove("is-invalid");
-  for (const lane of ["a", "b"]) {
-    const general = $(`rag-chain-refusal-${lane}`);
-    general.hidden = true;
-    general.textContent = "";
-  }
+  for (const row of document.querySelectorAll(".rag-chain-card.is-invalid")) row.classList.remove("is-invalid");
+  const general = $("rag-chain-refusal-a");
+  general.hidden = true;
+  general.textContent = "";
   for (const refusal of store.refusals) {
-    const lane = refusal.lane ?? "a";
-    const card = refusal.stage_id
-      ? document.querySelector(`.rag-chain[data-lane="${lane}"] .rag-chain-card[data-stage-id="${refusal.stage_id}"]`)
-      : null;
-    if (card) {
-      card.classList.add("is-invalid");
-      card.querySelector(".rag-chain-head").after(el("p", "rag-chain-refusal", refusal.reason_text));
+    const row = refusal.stage_id ? document.querySelector(`#rag-seq .rag-chain-card[data-stage-id="${refusal.stage_id}"]`) : null;
+    // A line not shown yet (« Dérouler », after the frame shown): said in the general line.
+    if (row && !row.classList.contains("is-hidden")) {
+      row.classList.add("is-invalid");
+      row.querySelector(".rag-seq-head").after(el("p", "rag-chain-refusal", refusal.reason_text));
     } else {
-      const general = $(`rag-chain-refusal-${lane}`);
       general.hidden = false;
-      general.textContent = refusal.reason_text;
+      general.textContent = [general.textContent, refusal.reason_text].filter(Boolean).join(" ");
     }
   }
   announceRefusals();
+  wires?.schedule();
 }
 
-function renderChains() {
-  if (!store.catalog) return;
-  const compared = store.pipelines.length > 1;
-  $("rag-chain-title-a").hidden = !compared;
-  $("rag-chain-title-b").hidden = !compared;
-  $("rag-chain-title-a").textContent = text("chain_a_text") || t("rag.chain_a");
-  $("rag-chain-title-b").textContent = text("chain_b_text") || t("rag.chain_b");
-  $("rag-chain-b").hidden = !compared;
-  $("rag-compare").checked = compared;
-  store.pipelines.forEach((pipeline, i) => {
-    const lane = i === 0 ? "a" : "b";
-    const list = $(i === 0 ? "rag-chain" : "rag-chain-b");
-    list.replaceChildren(...pipeline.stages.map((stage, index) => chainCard(lane, stage, index)));
-    renderPalette(lane);
+// ---------- lot 5b: the ready-made architectures (vues-atelier-rag.md §8) ----------
+
+// The preset whose segment (kind, option, in order) is the chain's retrieval segment, if any.
+function currentPreset() {
+  const segment = (chain()?.stages ?? []).filter(isMovable);
+  return (
+    (store.catalog?.presets ?? []).find(
+      (preset) =>
+        preset.segment.length === segment.length &&
+        preset.segment.every((s, i) => s.kind === segment[i].kind && s.option === segment[i].option),
+    ) ?? null
+  );
+}
+
+// Applying a preset replaces the retrieval segment only, its stages at the settings the
+// session gives (the shipped ones); the session then says whether the chain runs. A stage of a
+// kind already there keeps its id.
+function applyPreset(preset) {
+  const pipeline = chain();
+  if (!pipeline) return;
+  const old = pipeline.stages.filter(isMovable);
+  const kept = pipeline.stages.filter((s) => !isMovable(s));
+  const used = new Set(kept.map((s) => s.id));
+  const idOf = (kind) => {
+    const same = old.find((s) => s.kind === kind && !used.has(s.id));
+    if (same) return same.id;
+    let n = 1;
+    while (used.has(`s${n}`) || old.some((s) => s.id === `s${n}`)) n += 1;
+    return `s${n}`;
+  };
+  const segment = preset.segment.map((s) => {
+    const stage = { id: idOf(s.kind), kind: s.kind, option: s.option, params: clone(s.params ?? {}) };
+    used.add(stage.id);
+    return stage;
   });
-  if (!compared) {
-    $("rag-chain-b").replaceChildren();
-    $("rag-palette-b").replaceChildren();
-  }
-  renderRefusals();
+  const before = kept.findIndex((s) => s.kind === store.catalog.insert_before);
+  kept.splice(before < 0 ? kept.length : before, 0, ...segment);
+  pipeline.stages = kept;
+  changed();
+  document.querySelector(`#rag-presets .rag-preset[data-preset="${preset.id}"]`)?.focus();
 }
 
-function setCompare(on) {
-  const [a] = store.pipelines;
-  if (on) {
-    const b = clone(a);
-    b.label_text = "B";
-    store.pipelines = [a, b];
-  } else {
-    store.pipelines = [a];
+function renderPresets() {
+  const box = $("rag-presets");
+  box.replaceChildren();
+  const presets = store.catalog?.presets ?? [];
+  box.hidden = store.mode !== "compose" || !presets.length || !chain();
+  if (box.hidden) return;
+  const title = text("presets_title_text");
+  box.setAttribute("aria-label", title);
+  box.append(el("span", "rag-presets-label", title));
+  const current = currentPreset();
+  for (const preset of presets) {
+    const label = preset.available ? preset.label_text : `${preset.label_text} (${text("unavailable_text")})`;
+    const button = el("button", "rag-preset", label);
+    button.type = "button";
+    button.dataset.preset = preset.id;
+    button.classList.toggle("is-unavailable", !preset.available);
+    // The explanation, why it would not run, what a run would meet: the tooltip, and the
+    // same text described to the keyboard and screen readers (`title` reaches neither).
+    const help = [preset.explain_text, preset.reason_text, preset.note_text].filter(Boolean).join("\n");
+    button.title = help;
+    const described = el("span", "rag-visually-hidden", help);
+    described.id = `rag-preset-help-${preset.id}`;
+    button.setAttribute("aria-describedby", described.id);
+    button.setAttribute("aria-pressed", String(preset.id === current?.id));
+    button.addEventListener("click", () => applyPreset(preset));
+    box.append(button, described);
   }
-  changed();
 }
 
 function resetChains() {
   store.pipelines = [clone(store.defaultPipeline)];
   forgetChains();
-  renderChains();
+  redraw();
   validateChains();
+}
+
+// ---------- the three views (lot 5a, vues-atelier-rag.md §3 to §5, §7) ----------
+
+// The sequence of the chain being edited: BUILD's steps, then RUN's own steps (the question,
+// its embedding), then the chain's RUN stages in its order. Each entry: its step (from the
+// catalog), the chain's stage it shows (or none), that stage's index in the chain.
+function sequence() {
+  const catalog = store.catalog;
+  const stages = chain()?.stages ?? [];
+  if (!catalog) return [];
+  const of = (kind) => stages.find((s) => s.kind === kind) ?? null;
+  const entries = [];
+  const push = (step, stage) => entries.push({ step, stage, index: stage ? stages.indexOf(stage) : -1 });
+  for (const step of catalog.steps) {
+    if (step.phase !== "build" || (step.stage && !of(step.stage))) continue;
+    push(step, step.stage ? of(step.stage) : null);
+  }
+  for (const step of catalog.steps) {
+    if (step.phase !== "run" || step.own || (step.stage && !of(step.stage))) continue;
+    push(step, step.stage ? of(step.stage) : null);
+  }
+  for (const stage of stages) {
+    const step = catalog.steps.find((s) => s.own && s.stage === stage.kind);
+    if (step && step.phase === "run") push(step, stage);
+  }
+  return entries;
+}
+
+function seqRow(entry, n) {
+  const { step, stage, index } = entry;
+  const row = el("li", `rag-seq-step is-${step.phase}`);
+  row.dataset.step = step.key;
+  if (step.stage === "generation") row.classList.add("is-model");
+  if (step.own && stage) {
+    // The editor's selectors (SPEC.md): the line is the chain's stage card.
+    row.classList.add("rag-chain-card");
+    row.dataset.kind = stage.kind;
+    row.dataset.stageId = stage.id;
+  }
+  const head = el("button", "rag-seq-head");
+  head.type = "button";
+  head.append(el("span", "rag-chain-number", String(n)), el("span", "rag-seq-name", step.label_text));
+  const pill = el("span", "rag-seq-status");
+  pill.hidden = true;
+  head.append(pill);
+  head.addEventListener("click", () => {
+    const focused = document.activeElement === head;
+    select(step.key);
+    // « Dérouler » draws the lines again: the keyboard's focus back on this line's head.
+    if (focused && !head.isConnected) {
+      document.querySelector(`#rag-seq .rag-seq-step[data-step="${step.key}"] .rag-seq-head`)?.focus();
+    }
+  });
+  row.append(head, el("p", "rag-seq-line", step.action_text));
+  if (store.mode === "compose") {
+    if (step.own && stage) row.append(stageControls(stage, index));
+    else if (step.key === "embed_query") row.append(el("p", "rag-seq-same", text("same_model_text")));
+  }
+  return row;
+}
+
+function renderPhase(id) {
+  const phase = store.catalog.phases.find((p) => p.id === id);
+  const band = $(`rag-phase-${id}`);
+  band.replaceChildren();
+  if (!phase) return;
+  band.append(el("span", "rag-phase-tag", phase.tag_text), el("span", null, phase.label_text), el("small", null, phase.help_text));
+}
+
+// `shown`: the last step visible (« Dérouler »: the frame shown; the steps after it keep their
+// place, invisible, and so does the RUN band before its first step).
+function renderSequence(entries, shown) {
+  renderPhase("build");
+  renderPhase("run");
+  const lists = { build: $("rag-seq-build"), run: $("rag-seq-run") };
+  lists.build.replaceChildren();
+  lists.run.replaceChildren();
+  entries.forEach((entry, i) => {
+    const row = seqRow(entry, i + 1);
+    row.classList.toggle("is-hidden", i > shown);
+    lists[entry.step.phase]?.append(row);
+  });
+  const firstRun = entries.findIndex((e) => e.step.phase === "run");
+  $("rag-phase-run").classList.toggle("is-hidden", firstRun >= 0 && shown < firstRun);
+  renderPalette();
+}
+
+// The tiles visible at the last render: a tile revealed since then arrives (`is-new`).
+// `null`: none arrives at the next render (the stepper rebuilt, straight to its frame).
+let seen = null;
+
+// A tile's subtitle: the chosen option of its stage (the embedding model, the reranker, the
+// store), else its own note.
+function subtitle(component) {
+  const stage = component.stage ? chain()?.stages.find((s) => s.kind === component.stage) : null;
+  return (stage && optionInfo(stage.kind, stage.option)?.label_text) || component.note_text;
+}
+
+function renderArchitecture(entries, shown) {
+  const box = $("rag-arch-groups");
+  box.replaceChildren();
+  const componentsOf = (list) => new Set(list.flatMap((e) => e.step.uses.map((u) => u.component)));
+  // A tile exists only when a step of the chain calls on it (no Reranker without reranking);
+  // in « Dérouler », it shows once a step up to the frame shown has called on it.
+  const used = componentsOf(entries);
+  const revealed = componentsOf(entries.slice(0, shown + 1));
+  const playing = store.mode === "play";
+  for (const group of store.catalog.groups) {
+    const tiles = store.catalog.components.filter((c) => c.group === group.id && used.has(c.id));
+    if (!tiles.length) continue;
+    const section = el("section", "rag-arch-group");
+    section.dataset.group = group.id;
+    section.classList.toggle("is-hidden", !tiles.some((c) => revealed.has(c.id)));
+    section.append(el("h4", null, group.label_text));
+    const list = el("ul");
+    for (const component of tiles) {
+      const tile = el("li", "rag-arch-tile");
+      tile.dataset.component = component.id;
+      if (!revealed.has(component.id)) tile.classList.add("is-hidden");
+      else if (playing && seen && !seen.has(component.id)) tile.classList.add("is-new");
+      const icon = el("span", "rag-arch-icon", component.icon);
+      icon.setAttribute("aria-hidden", "true");
+      tile.append(icon, el("span", "rag-arch-name", component.label_text), el("span", "rag-arch-sub", subtitle(component)));
+      list.append(tile);
+    }
+    section.append(list);
+    box.append(section);
+  }
+  seen = revealed;
+}
+
+// ---------- the run, as the sequence reads it ----------
+
+function runLane() {
+  const run = store.run;
+  return run ? (run.lanes.find((l) => l.lane === "a") ?? run.lanes[0] ?? null) : null;
+}
+
+// A stage's settings, those left out at their shipped value: a run and the chain compared.
+function settingsOf(kind, option, params) {
+  const values = Object.fromEntries((optionInfo(kind, option)?.params ?? []).map((p) => [p.name, p.default]));
+  Object.assign(values, params ?? {});
+  return JSON.stringify(Object.keys(values).sort().map((name) => [name, values[name]]));
+}
+
+// The run « Dérouler » shows: the last one, when it ran the chain being edited (its stages,
+// options and settings, in order). A chain edited since then gets its guided tour instead.
+function shownRun() {
+  return store.mode === "play" ? chainRun() : null;
+}
+
+// The last run, when it ran the chain being edited; else none.
+function chainRun() {
+  if (!store.run) return null;
+  const lane = runLane();
+  const stages = chain()?.stages ?? [];
+  if (!lane || lane.stages.length !== stages.length) return null;
+  const same = lane.stages.every((s, i) => {
+    const mine = stages[i];
+    return (
+      s.stage_id === mine.id &&
+      s.kind === mine.kind &&
+      s.option === mine.option &&
+      settingsOf(s.kind, s.option, s.params) === settingsOf(mine.kind, mine.option, mine.params)
+    );
+  });
+  return same ? store.run : null;
+}
+
+function runStage(step) {
+  if (!step.stage || !shownRun()) return null;
+  return runLane()?.stages.find((s) => s.kind === step.stage) ?? null;
+}
+
+// The pill of a line in « Dérouler », once a run is known: a stage's own status and duration;
+// Documents and the question's Embedding take their stage's status without a duration.
+function pillOf(step) {
+  if (!shownRun()) return null;
+  if (step.key === "question") return { status: "ok", said: text("question_received_text") };
+  const stage = runStage(step);
+  if (!stage) return null;
+  return { status: stage.status, said: stepStatus(step, stage) };
+}
+
+// A step's status: its stage's own line (progress, duration), or only its status for a step
+// that reads a stage (its duration is the stage's, not its own).
+function stepStatus(step, stage) {
+  return step.own ? statusLine(stage) : text(STATUS_KEYS[stage.status] ?? "") || stage.status;
+}
+
+function renderPills() {
+  for (const row of document.querySelectorAll("#rag-seq .rag-seq-step")) {
+    const step = store.catalog?.steps.find((s) => s.key === row.dataset.step);
+    const pill = row.querySelector(".rag-seq-status");
+    const shown = step ? pillOf(step) : null;
+    pill.hidden = !shown;
+    pill.textContent = shown?.said ?? "";
+    if (shown) row.dataset.run = shown.status;
+    else delete row.dataset.run;
+  }
+}
+
+// ---------- the focus ----------
+
+function uses(step) {
+  const box = el("div", "rag-focus-uses");
+  box.append(el("span", "rag-view-label", text("uses_title_text")));
+  const how = { reads: text("reads_text"), writes: text("writes_text"), calls: text("calls_text") };
+  for (const use of step.uses) {
+    const component = store.catalog.components.find((c) => c.id === use.component);
+    if (!component) continue;
+    const tag = el("span", "rag-tag");
+    const icon = el("span", "rag-tag-icon", component.icon);
+    icon.setAttribute("aria-hidden", "true");
+    tag.append(icon, ` ${component.label_text} · ${how[use.how] ?? use.how}`);
+    tag.dataset.component = component.id;
+    tag.dataset.how = use.how;
+    box.append(tag);
+  }
+  return box;
+}
+
+function focusIo(rows) {
+  const dl = el("dl", "rag-focus-io");
+  for (const [label, value, className] of rows) {
+    if (value) dl.append(el("dt", null, label), el("dd", className ?? null, value));
+  }
+  return dl;
+}
+
+// What the step received, produced and cost in the last run (« Dérouler » only, §5, §7).
+function focusRun(box, step) {
+  const run = shownRun();
+  if (!run) {
+    // Composer, the last run being this chain's: its figures are one click away.
+    const hint = store.mode === "compose" && chainRun() ? "focus_play_hint_text" : "focus_no_run_text";
+    box.append(el("p", "rag-note rag-focus-hint", text(hint)));
+    return;
+  }
+  if (step.key === "question") {
+    box.append(focusIo([[text("question_label_text"), quote(run.question)]]));
+    return;
+  }
+  const stage = runStage(step);
+  if (!stage) {
+    box.append(el("p", "rag-note rag-focus-hint", text("focus_no_run_text")));
+    return;
+  }
+  box.append(el("p", "rag-focus-status", stepStatus(step, stage)));
+  const ended = stage.ended;
+  if (!ended) return;
+  if (ended.error_text) box.append(el("p", "rag-stage-error", ended.error_text));
+  if (step.key === "documents") {
+    box.append(focusIo([[text("input_text"), ended.input_text]]));
+    return;
+  }
+  if (step.key === "embed_query") {
+    box.append(focusIo([[text("input_text"), quote(run.question)]]));
+  } else if (["context", "generation"].includes(step.stage)) {
+    box.append(focusIo([[text("input_text"), ended.input_text]]));
+    if (ended.output_text) box.append(el("pre", "rag-focus-pre", ended.output_text));
+  } else {
+    box.append(
+      focusIo([
+        [text("input_text"), ended.input_text],
+        [text("output_text"), ended.output_text],
+      ]),
+    );
+  }
+  if (ended.facts?.length) {
+    const facts = el("ul", "rag-focus-facts");
+    for (const fact of ended.facts) facts.append(el("li", null, labelled(fact.label_text, fact.value_text)));
+    box.append(facts);
+  }
+  if (step.key !== "embed_query" && ended.items?.length) box.append(itemsTable(ended.items));
+  if (step.own && ["ok", "error", "cancelled"].includes(stage.status)) {
+    const foot = el("p", "rag-stage-figures");
+    foot.append(el("span", "rag-stage-duration", labelled(text("duration_text"), `${fmtInt(ended.duration_ms)} ms`)));
+    if (ended.memory_text) foot.append(el("span", "rag-stage-memory", labelled(text("memory_text"), ended.memory_text)));
+    box.append(foot);
+  }
+}
+
+function renderFocus(entries) {
+  const box = $("rag-focus");
+  box.replaceChildren();
+  const i = entries.findIndex((e) => e.step.key === store.current);
+  const step = i >= 0 ? entries[i].step : null;
+  box.classList.toggle("is-run", step?.phase === "run");
+  box.dataset.step = step?.key ?? "";
+  if (!step) {
+    box.append(el("p", "rag-focus-phase", text("focus_title_text")), el("p", "rag-focus-explain", text("focus_empty_text")));
+    return;
+  }
+  const phase = store.catalog.phases.find((p) => p.id === step.phase);
+  box.append(
+    el(
+      "p",
+      "rag-focus-phase",
+      text("focus_position_text", { phase: phase ? `${phase.tag_text} · ${phase.label_text}` : step.phase, n: i + 1, total: entries.length }),
+    ),
+  );
+  const title = el("h3");
+  title.append(el("span", "rag-chain-number", String(i + 1)), el("span", "rag-focus-name", step.label_text));
+  box.append(title, el("p", "rag-focus-action", step.action_text));
+  if (step.note_text) box.append(el("p", "rag-focus-note", step.note_text));
+  if (step.explain_text) box.append(el("p", "rag-focus-explain", step.explain_text));
+  if (step.uses.length) box.append(uses(step));
+  focusRun(box, step);
+}
+
+// ---------- the wires: from the step shown to the components it calls on ----------
+
+let wires = null;
+
+function drawWires({ box }) {
+  const defs = svgEl("defs");
+  const head = svgEl("marker", {
+    id: "rag-arrow",
+    viewBox: "0 0 10 10",
+    refX: 9,
+    refY: 5,
+    markerWidth: 6,
+    markerHeight: 6,
+    orient: "auto-start-reverse",
+  });
+  head.append(svgEl("path", { d: "M0 0 L10 5 L0 10 z", class: "rag-arrow-head" }));
+  defs.append(head);
+  const parts = [defs];
+  const step = store.catalog?.steps.find((s) => s.key === store.current);
+  const row = step && document.querySelector(`#rag-seq .rag-seq-step[data-step="${step.key}"] .rag-seq-head`);
+  if (!row) return parts;
+  const from = box(row);
+  const flowing = store.mode === "play" && runStage(step)?.status === "running";
+  step.uses.forEach((use, i) => {
+    const tile = document.querySelector(`#rag-arch .rag-arch-tile[data-component="${use.component}"]`);
+    if (!tile) return;
+    const to = box(tile);
+    const x1 = from.r + 2;
+    const y1 = from.cy + (i - (step.uses.length - 1) / 2) * 8;
+    const x2 = to.l - 2;
+    const y2 = to.cy;
+    const dx = Math.max(30, (x2 - x1) / 2);
+    // Read: from the component to the step; written or called: from the step to it.
+    const d =
+      use.how === "reads"
+        ? `M${x2} ${y2} C${x2 - dx} ${y2}, ${x1 + dx} ${y1}, ${x1 + 6} ${y1}`
+        : `M${x1} ${y1} C${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2 - 4} ${y2}`;
+    parts.push(wire(d, "diagram-path"));
+    const core = wire(d, `diagram-path-core${flowing ? " is-flow" : ""}`);
+    core.setAttribute("marker-end", "url(#rag-arrow)");
+    core.dataset.component = use.component;
+    parts.push(core);
+  });
+  return parts;
+}
+
+// The step shown: its line selected (Composer) or lit with its components (Dérouler), its
+// focus, its wires.
+function renderCurrent(entries = sequence()) {
+  if (store.current && !entries.some((e) => e.step.key === store.current)) store.current = null;
+  const views = $("rag-views");
+  let lit = null;
+  for (const row of views.querySelectorAll(".rag-seq-step")) {
+    const on = row.dataset.step === store.current;
+    row.classList.toggle("is-selected", on && store.mode === "compose");
+    row.querySelector(".rag-seq-head").setAttribute("aria-pressed", String(on));
+    if (on) lit = row;
+  }
+  const step = store.catalog?.steps.find((s) => s.key === store.current);
+  const nodes = [];
+  if (store.mode === "play" && lit && step) {
+    nodes.push(lit);
+    for (const use of step.uses) {
+      const tile = views.querySelector(`.rag-arch-tile[data-component="${use.component}"]`);
+      if (tile) nodes.push(tile);
+    }
+  }
+  light(views, nodes);
+  renderFocus(entries);
+  wires?.schedule();
+}
+
+function select(key) {
+  if (store.mode === "play" && stepper) {
+    // « Dérouler »: the line's frame (vues-atelier-rag.md §3).
+    const i = stepper.frames.indexOf(key);
+    if (i >= 0) stepper.show(i);
+    return;
+  }
+  store.current = key;
+  renderCurrent();
+}
+
+function renderModes() {
+  $("rag-views").dataset.mode = store.mode;
+  for (const button of document.querySelectorAll("#rag-modes [data-mode]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.mode === store.mode));
+  }
+  $("rag-reset-chain").hidden = store.mode !== "compose";
+  $("rag-stepper").hidden = store.mode !== "play";
+}
+
+function setMode(mode) {
+  if (!MODES.includes(mode) || mode === store.mode) return;
+  store.mode = mode;
+  keep(MODE_KEY, mode);
+  if (mode === "compose") store.current = null; // no step selected (§7)
+  redraw({ restart: true });
+}
+
+// ---------- « Dérouler »: the stepper (lot 5a-2, vues-atelier-rag.md §6) ----------
+
+let stepper = null;
+let quiet = false; // the stepper being rebuilt: one render at the end, not one per frame
+
+// The frames the stepper should hold, a step's key each: every step of the sequence for the
+// guided tour; with a run, the steps up to the last one the run reached (a stage with an
+// event). The steps that read a stage (Documents, the question and its Embedding) come with
+// the next step of their own: the question is embedded during `embedding`, but the sequence
+// shows it just before the retrieval.
+function playFrames(entries) {
+  const run = shownRun();
+  if (!run) return entries.map((e) => e.step.key);
+  const reached = new Set((runLane()?.stages ?? []).filter((s) => s.status !== "waiting").map((s) => s.stage_id));
+  let last = -1;
+  entries.forEach((e, i) => {
+    if (e.step.own && e.stage && reached.has(e.stage.id)) last = i;
+  });
+  return entries.slice(0, last + 1).map((e) => e.step.key);
+}
+
+// Where an ended run lands: the first step in error (or stopped), else the last frame.
+function landing(keys = stepper?.frames ?? []) {
+  const steps = store.catalog?.steps ?? [];
+  const failed = keys.findIndex((key) => {
+    const step = steps.find((s) => s.key === key);
+    return Boolean(step?.own) && ["error", "cancelled"].includes(runStage(step)?.status);
+  });
+  return failed >= 0 ? failed : keys.length - 1;
+}
+
+// The stepper brought to the frames the page should show: the missing ones pushed (live, the
+// last one shown), else rebuilt (`restart`, or a sequence that changed): `clear()`, every frame
+// pushed, then image 1 for the tour, the landing frame for an ended run, the live one for a
+// run going on. True when it rendered the views.
+function syncFrames({ restart = false } = {}) {
+  if (store.mode !== "play" || !stepper || !store.catalog || !chain()) return false;
+  const keys = playFrames(sequence());
+  const have = stepper.frames;
+  const prefix = have.length <= keys.length && have.every((key, i) => key === keys[i]);
+  if (!restart && prefix) {
+    if (have.length === keys.length) return false;
+    const live = stepper.live;
+    for (const key of keys.slice(have.length)) stepper.push(key);
+    return live;
+  }
+  quiet = true;
+  stepper.clear();
+  for (const key of keys) stepper.push(key);
+  quiet = false;
+  const run = shownRun();
+  store.current = null;
+  seen = null;
+  if (!keys.length) {
+    renderViews();
+    return true;
+  }
+  if (!run) stepper.show(0);
+  else if (run.ended) stepper.show(landing(keys));
+  else stepper.follow();
+  return true;
+}
+
+// A frame shown (◀, ▶, a line clicked, a frame pushed live): its step lit, the views drawn.
+function showFrame(key) {
+  if (quiet) return;
+  store.current = key ?? null;
+  renderViews();
+}
+
+function renderLegend() {
+  const legend = $("rag-legend");
+  if (store.mode !== "play" || !stepper) {
+    legend.textContent = "";
+    return;
+  }
+  const run = shownRun();
+  // « Suivre le direct » means nothing in the guided tour: shown with a run only.
+  stepper.element.querySelector(".diagram-step-live").hidden = !run;
+  let key = "legend_tour_text";
+  if (run && !run.ended) key = stepper.live ? "legend_live_text" : "legend_replay_text";
+  else if (run) key = stepper.index === landing() ? "legend_done_text" : "legend_replay_text";
+  legend.textContent = text(key);
+}
+
+// The views drawn again, the stepper first brought up to date in « Dérouler ».
+function redraw(options) {
+  if (store.mode === "play" && syncFrames(options)) return;
+  renderViews();
+}
+
+function renderViews() {
+  if (!store.catalog || !chain()) return;
+  const entries = sequence();
+  // « Composer »: everything visible; « Dérouler »: up to the frame shown.
+  const shown = store.mode === "play" ? (stepper?.index ?? -1) : entries.length - 1;
+  renderModes();
+  renderPresets();
+  renderSequence(entries, shown);
+  renderArchitecture(entries, shown);
+  renderPills();
+  renderCurrent(entries);
+  renderRefusals();
+  renderLegend();
 }
 
 // ---------- the run, projected from its events ----------
@@ -455,7 +1015,7 @@ function applyEnvelope(envelope) {
   switch (envelope.kind) {
     case "session_state":
       store.session = { state: p.state, reason_text: p.reason_text };
-      if (p.state === "idle" && closeStaleRun()) renderResults();
+      if (p.state === "idle" && closeStaleRun()) renderRun();
       renderBusy();
       return;
     case "rag_lab_run_started":
@@ -489,12 +1049,16 @@ function applyEnvelope(envelope) {
       break;
     }
     case "rag_lab_run_ended":
-      if (store.run && store.run.runId === p.run_id) store.run.ended = p;
+      if (store.run && store.run.runId === p.run_id) {
+        store.run.ended = p;
+        store.land = true;
+      }
       break;
     default:
       return;
   }
-  renderResults();
+  if (store.replaying) return; // `last_run` read again: drawn once, at its end
+  renderRun();
   renderBusy();
 }
 
@@ -554,10 +1118,7 @@ function itemsTable(items) {
     if (item.sources?.length) {
       // Where the excerpt stood in each list before (the fusion: both searches).
       const said = item.sources.map((src) =>
-        t("common.format.label_value", {
-          label: src.label_text,
-          value: `${fmtRank(src.rank)}${typeof src.score === "number" ? ` (${fmtScore(src.score)})` : ""}`,
-        })
+        labelled(src.label_text, `${fmtRank(src.rank)}${typeof src.score === "number" ? ` (${fmtScore(src.score)})` : ""}`),
       );
       doc.append(el("span", "rag-doc-sources", said.join(" · ")));
     }
@@ -599,7 +1160,6 @@ function stageCard(stage, index) {
   if (ended.items.length) card.append(itemsTable(ended.items));
   if (ended.memory_text || ["ok", "error", "cancelled"].includes(stage.status)) {
     const foot = el("p", "rag-stage-figures");
-    const labelled = (label, value) => t("common.format.label_value", { label, value });
     foot.append(el("span", "rag-stage-duration", labelled(text("duration_text"), `${fmtInt(ended.duration_ms)} ms`)));
     if (ended.memory_text) foot.append(el("span", "rag-stage-memory", labelled(text("memory_text"), ended.memory_text)));
     card.append(foot);
@@ -607,6 +1167,8 @@ function stageCard(stage, index) {
   return card;
 }
 
+// Every step's detail (the former section 3), folded under the views: the chain's lane only
+// (a run of two lanes, from a page of before lot 5a, shows its A).
 function renderResults() {
   const box = $("rag-results");
   box.replaceChildren();
@@ -614,49 +1176,30 @@ function renderResults() {
   $("rag-results-empty").hidden = Boolean(run);
   const summary = $("rag-run-summary");
   summary.hidden = !run;
-  if (!run) {
-    renderComparison(null);
-    return;
-  }
+  if (!run) return;
   const status = run.ended ? text(STATUS_KEYS[run.ended.status === "ok" ? "ok" : run.ended.status]) : text("status.running_text");
   summary.textContent = `${quote(run.question)} · ${status}${typeof run.ended?.duration_ms === "number" ? ` · ${fmtInt(run.ended.duration_ms)} ms` : ""}`;
-  box.dataset.lanes = String(run.lanes.length);
-  renderComparison(run.ended?.comparison ?? null);
-  for (const lane of run.lanes) {
-    const column = el("section", "rag-lane");
-    column.dataset.lane = lane.lane;
-    if (run.lanes.length > 1) column.append(el("h3", "rag-lane-title", t("rag.chain", { label: lane.label_text })));
-    lane.stages.forEach((stage, index) => column.append(stageCard(stage, index)));
-    box.append(column);
-  }
+  const lane = runLane();
+  if (!lane) return;
+  const column = el("section", "rag-lane");
+  column.dataset.lane = lane.lane;
+  lane.stages.forEach((stage, index) => column.append(stageCard(stage, index)));
+  box.append(column);
 }
 
-function renderComparison(comparison) {
-  const section = $("rag-comparison");
-  section.hidden = !comparison;
-  if (!comparison) return;
-  $("rag-comparison-summary").textContent = comparison.summary_text;
-  const lists = $("rag-comparison-lists");
-  lists.replaceChildren();
-  const rank = (n) => (n === null || n === undefined ? "—" : fmtRank(n));
-  const line = (key, e, vars) => t(`rag.comparison.${key}`, { title: e.title_text, ...vars });
-  const groups = [
-    ["common_text", comparison.common, (e) => line("common", e, { a: rank(e.rank_a), b: rank(e.rank_b) })],
-    ["only_a_text", comparison.only_a, (e) => line("only", e, { rank: rank(e.rank_a) })],
-    ["only_b_text", comparison.only_b, (e) => line("only", e, { rank: rank(e.rank_b) })],
-    ["rank_changes_text", comparison.rank_changes, (e) => line("changed", e, { a: rank(e.rank_a), b: rank(e.rank_b) })],
-  ];
-  for (const [key, entries, line] of groups) {
-    const dd = el("dd");
-    if (entries.length) {
-      const list = el("ul");
-      for (const entry of entries) list.append(el("li", null, line(entry)));
-      dd.append(list);
-    } else {
-      dd.textContent = "—";
-    }
-    lists.append(el("dt", null, text(key)), dd);
+// An event of the run: the details, then « Dérouler »: a frame per step reached (live), the
+// landing frame once it ended, the pills, the focus and the wires of the step shown.
+function renderRun() {
+  renderResults();
+  syncFrames();
+  if (store.land && store.mode === "play" && stepper && shownRun()?.ended) {
+    const i = landing();
+    if (stepper.live && i >= 0 && i !== stepper.index) stepper.show(i);
   }
+  store.land = false;
+  renderPills();
+  renderCurrent();
+  renderLegend();
 }
 
 // ---------- state of the session: what may be asked now ----------
@@ -695,6 +1238,7 @@ function renderContent() {
     $("rag-title").textContent = store.content.title_text;
     $("rag-intro").textContent = store.content.intro_text;
     $("rag-question").placeholder = store.content.question_placeholder_text;
+    $("rag-modes").setAttribute("aria-label", store.content.modes_label_text);
   }
 }
 
@@ -709,14 +1253,18 @@ async function runChain() {
     status.textContent = t("rag.empty_question");
     return;
   }
+  // The number fields' last values, even one typed without leaving its field (before
+  // « Dérouler » takes the editor away).
+  for (const input of document.querySelectorAll(".rag-param-input")) input.dispatchEvent(new Event("change"));
+  const before = store.mode;
+  setMode("play"); // « Lancer » shows the run as it goes (lot 5a-2)
   store.pending = true;
   renderBusy();
   status.textContent = text("running_text");
-  // The number fields' last values, even one typed without leaving its field.
-  for (const input of document.querySelectorAll(".rag-param-input")) input.dispatchEvent(new Event("change"));
   const answer = await post("/api/intentions/rag_lab_run", { question, pipelines: store.pipelines });
   store.pending = false;
   if (!answer.ok) {
+    setMode(before); // refused: nothing runs, back where the trainer was
     status.classList.add("is-error");
     status.textContent = refusalText(answer);
   } else {
@@ -807,35 +1355,50 @@ async function refresh() {
   alert.textContent = body.content_error_text || "";
   renderContent();
   if (!store.pipelines.length && store.defaultPipeline) store.pipelines = loadChains();
-  renderChains();
-  validateChains();
   // The last run, rebuilt from its envelopes (AD-1): the same projection as the stream's.
   store.run = null;
-  for (const envelope of body.last_run) applyEnvelope(envelope);
+  store.replaying = true;
+  try {
+    for (const envelope of body.last_run) applyEnvelope(envelope);
+  } finally {
+    store.replaying = false;
+  }
+  store.land = false;
   store.lastSeq = body.seq;
   if (store.session.state === "idle") closeStaleRun();
+  // « Dérouler »: the run's frames pushed again, straight to its landing frame (§6).
+  redraw({ restart: true });
   renderResults();
+  if (store.catalog) validateChains();
   renderBusy();
   return body;
 }
 
 async function main() {
   await textsReady; // the page's texts and formats in the session's language (languages 4/5)
+  const mode = stored(MODE_KEY);
+  if (MODES.includes(mode)) store.mode = mode;
+  wires = wireLayer($("rag-views"), drawWires);
+  // The stepper before the legend, in « Dérouler »'s bar (its labels read now: after `ready`).
+  stepper = createStepper($("rag-stepper"), { onShow: showFrame });
+  $("rag-stepper").prepend(stepper.element);
   let body = await refresh();
   while (!body) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
     body = await refresh();
   }
   const question = $("rag-question");
-  question.value = loadQuestion() ?? (text("default_question_text") || "");
-  question.addEventListener("input", () => saveQuestion(question.value));
+  question.value = stored(QUESTION_KEY) ?? (text("default_question_text") || "");
+  question.addEventListener("input", () => keep(QUESTION_KEY, question.value));
   question.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !$("rag-run").disabled) runChain();
   });
   $("rag-run").addEventListener("click", runChain);
   $("rag-stop").addEventListener("click", stopRun);
-  $("rag-compare").addEventListener("change", () => setCompare($("rag-compare").checked));
   $("rag-reset-chain").addEventListener("click", resetChains);
+  for (const button of document.querySelectorAll("#rag-modes [data-mode]")) {
+    button.addEventListener("click", () => setMode(button.dataset.mode));
+  }
   document.body.dataset.ragReady = "true";
   streamEvents();
 }

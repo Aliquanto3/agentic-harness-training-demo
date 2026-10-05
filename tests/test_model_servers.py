@@ -200,7 +200,8 @@ class FakeServer:
 
     def _ollama(self, path: str, body: dict) -> httpx.Response:
         if path == "/api/tags":
-            details = {"family": "qwen35", "parameter_size": "2B"}  # story 25
+            # Story 25; lot 3 of 2026-10-04: its quantization, the cards' rule 3.
+            details = {"family": "qwen35", "parameter_size": "2B", "quantization_level": "Q4_K_M"}
             model = {"name": OLLAMA_NAME, "size": GIB, "details": details}
             return httpx.Response(200, json={"models": [model]})
         if path == "/api/ps":
@@ -951,6 +952,7 @@ def test_served_models_keep_ollama_details_and_llama_server_template(monkeypatch
     assert sorted(paths) == ["/api/ps", "/api/tags", "/health", "/props", "/v1/models"]
     ollama, llama = by_engine["ollama"], by_engine["llama_server"]
     assert (ollama.family, ollama.parameter_size) == ("qwen35", "2B")
+    assert ollama.quantization == "Q4_K_M" and llama.quantization is None  # lot 3 of 2026-10-04
     assert (llama.chat_template, llama.n_ctx_train, llama.size) == (QWEN, 32768, 2 * GIB)
     # …handed to the candidates, the template never sent in `/api/diagnostic`.
     by_engine = {c.engine: c for c in discovery._server_candidates(config.load_config())}
@@ -958,6 +960,7 @@ def test_served_models_keep_ollama_details_and_llama_server_template(monkeypatch
         "qwen35",
         "2B",
     )
+    assert by_engine["ollama"].quantization == "Q4_K_M"
     candidate = by_engine["llama_server"]
     assert (candidate.server_template, candidate.native_context) == (QWEN, 32768)
     assert "server_template" not in candidate.model_dump()

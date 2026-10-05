@@ -27,12 +27,13 @@ SECTIONS = {"common", "main", "llm", "rag", "mcp", "diagnostic", "models"}  # st
 # Each page and its scripts (its inline `<script type="module">` included).
 # Story 2 (2026-09-30): each loads site-nav.js, the shared bar's menu.
 PAGES = {
-    "index.html": ("main", ("app.js", "site-nav.js")),
+    # Lot 2 (2026-10-04): diagram.js; lot 4 (AD-28): panes.js, shared with mcp.html.
+    "index.html": ("main", ("app.js", "diagram.js", "panes.js", "site-nav.js")),
     "llm.html": ("llm", ("llm.js", "site-nav.js")),
     "rag.html": ("rag", ("rag.js", "site-nav.js")),
-    "mcp.html": ("mcp", ("mcp.js", "site-nav.js")),  # story 6 (2026-09-30)
+    "mcp.html": ("mcp", ("mcp.js", "diagram.js", "panes.js", "site-nav.js")),  # story 6, lot 4
+    # Lot 3 of 2026-10-04: « Diagnostic et modèles », story 25's table merged into it.
     "diagnostic.html": ("diagnostic", ("site-nav.js",)),
-    "models.html": ("models", ("site-nav.js",)),
 }
 
 
@@ -168,7 +169,7 @@ def test_every_key_of_the_page_is_in_french_and_the_html_says_it(name):
 
 
 def test_every_page_loads_i18n_js_after_theme_js():
-    for name in ("index", "llm", "rag", "mcp", "diagnostic", "models"):
+    for name in ("index", "llm", "rag", "mcp", "diagnostic"):
         page = (STATIC / f"{name}.html").read_text(encoding="utf-8")
         theme = page.index('<script src="/static/theme.js"></script>')
         module = page.index('<script type="module" src="/static/i18n.js"></script>')
@@ -206,11 +207,14 @@ def test_each_page_awaits_the_texts_and_shares_the_navigation(name):
     links = re.findall(r'<a href="/(\w*)"( class="site-nav-brand")?[^>]*>([^<]+)</a>', nav)
     assert [(href, text) for href, brand, text in links if brand] == [("", "WaveStack")], name
     named = [(href or "home", text) for href, brand, text in links if not brand]
-    assert [href for href, _ in named] == ["home", "llm", "rag", "mcp", "diagnostic", "models"], (
-        name
-    )
+    # Lot 1 of 2026-10-04 (D2): five tabs, « Modèles » out of the bar.
+    assert [href for href, _ in named] == ["home", "llm", "rag", "mcp", "diagnostic"], name
     for link, text in named:
         assert FRENCH["common"]["links"][link] == text, (name, link)
+    # The page's own tab is the current one.
+    current = re.findall(r'<a href="/(\w*)"[^>]*aria-current="page"[^>]*>', nav)
+    own = {"index.html": ""}.get(name, name.removesuffix(".html"))
+    assert current == [own], name
 
 
 def test_i18n_names_the_links_by_their_address_the_brand_aside():
@@ -219,36 +223,54 @@ def test_i18n_names_the_links_by_their_address_the_brand_aside():
     assert dict(re.findall(r'"(/\w*)": "(\w+)"', names)) == {
         "/": "home",
         "/diagnostic": "diagnostic",
-        "/models": "models",
         "/llm": "llm",
         "/rag": "rag",
         "/mcp": "mcp",
     }
     assert ":not(.site-nav-brand)" in script
-    homes = {
-        lang: _read(CONTENT / "i18n" / lang / "ui.yaml")["common"]["links"]["home"]
-        for lang in TRANSLATED
+    # Lot 1 of 2026-10-04 (D2): the short names of the bar, in each language.
+    bars = {
+        lang: _read(CONTENT / "i18n" / lang / "ui.yaml")["common"]["links"] for lang in TRANSLATED
     }
-    assert (FRENCH["common"]["links"]["home"], homes) == (
-        "Atelier",
-        {"en": "Workshop", "de": "Werkstatt"},
-    )
+    bars["fr"] = FRENCH["common"]["links"]
+    shown = {
+        lang: [bar[k] for k in ("home", "llm", "rag", "mcp", "diagnostic")]
+        for lang, bar in bars.items()
+    }
+    assert shown == {
+        "fr": ["Harnais", "LLM", "RAG", "MCP", "🛠️ Diagnostic"],
+        "en": ["Harness", "LLM", "RAG", "MCP", "🛠️ Diagnostics"],
+        "de": ["Harness", "LLM", "RAG", "MCP", "🛠️ Diagnose"],
+    }
 
 
-def test_the_models_table_headers_are_the_catalogues_in_order():
-    page = (STATIC / "models.html").read_text(encoding="utf-8")
-    order = re.findall(r'"(\w+)"', re.search(r"const COLUMN_ORDER = \[([^\]]+)\]", page).group(1))
-    columns = [FRENCH["models"]["columns"][k] for k in order]
-    head = page[page.index("<thead>") : page.index("</thead>")]
-    # Story 3 of 2026-09-30: a header's name is its `.sort-label`, in the button of every
-    # sortable column (all but the price: no number served), whose `data-sort` is its key.
-    headers = re.findall(r'<th scope="col"([^>]*)>(.*?)</th>', head)
-    labels = [re.search(r'<span class="sort-label">([^<]+)</span>', c).group(1) for _, c in headers]
-    assert labels == columns
-    for (attributes, cell), key in zip(headers, order, strict=True):
-        sortable = key != "price"
-        assert ('<button type="button" class="sort-button">' in cell) is sortable, key
-        assert (f'data-sort="{key}"' in attributes) is sortable, key
+def test_the_diagnostic_page_sorts_by_the_catalogues_choices():
+    """Lot 3 of 2026-10-04: « Trier par » offers the catalogue's choices, the default first;
+    its capabilities' labels are `models.columns` (story 25's headers)."""
+    page = (STATIC / "diagnostic.html").read_text(encoding="utf-8")
+    picker = page[
+        page.index('<select id="filter-sort"') : page.index(
+            "</select>", page.index('id="filter-sort"')
+        )
+    ]
+    options = re.findall(r'<option value="(\w*)" data-i18n="models\.sort_by\.(\w+)">', picker)
+    assert options == [
+        ("", "catalog"),
+        ("size", "size"),
+        ("name", "name"),
+        ("window", "window"),
+        ("state", "state"),
+    ]
+    assert set(FRENCH["models"]["sort_by"]) == {
+        "label",
+        "catalog",
+        "size",
+        "name",
+        "window",
+        "state",
+    }
+    assert 'section("models.columns")' in page
+    assert set(FRENCH["models"]["columns"]) == {"window", "tools", "reasoning", "price"}
 
 
 def test_the_models_filters_and_sort_keys_exist_in_every_language():
@@ -262,7 +284,33 @@ def test_the_models_filters_and_sort_keys_exist_in_every_language():
         assert {"reset", "none", "hosting", "publisher", "tools", "reasoning", "text"} <= set(
             models["filters"]
         ), lang
-        assert "{column}" in models["sort"]["title"], lang
+        # Lot 3 of 2026-10-04: « Trier par », the new states, sections and sources' counter.
+        assert set(models["sort_by"]) == {"label", "catalog", "size", "name", "window", "state"}
+        assert "{sources}" in models["count_sources"]["other"], lang
+        assert set(diagnostic["states"]) == {
+            "active",
+            "available",
+            "warning",
+            "incompatible",
+            "error",
+            "loading",
+            "key_missing",
+            "ready",
+            "test_ok",
+            "test_warn",
+            "test_fail",
+            "testing",
+        }, lang
+        assert set(diagnostic["sections"]) == {
+            "sources",
+            "diagnostic",
+            "file",
+            "address",
+            "capabilities",
+            "data",
+            "key",
+            "last_test",
+        }, lang
         assert diagnostic["searching"] and set(diagnostic["progress"]) == {"one", "other"}, lang
         assert catalogue["main"]["log"]["kinds"]["diagnostic_progress"], lang
 

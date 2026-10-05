@@ -117,12 +117,12 @@ def test_short_memory_answer_depends_on_history():
     assert "Je ne sais pas" in forgot.text
     remembered = fake.plan_reply(
         _body(
-            _user("Je m'appelle Camille et je suis consultante."),
+            _user("Je m'appelle Pascal et je suis consultant."),
             {"role": "assistant", "content": "Enchanté"},
             ask,
         )
     )
-    assert "Camille" in remembered.text
+    assert "Pascal" in remembered.text
 
 
 @pytest.mark.parametrize(

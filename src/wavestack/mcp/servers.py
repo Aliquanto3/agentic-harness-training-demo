@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from wavestack import config
 
 LOCAL = "local"
+# `{name}`: a variable the local server's prompt fills (`str.format`), lot 4 of 2026-10-04.
+_VARIABLE = re.compile(r"\{([a-z_]+)\}")
 
 
 @dataclass(frozen=True)
@@ -90,3 +93,51 @@ def load_local_tools(lang: str | None = None) -> LocalToolsText:
     """Raises on a missing or invalid file (the local server then does not start)."""
     path = config.content_file("mcp_local/tools.yaml", lang)
     return LocalToolsText.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+
+
+class LocalResourceText(BaseModel):
+    """The glossary's resource `glossary://terms` (lot 4 of 2026-10-04, AD-27)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+
+
+class LocalPromptText(BaseModel):
+    """The glossary's prompt `explain_term(term)`: its texts, then the user message it
+    returns, the definition inserted (`{term}`, `{definition}`), or, for a term the
+    glossary lacks, the same request with the known terms (`{term}`, `{known}`). The
+    variables are checked here: a translation that lacks one never reaches `prompts/get`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    term: str = Field(min_length=1)  # the argument's description
+    text: str = Field(min_length=1)
+    unknown_text: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _variables(self) -> LocalPromptText:
+        for name, needed in (("text", ("term", "definition")), ("unknown_text", ("term", "known"))):
+            found = set(_VARIABLE.findall(getattr(self, name)))
+            if found != set(needed):
+                expected = ", ".join(f"{{{v}}}" for v in needed)
+                raise ValueError(f"explain_term.{name} : il faut exactement {expected}")
+        return self
+
+
+class LocalPrimitivesText(BaseModel):
+    """`content/mcp_local/primitives.yaml`: the local server's resource and prompt."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    terms: LocalResourceText
+    explain_term: LocalPromptText
+
+
+def load_local_primitives(lang: str | None = None) -> LocalPrimitivesText:
+    """Raises on a missing or invalid file (the local server then serves the French one)."""
+    path = config.content_file("mcp_local/primitives.yaml", lang)
+    return LocalPrimitivesText.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))

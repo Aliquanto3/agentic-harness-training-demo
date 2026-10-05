@@ -52,7 +52,22 @@ def test_diagnostic_route_still_works(monkeypatch, tmp_path):
 
 
 # Story 2 (2026-09-30): the bar shared by the five pages, in a fixed order.
-SITE_PAGES = ("/", "/llm", "/rag", "/mcp", "/diagnostic", "/models")  # story 6: /mcp
+# Lot 3 of 2026-10-04: /models redirects to « Diagnostic et modèles ».
+SITE_PAGES = ("/", "/llm", "/rag", "/mcp", "/diagnostic")  # story 6: /mcp
+BAR_PAGES = SITE_PAGES
+
+
+def test_the_models_page_redirects_to_the_diagnostic(monkeypatch, tmp_path):
+    """Lot 3 of 2026-10-04: story 25's table is merged into « Diagnostic et modèles »; an old
+    link or a bookmark to `/models` lands there (307), and no `models.html` is left."""
+    client = _client(_build(monkeypatch, tmp_path))
+    response = client.get("/models", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/diagnostic"
+    landed = client.get("/models")
+    assert landed.status_code == 200 and str(landed.url).endswith("/diagnostic")
+    assert '<h1 data-i18n="diagnostic.title">Diagnostic et modèles</h1>' in landed.text
+    assert client.get("/static/models.html").status_code == 404
 
 
 def _site_nav(page: str) -> str:
@@ -89,17 +104,19 @@ def test_every_page_opens_on_the_same_shared_bar(monkeypatch, tmp_path):
         nav = _site_nav(page)
         assert nav.count('aria-current="page"') == 1, path
         current = nav[: nav.index('aria-current="page"')]
-        assert current[current.rindex("<a ") :].startswith(f'<a href="{path}"'), path
+        own = path
+        assert current[current.rindex("<a ") :].startswith(f'<a href="{own}"'), path
         assert "site-nav-brand" not in current[current.rindex("<a ") :], path
         hrefs = re.findall(r'<a href="([^"]*)"', nav)
-        assert hrefs == ["/", *SITE_PAGES], (path, hrefs)
+        assert hrefs == ["/", *BAR_PAGES], (path, hrefs)
         assert '<a href="/" class="site-nav-brand">WaveStack</a>' in nav
         assert 'data-i18n-aria-label="common.links.pages" data-i18n-links>' in nav
         for control in ('id="display-menu"', 'id="theme-picker"', 'id="language-picker"'):
             assert control in nav, (path, control)
-        assert nav.index("/models") < nav.index('id="display-menu"'), path
-        assert ('id="projection-toggle"' in page) == (path == "/"), path
-        if path == "/":
+        assert nav.index("/diagnostic") < nav.index('id="display-menu"'), path
+        # Lot 4 of 2026-10-04 (AD-28): the projection mode on the atelier and on /mcp.
+        assert ('id="projection-toggle"' in page) == (path in ("/", "/mcp")), path
+        if path in ("/", "/mcp"):
             nav = nav.replace(_projection_row(nav), "")
         navs[path] = nav.replace(' aria-current="page"', "")
     assert len(set(navs.values())) == 1, "the five copies of the bar differ"
@@ -142,7 +159,7 @@ def test_api_diagnostic_contains_a_model_table_failure(monkeypatch, tmp_path):
 
 def test_pages_and_static_files_are_revalidated_but_api_is_not(monkeypatch, tmp_path):
     client = _client(_build(monkeypatch, tmp_path))
-    pages = ("/", "/diagnostic", "/models", "/llm", "/static/app.js", "/static/theme.js")
+    pages = ("/", "/diagnostic", "/llm", "/static/app.js", "/static/theme.js")
     story_pages = ("/static/llm.js", "/static/llm.css", "/rag", "/static/rag.js")
     for path in (*pages, *story_pages, "/static/rag.css"):  # stories 29 and 30
         response = client.get(path)
@@ -161,7 +178,7 @@ def test_favicon_is_served_and_declared_on_every_page(monkeypatch, tmp_path):
         assert response.headers["content-type"].startswith("image/svg+xml"), path
         assert response.text.lstrip().startswith("<svg"), path
     link = '<link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />'
-    for page in ("/", "/diagnostic", "/models", "/llm", "/rag"):
+    for page in ("/", "/diagnostic", "/llm", "/rag"):
         text = client.get(page).text
         assert link in text[: text.index("</head>")], page
 
@@ -451,7 +468,8 @@ def test_state_gives_the_journal_instance(monkeypatch, tmp_path):
 
 def test_the_session_spend_is_in_the_state_and_has_its_place_in_the_top_bar(monkeypatch, tmp_path):
     """FinOps: `/api/state` gives the session's spend (`None` before a paid call), for a
-    reloaded page; `#consumption` follows the gauge's figures; `/models` has « Prix »."""
+    reloaded page; `#consumption` follows the gauge's figures; a card's capabilities say
+    « Prix » (lot 3 of 2026-10-04: `models.columns`, on « Diagnostic et modèles »)."""
     from wavestack.models import openai_chat
 
     client = _client(_build(monkeypatch, tmp_path))
@@ -465,7 +483,9 @@ def test_the_session_spend_is_in_the_state_and_has_its_place_in_the_top_bar(monk
     assert spend["total_eur"] == (0.001 + 0.002) * 0.86
     index = client.get("/").text
     assert index.index('id="gauge-figures"') < index.index('id="consumption"')
-    assert '<span class="sort-label">Prix</span>' in client.get("/models").text
+    assert 'section("models.columns")' in client.get("/diagnostic").text
+    texts = client.get("/api/ui_texts").json()["texts"]
+    assert texts["models"]["columns"]["price"] == "Prix"
 
 
 def test_the_session_cap_is_shown_before_it_bites(monkeypatch, tmp_path):
@@ -621,7 +641,8 @@ def test_the_answer_bubble_alone_uses_the_markdown_rendering():
     assert app_js.count("renderMarkdown(") == 1  # one place: the Vue humain's answer
     assert 'el("div", "bubble-text is-markdown")' in app_js
     assert 'el("div", "bubble-text", turn.text)' not in app_js
-    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    # Lot 4 of 2026-10-04 (AD-28): the panes' rules live in pages.css, shared by the workshops.
+    css = (STATIC / "pages.css").read_text(encoding="utf-8")
     assert re.search(
         r"body\.focus-mode \.right:has\([^)]*\.pane\.is-focused\) \{\s*min-height: 0;", css
     )

@@ -1,8 +1,8 @@
-# Écran « LLM nu » (story 29, AD-19) : les textes de la page /llm, validés par pydantic
+# Atelier LLM (story 29, AD-19) : les textes de la page /llm, validés par pydantic
 # (wavestack.session.llm_lab.LabContent). Un fichier invalide : la page reste servie et dit
 # pourquoi. `{…}` : un nombre ou un nom que la session met en forme et que la page place.
 
-title_text: "LLM nu : l'intérieur du modèle"
+title_text: "Atelier LLM : l'intérieur du modèle"
 intro_text: >-
   Ici, aucune brique : ni prompt système, ni historique, ni outil, ni mémoire. On regarde ce
   que fait le modèle lui-même : découper le texte en tokens, les transformer en vecteurs,

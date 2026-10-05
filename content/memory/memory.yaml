@@ -34,6 +34,6 @@ drawer:
 
 # Mémoire de démonstration : fictive et non confidentielle (NFR-11).
 demo:
-  - L'utilisateur s'appelle Camille.
-  - Camille est consultante en cybersécurité.
-  - Camille prépare une formation sur les agents IA.
+  - L'utilisateur s'appelle Pascal.
+  - Pascal est consultant en cybersécurité.
+  - Pascal prépare une formation sur les agents IA.

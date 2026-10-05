@@ -61,7 +61,11 @@ def user_agent() -> str:
     return f"WaveStack/0.1 (demonstrateur pedagogique; {load_config().net_contact})"
 
 
-def _check_and_trace(request: httpx.Request | httpx2.Request, scope: TraceScope) -> None:
+def _check_and_trace(
+    request: httpx.Request | httpx2.Request,
+    scope: TraceScope,
+    extra: dict[str, object] | None = None,
+) -> None:
     host = request.url.host
     if not is_host_allowed(host, load_config().allowed_hosts):
         raise NetworkBlocked(Message("net.host_refused", host=host))
@@ -75,7 +79,8 @@ def _check_and_trace(request: httpx.Request | httpx2.Request, scope: TraceScope)
             "url": str(request.url),
             "headers": _headers(request),
             "body": _body(request).decode("utf-8", "replace"),
-        },
+        }
+        | (extra or {}),
         scope=scope,
     )
 
@@ -262,17 +267,19 @@ def create_async_client(
     transport: httpx2.AsyncBaseTransport | None = None,
     *,
     timeout: float = 30.0,
+    annotate: Callable[[httpx2.Request], dict[str, object]] | None = None,
 ) -> httpx2.AsyncClient:
     """Asynchronous httpx2 client, same configuration as `create_client`.
 
     Requests may leave from a task that does not see the caller's `TraceScope`
     (the MCP transport's writer task): `scope()` gives the one to trace with.
     The read timeout stays long, since a server may hold an event stream open;
-    each MCP call is bounded by its own deadline.
+    each MCP call is bounded by its own deadline. `annotate(request)` (lot 4 of 2026-10-04,
+    the MCP workshop): fields added to the request's `outbound_request` (`message_seq`).
     """
 
     async def trace(request: httpx2.Request) -> None:
-        _check_and_trace(request, scope())
+        _check_and_trace(request, scope(), annotate(request) if annotate else None)
 
     async def trace_response(response: httpx2.Response) -> None:
         _trace_response(response, scope())

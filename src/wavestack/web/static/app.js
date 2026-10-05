@@ -9,6 +9,10 @@ import { dateTimeFormat, joinList, numberFormat as intlNumber, ready as textsRea
 import { languageChanging, renderLanguagePicker as drawLanguagePicker, setDisplayMenu, useSessionState } from "./site-nav.js";
 // Recette du 02/10: the final answer's Markdown, rendered in the Vue humain only.
 import { renderMarkdown } from "./markdown.js";
+// Lot 2 (2026-10-04): the shared diagram's primitives (blocks, halo, wires, layer).
+import { block as diagramBlock, light, marker, svgEl, wire, wireLayer } from "./diagram.js";
+// Lot 4 (2026-10-04, AD-28): the panes' mechanics and the projection mode, shared with /mcp.
+import { createPanes, initProjection } from "./panes.js";
 
 const PANES = ["bricks", "human", "ctx", "orch", "schema"];
 const PANE_LABELS = section("main.pane_titles");
@@ -46,11 +50,18 @@ const store = {
   // Story 34, UI state only: the link keys of the element under the pointer or the keyboard
   // focus (`data-links`); every pane lights what shares one of them.
   linkHover: null,
-  hiddenPanes: new Set(),
-  focusedPane: null,
-  // Sizes the user dragged (story 8f), absent until then: `bricks` width and `schema` height
-  // in px, `human` / `ctx` / `orch` as flex-grow weights. Saved with `hiddenPanes`.
-  paneSizes: {},
+  // Lot 4 (AD-28): the hidden panes, the focused one and the sizes the user dragged (story 8f:
+  // `bricks` width and `schema` height in px, `human` / `ctx` / `orch` as flex-grow weights)
+  // are panes.js's, read here through `panes`.
+  get hiddenPanes() {
+    return panes.hidden;
+  },
+  get focusedPane() {
+    return panes.focused;
+  },
+  set focusedPane(paneId) {
+    panes.focused = paneId;
+  },
   // Gauge source: the most recent of `context_preview` / `context_rendered` (AD-9), and the
   // call it measures (the envelope's `call_id`, `null` for a preview; story 34).
   gauge: null, // { payload, preview, callId }
@@ -85,7 +96,7 @@ const store = {
   ragNotice: null,
   rerankNotice: null, // story 16: the same, for the reranker's download or load
   openExplanations: new Set(), // `options:{brick.id}` keys whose option list is unfolded (UI state only)
-  openBrickHelp: new Set(), // brick ids whose help popover is open (UI state only)
+  openBrickHelp: new Set(), // brick ids (and "force-section") whose help popover is open (UI state only)
   closedPayloads: new Set(), // seq of outbound payloads folded by the user (open by default)
   openApprovalPayloads: new Set(), // approval ids whose payload is unfolded in the Vue humain card
   // Story 19, UI state only: the context Contexte LLM shows, `null` for the main one, else
@@ -97,10 +108,11 @@ const store = {
   openReasoning: new Set(),
   // Story 32, UI state only: Contexte LLM's view (« Lecture groupée », « Texte exact »,
   // « Corps JSON »; remembered by the browser), the « déjà lu » blocks unfolded (by call), the
-  // JSON nodes folded (open by default) and the exact texts shown, by key.
+  // JSON nodes the user toggled (lot 1 of 2026-10-04: a tree opens on its root's keys, every
+  // node under it folded) and the exact texts shown, by key.
   ctxMode: "grouped",
   openSeen: new Set(),
-  jsonClosed: new Set(),
+  jsonToggled: new Set(),
   openExact: new Set(),
   // Story 9: the armed actions as the session last sent them (AD-3), and every label seen, so
   // an `action_dropped` still names its action once the list moved on.
@@ -122,7 +134,9 @@ const store = {
     turnOpen: new Map(), // turn id -> unfolded, when the user chose
     selected: null, // the step key last clicked
     current: null, // the live step's key, computed at each render
-    currentSticky: false,
+    // The live step is not unfolded as the live one: sticky (always open) or quiet (lot 1 of
+    // 2026-10-04: on a click only); a frozen view then keeps it as it was.
+    currentApart: false,
     prepGroupOpen: true,
     prepOpen: new Set(), // MCP connection lines unfolded
     logOpen: false,
@@ -895,27 +909,40 @@ function announce(turn) {
 
 // ---------- pane visibility, focus, selection ----------
 
-function hidePane(paneId) {
-  if (store.hiddenPanes.size >= PANES.length - 1) return; // at least one stays visible
-  store.hiddenPanes.add(paneId);
-  savePaneLayout();
-  render();
-}
+// Lot 4 (AD-28): panes.js lays them out, hides, focuses, resizes and remembers them
+// (`wavestack.panes`); the page re-renders on each change. At least one stays visible.
+const panes = createPanes({
+  panes: PANES,
+  labels: PANE_LABELS,
+  storageKey: "wavestack.panes",
+  layout: document.getElementById("layout"),
+  left: "bricks",
+  row: ["human", "ctx", "orch"],
+  bottom: "schema",
+  chips: document.getElementById("pane-chips"),
+  // The Vue humain waits for the user's answer to an H5 validation; story 34: a hidden pane
+  // holds an element linked to the selection (FR-4), said in words on its chip.
+  chipState: (paneId) => {
+    const awaiting = paneId === "human" && store.sessionState?.state === "awaiting_human";
+    return {
+      awaiting,
+      linked: Boolean(document.querySelector(`.pane[data-pane="${paneId}"] .is-selection-linked`)),
+      ...(awaiting ? { title: t("main.panes.awaiting") } : {}),
+    };
+  },
+  onChange: () => render(),
+});
 
 function showPane(paneId) {
-  store.hiddenPanes.delete(paneId);
-  savePaneLayout();
-  render();
+  panes.show(paneId);
 }
 
 function togglePane(paneId) {
-  if (store.hiddenPanes.has(paneId)) showPane(paneId);
-  else hidePane(paneId);
+  panes.toggle(paneId);
 }
 
-function toggleFocus(paneId) {
-  store.focusedPane = store.focusedPane === paneId ? null : paneId;
-  render();
+function savePaneLayout() {
+  panes.save();
 }
 
 function cssEscape(value) {
@@ -1099,7 +1126,6 @@ function render() {
   renderOutboundSummary();
   updateBrickLinks();
   applyLinks();
-  fitFootprint(); // GreenOps: once the top bar is drawn
 }
 
 function el(tag, className, text) {
@@ -1178,13 +1204,13 @@ function renderBricks() {
   );
   // Story 34: how to read the panes together.
   pane.appendChild(el("p", "brick-link-hint", t("main.bricks.link_hint")));
-  pane.appendChild(forcedToggle());
+  const reopenPopovers = []; // help popovers that were open before this rebuild
+  pane.appendChild(forcedToggle(reopenPopovers));
   if (store.armError) {
     const error = el("p", "force-error", store.armError);
     error.setAttribute("role", "alert");
     pane.appendChild(error);
   }
-  const reopenPopovers = []; // help popovers that were open before this rebuild
   let group = null;
   for (const brick of store.bricks.bricks) {
     // Story 33: the group comes with the card (AD-1); the list's order is the display order.
@@ -1624,13 +1650,35 @@ function saveShowForced() {
   }
 }
 
-// D3 of 2026-10-01: a titled section with the ✋, told apart from the bricks' switches.
-function forcedToggle() {
+// D3 of 2026-10-01: a titled section with the ✋, told apart from the bricks' switches. Lot 1 of
+// 2026-10-04: a « ? » by its title, the bricks' help (`.brick-help` and its popover, anchored
+// to the button), open again after a rebuild (`reopen`, the pane's list).
+const FORCE_HELP = "force-section"; // its key in `store.openBrickHelp` (no brick has this id)
+function forcedToggle(reopen) {
   const box = el("section", "force-section");
   // Its own class: the E2E reads the two groups' titles by `.brick-group-title`.
   const title = el("h3", "force-section-title", t("main.force.section_title"));
   title.id = "force-section-title";
   box.setAttribute("aria-labelledby", title.id);
+  const head = el("div", "force-section-head");
+  const help = el("button", "brick-help brick-help-inline", "?");
+  help.type = "button";
+  help.id = "force-help";
+  help.dataset.focusKey = "force-help";
+  help.setAttribute("popovertarget", "explain-force-section");
+  help.setAttribute("aria-label", t("main.force.help_label"));
+  help.style.setProperty("anchor-name", "--force-help-anchor");
+  const popover = el("div", "brick-explanation force-explanation");
+  popover.id = "explain-force-section";
+  popover.setAttribute("popover", "");
+  popover.style.setProperty("position-anchor", "--force-help-anchor");
+  popover.appendChild(el("p", "", t("main.force.help_text")));
+  popover.addEventListener("toggle", (event) => {
+    if (event.newState === "open") store.openBrickHelp.add(FORCE_HELP);
+    else store.openBrickHelp.delete(FORCE_HELP);
+  });
+  if (store.openBrickHelp.has(FORCE_HELP)) reopen.push(popover);
+  head.append(title, help, popover);
   const row = el("label", "force-toggle");
   const toggle = el("input", "brick-toggle");
   toggle.type = "checkbox";
@@ -1655,7 +1703,7 @@ function forcedToggle() {
   const hand = el("span", "force-toggle-icon", "✋");
   hand.setAttribute("aria-hidden", "true"); // the label alone is read aloud
   row.append(toggle, hand, el("span", "", t("main.force.show")));
-  box.append(title, row);
+  box.append(head, row);
   return box;
 }
 
@@ -2397,26 +2445,27 @@ const shortUsd = (n) =>
     ? t("common.format.usd_below", { amount: shortMoneyFormat().format(0.0001) })
     : t("common.format.usd", { amount: shortMoneyFormat().format(n) });
 
-// FinOps: the session's API spend in the top bar, from the first paid call: « Dépense estimée »
-// over « entrée $ + sortie $ », the whole sentence (4 significant digits, the euros) in the
-// tooltip and the accessible name (every figure from the session, AD-1). GreenOps: the
-// session's footprint ends the second line (« · 0,12 g CO₂e ») when the bar still fits, else
-// it is said in the sentence only; before any paid call (local calls only), « Empreinte
-// estimée » over the footprint.
+// FinOps: the session's API spend in the top bar, from the first paid call, on three lines
+// (lot 1 of 2026-10-04): « Dépense estimée », « 💰 entrée $ + sortie $ », « 🍃 a–b g CO₂e »;
+// the whole sentence (4 significant digits, the euros) in the tooltip and the accessible name
+// (every figure from the session, AD-1). Before any paid call (local calls only), two lines:
+// « Empreinte estimée » over the footprint.
 function renderConsumption() {
   const node = document.getElementById("consumption");
   const c = store.consumption;
   node.hidden = !c;
-  footprintOptional = false;
   if (!c) return;
   const paid = c.calls > 0;
   const green = (c.impact_calls ?? 0) > 0;
   const guess = approx(c.approx);
   const grams = green ? rangeText(c.gco2e_min, c.gco2e_max, "g CO₂e") : "";
   setText(document.getElementById("consumption-label"), paid ? t("main.consumption.spend_label") : t("main.consumption.footprint_label"));
-  setText(document.getElementById("consumption-money"), paid ? `${guess}${shortUsd(c.total_in_usd)} + ${shortUsd(c.total_out_usd)}` : "");
+  const money = document.getElementById("consumption-money");
+  setText(money, paid ? `💰 ${guess}${shortUsd(c.total_in_usd)} + ${shortUsd(c.total_out_usd)}` : "");
+  money.hidden = !paid;
   const footprint = document.getElementById("consumption-footprint");
-  setText(footprint, green ? `${paid ? " · " : ""}${grams}` : "");
+  setText(footprint, green ? `🍃 ${grams}` : "");
+  footprint.hidden = !green;
   const sentences = [];
   if (paid) {
     sentences.push(
@@ -2449,45 +2498,6 @@ function renderConsumption() {
     node.title = sentence;
     node.setAttribute("aria-label", sentence);
   }
-  footprintOptional = green; // measured by `fitFootprint`, last, in every case
-}
-
-// GreenOps: the session's footprint in the bar (after the spend, or alone) only when the top
-// bar still fits (every control whole, the gauge's figures cut no further), else in the
-// tooltip only; measured at the end of `render`, once the bar's controls are drawn, and again
-// when its texts, the window's width, the projection mode or the fonts (once loaded) change.
-let footprintOptional = false;
-let footprintFitKey = null;
-function fitFootprint() {
-  const footprint = document.getElementById("consumption-footprint");
-  if (!footprintOptional) {
-    footprint.hidden = false;
-    footprintFitKey = null;
-    return;
-  }
-  const bar = footprint.closest(".top-bar");
-  const key = [innerWidth, document.documentElement.className, bar.textContent].join("|");
-  if (key === footprintFitKey) return;
-  footprintFitKey = key;
-  const figures = document.getElementById("gauge-figures");
-  const cut = () => figures.scrollWidth - figures.clientWidth;
-  footprint.hidden = true;
-  const before = cut();
-  footprint.hidden = false;
-  if (!topBarFits(bar) || cut() > Math.max(before, 0) + 1) footprint.hidden = true;
-}
-
-function topBarFits(bar) {
-  if (bar.scrollWidth > bar.clientWidth + 1) return false;
-  const box = bar.getBoundingClientRect();
-  return [...bar.children].every((e) => {
-    if (!e.id || !e.offsetParent || getComputedStyle(e).position === "absolute") return true;
-    const b = e.getBoundingClientRect();
-    if (b.width === 0) return true;
-    if (b.left < box.left - 1 || b.right > box.right + 1) return false;
-    if (b.top < box.top - 1 || b.bottom > box.bottom + 1) return false;
-    return e.scrollWidth <= e.clientWidth + 1 && e.scrollHeight <= e.clientHeight + 1;
-  });
 }
 
 // The model indicator (EXPERIENCE.md model-indicator): tag, name; tooltip = the cloud warning.
@@ -2517,7 +2527,8 @@ function renderModelIndicator() {
 // ---------- story 17: model picker (EXPERIENCE.md model-picker), hot switch ----------
 
 const PICK_OTHER = "other";
-// Story 25: the table of the models and their capabilities (`/models`), just before PICK_OTHER.
+// Story 25: the table of the models and their capabilities, just before PICK_OTHER; lot 3 of
+// 2026-10-04: merged into « Diagnostic et modèles » (`/diagnostic`).
 const PICK_MODELS = "models";
 const PICK_LEGEND = "legend"; // a disabled option, never chosen
 const modelKey = (model) => (model ? `${model.kind ?? ""}:${model.ref ?? model.id}` : "");
@@ -2615,7 +2626,6 @@ function bindWindowPicker() {
   });
   window.addEventListener("resize", () => {
     if (!windowPanel().hidden) placeWindowPanel();
-    fitFootprint(); // GreenOps: whether the session's footprint still fits the top bar
   });
 }
 
@@ -2874,7 +2884,8 @@ async function applyPick() {
     return;
   }
   if (value === PICK_MODELS) {
-    window.location.href = "/models"; // same tab, as the diagnostic; a reload restores (AD-1)
+    // Lot 3 of 2026-10-04: the table is the « Diagnostic et modèles » page now; same tab.
+    window.location.href = "/diagnostic";
     return;
   }
   const at = value.indexOf(":");
@@ -3183,7 +3194,7 @@ function revealStep(turn, key, links) {
   o.turnOpen.set(turn.id, true);
   if (o.live) {
     o.live = false;
-    o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+    o.userOpen = new Set(o.current && !o.currentApart ? [o.current] : []);
   }
   o.userOpen.add(key);
   o.selected = key;
@@ -3587,7 +3598,7 @@ function stepsAfter(owner, call) {
 
 // « Vider la conversation » and « Réinitialiser »: the folds of calls that are gone.
 function clearCtxFolds() {
-  for (const set of [store.openSeen, store.jsonClosed, store.openExact]) set.clear();
+  for (const set of [store.openSeen, store.jsonToggled, store.openExact]) set.clear();
 }
 
 // A call step clicked in Orchestration (story 34 selection): its call in Contexte LLM is
@@ -4198,15 +4209,15 @@ function jsonBlock(value, exact, key) {
   return block;
 }
 
-// A JSON tree in native JS (no library, AD-18): a `details` per object or array, open by
-// default, its folding kept by key; keys, strings and literals in their classes.
+// A JSON tree in native JS (no library, AD-18): a `details` per object or array, the root
+// open and the others folded by default (lot 1 of 2026-10-04), its folding kept by key; keys, strings and literals in their classes.
 function jsonTree(value, key) {
   const tree = el("span", "json-tree");
-  tree.appendChild(jsonNode(value, undefined, `json:${key}`, true));
+  tree.appendChild(jsonNode(value, undefined, `json:${key}`, true, true));
   return tree;
 }
 
-function jsonNode(value, name, path, last) {
+function jsonNode(value, name, path, last, root = false) {
   const head = [];
   if (typeof name === "string") head.push(el("span", "json-key", JSON.stringify(name)), el("span", "json-punct", ": "));
   const comma = () => (last ? [] : [el("span", "json-punct", ",")]);
@@ -4220,10 +4231,11 @@ function jsonNode(value, name, path, last) {
       return leaf;
     }
     const node = el("details", "json-node");
-    node.open = !store.jsonClosed.has(path);
+    // Open by default: the root only; `jsonToggled`, the paths whose state the user inverted.
+    node.open = root !== store.jsonToggled.has(path);
     node.addEventListener("toggle", () => {
-      if (node.open) store.jsonClosed.delete(path);
-      else store.jsonClosed.add(path);
+      if (node.open !== root) store.jsonToggled.add(path);
+      else store.jsonToggled.delete(path);
     });
     const summary = el("summary", "json-summary");
     summary.dataset.focusKey = path;
@@ -5177,8 +5189,9 @@ function plural(count, noun) {
 }
 
 // One line per step (DESIGN.md turn-step). A row: key (stable across renders), icon, title,
-// actor, key figure, network host, tone, `sticky` (stays unfolded whatever happens), `sig`
-// (the body is rebuilt only when it changes) and `body` (the former card's content).
+// actor, key figure, network host, tone, `sticky` (stays unfolded whatever happens), `quiet`
+// (never unfolded as the live step), `sig` (the body is rebuilt only when it changes) and
+// `body` (the former card's content).
 function turnRows(turn) {
   const rows = [];
   const calls = turn.steps.filter((s) => s.type === "call");
@@ -5471,14 +5484,19 @@ function stepRows(turn, step, i, calls, rows) {
         body: () => [harnessEvent(title, retries ? "error" : "info", [el("p", "", step.payload.message_text)])],
       });
     } else if (step.type === "prefix_not_reused") {
+      // Lot 1 of 2026-10-04: « Cache non réutilisé », the cause and the tokens read again;
+      // quiet: folded even as the live step (its message on a click).
       const cause = PREFIX_CAUSES[step.payload.cause];
+      const again = step.payload.again_tokens;
+      const reread = again > 0 ? t("main.orch.rows.again_tokens", { count: again }) : null;
       rows.push({
         key,
         icon: "ℹ",
         title: t("main.orch.rows.prefix"),
         actor: "harness",
-        figure: `${cause ? `${cause} · ` : ""}${t("main.orch.rows.common_tokens", { tokens: step.payload.common_tokens })}`,
+        figure: [cause, reread].filter(Boolean).join(" · "),
         tone: "hook",
+        quiet: true,
         sig: 1,
         body: () => [harnessEvent(t("main.orch.rows.prefix"), "info", [el("p", "", step.payload.message_text)])],
       });
@@ -5863,7 +5881,7 @@ function toggleStep(key) {
     // A click freezes the view (EXPERIENCE: direct par défaut); the live step stays open.
     if (o.live) {
       o.live = false;
-      o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+      o.userOpen = new Set(o.current && !o.currentApart ? [o.current] : []);
     }
     toggleSet(o.userOpen, key);
     o.selected = key;
@@ -5916,7 +5934,7 @@ function revealOutbound(componentId) {
     o.turnOpen.set(turn.id, true);
     if (o.live) {
       o.live = false;
-      o.userOpen = new Set(o.current && !o.currentSticky ? [o.current] : []);
+      o.userOpen = new Set(o.current && !o.currentApart ? [o.current] : []);
     }
     o.userOpen.add(row.key);
     o.selected = row.key;
@@ -5986,7 +6004,7 @@ function renderSteps() {
   const lastRows = lastOpen ? turnRows(lastTurn) : [];
   const currentRow = lastRows.at(-1);
   o.current = currentRow?.key ?? null;
-  o.currentSticky = Boolean(currentRow?.sticky);
+  o.currentApart = Boolean(currentRow?.sticky || currentRow?.quiet);
   const running = Boolean(lastTurn && lastTurn.status === null);
 
   const top = [];
@@ -6052,7 +6070,8 @@ function renderSteps() {
     const rowNodes = open
       ? (isLast ? lastRows : turnRows(turn)).map((row) => {
           const isCurrent = isLast && row.key === o.current;
-          const unfolded = row.sticky || (o.live ? isCurrent : o.userOpen.has(row.key));
+          // Lot 1 of 2026-10-04: a quiet row (`prefix_not_reused`) is never unfolded as the live one.
+          const unfolded = row.sticky || (o.live ? isCurrent && !row.quiet : o.userOpen.has(row.key));
           return stepNode(row, unfolded, { current: isCurrent && running, selected: row.key === o.selected });
         })
       : [];
@@ -6085,50 +6104,13 @@ function setTopStatus(text, title = text) {
   if (status.title !== title) status.title = title;
 }
 
-let renderedChipsKey = null;
-
 function renderChips() {
-  const container = document.getElementById("pane-chips");
-  // The Vue humain waits for the user's answer to an H5 validation; story 34: a hidden pane
-  // holds an element linked to the selection (FR-4), said in words on its chip.
-  const chips = [...store.hiddenPanes].map((paneId) => ({
-    paneId,
-    awaiting: paneId === "human" && store.sessionState?.state === "awaiting_human",
-    linked: Boolean(document.querySelector(`.pane[data-pane="${paneId}"] .is-selection-linked`)),
-  }));
-  // Rebuilt only when it changes: `applyLinks` runs on each hover, under the pointer.
-  const key = JSON.stringify(chips);
-  if (key === renderedChipsKey) return;
-  renderedChipsKey = key;
-  container.innerHTML = "";
-  for (const { paneId, awaiting, linked } of chips) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "pane-chip";
-    const name = PANE_LABELS[paneId];
-    chip.textContent = `+ ${name}${linked ? ` · ${t("main.panes.linked")}` : ""}`;
-    if (awaiting || linked) {
-      chip.classList.add("is-linked");
-      const dot = el("span", "pane-chip-dot", "● ");
-      dot.setAttribute("aria-hidden", "true");
-      chip.prepend(dot);
-    }
-    chip.title = awaiting
-      ? t("main.panes.awaiting")
-      : linked
-        ? t("main.panes.show_linked", { pane: name })
-        : t("main.panes.show", { pane: name });
-    // WCAG 2.5.3: the accessible name starts with the visible text.
-    chip.setAttribute("aria-label", labelValue(chip.textContent.replace(/^● /, ""), chip.title));
-    chip.addEventListener("click", () => showPane(paneId));
-    container.appendChild(chip);
-  }
+  panes.renderChips();
 }
 
 function renderMenu() {
   const list = document.getElementById("pane-menu-list");
   list.innerHTML = "";
-  const lastVisible = store.hiddenPanes.size >= PANES.length - 1;
   for (const paneId of PANES) {
     const visible = !store.hiddenPanes.has(paneId);
     const li = document.createElement("li");
@@ -6136,8 +6118,8 @@ function renderMenu() {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = visible;
-    checkbox.disabled = visible && lastVisible;
-    if (checkbox.disabled) checkbox.title = t("main.panes.one_visible");
+    checkbox.disabled = !panes.canHide(paneId);
+    if (checkbox.disabled) checkbox.title = t("common.panes.one_visible");
     checkbox.addEventListener("change", () => togglePane(paneId));
     label.appendChild(checkbox);
     label.append(PANE_LABELS[paneId]);
@@ -6159,267 +6141,7 @@ function renderMenu() {
 }
 
 function renderPaneVisibility() {
-  const lastVisible = store.hiddenPanes.size >= PANES.length - 1;
-  document.body.classList.toggle("focus-mode", store.focusedPane !== null);
-  for (const paneId of PANES) {
-    const section = document.querySelector(`.pane[data-pane="${paneId}"]`);
-    const hidden = store.hiddenPanes.has(paneId);
-    section.classList.toggle("is-hidden", hidden);
-    section.classList.toggle("is-focused", store.focusedPane === paneId);
-    const hideButton = section.querySelector('[data-action="hide"]');
-    const disable = !hidden && lastVisible;
-    hideButton.disabled = disable;
-    hideButton.title = disable ? t("main.panes.one_visible") : t("main.panes.hide", { pane: PANE_LABELS[paneId] });
-    hideButton.setAttribute("aria-label", hideButton.title);
-  }
-  // A handle only stands between two visible neighbours, never in focus mode.
-  for (const handle of document.querySelectorAll(".pane-resize-handle")) {
-    const pair = store.focusedPane === null ? handleNeighbours(handle.dataset.handle) : null;
-    handle.hidden = !pair;
-    if (pair) handle.setAttribute("aria-label", pair.label);
-  }
-  scheduleHandleValues();
-}
-
-// ---------- pane resizing (story 8f): gutter handles, mouse and keyboard ----------
-
-const PANES_STORAGE_KEY = "wavestack.panes";
-const TOP_ROW = ["human", "ctx", "orch"];
-const PANE_SIZE_VARS = {
-  bricks: "--pane-bricks-width",
-  schema: "--pane-schema-height",
-  human: "--pane-human-grow",
-  ctx: "--pane-ctx-grow",
-  orch: "--pane-orch-grow",
-};
-const PANE_MIN_WIDTH = 240; // same minimums as app.css (--pane-min-width / --pane-min-height)
-const PANE_MIN_HEIGHT = 160;
-const RESIZE_STEP = 16;
-// One handle after each of these; "schema" sits between the top row and the schema.
-const RESIZE_HANDLES = ["bricks", "human", "ctx", "schema"];
-
-function paneSection(paneId) {
-  return document.querySelector(`.pane[data-pane="${paneId}"]`);
-}
-
-function isPaneVisible(paneId) {
-  return !store.hiddenPanes.has(paneId);
-}
-
-// The two neighbours a handle moves the boundary between, or null when it has no place (one
-// side hidden). `before` / `after` are the elements measured; `label` names both panes.
-function handleNeighbours(handleId) {
-  if (handleId === "bricks") {
-    if (!isPaneVisible("bricks") || ![...TOP_ROW, "schema"].some(isPaneVisible)) return null;
-    return {
-      before: paneSection("bricks"),
-      after: document.querySelector(".right"),
-      label: t("main.panes.resize_bricks", { pane: PANE_LABELS.bricks }),
-    };
-  }
-  if (handleId === "schema") {
-    const top = TOP_ROW.filter(isPaneVisible);
-    if (!top.length || !isPaneVisible("schema")) return null;
-    const names = top.map((p) => PANE_LABELS[p]).join(", ");
-    return {
-      before: document.querySelector(".top-row"),
-      after: paneSection("schema"),
-      label: t("main.panes.resize_schema", { names, pane: PANE_LABELS.schema }),
-    };
-  }
-  const next = TOP_ROW.slice(TOP_ROW.indexOf(handleId) + 1).find(isPaneVisible);
-  if (!isPaneVisible(handleId) || !next) return null;
-  return {
-    before: paneSection(handleId),
-    after: paneSection(next),
-    beforeId: handleId,
-    afterId: next,
-    label: t("main.panes.resize_between", { a: PANE_LABELS[handleId], b: PANE_LABELS[next] }),
-  };
-}
-
-// Current sizes along the handle's axis. For a top-row handle, also the width and the weight
-// shared by the visible columns, to turn pixels back into weights.
-function measureHandle(handleId) {
-  const pair = handleNeighbours(handleId);
-  if (!pair) return null;
-  const vertical = handleId === "schema";
-  const size = (el) => {
-    const rect = el.getBoundingClientRect();
-    return vertical ? rect.height : rect.width;
-  };
-  const m = { handleId, pair, a: size(pair.before), b: size(pair.after) };
-  m.min = vertical ? PANE_MIN_HEIGHT : PANE_MIN_WIDTH;
-  m.minAfter = m.min;
-  if (handleId === "bricks") {
-    // Every visible top-row column keeps its minimum, not just the right side as a whole: the
-    // narrowest share (smallest weight) sets the width the columns need together.
-    const weights = TOP_ROW.filter(isPaneVisible).map((p) => store.paneSizes[p] ?? 1);
-    if (weights.length > 1) {
-      const gutter = parseFloat(getComputedStyle(document.querySelector(".top-row")).columnGap) || 0;
-      const sum = weights.reduce((total, w) => total + w, 0);
-      m.minAfter = (PANE_MIN_WIDTH * sum) / Math.min(...weights) + (weights.length - 1) * gutter;
-    }
-  }
-  if (TOP_ROW.includes(handleId)) {
-    const visible = TOP_ROW.filter(isPaneVisible);
-    m.total = visible.reduce((sum, p) => sum + size(paneSection(p)), 0);
-    m.weight = visible.reduce((sum, p) => sum + (store.paneSizes[p] ?? 1), 0);
-  }
-  return m;
-}
-
-// Moves the boundary `delta` px from the measured position, within the minimums. A side already
-// under its minimum (shrunk window) is never pushed further down, nor snapped up.
-function moveBoundary(m, delta) {
-  const lo = Math.min(m.min, m.a);
-  const hi = Math.max(m.a + m.b - m.minAfter, m.a);
-  const a = Math.min(hi, Math.max(lo, m.a + delta));
-  const round = (value) => Math.round(value * 10000) / 10000;
-  if (m.handleId === "bricks") {
-    store.paneSizes.bricks = Math.round(a);
-  } else if (m.handleId === "schema") {
-    store.paneSizes.schema = Math.round(m.a + m.b - a);
-  } else if (m.total > 0) {
-    // Weights of the two neighbours only, their sum unchanged: the other columns do not move.
-    store.paneSizes[m.pair.beforeId] = round((a / m.total) * m.weight);
-    store.paneSizes[m.pair.afterId] = round(((m.a + m.b - a) / m.total) * m.weight);
-  }
-  applyPaneSizes();
-  updateHandleValues();
-}
-
-// Double-click: default proportions for what this handle moves.
-function resetBoundary(handleId) {
-  if (handleId === "bricks" || handleId === "schema") delete store.paneSizes[handleId];
-  else for (const p of TOP_ROW) delete store.paneSizes[p];
-  applyPaneSizes();
-  savePaneLayout();
-  updateHandleValues();
-}
-
-function applyPaneSizes() {
-  const layout = document.getElementById("layout");
-  for (const [key, name] of Object.entries(PANE_SIZE_VARS)) {
-    const value = store.paneSizes[key];
-    if (value === undefined) layout.style.removeProperty(name);
-    else layout.style.setProperty(name, key === "bricks" || key === "schema" ? `${value}px` : String(value));
-  }
-}
-
-// aria-valuenow: share (%) of what precedes the handle, out of both neighbours.
-function updateHandleValues() {
-  for (const handle of document.querySelectorAll(".pane-resize-handle")) {
-    if (handle.hidden) continue;
-    const m = measureHandle(handle.dataset.handle);
-    const total = m ? m.a + m.b : 0;
-    if (!total) continue;
-    const pct = (value) => String(Math.round((value / total) * 100));
-    handle.setAttribute("aria-valuenow", pct(m.a));
-    handle.setAttribute("aria-valuemin", pct(Math.min(m.min, m.a)));
-    handle.setAttribute("aria-valuemax", pct(Math.max(total - m.minAfter, m.a)));
-  }
-}
-
-let handleValuesFrame = 0;
-
-function scheduleHandleValues() {
-  if (handleValuesFrame) return;
-  handleValuesFrame = requestAnimationFrame(() => {
-    handleValuesFrame = 0;
-    updateHandleValues();
-  });
-}
-
-// Sizes and hidden panes survive a reload (not the focus mode). Missing, unreadable or corrupt
-// storage leaves the defaults, silently.
-function loadPaneLayout() {
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(PANES_STORAGE_KEY));
-  } catch {
-    return;
-  }
-  if (!saved || typeof saved !== "object") return;
-  const sizes = saved.sizes && typeof saved.sizes === "object" ? saved.sizes : {};
-  for (const key of Object.keys(PANE_SIZE_VARS)) {
-    const value = sizes[key];
-    const max = key === "bricks" || key === "schema" ? 100000 : 100;
-    if (typeof value === "number" && Number.isFinite(value) && value > 0 && value <= max) {
-      store.paneSizes[key] = value;
-    }
-  }
-  if (Array.isArray(saved.hidden)) {
-    const hidden = new Set(saved.hidden.filter((p) => PANES.includes(p)));
-    if (hidden.size < PANES.length) store.hiddenPanes = hidden; // at least one stays visible
-  }
-}
-
-function savePaneLayout() {
-  try {
-    localStorage.setItem(
-      PANES_STORAGE_KEY,
-      JSON.stringify({ hidden: [...store.hiddenPanes], sizes: store.paneSizes })
-    );
-  } catch {
-    // No storage (private window, blocked site data): the layout just won't be remembered.
-  }
-}
-
-function createResizeHandles() {
-  for (const handleId of RESIZE_HANDLES) {
-    const horizontal = handleId === "schema";
-    const handle = document.createElement("div");
-    handle.className = "pane-resize-handle";
-    handle.dataset.handle = handleId;
-    handle.setAttribute("role", "separator");
-    handle.setAttribute("aria-orientation", horizontal ? "horizontal" : "vertical");
-    handle.tabIndex = 0;
-    handle.hidden = true;
-    (horizontal ? document.querySelector(".top-row") : paneSection(handleId)).after(handle);
-
-    let drag = null;
-    const endDrag = () => {
-      if (!drag) return;
-      if (drag.moved) savePaneLayout();
-      drag = null;
-      handle.classList.remove("is-dragging");
-      document.body.classList.remove("is-resizing-x", "is-resizing-y");
-    };
-    handle.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) return;
-      const m = measureHandle(handleId);
-      if (!m) return;
-      event.preventDefault(); // no text selection; focus is given explicitly
-      handle.focus({ preventScroll: true });
-      handle.setPointerCapture(event.pointerId);
-      drag = { m, x: event.clientX, y: event.clientY, moved: false };
-      handle.classList.add("is-dragging");
-      document.body.classList.add(horizontal ? "is-resizing-y" : "is-resizing-x");
-    });
-    handle.addEventListener("pointermove", (event) => {
-      if (!drag) return;
-      const delta = horizontal ? event.clientY - drag.y : event.clientX - drag.x;
-      if (!delta && !drag.moved) return;
-      drag.moved = true;
-      moveBoundary(drag.m, delta);
-    });
-    handle.addEventListener("pointerup", endDrag);
-    handle.addEventListener("pointercancel", endDrag);
-    handle.addEventListener("lostpointercapture", endDrag);
-    handle.addEventListener("dblclick", () => resetBoundary(handleId));
-    handle.addEventListener("keydown", (event) => {
-      if (event.altKey || event.ctrlKey || event.metaKey) return; // browser shortcuts (Alt+←)
-      const keys = horizontal ? ["ArrowUp", "ArrowDown"] : ["ArrowLeft", "ArrowRight"];
-      const direction = keys.indexOf(event.key);
-      if (direction < 0) return;
-      event.preventDefault();
-      const m = measureHandle(handleId);
-      if (!m) return;
-      moveBoundary(m, direction ? RESIZE_STEP : -RESIZE_STEP);
-      savePaneLayout();
-    });
-  }
+  panes.render();
 }
 
 // ---------- event log: every event the harness emits, folded at the bottom of Orchestration ----------
@@ -6574,12 +6296,37 @@ function eventSummary(group) {
       return `${t(p.direction === "to_server" ? "mcp.to_server" : "mcp.from_server")} · ${p.method || "—"} · ${seconds(p.elapsed_ms)}`;
     case "mcp_lab_connect_ended":
       return p.status === "ok"
-        ? `${labelValue(mcpServerLabel(p.server), plural(p.tools.length, "tool"))} · ${seconds(p.duration_ms)}`
+        ? `${labelValue(mcpServerLabel(p.server), plural((p.tools ?? []).length, "tool"))} · ${seconds(p.duration_ms)}`
         : labelValue(mcpServerLabel(p.server), p.error_text);
     case "mcp_lab_call_ended":
       return [labelValue(mcpServerLabel(p.server), p.tool), seconds(p.duration_ms), p.error_text]
         .filter(Boolean)
         .join(" · ");
+    // Lot 4 of 2026-10-04 (AD-27): the workshop's other exchanges, in the log only.
+    case "mcp_lab_exchange_started":
+      return [labelValue(mcpServerLabel(p.server), p.exchange), p.tool ?? p.uri ?? p.prompt ?? p.question]
+        .filter(Boolean)
+        .join(" · ");
+    case "mcp_lab_read_ended":
+      return [labelValue(mcpServerLabel(p.server), p.uri), seconds(p.duration_ms), p.error_text]
+        .filter(Boolean)
+        .join(" · ");
+    case "mcp_lab_prompt_ended":
+      return [labelValue(mcpServerLabel(p.server), p.name), seconds(p.duration_ms), p.error_text]
+        .filter(Boolean)
+        .join(" · ");
+    case "mcp_lab_model_started":
+      return p.phase_label;
+    case "mcp_lab_model_ended":
+      return [p.outcome ?? p.status, seconds(p.duration_ms), p.refusal_text ?? p.error_text]
+        .filter(Boolean)
+        .join(" · ");
+    case "mcp_lab_ask_ended":
+      return [labelValue(mcpServerLabel(p.server), p.outcome ?? p.status), seconds(p.duration_ms), p.error_text]
+        .filter(Boolean)
+        .join(" · ");
+    case "mcp_lab_closed":
+      return labelValue(mcpServerLabel(p.server), p.cause);
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
     case "effect_applied":
@@ -6778,14 +6525,6 @@ function toggleJournal() {
   renderJournal();
 }
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-
-function svgEl(tag, attrs) {
-  const node = document.createElementNS(SVG_NS, tag);
-  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
-  return node;
-}
-
 // Brick id -> chip icon in the harness frame (formatting only).
 const BRICK_ICONS = {
   short_memory: "🧠",
@@ -6849,7 +6588,8 @@ function robot(pose, modelNode, sub = false) {
   const who = sub ? t("main.schema.sub_robot") : name ? t("main.schema.model_named", { model: name }) : t("main.schema.model");
   const label = labelValue(who, POSE_LABELS[pose]);
   const classes = `robot${sub ? " robot-sub" : ""}${pose === "idle" ? "" : " is-active"}`;
-  const button = schemaButton(classes, sub ? "core.model_sub" : "core.model");
+  // Its `is-active` is its pose (the antenna), not a halo: not a block of the diagram.
+  const button = schemaButton(classes, sub ? "core.model_sub" : "core.model", undefined, false);
   button.setAttribute("aria-label", label);
   button.title = label;
   const cx = 40;
@@ -6893,9 +6633,10 @@ function robot(pose, modelNode, sub = false) {
   return button;
 }
 
-// Every piece of the schema is a button: Tab reaches it, Enter selects it (FR-4).
-function schemaButton(className, componentId, text) {
-  const button = el("button", className, text);
+// Every piece of the schema is a button: Tab reaches it, Enter selects it (FR-4); a block of
+// the shared diagram (`halo`), lit by `is-active`, but the robots.
+function schemaButton(className, componentId, text, halo = true) {
+  const button = halo ? diagramBlock(className, text) : el("button", className, text);
   button.type = "button";
   button.dataset.component = componentId;
   button.dataset.focusKey = componentId;
@@ -7031,7 +6772,7 @@ function renderSchema() {
     renderedActivityKey = null;
     renderedRobotKey = robotKey;
     buildSchema(root, nodes, wanted.length > 0, hooks, blocked, robots());
-    scheduleWires();
+    schemaWires.schedule();
   }
   if (robotKey !== renderedRobotKey) {
     // A pose change swaps the robots only: the rest keeps its focus and its layout.
@@ -7048,14 +6789,9 @@ function renderSchema() {
   if (activityKey !== renderedActivityKey) {
     renderedActivityKey = activityKey;
     schemaActive = activity;
-    for (const node of root.querySelectorAll(".is-active:not(.robot)")) node.classList.remove("is-active");
-    if (activity) {
-      const id = cssEscape(activity.component);
-      root
-        .querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"], .arch-chip[data-component="${id}"]`)
-        ?.classList.add("is-active");
-    }
-    scheduleWires();
+    const id = activity ? cssEscape(activity.component) : null;
+    light(root, id && root.querySelector(`.arch-node[data-component="${id}"], .arch-hook[data-component="${id}"], .arch-chip[data-component="${id}"]`));
+    schemaWires.schedule();
   }
   patchModelLinks(root);
 }
@@ -7190,9 +6926,8 @@ function buildSchema(root, nodes, anyBrick, hooks, blocked, robotNodes) {
   network.append(el("span", "arch-zone-label", `🌐 ${t("main.hosting.network")} · ${t("main.schema.off_workstation")}`), networkRow);
 
   // The trunk, the rails and the path, drawn over the pieces once they are laid out.
-  const wires = svgEl("svg", { class: "arch-wires" });
-  wires.setAttribute("aria-hidden", "true");
-  root.append(local, boundary, network, wires);
+  schemaWires.clear();
+  root.append(local, boundary, network, schemaWires.svg);
   if (focusKey) quietFocus(root.querySelector(`[data-focus-key="${cssEscape(focusKey)}"]`));
 }
 
@@ -7335,79 +7070,51 @@ function schemaNode(node, shape) {
 
 // ---------- schema wires: trunk, rails, path and markers (DESIGN.md > arch-trunk) ----------
 
-let wiresPending = false;
-function scheduleWires() {
-  if (wiresPending) return;
-  wiresPending = true;
-  requestAnimationFrame(() => {
-    wiresPending = false;
-    drawSchemaWires();
-  });
-}
-
-function wirePath(d, className) {
-  return svgEl("path", { d, class: className });
-}
-
-function wireMarker(x, y, text, className) {
-  const g = svgEl("g", { class: `arch-marker ${className}` });
-  const label = svgEl("text", { x, y: y + 4, "text-anchor": "middle" });
-  label.textContent = text;
-  g.append(svgEl("circle", { cx: x, cy: y, r: 12 }), label);
-  return g;
-}
+// Lot 2 (2026-10-04): the shared diagram's layer (diagram.js) draws them, on the schema's
+// rebuilds, its resizes (pane resized, focused, hidden then shown), the fonts and projection.
+const schemaWires = wireLayer(document.getElementById("schema"), drawSchemaWires);
 
 // Drawn from the laid-out pieces, after each rebuild and each resize (ResizeObserver): the trunk
 // leaves the strip (or the frame), runs under the bins, and crosses the boundary dashed; a rail
 // runs 8 px left of each column, with a stub to each bin.
-function drawSchemaWires() {
+function drawSchemaWires({ height, box }) {
   const arch = document.getElementById("schema");
-  const svg = arch.querySelector(".arch-wires");
   const frame = arch.querySelector(".arch-harness");
-  if (!svg || !frame) return;
-  const A = arch.getBoundingClientRect();
-  if (!A.width || !A.height) return; // hidden pane
-  svg.setAttribute("width", A.width);
-  svg.setAttribute("height", A.height);
-  svg.setAttribute("viewBox", `0 0 ${A.width} ${A.height}`);
-  const box = (node) => {
-    const r = node.getBoundingClientRect();
-    return { l: r.left - A.left, t: r.top - A.top, r: r.right - A.left, b: r.bottom - A.top, cx: (r.left + r.right) / 2 - A.left, cy: (r.top + r.bottom) / 2 - A.top };
-  };
+  if (!frame) return null;
   const F = box(frame);
   const strip = arch.querySelector(".arch-hook-strip");
   const sx = strip ? box(strip).cx : F.r - 40;
   const sy = strip ? box(strip).b : F.b;
-  const by = A.height - 12;
+  const by = height - 12;
   const fx = box(arch.querySelector(".arch-boundary")).cx;
   const parts = [];
   const rails = new Map();
   let maxRail = sx;
   for (const col of arch.querySelectorAll(".arch-col")) {
     const railX = box(col).l - 8;
-    const cls = `arch-trunk${col.closest(".arch-zone-network") ? " is-network" : ""}`;
+    const cls = `diagram-wire${col.closest(".arch-zone-network") ? " is-dashed" : ""}`;
     const stubs = [...col.querySelectorAll(".arch-group")].map((g) => ({ x: box(g).l, y: box(g).t + 12 }));
     if (!stubs.length) continue;
-    parts.push(wirePath(`M${railX},${by} V${Math.min(...stubs.map((s) => s.y))}`, cls));
-    for (const s of stubs) parts.push(wirePath(`M${railX},${s.y} H${s.x}`, cls));
+    parts.push(wire(`M${railX},${by} V${Math.min(...stubs.map((s) => s.y))}`, cls));
+    for (const s of stubs) parts.push(wire(`M${railX},${s.y} H${s.x}`, cls));
     rails.set(col, railX);
     maxRail = Math.max(maxRail, railX);
   }
   if (maxRail > sx) {
-    parts.push(wirePath(`M${sx},${sy} V${by} H${Math.min(maxRail, fx)}`, "arch-trunk"));
-    if (maxRail > fx) parts.push(wirePath(`M${fx},${by} H${maxRail}`, "arch-trunk is-network"));
+    parts.push(wire(`M${sx},${sy} V${by} H${Math.min(maxRail, fx)}`, "diagram-wire"));
+    if (maxRail > fx) parts.push(wire(`M${fx},${by} H${maxRail}`, "diagram-wire is-dashed"));
   }
 
   const a = schemaActive;
   if (a?.mode === "blocked") {
     // Stopped at the strip: the tool is never reached.
     const y = F.b + 14;
-    parts.push(wirePath(`M${sx},${sy} V${y - 12}`, "arch-path-block"), wireMarker(sx, y, "✖", "is-block"));
+    parts.push(wire(`M${sx},${sy} V${y - 12}`, "diagram-path-block"), marker(sx, y, "✖", "is-block"));
   } else if (a?.mode === "pending") {
     // H5 waits for the user: stopped before the boundary, nothing has left the workstation.
     const stopX = fx - 18;
     const d = `M${sx},${sy} V${by} H${stopX}`;
-    parts.push(wirePath(d, "arch-path"), wirePath(d, "arch-path-core"), wireMarker(stopX, by, "✋", "is-stop"));
+    parts.push(wire(d, "diagram-path"), wire(d, "diagram-path-core"), marker(stopX, by, "✋", "is-stop"));
   } else if (a?.target) {
     const node = arch.querySelector(`.arch-node[data-component="${cssEscape(a.target)}"]`);
     const col = node?.closest(".arch-col");
@@ -7418,19 +7125,19 @@ function drawSchemaWires() {
       // Along the bin's left edge, then into the node when it stands on that edge.
       const end = n.l - g.l < 20 ? `V${n.cy} H${n.l}` : `V${n.cy}`;
       const tail = `H${railX} V${g.t + 12} H${g.l + 3} ${end}`;
-      parts.push(wirePath(`M${sx},${sy} V${by} ${tail}`, "arch-path"));
+      parts.push(wire(`M${sx},${sy} V${by} ${tail}`, "diagram-path"));
       if (node.classList.contains("is-network")) {
         // Solid on the workstation, dashed and moving once it crosses the boundary.
         parts.push(
-          wirePath(`M${sx},${sy} V${by} H${fx}`, "arch-path-core"),
-          wirePath(`M${fx},${by} ${tail}`, "arch-path-core is-flow")
+          wire(`M${sx},${sy} V${by} H${fx}`, "diagram-path-core"),
+          wire(`M${fx},${by} ${tail}`, "diagram-path-core is-flow")
         );
       } else {
-        parts.push(wirePath(`M${sx},${sy} V${by} ${tail}`, "arch-path-core"));
+        parts.push(wire(`M${sx},${sy} V${by} ${tail}`, "diagram-path-core"));
       }
     }
   }
-  svg.replaceChildren(...parts);
+  return parts;
 }
 
 // ---------- audit log: the whole file, read only (story 8) ----------
@@ -7455,39 +7162,6 @@ async function openAudit() {
   }
 }
 
-// ---------- story 34: projection mode (NFR-9) ----------
-// Every text a notch larger (the ramp × 9/7, in app.css), remembered by the browser; the
-// reset leaves it, like the panes' layout. Without storage, it works until the next reload.
-
-const PROJECTION_STORAGE_KEY = "wavestack.projection";
-
-function setProjection(on) {
-  document.documentElement.classList.toggle("projection", on);
-  document.getElementById("projection-toggle").setAttribute("aria-pressed", String(on));
-  scheduleWires(); // the schema's pieces moved
-  fitFootprint(); // GreenOps: whether the session's footprint still fits the top bar
-}
-
-function loadProjection() {
-  let on = false;
-  try {
-    on = localStorage.getItem(PROJECTION_STORAGE_KEY) === "1";
-  } catch {
-    // No storage: the default size.
-  }
-  setProjection(on);
-}
-
-function toggleProjection() {
-  const on = !document.documentElement.classList.contains("projection");
-  setProjection(on);
-  try {
-    localStorage.setItem(PROJECTION_STORAGE_KEY, on ? "1" : "0");
-  } catch {
-    // No storage: the mode lasts until the page is reloaded.
-  }
-}
-
 // ---------- boot ----------
 
 function closePaneMenu() {
@@ -7502,25 +7176,19 @@ async function boot() {
   // `data-i18n*` of the page); every render reads them.
   await textsReady;
   // Remembered pane layout first, so the page does not open on the defaults then jump.
-  loadPaneLayout();
-  loadProjection();
-  // GreenOps: the loaded fonts change the bar's widths: the footprint's fit, measured again.
-  document.fonts?.ready.then(() => {
-    footprintFitKey = null;
-    fitFootprint();
+  panes.load();
+  // Story 34: the projection mode (NFR-9), panes.js's; the schema's pieces move with it.
+  initProjection({
+    toggle: document.getElementById("projection-toggle"),
+    onChange: () => schemaWires.schedule(),
   });
   bindLinkedView();
   loadShowForced();
   loadShowReasoning();
   loadCtxMode(); // story 32: Contexte LLM's view, remembered by the browser
   document.getElementById("show-reasoning").addEventListener("change", toggleShowReasoning);
-  createResizeHandles();
-  applyPaneSizes();
-  renderChips();
+  panes.start(); // the gutter handles, the sizes, « — » and ⛶, then the first layout
   renderMenu();
-  renderPaneVisibility();
-  // aria-valuenow follows the window too (bricks and schema are in px).
-  new ResizeObserver(scheduleHandleValues).observe(document.getElementById("layout"));
 
   document.getElementById("pane-menu-toggle").addEventListener("click", () => {
     const list = document.getElementById("pane-menu-list");
@@ -7536,16 +7204,6 @@ async function boot() {
   });
   bindWindowPicker();
 
-  for (const paneId of PANES) {
-    const section = document.querySelector(`.pane[data-pane="${paneId}"]`);
-    section
-      .querySelector('[data-action="hide"]')
-      .addEventListener("click", () => hidePane(paneId));
-    section
-      .querySelector('[data-action="focus"]')
-      .addEventListener("click", () => toggleFocus(paneId));
-  }
-
   document.getElementById("composer").addEventListener("submit", sendMessage);
   document.getElementById("composer-stop").addEventListener("click", stopTurn);
   document.getElementById("clear-conversation").addEventListener("click", clearConversation);
@@ -7559,7 +7217,6 @@ async function boot() {
   document.getElementById("model-picker-apply").addEventListener("click", applyPick);
   bindCloudWarning();
   document.getElementById("reset-button").addEventListener("click", resetHarness);
-  document.getElementById("projection-toggle").addEventListener("click", toggleProjection);
   document.getElementById("compare-turns").addEventListener("click", () => openCompare());
   document.getElementById("follow-live").addEventListener("click", followLive);
   document.getElementById("event-log-head").addEventListener("click", toggleJournal);
@@ -7592,9 +7249,6 @@ async function boot() {
   document.getElementById("audit-close").addEventListener("click", () =>
     document.getElementById("audit-dialog").close()
   );
-  // The schema's wires follow its pieces: pane resized, focused, hidden then shown, fonts loaded.
-  new ResizeObserver(scheduleWires).observe(document.getElementById("schema"));
-  document.fonts?.ready.then(scheduleWires);
   // Local stopwatch anchored on the `*_started` ts, replaced by `duration_ms` (AD-1).
   setInterval(() => {
     if (activeTurn()) {

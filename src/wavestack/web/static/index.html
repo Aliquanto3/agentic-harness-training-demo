@@ -5,7 +5,7 @@
   <script src="/static/theme.js"></script>
   <script type="module" src="/static/i18n.js"></script>
   <script type="module" src="/static/site-nav.js"></script>
-  <title>WaveStack</title>
+  <title data-i18n="main.page_title">WaveStack — Atelier Harnais</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
@@ -18,12 +18,11 @@
        `aria-current` and, on the main screen only, the projection mode (site-nav.js). -->
   <nav class="site-nav" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
     <a href="/" class="site-nav-brand">WaveStack</a>
-    <a href="/" aria-current="page">Atelier</a>
-    <a href="/llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM nu</a>
-    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">Atelier RAG</a>
-    <a href="/mcp" title="Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)" data-i18n-title="common.links.mcp_title">Atelier MCP</a>
-    <a href="/diagnostic">Diagnostic</a>
-    <a href="/models">Modèles</a>
+    <a href="/" aria-current="page">Harnais</a>
+    <a href="/llm" title="Atelier LLM : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM</a>
+    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">RAG</a>
+    <a href="/mcp" title="Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)" data-i18n-title="common.links.mcp_title">MCP</a>
+    <a href="/diagnostic">🛠️ Diagnostic</a>
     <div class="display-menu" id="display-menu">
       <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="common.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="common.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
       <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="common.display.menu" hidden>
@@ -54,6 +53,9 @@
   </nav>
 
   <main class="layout" id="layout">
+    <!-- Lot 1 of 2026-10-04 (D2): the page's full title, visually hidden (absolute: no height
+         taken nor flex item, on the main screen as in projection). -->
+    <h1 class="sr-only" data-i18n="main.title">Atelier Harnais</h1>
     <section class="pane" data-pane="bricks">
       <header class="pane-header">
         <div class="pane-heading">
@@ -61,8 +63,8 @@
           <p class="pane-subtitle" data-i18n="main.pane_subtitles.bricks">Branchez des pièces sur le modèle</p>
         </div>
         <div class="pane-actions">
-          <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="main.panes.focus" aria-label="Mode focus" data-i18n-aria-label="main.panes.focus">⛶</button>
-          <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="main.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="main.panes.hide_short">—</button>
+          <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="common.panes.focus" aria-label="Mode focus" data-i18n-aria-label="common.panes.focus">⛶</button>
+          <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="common.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="common.panes.hide_short">—</button>
         </div>
       </header>
       <div class="pane-body" id="bricks"></div>
@@ -131,8 +133,8 @@
               </label>
               <button type="button" id="replay-last" class="pane-text-action" data-i18n="main.chat.replay_last">Rejouer le dernier prompt</button>
               <button type="button" id="clear-conversation" class="pane-text-action" data-i18n="main.chat.clear">Vider la conversation</button>
-              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="main.panes.focus" aria-label="Mode focus" data-i18n-aria-label="main.panes.focus">⛶</button>
-              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="main.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="main.panes.hide_short">—</button>
+              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="common.panes.focus" aria-label="Mode focus" data-i18n-aria-label="common.panes.focus">⛶</button>
+              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="common.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="common.panes.hide_short">—</button>
             </div>
           </header>
           <div class="pane-body pane-body-human">
@@ -160,8 +162,8 @@
             </div>
             <div class="pane-actions">
               <button type="button" id="compare-turns" class="pane-text-action" data-i18n="main.compare.button">Comparer</button>
-              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="main.panes.focus" aria-label="Mode focus" data-i18n-aria-label="main.panes.focus">⛶</button>
-              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="main.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="main.panes.hide_short">—</button>
+              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="common.panes.focus" aria-label="Mode focus" data-i18n-aria-label="common.panes.focus">⛶</button>
+              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="common.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="common.panes.hide_short">—</button>
             </div>
           </header>
           <div class="pane-body" id="ctx"></div>
@@ -180,8 +182,8 @@
                 <span id="orch-working-label"></span>
               </span>
               <button type="button" id="follow-live" class="follow-live" hidden data-i18n="main.orch.follow_live">● Suivre le direct</button>
-              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="main.panes.focus" aria-label="Mode focus" data-i18n-aria-label="main.panes.focus">⛶</button>
-              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="main.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="main.panes.hide_short">—</button>
+              <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="common.panes.focus" aria-label="Mode focus" data-i18n-aria-label="common.panes.focus">⛶</button>
+              <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="common.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="common.panes.hide_short">—</button>
             </div>
           </header>
           <div class="pane-body pane-body-orch">
@@ -205,8 +207,8 @@
             <p class="pane-subtitle" data-i18n="main.pane_subtitles.schema">Où tourne chaque pièce</p>
           </div>
           <div class="pane-actions">
-            <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="main.panes.focus" aria-label="Mode focus" data-i18n-aria-label="main.panes.focus">⛶</button>
-            <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="main.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="main.panes.hide_short">—</button>
+            <button type="button" class="pane-focus" data-action="focus" title="Mode focus" data-i18n-title="common.panes.focus" aria-label="Mode focus" data-i18n-aria-label="common.panes.focus">⛶</button>
+            <button type="button" class="pane-hide" data-action="hide" title="Masquer le volet" data-i18n-title="common.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="common.panes.hide_short">—</button>
           </div>
         </header>
         <div class="pane-body pane-body-schema">
@@ -231,8 +233,9 @@
       <span class="gauge-figures" id="gauge-figures" data-i18n="main.gauge.waiting">Contexte : en attente du modèle</span>
     </div>
     <!-- FinOps: the session's API spend (« Consommation »), from the first paid call; GreenOps:
-         its footprint at the end of the second line when the bar fits, or alone (local calls). -->
-    <span class="gauge-figures number" id="consumption" role="img" hidden><span id="consumption-label" data-i18n="main.consumption.spend_label">Dépense estimée</span><span id="consumption-amounts"><span id="consumption-money"></span><span id="consumption-footprint"></span></span></span>
+         its footprint on its own line (lot 1 of 2026-10-04: three lines, two with local calls
+         only). -->
+    <span class="gauge-figures number" id="consumption" role="img" hidden><span id="consumption-label" data-i18n="main.consumption.spend_label">Dépense estimée</span><span id="consumption-money"></span><span id="consumption-footprint"></span></span>
     <div class="window-picker" id="window-picker">
       <button type="button" id="window-toggle" class="window-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="window-panel"><span class="window-toggle-long" data-i18n="main.window.toggle">Fenêtre</span> <span id="window-toggle-value">…</span> ▾</button>
       <section id="window-panel" class="window-panel" role="dialog" aria-labelledby="window-panel-title" hidden>

@@ -63,7 +63,7 @@ session:
   state:
     diagnostic: Start-up diagnostics in progress.
     turn: "A turn is in progress: wait for it to end or stop it."
-    llm_lab: "The “Bare LLM” screen is generating an answer: wait for it to end or stop it."
+    llm_lab: "The LLM workshop is generating an answer: wait for it to end or stop it."
     rag_lab: "RAG workshop: run in progress; wait for it to end or stop it."
     mcp_lab: "MCP workshop: exchange in progress; wait for it to end or stop it."
     awaiting: "Awaiting your approval: allow or refuse the network call."
@@ -108,7 +108,8 @@ session:
       replay: "Replay: the turn starts again from the state before the replayed turn, whereas the engine's cache holds that turn."
       abandoned: "The previous turn did not complete (stopped, failed, blocked or exceeded): its output is in the engine's cache, not in the history."
       subagent: "The sub-agent occupied the engine's cache{why}."
-      llm: "The “Bare LLM” screen occupied the engine's cache{why}."
+      llm: "The LLM workshop occupied the engine's cache{why}."
+      mcp_lab: "The MCP workshop occupied the engine's cache{why}."
     evicted:
       stateless: ": this engine cannot save the state of the main context"
       failed: ": saving or restoring the state of the main context failed"
@@ -437,10 +438,10 @@ session:
     sending_context: "Sending the context to {provider} (≈ {tokens} tokens)"
   # « {text} Détail : {detail} »: a content error, with the first line of its cause.
   detail: "{text} Detail: {detail}"
-  # Story 29: the « LLM nu » screen.
+  # Story 29: the LLM workshop (/llm).
   llm_lab:
-    content_invalid: "The “Bare LLM” screen's texts cannot be read (content/llm_lab.yaml): fix the file, then reload the page."
-    content_invalid_effect: The “Bare LLM” page is still served without its texts.
+    content_invalid: "The LLM workshop's texts cannot be read (content/llm_lab.yaml): fix the file, then reload the page."
+    content_invalid_effect: The “LLM workshop” page is still served without its texts.
     tokenizer:
       none: "No active model: no tokenizer to show."
       cloud: "The tokenizer of {model} is at {provider}, not on this workstation: WaveStack cannot split the text the way it does. It estimates the number of tokens from the characters, without any chip."
@@ -449,7 +450,7 @@ session:
       exact: "Exact split, by {how}."
       exact_loaded: Exact split, by the loaded model's tokenizer.
     tokenize_failed: Splitting into tokens failed.
-    nothing_changed: "Nothing has changed; the workshop and the “Bare LLM” screen stay usable."
+    nothing_changed: "Nothing has changed; the harness workshop and the LLM workshop stay usable."
     no_model: no active model
     dimensions_cloud: "Dimensions unknown: the model runs at {provider}, which does not publish them in its API."
     dimensions_unknown: This engine does not report the model's dimensions.
@@ -481,9 +482,9 @@ session:
     reading: "Reading the prompt ({tokens} tokens)"
     sending: "Sending the prompt to {provider} (≈ {tokens} tokens)"
     too_long: "Prompt too long: {tokens} tokens for {usable} usable (window of {window} minus {reserve} reserved for the answer). Shorten it: the call is not sent."
-    interrupted: The “Bare LLM” screen's generation stopped on an error.
-    still_usable: The “Bare LLM” screen and the workshop stay usable.
-    end_untraced: The end of the “Bare LLM” screen's generation could not be traced.
+    interrupted: The LLM workshop's generation stopped on an error.
+    still_usable: The LLM workshop and the harness workshop stay usable.
+    end_untraced: The end of the LLM workshop's generation could not be traced.
     back_to_idle: "The session goes back to waiting; the workshop stays usable."
     stops: "The screen's generation stops; WaveStack stays usable."
   # Story 30: the RAG workshop.
@@ -500,14 +501,14 @@ session:
       message: A model loaded by the RAG workshop could not be closed.
       effect: "It is forgotten; its memory slot is released."
     no_embedding: No embedding model is declared.
-    embedding_absent: "Embedding model missing ({names} in {folder}). Download it from the workshop's RAG card."
+    embedding_absent: "Embedding model missing ({names} in {folder}). Download it from the workshop's RAG card. Or follow docs/installation.md, section “Modèles du RAG” (in French)."
     noun:
       embedding: embedding model
       reranking: reranking model
     to_load: "the {noun} {model}"
     fastembed_unavailable: fastembed unavailable.
     no_reranker: No reranking model is declared.
-    reranker_absent: "Reranking model missing ({names} in {folder}): download it from the workshop's RAG card (“Reranking” sub-option). Context building keeps the search order."
+    reranker_absent: "Reranking model missing ({names} in {folder}): download it from the workshop's RAG card (“Reranking” sub-option). Context building keeps the search order. Or follow docs/installation.md, section “Modèles du RAG” (in French)."
     import:
       label: Import
       budget_label: Budget
@@ -528,9 +529,74 @@ session:
     not_connected: "Connect to {server} first: the call goes through the MCP workshop's connection."
     unknown_tool: "{server} did not list a tool “{tool}”."
     stopped: "Exchange stopped: the MCP workshop's connection is closed."
+    stopped_ask: "Sending to the model stopped: the tool asked for was not called; the connection stays open."
     closed: "The MCP workshop's connection is closed: connect to the server again."
-    is_error: "The server answered with is_error: the tool reports an error, which the harness would reinject to the model as it is."
+    is_error: "The server answered with isError: the tool reports an error, which the harness reinjects to the model as it is. The protocol worked, the tool did not."
     interrupted: The MCP workshop stopped on an error.
+    launch:
+      stdio: "launches the server: {command}"
+      http: "opens an HTTP session with {host}"
+    summary:
+      error: "error {code}: {message}"
+      no_capabilities: "no capability"
+      capabilities: "capabilities: {names}"
+      tools:
+        one: "{n} tool"
+        other: "{n} tools"
+      resources:
+        one: "{n} resource"
+        other: "{n} resources"
+      prompts:
+        one: "{n} prompt"
+        other: "{n} prompts"
+      text_blocks:
+        one: "{n} text block"
+        other: "{n} text blocks"
+      other_blocks:
+        one: "{n} other block"
+        other: "{n} other blocks"
+      is_error: "isError · {blocks}"
+      text_content:
+        one: "{mime} · {n} line"
+        other: "{mime} · {n} lines"
+      blob_content: "{mime} · {n} bytes"
+      contents:
+        one: "{n} content"
+        other: "{n} contents"
+      messages:
+        one: "{n} message"
+        other: "{n} messages"
+    no_resources: "{server} does not announce resources."
+    no_prompts: "{server} does not announce prompts."
+    unknown_resource: "{server} did not list a resource “{uri}”."
+    unknown_prompt: "{server} did not list a prompt “{prompt}”."
+    missing_argument: "The prompt “{prompt}” needs the argument “{argument}”."
+    blob_content: "[{mime} content of {n} bytes, not included]"
+    ask:
+      no_model: "No model is loaded: choose one in the diagnostic."
+      no_tools: "The active model does not call tools: choose another one in the diagnostic."
+      cloud_no_tools: "The active model ({model}) does not declare tool calling: choose another one in the diagnostic."
+      of_unknown: "Nothing to send: first read a resource or get a prompt on this connection."
+      question_with_prompt: "A prompt leaves without a question: its messages are the request."
+      question_required: "Write a question first."
+    model_phase: "Sending to the model ({tokens} tokens)"
+    model_phase_cloud: "Sending to {provider} (≈ {tokens} tokens)"
+    overflow: "Not sent: the context counts {tokens} tokens for {usable} usable."
+    model_error: "The model could not answer."
+    provider_effect: "The MCP workshop stops this sending; the connection to the server stays open."
+    arguments_unparsed: "The call's arguments are not a valid JSON object."
+    sends:
+      question: "question"
+      resource: "resource {uri}"
+      prompt: "prompt {name}"
+      tools:
+        one: "{n} tool"
+        other: "{n} tools"
+      lazy: "load_tool_doc and its catalog"
+      tool_doc: "documentation of {tool}"
+      tool_call: "call: {tool}"
+      tool_result: "tool result"
+    share: "of which {model} s of generation"
   reading_context: "Reading the context ({tokens} tokens)"
 
 tools:
@@ -929,7 +995,7 @@ rag_lab:
     no_gap: "No rank gap between the common excerpts."
     other_cut: "The two pipelines split the corpus differently: comparison by document."
 
-# The « LLM nu » screen (story 29, `session/llm_lab.py`): its figures and its diagram.
+# The LLM workshop (story 29, `session/llm_lab.py`): its figures and its diagram.
 llm_lab:
   count:
     billion:
@@ -1315,6 +1381,20 @@ models:
     served_title: "{provider} on {url}"
     cloud_title: "{provider}: {hosting}"
     no_price: price not declared
+    # Lot 3 of 2026-10-04: where a card's source was found, and the card's size.
+    origin:
+      file: "GGUF file · {where}"
+      ollama_served: "Ollama · local server already running"
+      llama_server: "llama-server · {address}"
+      sources: "{count} sources · {names}"
+    where:
+      models_dir: models folder
+      hf_cache: Hugging Face
+      lm_studio: LM Studio
+      ollama: Ollama folder
+      explicit: path given
+    size_served: "≈ {size}"
+    size_range: "{low} to {high}"
   # `models/load_registry.py` (AD-8, stories 24 and 26): a load refused by the budget.
   load_registry:
     refused: "Change refused: {label} requires about {cost}; WaveStack occupies {without} without the active model, for a budget of {budget}.{stays} {advice}"

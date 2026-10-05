@@ -30,7 +30,13 @@ from wavestack.context.segments import load_labels
 from wavestack.hooks import date_fr, date_text, load_hooks_content
 from wavestack.mcp import lab as mcp_lab
 from wavestack.mcp.connection import McpConnection
-from wavestack.mcp.servers import LOCAL, McpServer, load_local_tools, load_mcp_content
+from wavestack.mcp.servers import (
+    LOCAL,
+    McpServer,
+    load_local_primitives,
+    load_local_tools,
+    load_mcp_content,
+)
 from wavestack.models.catalog import load_publishers
 from wavestack.rag import lab as rag_lab
 from wavestack.rag.corpus import load_rag_content
@@ -70,6 +76,7 @@ LLM_DEFAULTS = (
     "mcp.yaml",
     "mcp_local/glossary.yaml",
     "mcp_local/tools.yaml",
+    "mcp_local/primitives.yaml",  # lot 4 of 2026-10-04: its resource and prompt
     "rag.yaml",
     "cloud.yaml",  # languages (3/5): the cloud test's prompt and tool
 )
@@ -221,6 +228,12 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     elif rel == "mcp_local/tools.yaml":
         fr, tr = load_local_tools("fr"), load_local_tools(lang)
         assert tr.list_terms != fr.list_terms and tr.define_term != fr.define_term
+    elif rel == "mcp_local/primitives.yaml":  # lot 4 of 2026-10-04 (AD-27)
+        fr, tr = load_local_primitives("fr"), load_local_primitives(lang)
+        assert tr.terms.title != fr.terms.title and tr.explain_term.text != fr.explain_term.text
+        for key in ("text", "unknown_text"):
+            ours, theirs = getattr(fr.explain_term, key), getattr(tr.explain_term, key)
+            assert set(_PLACEHOLDER.findall(theirs)) == set(_PLACEHOLDER.findall(ours)), key
     elif rel == "ui.yaml":  # languages (2/5): its parity key by key is in test_ui_texts
         fr, tr = load_ui_texts("fr"), load_ui_texts(lang)
         assert tr["common"]["language"] != fr["common"]["language"]
@@ -251,6 +264,32 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
         assert {k: v.keys() for k, v in tr.options.items()} == {
             k: v.keys() for k, v in fr.options.items()
         }
+        # Lot 5a: the same steps, components, groups and phases; the technical names (steps,
+        # stages, the bands' tags and names) the same English words in every language. The
+        # question is a common word, not a technical one: « Frage » in German (the French
+        # « Question » would read as French there).
+        for name in ("steps", "components", "groups", "phases"):
+            assert getattr(tr, name).keys() == getattr(fr, name).keys(), name
+        technical = {k: v.label_text for k, v in fr.steps.items() if k != "question"}
+        assert {k: v.label_text for k, v in tr.steps.items() if k != "question"} == technical
+        assert {k: v.label_text for k, v in tr.stages.items()} == {
+            k: v.label_text for k, v in fr.stages.items()
+        }
+        assert {k: (v.tag_text, v.label_text) for k, v in tr.phases.items()} == {
+            k: (v.tag_text, v.label_text) for k, v in fr.phases.items()
+        }
+        for key, step in fr.steps.items():
+            assert tr.steps[key].action_text != step.action_text, key
+            assert (tr.steps[key].note_text is None) == (step.note_text is None), key
+            assert (tr.steps[key].explain_text is None) == (step.explain_text is None), key
+        assert tr.groups["data"].label_text != fr.groups["data"].label_text
+        assert tr.compose_text != fr.compose_text and tr.details_text != fr.details_text
+        # Lot 5b: the same ready-made architectures, exactly those of `PRESETS`, explained in
+        # the page's language.
+        assert list(tr.presets) == list(fr.presets) == list(rag_lab.PRESETS)
+        for key, preset in fr.presets.items():
+            assert tr.presets[key].explain_text != preset.explain_text, key
+        assert tr.presets_title_text != fr.presets_title_text
     elif rel == "mcp_lab.yaml":  # story 6 (2026-09-30): the same transports and methods
         fr, tr = mcp_lab.load_lab_content("fr"), mcp_lab.load_lab_content(lang)
         assert tr.title_text != fr.title_text and tr.intro_text != fr.intro_text
@@ -259,6 +298,14 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
             fr.transports.keys(),
             fr.methods.keys(),
         )
+        # Lot 4 of 2026-10-04 (AD-27): the same lifelines, phases, servers and pieces.
+        for name in ("columns", "phases", "primitives", "servers", "restaurant"):
+            assert getattr(tr, name).keys() == getattr(fr, name).keys(), name
+        assert set(_PLACEHOLDER.findall(tr.ask_resource_text)) == {
+            "{uri}",
+            "{content}",
+            "{question}",
+        }
     elif rel.startswith("corpus/"):  # languages (4/5): the same sections, about as long
         fr_text = french.read_text(encoding="utf-8")
         tr_text = translated.read_text(encoding="utf-8")
@@ -375,7 +422,7 @@ def test_every_per_language_table_has_exactly_the_languages():
     assert set(get_args(LanguageChangedPayload.model_fields["language"].annotation)) == languages
     static = config.repo_root() / "src" / "wavestack" / "web" / "static"
     # Story 2 (2026-09-30): the picker is in « Affichage ▾ » of the shared bar, on every page.
-    for name in ("index", "llm", "rag", "diagnostic", "models"):
+    for name in ("index", "llm", "rag", "diagnostic"):  # lot 3 of 2026-10-04: no /models page
         html = (static / f"{name}.html").read_text(encoding="utf-8")
         picker = re.search(r'<select id="language-picker".*?</select>', html, re.S).group(0)
         options = re.findall(r'<option value="(\w+)" lang="\w+">([^<]+)</option>', picker)
@@ -549,18 +596,18 @@ def test_demo_memory_follows_the_language():
     change; restored (« Réinitialiser »), it is the English demonstration."""
     _, session = _session()
     session.set_brick("global_memory", True)
-    session.edit_memory("replace", "demo3", "Camille aime le thé.")
+    session.edit_memory("replace", "demo3", "Pascal aime le thé.")
 
     session.set_language("en")
 
-    assert "Camille aime le thé." in [e.text for e in session._memory]  # the user's, kept
+    assert "Pascal aime le thé." in [e.text for e in session._memory]  # the user's, kept
     session.reset()
     session.join()
     written = json.loads(config.memory_path().read_text(encoding="utf-8"))
     assert [e["text"] for e in written] == [
-        "The user's name is Camille.",
-        "Camille is a cybersecurity consultant.",
-        "Camille is preparing a training course on AI agents.",
+        "The user's name is Pascal.",
+        "Pascal is a cybersecurity consultant.",
+        "Pascal is preparing a training course on AI agents.",
     ]
     assert [e.text for e in session._memory] == [e["text"] for e in written]
     assert session._registry.get("remember").description.startswith("Remembers a lasting")
@@ -571,16 +618,16 @@ def test_the_demonstration_memory_changes_language_with_the_session():
     """Never written (H5), it is rebuilt in the new language; written, it is written again."""
     _, session = _session()
     session.set_brick("global_memory", True)
-    assert [e.text for e in session._memory][0] == "L'utilisateur s'appelle Camille."
+    assert [e.text for e in session._memory][0] == "L'utilisateur s'appelle Pascal."
     session.set_language("de")
-    assert [e.text for e in session._memory][0] == "Der Benutzer heißt Camille."
+    assert [e.text for e in session._memory][0] == "Der Benutzer heißt Pascal."
     assert not config.memory_path().exists()  # still the demonstration, not written
-    session.edit_memory("replace", "demo3", "Camille trinkt Tee.")
+    session.edit_memory("replace", "demo3", "Pascal trinkt Tee.")
     session.reset()  # written: the German demonstration
     session.join()
     session.set_language("en")
-    assert [e.text for e in session._memory][0] == "The user's name is Camille."
-    assert "The user's name is Camille." in config.memory_path().read_text(encoding="utf-8")
+    assert [e.text for e in session._memory][0] == "The user's name is Pascal."
+    assert "The user's name is Pascal." in config.memory_path().read_text(encoding="utf-8")
     session.close()
 
 

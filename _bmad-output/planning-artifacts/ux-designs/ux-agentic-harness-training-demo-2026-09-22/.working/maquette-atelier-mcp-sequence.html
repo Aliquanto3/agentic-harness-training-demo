@@ -1,0 +1,1288 @@
+<!doctype html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atelier MCP en séquence</title>
+<!-- Maquette du lot 4 du plan de corrections du 2026-10-04 (D5). Jetons, polices et règles du
+     schéma commun (diagram-*) repris de l'application par chemin relatif au dépôt. Les fonctions
+     du module static/diagram.js (lot 2) sont recopiées plus bas : un module ES ne se charge pas
+     depuis file://. -->
+<link rel="stylesheet" href="../../../../../src/wavestack/web/static/fonts.css">
+<link rel="stylesheet" href="../../../../../src/wavestack/web/static/tokens.css">
+<link rel="stylesheet" href="../../../../../src/wavestack/web/static/pages.css">
+<style>
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; display: flex; flex-direction: column; gap: var(--spacing-2); padding: var(--spacing-2);
+  color: var(--color-ink);
+  font: var(--typography-body-font-weight) var(--typography-body-font-size)/var(--typography-body-line-height) var(--typography-body-font-family);
+  background: radial-gradient(circle, var(--color-dot) 1.3px, transparent 1.3px) 0 0 / 18px 18px, var(--color-surface);
+  font-variant-numeric: tabular-nums;
+}
+button, select, input, textarea { font: inherit; color: inherit; }
+pre { margin: 0; }
+
+/* ---------- barre de la maquette (hors produit) ---------- */
+.mockbar {
+  flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 4px 6px 4px 14px; border-radius: var(--rounded-full);
+  background: #0A0A14; color: #fff; font: 500 12px/1.2 var(--typography-label-font-family);
+}
+.mockbar .tag { opacity: .75; margin-right: 4px; }
+.mockbar button {
+  background: #24243a; color: #fff; border: 1px solid #3a3a55; border-radius: 9999px;
+  padding: 4px 9px; cursor: pointer;
+}
+.mockbar button[aria-pressed="true"] { background: #451DC7; border-color: #9C86FF; }
+/* Retouches demandées au module commun (lot 2), simulées ici : anneau d'encre sous le halo,
+   « Suivre le direct » pressé en plein. */
+.diagram-block.is-active { box-shadow: 0 0 0 2px var(--color-ink), 0 0 0 6px var(--color-state-active) !important; }
+.diagram-stepper .diagram-step-live[aria-pressed="true"] { background: var(--color-primary); color: var(--color-on-primary); }
+.diagram-stepper .diagram-step-live[aria-pressed="true"]::before { content: "● "; }
+/* AD-28 (2026-10-05) : cœur du fil parcouru au jeton --spacing-stroke-path (3 px) ; ◀ ▶ en
+   aria-disabled (le focus reste) ; nœud status du stepper masqué visuellement. */
+svg .diagram-path-core { stroke-width: 3px !important; }
+.diagram-stepper button[aria-disabled="true"] { opacity: .45; cursor: default; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.mockbar .sep { width: 1px; height: 18px; background: #3a3a55; margin: 0 4px; }
+.mockbar label { display: flex; align-items: center; gap: 6px; }
+.mockbar select { background: #24243a; color: #fff; border: 1px solid #3a3a55; border-radius: 9999px; padding: 4px 9px; max-width: 26em; }
+
+/* ---------- cadre de l'application ---------- */
+.frame { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--spacing-2); }
+.frame.is-fixed {
+  flex: 0 0 auto; width: 1280px; height: 650px; align-self: center;
+  outline: 2px dashed var(--color-ink-soft); outline-offset: 4px;
+}
+.page-head { display: flex; align-items: baseline; gap: var(--spacing-3); padding: 0 var(--spacing-2); }
+.page-head h1 {
+  margin: 0; font: 600 20px/1.1 var(--typography-pane-title-font-family);
+}
+.page-head p { margin: 0; color: var(--color-ink-soft); font-size: var(--typography-body-sm-font-size); flex: 1; min-width: 0; }
+.hidden-chips { display: flex; gap: var(--spacing-1); }
+.pane-chip {
+  border: 1.5px dashed var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary-deep);
+  border-radius: var(--rounded-full); padding: 2px 10px; cursor: pointer;
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) var(--typography-label-font-family);
+}
+
+/* ---------- la grille des quatre volets ---------- */
+.grid {
+  flex: 1 1 auto; min-height: 0; display: grid; gap: var(--spacing-gutter); position: relative;
+  grid-template-columns: var(--w-servers, 260px) minmax(0, 1fr) var(--w-model, 290px);
+  grid-template-rows: minmax(0, 1fr) var(--h-arch, 206px);
+  grid-template-areas: "servers seq model" "servers arch arch";
+}
+.grid.no-model { grid-template-columns: var(--w-servers, 260px) minmax(0, 1fr) 0; grid-template-areas: "servers seq seq" "servers arch arch"; }
+.grid.no-servers { grid-template-columns: 0 minmax(0, 1fr) var(--w-model, 290px); grid-template-areas: "seq seq model" "arch arch arch"; }
+.grid.no-servers.no-model { grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-areas: "seq seq seq" "arch arch arch"; }
+.grid.no-arch { grid-template-rows: minmax(0, 1fr) 0; }
+/* Gouttières glissables, comme l'Atelier Harnais (pane-resize-handle ; module commun
+   static/panes.js, AD-28) : invisibles au repos, pilule primaire de 4 × 32 px au survol, au
+   focus et pendant le glissement. Flèches du clavier : 16 px ; double-clic : taille par défaut. */
+.pane-resize-handle { position: absolute; z-index: 5; touch-action: none; outline: none; }
+.pane-resize-handle[hidden] { display: none; }
+.pane-resize-handle[aria-orientation="vertical"] { width: 16px; transform: translateX(-50%); cursor: col-resize; }
+.pane-resize-handle[aria-orientation="horizontal"] { height: 16px; transform: translateY(-50%); cursor: row-resize; }
+.pane-resize-handle::after { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border-radius: 9999px; background: var(--color-primary); opacity: 0; }
+.pane-resize-handle[aria-orientation="vertical"]::after { width: 4px; height: 32px; }
+.pane-resize-handle[aria-orientation="horizontal"]::after { width: 32px; height: 4px; }
+.pane-resize-handle:hover::after, .pane-resize-handle:focus-visible::after, .pane-resize-handle.is-dragging::after { opacity: 1; }
+body.is-resizing-x { cursor: col-resize; user-select: none; }
+body.is-resizing-y { cursor: row-resize; user-select: none; }
+
+/* Découverte progressive (décision d'Anaël du 2026-10-05 ; reveal() du module commun, AD-28) :
+   colonnes, lignes de vie, flèches, phases, blocs et fils n'apparaissent qu'à leur première
+   intervention dans une étape déjà montrée. Les colonnes et les blocs gardent leur place. */
+.diagram-unrevealed { visibility: hidden !important; }
+.seq-row.diagram-unrevealed, .seq-phase.diagram-unrevealed, .phase-explain.diagram-unrevealed, #model-body .diagram-unrevealed { display: none !important; }
+.diagram-revealed-new { animation: diagram-reveal 300ms ease-out; }
+@keyframes diagram-reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .diagram-revealed-new { animation: none; } }
+.arch-empty { position: absolute; left: 30%; top: 55%; transform: translate(-50%, -50%); max-width: 22em; text-align: center; color: var(--color-ink-soft); font-size: var(--typography-body-sm-font-size); pointer-events: none; }
+
+/* La barre WaveStack reste tout en haut, en permanence (décision d'Anaël du 2026-10-05). */
+body > .site-nav { position: sticky; top: 0; margin-bottom: 0; }
+.pane {
+  min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  background: var(--color-surface-raised); border-radius: var(--rounded-lg);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief); overflow: hidden;
+}
+.pane[hidden] { display: none; }
+.pane-servers { grid-area: servers; }
+.pane-seq { grid-area: seq; }
+.pane-model { grid-area: model; }
+.pane-arch { grid-area: arch; }
+.pane-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-pane-padding); background: var(--color-surface);
+}
+.pane-step {
+  flex: 0 0 auto; width: 1.7em; height: 1.7em; border-radius: 50%; display: grid; place-items: center;
+  background: var(--color-ink-fill); color: var(--color-on-ink);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) var(--typography-number-font-family);
+}
+.pane-titles { flex: 1 1 auto; min-width: 0; }
+.pane-title { margin: 0; font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size)/var(--typography-pane-title-line-height) var(--typography-pane-title-font-family); }
+.pane-subtitle { margin: 0; color: var(--color-ink-soft); font-size: var(--typography-pane-subtitle-font-size); line-height: 1.3; }
+.pane-tools { display: flex; gap: var(--spacing-1); flex: 0 0 auto; }
+.icon-btn {
+  width: var(--spacing-hit-target-min); height: var(--spacing-hit-target-min); border-radius: 50%;
+  border: 1px solid var(--color-line); background: var(--color-surface-raised); cursor: pointer; color: var(--color-ink);
+}
+.pane-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--spacing-pane-padding); }
+.diagram-stepper { flex: 0 0 auto; }
+
+.diagram-step-live { padding: 0 10px !important; }
+
+/* ---------- éléments communs ---------- */
+.label { font: var(--typography-label-font-weight) var(--typography-label-font-size)/var(--typography-label-line-height) var(--typography-label-font-family); }
+.sm { font-size: var(--typography-body-sm-font-size); line-height: var(--typography-body-sm-line-height); }
+.soft { color: var(--color-ink-soft); }
+.code { font: var(--typography-code-font-weight) 12px/1.45 var(--typography-code-font-family); }
+.num { font: var(--typography-number-font-weight) var(--typography-number-font-size) var(--typography-number-font-family); }
+.btn {
+  min-height: var(--spacing-hit-target-min); padding: 0 14px; border-radius: var(--rounded-md); cursor: pointer;
+  font: 600 13px var(--typography-label-font-family);
+}
+.btn-primary { background: var(--color-primary); color: var(--color-on-primary); border: 0; box-shadow: 0 3px 0 var(--color-primary-deep); }
+.btn-secondary { background: var(--color-surface-raised); color: var(--color-primary); border: 1.5px solid var(--color-primary); box-shadow: 0 3px 0 var(--color-relief-active); }
+.btn:disabled { background: var(--color-surface); color: var(--color-ink-soft); border: 1px solid var(--color-line); box-shadow: none; cursor: not-allowed; }
+.tag {
+  display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: var(--rounded-full);
+  font: 500 12px/1.4 var(--typography-label-font-family); border: 1px solid var(--color-line); background: var(--color-surface-raised); color: var(--color-ink);
+  white-space: nowrap;
+}
+.tag-local { border-color: var(--color-ink); }
+.tag-net { background: var(--color-hosting-network); color: var(--color-on-vivid); border: 1px dashed var(--color-hosting-boundary); }
+.tag-ghost { border-style: dashed; color: var(--color-ink-soft); }
+.tag-error { background: var(--color-state-error); color: var(--color-on-vivid); border-color: var(--color-state-error); }
+.tag-ok { background: var(--color-state-ok); color: var(--color-on-vivid); border-color: var(--color-state-ok); }
+.badge-model { background: var(--color-primary-soft); color: var(--color-primary-deep); border-color: transparent; }
+.badge-user { background: var(--color-surface-raised); color: var(--color-ink); border-color: var(--color-ink); }
+.badge-app { background: var(--color-surface-raised); color: var(--color-ink); border: 1px dashed var(--color-ink); }
+.field { display: grid; gap: 3px; margin: 0 0 var(--spacing-2); }
+.field > span { font: 500 12px var(--typography-label-font-family); color: var(--color-ink-soft); }
+.field select, .field input, .field textarea {
+  min-height: 30px; padding: 4px 8px; border: 1px solid var(--color-line); border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+}
+.field textarea { resize: vertical; min-height: 52px; }
+
+/* ---------- volet Serveurs et commandes ---------- */
+.servers { list-style: none; margin: 0 0 var(--spacing-2); padding: 0; display: grid; gap: 6px; }
+.server {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center;
+  padding: 7px 10px; border-radius: var(--rounded-md); cursor: pointer;
+  border: 1.5px solid var(--color-line); background: var(--color-surface-raised);
+}
+.server input { margin: 0; accent-color: var(--color-primary); }
+.server.is-net { background: var(--color-discipline-network-soft); border: 1.5px dashed var(--color-hosting-boundary); }
+.server.is-open { border: 2px solid var(--color-primary); }
+.server-name { font: 600 13px var(--typography-label-font-family); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.server-meta { grid-column: 2; font-size: 12px; color: var(--color-ink-soft); }
+.row-btns { display: flex; gap: var(--spacing-2); margin-bottom: var(--spacing-3); flex-wrap: wrap; }
+.tabs { display: flex; gap: 2px; border-bottom: 2px solid var(--color-line); margin-bottom: var(--spacing-2); }
+.tabs button {
+  flex: 1; border: 0; background: none; padding: 6px 2px; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
+  font: 500 11.5px var(--typography-label-font-family); color: var(--color-ink-soft); white-space: nowrap;
+}
+.tabs button[aria-selected="true"] { color: var(--color-ink); border-bottom-color: var(--color-primary); }
+.tabs button[aria-disabled="true"] { color: var(--color-ink-soft); cursor: not-allowed; text-decoration: line-through; }
+.who { display: flex; gap: 6px; align-items: center; margin-bottom: var(--spacing-2); flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1.5px solid var(--color-primary); border-radius: var(--rounded-full); overflow: hidden; margin-bottom: var(--spacing-2); }
+.seg button { border: 0; background: var(--color-surface-raised); color: var(--color-primary); padding: 4px 10px; cursor: pointer; font: 500 12px var(--typography-label-font-family); }
+.seg button[aria-pressed="true"] { background: var(--color-primary); color: var(--color-on-primary); }
+.note { font-size: 12px; color: var(--color-ink-soft); margin: 4px 0 8px; }
+.busy {
+  margin: 0 0 var(--spacing-2); padding: 6px 10px; border-radius: var(--rounded-sm); font-size: 12px;
+  background: var(--color-warning-soft); border-left: 4px solid var(--color-warning);
+}
+.resource {
+  display: grid; gap: 2px; padding: 6px 10px; border: 1px solid var(--color-line); border-left: 4px solid var(--color-segment-rag);
+  border-radius: var(--rounded-sm); margin-bottom: var(--spacing-2);
+}
+
+/* ---------- volet Séquence ---------- */
+.seq-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.seq-heads {
+  flex: 0 0 auto; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px;
+  padding: 6px var(--spacing-pane-padding); border-bottom: 1px solid var(--color-line); background: var(--color-surface-raised);
+}
+.seq-head {
+  border: 1.5px solid var(--color-ink-soft); border-radius: var(--rounded-sm); background: var(--color-surface);
+  padding: 4px 4px; text-align: center; cursor: pointer; min-height: 30px;
+  font: 600 12px/1.15 var(--typography-label-font-family); color: var(--color-ink);
+}
+.seq-head small { display: block; font-weight: 400; font-size: 12px; color: var(--color-ink-soft); }
+.seq-head.is-net { background: var(--color-discipline-network-soft); border-style: dashed; border-color: var(--color-hosting-boundary); }
+.seq-head.is-model { background: var(--color-ink-fill); color: var(--color-on-ink); border-color: var(--color-ink-fill-edge); }
+.seq-head.is-model small { color: var(--color-on-ink-soft); }
+.seq-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; padding: 0 var(--spacing-pane-padding) var(--spacing-3); }
+.lifelines {
+  position: absolute; inset: 0 var(--spacing-pane-padding); pointer-events: none;
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px;
+}
+.lifelines span { border-left: 2px dashed var(--color-muted); margin-left: 50%; }
+.seq-list { list-style: none; margin: 0; padding: 0; position: relative; }
+.seq-empty { position: relative; margin: 40px auto; max-width: 30em; text-align: center; color: var(--color-ink-soft); background: var(--color-surface-raised); padding: 8px; border-radius: var(--rounded-md); }
+
+.seq-phase { position: relative; margin: 10px 0 2px; }
+.seq-phase > button.phase-toggle {
+  width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; cursor: pointer;
+  border: 0; border-radius: var(--rounded-sm); padding: 4px 10px; background: var(--color-surface);
+  font: 600 13px var(--typography-label-font-family);
+}
+.seq-phase .chev { transition: transform 150ms; display: inline-block; }
+.seq-phase .phase-toggle[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+.seq-phase .phase-meta { font-weight: 400; color: var(--color-ink-soft); }
+.seq-phase { display: flex; gap: 6px; align-items: center; }
+.seq-phase > button.phase-toggle { flex: 1; }
+.seq-phase .phase-why { flex: 0 0 auto; border: 0; background: none; cursor: pointer; min-height: 32px; color: var(--color-primary); font: 500 12px var(--typography-label-font-family); text-decoration: underline; }
+.phase-explain { position: relative; margin: 4px 0 6px; padding: 8px 12px; border-radius: var(--rounded-sm); background: var(--color-primary-soft); font-size: 12.5px; }
+.phase-explain ol { margin: 4px 0 0; padding-left: 20px; }
+
+.seq-row { position: relative; }
+.seq-arrow {
+  position: relative; display: block; width: 100%; height: 32px; border: 0; background: none; cursor: pointer; padding: 0;
+  border-radius: var(--rounded-sm);
+}
+.seq-arrow:hover { background: color-mix(in srgb, var(--color-primary-soft) 55%, transparent); }
+.seq-arrow:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.seq-row.is-current > .seq-arrow { background: color-mix(in srgb, var(--color-accent-soft) 70%, transparent); }
+.seq-row.is-current > .seq-arrow::before { content: "▶"; position: absolute; left: 2px; top: 50%; transform: translateY(-50%); font: 600 12px var(--typography-label-font-family); color: var(--color-ink); }
+.seq-row.is-ghost > .seq-arrow { cursor: default; }
+.seq-line { position: absolute; bottom: 8px; height: 0; border-top: 2px solid var(--color-ink); }
+.seq-line::after {
+  content: ""; position: absolute; top: -6px; width: 0; height: 0;
+  border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+}
+.seq-line.to-right::after { right: -2px; border-left: 9px solid var(--color-ink); }
+.seq-line.to-left::after { left: -2px; border-right: 9px solid var(--color-ink); }
+.k-internal .seq-line { border-top-color: var(--color-ink-soft); border-top-width: 1.5px; }
+.k-internal .seq-line.to-right::after { border-left-color: var(--color-ink-soft); }
+.k-internal .seq-line.to-left::after { border-right-color: var(--color-ink-soft); }
+.is-net .seq-line { border-top: 2px dashed var(--color-ink); }
+.k-source .seq-line { border-top: 2px dotted var(--color-muted); }
+.k-source .seq-line.to-right::after { border-left-color: var(--color-muted); }
+.k-source .seq-line.to-left::after { border-right-color: var(--color-muted); }
+.is-ghost .seq-line { border-top: 2px dashed var(--color-muted); }
+.is-ghost .seq-line.to-right::after { border-left-color: var(--color-muted); }
+.is-ghost .seq-line.to-left::after { border-right-color: var(--color-muted); }
+.no-reply .seq-line.to-right::after { border-left-color: var(--color-surface-raised); filter: drop-shadow(1px 0 0 var(--color-ink)) drop-shadow(-1px 0 0 var(--color-ink)); }
+.is-error .seq-line { border-top-color: var(--color-state-error); border-top-width: 3px; }
+.is-error .seq-line.to-left::after { border-right-color: var(--color-state-error); }
+.is-error .seq-line.to-right::after { border-left-color: var(--color-state-error); }
+.seq-cap {
+  position: absolute; bottom: 12px; display: flex; justify-content: center; align-items: center; gap: 5px;
+  white-space: nowrap; pointer-events: none;
+}
+.seq-cap .txt { font-size: 12px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
+.k-internal .seq-cap .txt, .k-user .seq-cap .txt { font-style: italic; color: var(--color-ink-soft); }
+.is-ghost .seq-cap .txt { font-style: italic; color: var(--color-ink-soft); }
+.k-source .seq-cap .txt { color: var(--color-ink-soft); }
+.chip {
+  display: inline-block; padding: 1px 8px; border-radius: 8px; white-space: nowrap;
+  font: 500 12px/1.5 var(--typography-code-font-family);
+  background: var(--color-discipline-harness-soft); border: 1.5px solid var(--color-discipline-harness); color: var(--color-ink);
+}
+.is-net .chip { background: var(--color-discipline-network-soft); border: 1.5px dashed var(--color-hosting-boundary); }
+.chip-model { background: var(--color-ink-fill); border-color: var(--color-ink-fill-edge); color: var(--color-on-ink); font-family: var(--typography-label-font-family); }
+.chip-model.is-read { background: var(--color-surface-raised); color: var(--color-ink); border: 2px solid var(--color-ink); }
+.is-ghost .chip-model { background: var(--color-surface-raised); color: var(--color-ink-soft); border: 1.5px dashed var(--color-muted); }
+.ms { font: 600 11.5px var(--typography-number-font-family); color: var(--color-ink-soft); }
+.x-mark {
+  position: absolute; bottom: -1px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--color-state-blocked); color: var(--color-on-vivid); font: 700 12px var(--typography-label-font-family);
+}
+.seq-detail {
+  position: relative; margin: 0 0 8px; padding: 10px 12px; border-radius: var(--rounded-md);
+  background: var(--color-surface-raised); border: 1px solid var(--color-line); border-left: 4px solid var(--color-discipline-harness);
+  display: grid; gap: 6px;
+}
+.seq-detail.is-net { border-left-color: var(--color-discipline-network); }
+.seq-detail.is-model { border-left-color: var(--color-ink-fill); }
+.seq-detail.is-error { border-left-color: var(--color-state-error); background: var(--color-danger-soft); }
+.seq-detail .d-head { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.seq-detail pre {
+  max-height: 180px; overflow: auto; padding: 8px 10px; border-radius: var(--rounded-sm);
+  background: var(--color-surface); border: 1px solid var(--color-line);
+}
+.outbound { border: 1.5px dashed var(--color-hosting-boundary); border-radius: var(--rounded-sm); overflow: hidden; }
+.outbound > div:first-child { background: var(--color-hosting-network); color: var(--color-on-vivid); padding: 3px 8px; font: 600 12px var(--typography-label-font-family); }
+.outbound pre { border: 0; border-radius: 0; max-height: 90px; }
+
+/* ---------- volet Ce que le modèle voit ---------- */
+.mv-total { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 6px; }
+.mv-total .big { font: 600 20px var(--typography-number-font-family); }
+.mv-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; }
+.mv-table td, .mv-table th { padding: 3px 4px; border-bottom: 1px solid var(--color-line); text-align: left; }
+.mv-table td:last-child, .mv-table th:last-child { text-align: right; font: 600 12px var(--typography-number-font-family); }
+.mv-table th { font: 500 11px var(--typography-label-font-family); color: var(--color-ink-soft); }
+.mv-block { margin: 10px 0 0; padding: 8px 10px; border-radius: var(--rounded-sm); border: 1px solid var(--color-line); }
+.mv-block h3 { margin: 0 0 4px; font: 600 13px var(--typography-label-font-family); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.mv-block p { margin: 0; }
+.mv-tools { border-left: 4px solid var(--color-segment-tool-descriptions); }
+.mv-result { border-left: 4px solid var(--color-segment-tool-results); }
+.mv-resource { border-left: 4px solid var(--color-segment-rag); }
+.mv-prompt { border-left: 4px solid var(--color-segment-message); }
+.mv-sent { border-left: 4px solid var(--color-ink-soft); }
+.mv-block pre { margin-top: 6px; max-height: 120px; overflow: auto; padding: 6px 8px; background: var(--color-surface); border-radius: 8px; white-space: pre-wrap; }
+.linkish { border: 0; background: none; padding: 0; color: var(--color-primary); text-decoration: underline; cursor: pointer; font: 500 12px var(--typography-label-font-family); }
+
+/* ---------- volet Architecture ---------- */
+.arch { position: relative; height: 100%; display: grid; grid-template-columns: minmax(0, 60fr) 2px minmax(0, 40fr); gap: 10px; }
+.zone { position: relative; border-radius: var(--rounded-md); padding: 24px 8px 6px; min-width: 0; }
+.zone-local { background: var(--color-surface-raised); }
+.zone-net { background: var(--color-surface); }
+.zone-label { position: absolute; top: 2px; left: 8px; font: 600 11.5px var(--typography-label-font-family); padding: 1px 8px; border-radius: var(--rounded-full); }
+.zone-local .zone-label { color: var(--color-primary); border: 1.5px solid var(--color-primary); }
+.zone-net .zone-label { background: var(--color-hosting-network); color: var(--color-on-vivid); border: 1.5px dashed var(--color-hosting-boundary); }
+.boundary { background: repeating-linear-gradient(var(--color-hosting-boundary) 0 6px, transparent 6px 10px); position: relative; }
+.boundary span { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-90deg); white-space: nowrap; font: 500 10.5px var(--typography-label-font-family); background: var(--color-surface-raised); padding: 0 4px; }
+.lanes-local { display: grid; grid-template-columns: 74px minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, .8fr); grid-template-rows: repeat(3, 38px); gap: 4px 40px; padding-top: 6px; height: 100%; align-content: center; }
+.lanes-net { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: repeat(3, 38px); gap: 4px 30px; padding-top: 6px; height: 100%; align-content: center; }
+.host {
+  grid-column: 2; grid-row: 1 / 4; position: relative; border: 2px solid var(--color-primary); border-radius: var(--rounded-md);
+  padding: 12px 6px 4px; display: grid; grid-template-rows: repeat(3, 1fr); gap: 4px; margin: -8px 0 -4px;
+  box-shadow: 0 3px 0 var(--color-relief-active); background: var(--color-surface-raised);
+}
+.host-label { position: absolute; top: -10px; left: 10px; background: var(--color-primary); color: var(--color-on-primary); padding: 1px 8px; border-radius: var(--rounded-full); font: 600 11px var(--typography-label-font-family); cursor: pointer; border: 0; }
+.node {
+  display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; padding: 2px 6px;
+  border-radius: var(--rounded-sm); cursor: pointer; text-align: center; line-height: 1.1;
+  font: 600 11.5px var(--typography-label-font-family); color: var(--color-ink);
+  border: 2px solid var(--color-discipline-harness); background: var(--color-discipline-harness-soft);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.node.client { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary-deep); font-size: 11px; }
+.node.src { border: 2px solid var(--color-ink-soft); background: var(--color-surface); font-weight: 500; }
+.node.src.is-hidden-side { border-style: dotted; color: var(--color-ink-soft); }
+.node.net { background: var(--color-discipline-network-soft); border: 2px dashed var(--color-hosting-boundary); box-shadow: inset 6px 0 0 var(--color-discipline-network); }
+.node.user { grid-column: 1; grid-row: 1; border-color: var(--color-ink); background: var(--color-surface-raised); }
+.node.dim { background: var(--color-discipline-neutral-soft); border: 2px dashed var(--color-muted); color: var(--color-ink-soft); box-shadow: none; }
+.robot {
+  grid-column: 1; grid-row: 2 / 4; display: grid; justify-items: center; align-content: center; gap: 2px; cursor: pointer;
+  border-radius: var(--rounded-sm); background: var(--color-ink-fill); color: var(--color-on-ink); border: 0; padding: 4px;
+  font: 600 11px var(--typography-label-font-family);
+}
+.robot small { color: var(--color-on-ink-soft); font-weight: 400; font-size: 10px; }
+.robot svg { width: 30px; height: 26px; }
+.robot .ant { fill: var(--color-muted); }
+.robot.is-active .ant { fill: var(--color-state-active); animation: blink .9s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .3; } }
+.wire-label { font: 600 10.5px var(--typography-label-font-family); fill: var(--color-ink-soft); paint-order: stroke; stroke: var(--color-surface-raised); stroke-width: 4px; }
+.diagram-wire.is-dotted { stroke-dasharray: 2 4; stroke: var(--color-muted); }
+.node.has-prim { flex-direction: column; gap: 0; }
+.prim { display: block; font: 500 12px var(--typography-label-font-family); color: var(--color-ink-soft); }
+.prim:empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .robot.is-active .ant { animation: none; } }
+.arch-switch { margin: 0; }
+.before-banner { padding: 1px 10px; border-radius: var(--rounded-full); background: var(--color-warning-soft); font: 500 12px var(--typography-label-font-family); }
+.lanes-before { display: grid; grid-template-columns: 74px minmax(0, 1.6fr) minmax(0, .8fr); grid-template-rows: repeat(3, 30px); gap: 3px 40px; padding-top: 2px; height: 100%; align-content: center; }
+.lanes-before-net { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: repeat(3, 30px); gap: 3px 30px; padding-top: 2px; height: 100%; align-content: center; }
+.integration { border: 2px solid var(--color-ink-soft); background: var(--color-surface-raised); color: var(--color-ink); font-size: 12px; }
+#arch-before { grid-template-rows: minmax(0, 1fr) auto; }
+.before-captions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: 12px; color: var(--color-ink); }
+.arch-end { fill: var(--color-ink); }
+</style>
+</head>
+<body>
+
+<nav class="site-nav" aria-label="Pages de WaveStack">
+  <a href="#" class="site-nav-brand">WaveStack</a>
+  <a href="#">Harnais</a><a href="#">LLM</a><a href="#">RAG</a><a href="#" aria-current="page">MCP</a><a href="#">🛠️ Diagnostic</a>
+</nav>
+
+<div class="mockbar" role="toolbar" aria-label="Maquette (hors produit)">
+  <span class="tag">Maquette lot 4</span>
+  <label>Scénario
+    <select id="mk-sc">
+      <optgroup label="Connexion">
+        <option value="idle">Avant connexion</option>
+        <option value="hsLocal">Poignée de main · glossaire (stdio)</option>
+        <option value="hsNet">Poignée de main · data.gouv.fr (HTTP)</option>
+        <option value="netFail">Serveur injoignable</option>
+        <option value="listFail">Liste en échec</option>
+        <option value="closed">Connexion fermée</option>
+      </optgroup>
+      <optgroup label="Outils">
+        <option value="callManual">Appel à la main</option>
+        <option value="callModel">Appel par le modèle</option>
+        <option value="errors">isError</option>
+        <option value="cut">Sortie coupée</option>
+        <option value="maxCalls">Borne d'appels</option>
+        <option value="overflow">Fenêtre dépassée</option>
+      </optgroup>
+      <optgroup label="Ressources et prompts">
+        <option value="resource">Ressource, puis envoi au modèle</option>
+        <option value="prompt">Prompt, puis envoi au modèle</option>
+        <option value="sendNoTools">Envoi sans bloc « outils »</option>
+      </optgroup>
+    </select>
+  </label>
+  <button id="mk-replay" title="Rejoue le scénario étape par étape, comme en direct">▶ Rejouer</button>
+  <span class="sep"></span>
+  <button id="mk-fixed">Cadre 1280×650</button>
+  <button id="mk-dark">Thème sombre</button>
+</div>
+
+<div class="frame" id="frame">
+  <header class="page-head">
+    <h1>Atelier MCP</h1>
+    <p>Le protocole entre l'hôte et un serveur, message par message. Un bac à sable : la brique MCP du harnais ne change pas.</p>
+    <div class="hidden-chips" id="hidden-chips"></div>
+  </header>
+
+  <main class="grid" id="grid">
+    <!-- volet Serveurs et commandes -->
+    <section class="pane pane-servers" id="pane-servers" aria-labelledby="t-servers">
+      <div class="pane-head">
+        <div class="pane-titles"><h2 class="pane-title" id="t-servers">Serveurs et commandes</h2><p class="pane-subtitle">Choisissez un serveur, puis ce que vous lui demandez</p></div>
+        <div class="pane-tools"><button class="icon-btn" data-hide="servers" title="Masquer le volet">—</button></div>
+      </div>
+      <div class="pane-body" id="servers-body"></div>
+    </section>
+
+    <!-- volet Séquence -->
+    <section class="pane pane-seq" aria-labelledby="t-seq">
+      <div class="pane-head">
+        <span class="pane-step">1</span>
+        <div class="pane-titles"><h2 class="pane-title" id="t-seq">Séquence</h2><p class="pane-subtitle">Qui parle à qui, dans l'ordre</p></div>
+        <div id="stepper-host"></div>
+        <div class="pane-tools"><button class="icon-btn" title="Mode focus">⛶</button></div>
+      </div>
+      <div class="seq-body">
+        <div class="seq-heads" id="seq-heads"></div>
+        <div class="seq-scroll" id="seq-scroll">
+          <div class="lifelines" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <ol class="seq-list" id="seq-list" aria-label="Messages de l'échange, dans l'ordre"></ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- volet Ce que le modèle voit -->
+    <section class="pane pane-model" id="pane-model" aria-labelledby="t-model">
+      <div class="pane-head">
+        <span class="pane-step">2</span>
+        <div class="pane-titles"><h2 class="pane-title" id="t-model">Ce que le modèle voit</h2><p class="pane-subtitle">Ce qui entre dans son contexte, et son poids</p></div>
+        <div class="pane-tools"><button class="icon-btn" data-hide="model" title="Masquer le volet">—</button></div>
+      </div>
+      <div class="pane-body" id="model-body"></div>
+    </section>
+
+    <!-- volet Architecture -->
+    <section class="pane pane-arch" id="pane-arch" aria-labelledby="t-arch">
+      <div class="pane-head">
+        <span class="pane-step">3</span>
+        <div class="pane-titles"><h2 class="pane-title" id="t-arch">Architecture</h2><p class="pane-subtitle">Où tourne chaque pièce, et par quel transport</p></div>
+        <div class="seg arch-switch" role="radiogroup" aria-label="Vue de l'architecture"><button id="v-before" aria-pressed="false">Avant MCP</button><button id="v-after" aria-pressed="true">Avec MCP</button></div>
+        <div class="pane-tools"><button class="icon-btn" title="Mode focus">⛶</button><button class="icon-btn" data-hide="arch" title="Masquer le volet">—</button></div>
+      </div>
+      <div class="pane-body" style="padding: 6px 10px 8px; overflow: visible;">
+        <div class="arch" id="arch-before" hidden>
+          <div class="zone zone-local">
+            <span class="zone-label">🖥️ Poste de travail</span>
+            <div class="lanes-before">
+              <button class="node user" style="grid-column:1;grid-row:1">👤 Utilisateur</button>
+              <button class="robot" style="grid-column:1;grid-row:2 / 4">SLM local</button>
+              <div class="host" style="grid-column:2">
+                <button class="host-label">Hôte · WaveStack</button>
+                <button class="node integration" data-b="i-glo">● Code pour lire glossary.yaml</button>
+                <button class="node integration" data-b="i-dg">◆ Code pour l'API data.gouv.fr (REST)</button>
+                <button class="node integration" data-b="i-ms">▲ Code pour l'API Microsoft (autre format)</button>
+              </div>
+              <button class="node src" style="grid-column:3;grid-row:1" data-b="b-glo">📄 glossary.yaml</button>
+            </div>
+          </div>
+          <div class="boundary" aria-hidden="true"><span>frontière du poste</span></div>
+          <div class="zone zone-net">
+            <span class="zone-label">🌐 RÉSEAU · hors du poste</span>
+            <div class="lanes-before-net">
+              <button class="node src" style="grid-column:2;grid-row:2" data-b="b-dg">API data.gouv.fr</button>
+              <button class="node src" style="grid-column:2;grid-row:3" data-b="b-ms">API Microsoft Learn</button>
+            </div>
+          </div>
+          <div class="before-captions"><span class="before-banner">Schéma de principe : rien n'est capturé</span><span>Une intégration à écrire et à maintenir par outil.</span><span>Une API qui change casse son intégration, jusqu'à ce que le code suive.</span></div>
+        </div>
+        <div class="arch" id="arch">
+          <p class="arch-empty" id="arch-empty">Les pièces apparaîtront ici, une à une, quand elles interviendront.</p>
+          <div class="zone zone-local">
+            <span class="zone-label">🖥️ Poste de travail</span>
+            <div class="lanes-local">
+              <button class="node user diagram-block" data-node="user" data-explain="L'utilisateur parle à l'hôte, jamais au serveur MCP. Avec un prompt MCP, c'est lui qui choisit (comme une commande /).">👤 Utilisateur</button>
+              <button class="robot diagram-block" data-node="slm" data-explain="Le modèle ne parle jamais au serveur MCP. Il lit les outils dans son contexte et demande un appel à l'hôte, qui passe par le client. Analogie du restaurant : c'est le client attablé, qui lit le menu et commande.">
+                <svg viewBox="0 0 30 26" aria-hidden="true"><rect class="ant" x="14" y="0" width="2" height="5" rx="1"/><rect x="4" y="5" width="22" height="18" rx="6" fill="var(--color-primary)" stroke="var(--color-on-ink)" stroke-width="1.5"/><rect x="8" y="10" width="14" height="8" rx="4" fill="var(--color-surface-raised)"/><circle cx="12" cy="14" r="1.6" fill="var(--color-ink)"/><circle cx="18" cy="14" r="1.6" fill="var(--color-ink)"/></svg>
+                SLM local<small>Qwen3 1.7B</small>
+              </button>
+              <div class="host diagram-block" data-node="host">
+                <button class="host-label" data-explain="L'hôte est l'application qui héberge le modèle et les clients MCP : ici, le harnais WaveStack. Il décide quels outils montrer au modèle et exécute ses demandes. Analogie : le restaurant.">Hôte · WaveStack</button>
+                <button class="node client diagram-block" data-node="c-glo" data-explain="Un client MCP par serveur (connexion 1 à 1). Il parle JSON-RPC au serveur et rend les réponses à l'hôte. Analogie : le serveur de salle.">Client MCP → glossaire</button>
+                <button class="node client diagram-block" data-node="c-dg" data-explain="Le client de data.gouv.fr : mêmes messages qu'avec le glossaire, seul le transport change (HTTP).">Client MCP → data.gouv.fr</button>
+                <button class="node client diagram-block" data-node="c-ms" data-explain="Le client de Microsoft Learn : même protocole, même code côté hôte.">Client MCP → MS Learn</button>
+              </div>
+              <button class="node has-prim diagram-block" style="grid-column:3;grid-row:1" data-node="s-glo" data-explain="Serveur MCP « Glossaire WaveStack » : un processus Python à part, lancé par l'hôte sur ce poste (stdio). Il expose 2 outils, 1 ressource et 1 prompt. Analogie : la cuisine."><span>🔌 Glossaire</span><span class="prim" data-prim="glo"></span></button>
+              <button class="node src diagram-block" style="grid-column:4;grid-row:1" data-node="d-glo" data-explain="La source du glossaire : un fichier YAML que le serveur lit. L'hôte ne le lit jamais lui-même.">📄 glossary.yaml</button>
+            </div>
+          </div>
+          <div class="boundary" aria-hidden="true"><span>frontière du poste</span></div>
+          <div class="zone zone-net">
+            <span class="zone-label">🌐 RÉSEAU · hors du poste</span>
+            <div class="lanes-net">
+              <span style="grid-row:1"></span>
+              <button class="node net has-prim diagram-block" style="grid-column:1;grid-row:2" data-node="s-dg" data-explain="Serveur MCP public de data.gouv.fr, joint en Streamable HTTP : chaque message part en POST hors du poste."><span>🔌 data.gouv.fr</span><span class="prim" data-prim="dg"></span></button>
+              <button class="node src is-hidden-side diagram-block" style="grid-column:2;grid-row:2" data-node="d-dg" data-explain="L'API de data.gouv.fr, appelée par le serveur. Cet échange se passe chez le serveur : le poste ne le voit pas.">API data.gouv.fr</button>
+              <button class="node net has-prim diagram-block" style="grid-column:1;grid-row:3" data-node="s-ms" data-explain="Serveur MCP public de Microsoft Learn, joint en Streamable HTTP."><span>🔌 MS Learn</span><span class="prim" data-prim="ms"></span></button>
+              <button class="node src is-hidden-side diagram-block" style="grid-column:2;grid-row:3" data-node="d-ms" data-explain="La documentation Microsoft Learn, lue par le serveur, hors de vue du poste.">Docs Microsoft</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+// ===================== copie de static/diagram.js (lot 2), libellés en dur =====================
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs = {}) { const n = document.createElementNS(SVG_NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v)); return n; }
+function light(root, nodes) {
+  const lit = new Set(nodes ? (nodes instanceof Element ? [nodes] : nodes) : []);
+  for (const n of root.querySelectorAll(".diagram-block.is-active")) if (!lit.has(n)) n.classList.remove("is-active");
+  for (const n of lit) n.classList.add("diagram-block", "is-active");
+}
+// AD-28 (2026-10-05) : rend visible `node` (on) ou le masque (diagram-unrevealed, hors de
+// l'arbre d'accessibilité) ; fondu à l'apparition, sauf prefers-reduced-motion.
+function reveal(node, on) {
+  if (!node) return;
+  const was = !node.classList.contains("diagram-unrevealed");
+  node.classList.toggle("diagram-unrevealed", !on);
+  if (on && !was) { node.classList.remove("diagram-revealed-new"); void node.offsetWidth; node.classList.add("diagram-revealed-new"); }
+}
+function measure(node, o) { const r = node.getBoundingClientRect(); return { l: r.left - o.left, t: r.top - o.top, r: r.right - o.left, b: r.bottom - o.top, cx: (r.left + r.right) / 2 - o.left, cy: (r.top + r.bottom) / 2 - o.top }; }
+function wireLayer(host, draw) {
+  const svg = svgEl("svg", { class: "diagram-wires", "aria-hidden": "true" }); host.appendChild(svg);
+  let pending = false;
+  const render = () => { pending = false; const o = host.getBoundingClientRect(); if (!o.width) return;
+    svg.setAttribute("width", o.width); svg.setAttribute("height", o.height); svg.setAttribute("viewBox", `0 0 ${o.width} ${o.height}`);
+    const parts = draw({ box: (n) => measure(n, o) }); if (parts) svg.replaceChildren(...parts); };
+  const schedule = () => { if (pending) return; pending = true; requestAnimationFrame(render); };
+  new ResizeObserver(schedule).observe(host); document.fonts?.ready.then(schedule);
+  return { schedule };
+}
+let anchors = 0;
+function explain(node, text) {
+  anchors += 1; const a = `--diagram-anchor-${anchors}`; node.style.setProperty("anchor-name", a);
+  const p = document.createElement("div"); p.className = "diagram-explain"; p.setAttribute("popover", ""); p.style.setProperty("position-anchor", a);
+  p.textContent = text; document.body.appendChild(p); node.popoverTargetElement = p;
+  // AD-28 : bulle focalisable, fermée quand le focus ne va ni au bloc ni à la bulle
+  p.tabIndex = -1;
+  const close = (e) => { const to = e.relatedTarget; if (to && (to === node || p.contains(to))) return; if (p.matches(":popover-open")) p.hidePopover(); };
+  node.addEventListener("focusout", close); p.addEventListener("focusout", close);
+}
+function createStepper(host, { onShow, onLive, describe }) {
+  // AD-28 (2026-10-05) : ◀ ▶ en aria-disabled ; annonce « Étape n sur N : {nom} » dans un nœud
+  // status réservé, rempli hors du direct seulement ; options describe, onLive ; load, refresh.
+  const frames = []; let index = -1, live = true;
+  const bar = document.createElement("div"); bar.className = "diagram-stepper"; bar.setAttribute("role", "group"); bar.setAttribute("aria-label", "Étapes du schéma");
+  const mk = (c, t, l) => { const b = document.createElement("button"); b.type = "button"; b.className = c; b.textContent = t; if (l) { b.setAttribute("aria-label", l); b.title = l; } return b; };
+  const prev = mk("diagram-step-prev", "◀", "Étape précédente"), next = mk("diagram-step-next", "▶", "Étape suivante"), follow = mk("diagram-step-live", "Suivre le direct");
+  const pos = document.createElement("span"); pos.className = "diagram-step-position";
+  const status = document.createElement("span"); status.className = "sr-only"; status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
+  bar.append(prev, pos, next, follow, status); host.replaceChildren(bar);
+  const setLive = (v) => { if (live !== v) { live = v; onLive?.(v); } };
+  const update = () => { const n = frames.length;
+    prev.setAttribute("aria-disabled", String(index <= 0)); next.setAttribute("aria-disabled", String(index < 0 || index >= n - 1));
+    pos.hidden = !n; pos.textContent = n ? `${index + 1} / ${n}` : ""; follow.setAttribute("aria-pressed", String(live));
+    status.textContent = !live && index >= 0 ? `Étape ${index + 1} sur ${n}` + (describe ? ` : ${describe(frames[index], index)}` : "") : ""; };
+  const go = (i) => { index = frames.length ? Math.max(0, Math.min(i, frames.length - 1)) : -1; update(); if (index >= 0) onShow(frames[index], index); };
+  const s = { push(f) { frames.push(f); if (live) go(frames.length - 1); else update(); },
+    load(fs) { frames.length = 0; frames.push(...fs); setLive(true); index = frames.length - 1; update(); onShow(index >= 0 ? frames[index] : null, index); },
+    show(i) { if (!frames.length) return; setLive(false); go(i); }, refresh() { if (index >= 0) onShow(frames[index], index); },
+    get live() { return live; },
+    follow() { setLive(true); go(frames.length - 1); }, clear() { frames.length = 0; setLive(true); go(-1); onShow(null, -1); } };
+  prev.onclick = () => { if (prev.getAttribute("aria-disabled") !== "true") s.show(index - 1); };
+  next.onclick = () => { if (next.getAttribute("aria-disabled") !== "true") s.show(index + 1); };
+  follow.onclick = () => s.follow(); update();
+  return s;
+}
+
+// ===================== données de la maquette =====================
+const COLS = [
+  { id: "user", name: "Utilisateur", sub: "vous" },
+  { id: "slm", name: "SLM local", sub: "Qwen3 1.7B" },
+  { id: "host", name: "Hôte WaveStack", sub: "le harnais" },
+  { id: "client", name: "Client MCP", sub: "un par serveur" },
+  { id: "server", name: "Serveur MCP", sub: "" },
+  { id: "source", name: "Source de données", sub: "" },
+];
+const SERVERS = {
+  glo: { name: "Glossaire WaveStack", net: false, transport: "stdio (processus enfant)", where: "python -m wavestack.mcp.local_server fr", src: "glossary.yaml" },
+  dg: { name: "data.gouv.fr", net: true, transport: "Streamable HTTP", where: "https://mcp.data.gouv.fr/mcp", src: "API data.gouv.fr" },
+  ms: { name: "Microsoft Learn", net: true, transport: "Streamable HTTP", where: "https://learn.microsoft.com/api/mcp", src: "Docs Microsoft" },
+};
+const J = (o) => JSON.stringify(o, null, 2);
+const HTTP = (body) => `POST https://mcp.data.gouv.fr/mcp\nHost: mcp.data.gouv.fr\nAccept: application/json, text/event-stream\nContent-Type: application/json\nMcp-Session-Id: 4f1c…\n\n${body}`;
+
+// Une ligne : de la colonne a vers la colonne b. kind : rpc (capturé sur le transport), internal
+// (appel dans l'hôte, déduit), user, model (échange hôte ↔ SLM), source (dans le serveur, non
+// capturé). ghost : étape que personne n'exécute ici (mode à la main).
+const COURSE_TO_COL = { 0: 0, 1: 2, 2: 3, 3: 4, 4: 1, 5: 5 };
+function R(a, b, kind, o = {}) { return { a: COURSE_TO_COL[a], b: COURSE_TO_COL[b], kind, ...o }; }
+
+function handshake(sv) {
+  const s = SERVERS[sv], net = s.net;
+  const rows = [
+    R(1, 2, "internal", { text: net ? "ouvre une session HTTP avec data.gouv.fr" : "lance le serveur : python -m … local_server", explain: net ? "L'hôte crée un client pour ce serveur. Le transport Streamable HTTP envoie chaque message en POST à l'adresse du serveur." : "L'hôte crée un client pour ce serveur et lance le serveur comme processus enfant. Ils se parlent par l'entrée et la sortie standard, une ligne JSON par message.", step: true }),
+    R(2, 3, "rpc", { method: "initialize", ms: 10, net, explain: "Le client se présente : version du protocole, capacités du client, nom et version.", json: J({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "mcp", version: "0.1.0" } } }) }),
+    R(3, 2, "rpc", { method: "initialize", text: net ? "capacités : tools" : "capacités : tools · resources · prompts", ms: net ? 412 : 1352, rt: true, net, explain: "Le serveur répond par la version retenue, son nom et ses capacités : les primitives qu'il propose. Le client ne demandera que celles-là.", json: J({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-11-25", capabilities: net ? { tools: { listChanged: false } } : { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false }, prompts: { listChanged: false } }, serverInfo: { name: net ? "data.gouv.fr" : "wavestack-glossaire", version: "1.2.0" } } }) }),
+    R(2, 3, "rpc", { method: "notifications/initialized", noReply: true, ms: 1363, net, explain: "Une notification, sans réponse ni identifiant : le client confirme que la session est ouverte.", json: J({ jsonrpc: "2.0", method: "notifications/initialized" }) }),
+    R(2, 3, "rpc", { method: "tools/list", ms: 1363, net, explain: "Le client demande la liste des outils.", json: J({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }) }),
+    R(3, 2, "rpc", { method: "tools/list", text: net ? "6 outils" : "2 outils", ms: net ? 388 : 4, rt: true, net, mv: "tools", explain: "Chaque outil vient avec son nom, sa description et le schéma de ses arguments : c'est ce que l'hôte mettra dans le contexte du modèle.", json: net ? J({ jsonrpc: "2.0", id: 2, result: { tools: [{ name: "search_datasets", description: "Recherche des jeux de données…", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } }, "… 5 autres"] } }) : J({ jsonrpc: "2.0", id: 2, result: { tools: [{ name: "list_terms", description: "Liste les termes du glossaire du démonstrateur WaveStack, un par ligne.", inputSchema: { type: "object", properties: {} } }, { name: "define_term", description: "Donne la définition d'une notion du démonstrateur WaveStack…", inputSchema: { type: "object", properties: { term: { type: "string" } }, required: ["term"] } }] } }) }),
+  ];
+  if (net) {
+    rows.push(R(2, 3, "note", { text: "pas de resources/list ni de prompts/list : le serveur ne les annonce pas" }));
+  } else {
+    rows.push(
+      R(2, 3, "rpc", { method: "resources/list", ms: 1368, explain: "Le serveur a annoncé des ressources : le client en demande la liste.", json: J({ jsonrpc: "2.0", id: 3, method: "resources/list", params: {} }) }),
+      R(3, 2, "rpc", { method: "resources/list", text: "1 ressource", ms: 3, rt: true, explain: "Chaque ressource a une adresse (URI), un nom et un type. Rien n'entre dans le contexte : c'est l'hôte qui décidera de la lire.", json: J({ jsonrpc: "2.0", id: 3, result: { resources: [{ uri: "glossary://terms", name: "terms", title: "Termes du glossaire", mimeType: "text/plain" }] } }) }),
+      R(2, 3, "rpc", { method: "prompts/list", ms: 1371, explain: "Le serveur a annoncé des prompts : le client en demande la liste.", json: J({ jsonrpc: "2.0", id: 4, method: "prompts/list", params: {} }) }),
+      R(3, 2, "rpc", { method: "prompts/list", text: "1 prompt", ms: 3, rt: true, explain: "Chaque prompt a un nom, une description et ses arguments. L'hôte les propose à l'utilisateur, comme des commandes.", json: J({ jsonrpc: "2.0", id: 4, result: { prompts: [{ name: "explain_term", title: "Expliquer une notion", description: "Prépare une demande d'explication d'une notion du glossaire.", arguments: [{ name: "term", required: true }] }] } }) }),
+    );
+  }
+  rows.push(R(2, 1, "internal", { text: net ? "6 outils, prêts pour le modèle" : "🔧 2 · 📄 1 · 💬 1", explain: "Le client rend les listes à l'hôte. Les outils iront dans le contexte du modèle (volet 2) ; ressources et prompts attendent un choix de l'hôte ou de l'utilisateur.", step: true, prims: true }));
+  for (const r of rows) { r.sv = sv; if (net && r.json) r.http = HTTP(r.json.replace(/\s+/g, " ")); }
+  return { title: `Poignée de main · ${s.name}`, meta: net ? "ouverte en 1 213 ms · 6 outils" : "ouverte en 1 371 ms · 2 outils, 1 ressource, 1 prompt", why: true, rows };
+}
+
+const CALL_RESULT = "MCP : Model Context Protocol : un protocole standard par lequel un serveur, processus séparé local ou service sur Internet, expose des outils à un harnais.";
+function call(mode) {
+  const manual = mode === "manual";
+  const rows = [
+    manual
+      ? R(0, 1, "user", { text: "formulaire : define_term(term = « MCP »)", tag: "à la place du modèle", explain: "En mode à la main, c'est vous qui choisissez l'outil et ses arguments, à la place du modèle.", step: true })
+      : R(0, 1, "user", { text: "« Que veut dire MCP ? »", explain: "La question de l'utilisateur, tapée dans le volet Serveurs et commandes.", step: true }),
+    R(1, 4, "model", { chip: "question + 2 outils", ms: manual ? null : null, text: manual ? "" : "412 tokens", mv: manual ? undefined : "sent", ghost: manual, ghostTag: "sauté : pas de modèle", explain: "L'hôte envoie au modèle la question et la documentation des outils (volet 2).", step: !manual }),
+    R(4, 1, "model", { chip: "appel : define_term", text: manual ? "" : "6,2 s", ghost: manual, ghostTag: "c'est vous qui l'avez fait", explain: "Le modèle répond par une demande d'outil (nom et arguments en JSON) au lieu d'un texte. Le harnais l'analyse.", json: manual ? null : J({ name: "local__define_term", arguments: { term: "MCP" } }), step: !manual }),
+    R(1, 2, "internal", { text: "exécute define_term(term = « MCP »)", explain: "L'hôte retire le préfixe du serveur (local__) et confie l'appel au client de ce serveur.", step: true }),
+    R(2, 3, "rpc", { method: "tools/call", ms: 2, explain: "Le client demande au serveur d'exécuter l'outil avec ces arguments.", json: J({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "define_term", arguments: { term: "MCP" } } }) }),
+    R(3, 5, "source", { text: "lit glossary.yaml", tag: "non capturé", explain: "Le serveur lit sa source. Cet échange se passe dans le serveur : l'atelier ne le voit pas, il le suppose.", step: false }),
+    R(5, 3, "source", { text: "la définition", tag: "non capturé", step: false }),
+    R(3, 2, "rpc", { method: "tools/call", text: "1 bloc texte", ms: 9, rt: true, explain: "Le serveur répond par des blocs de contenu (ici du texte), et isError à false.", json: J({ jsonrpc: "2.0", id: 5, result: { content: [{ type: "text", text: CALL_RESULT }], isError: false } }) }),
+    R(2, 1, "internal", { text: "texte du résultat · 41 tokens", mv: "result", explain: "Le client rend le résultat ; l'hôte en tire le texte à réinjecter, borné au plafond des résultats d'outils (volet 2).", step: true }),
+    R(1, 4, "model", { chip: "résultat d'outil", text: manual ? "" : "+41 tokens", ghost: manual, ghostTag: "non exécuté ici", explain: "L'hôte remet le résultat au modèle, dans son contexte, puis le relance.", step: !manual }),
+    R(4, 1, "model", { chip: "réponse finale", text: manual ? "" : "9,8 s", ghost: manual, ghostTag: "non exécuté ici", explain: "Le modèle rédige sa réponse à partir du résultat.", step: !manual }),
+    R(1, 0, "user", { text: manual ? "réponse" : "« MCP est un protocole standard qui… »", ghost: manual, ghostTag: "voir l'Atelier Harnais", explain: "La réponse affichée à l'utilisateur.", step: !manual }),
+  ];
+  rows.forEach((r) => (r.sv = "glo"));
+  return { title: manual ? "Appel d'outil · à la main" : "Appel d'outil · par le modèle", meta: manual ? "define_term · 9 ms" : "define_term · 16,4 s, dont 16,0 s de génération", rows, why: "call" };
+}
+
+function resource() {
+  const rows = [
+    R(0, 1, "user", { text: "choisit glossary://terms", tag: "joue l'application", explain: "Une ressource est choisie par l'application, pas par le modèle : une mention @ dans une interface, ou une règle de l'hôte. Ici, vous jouez l'application.", step: true }),
+    R(1, 2, "internal", { text: "lis glossary://terms", step: true }),
+    R(2, 3, "rpc", { method: "resources/read", ms: 1, explain: "Le client demande le contenu de la ressource par son adresse.", json: J({ jsonrpc: "2.0", id: 6, method: "resources/read", params: { uri: "glossary://terms" } }) }),
+    R(3, 5, "source", { text: "lit glossary.yaml", tag: "non capturé", step: false }),
+    R(3, 2, "rpc", { method: "resources/read", text: "text/plain · 18 lignes", ms: 6, rt: true, explain: "Le serveur renvoie le contenu, avec son adresse et son type.", json: J({ jsonrpc: "2.0", id: 6, result: { contents: [{ uri: "glossary://terms", mimeType: "text/plain", text: "harnais\nLLM nu\ncontexte\nfenêtre de contexte\ntoken\noutil\nMCP\n…" }] } }) }),
+    R(2, 1, "internal", { text: "contenu · 64 tokens", step: true, mv: "resource" }),
+    R(1, 4, "model", { chip: "contenu dans le contexte", ghost: true, ghostTag: "si l'hôte l'ajoute", explain: "L'hôte décide s'il ajoute le contenu au contexte. Le modèle ne l'a pas demandé." }),
+  ];
+  rows.forEach((r) => (r.sv = "glo"));
+  return { title: "Lecture de ressource · glossary://terms", meta: "6 ms", rows, why: "resource" };
+}
+
+// Envoi au modèle de ce que l'application ou l'utilisateur a choisi (décision du 2026-10-05).
+function sendToModel(what, noTools = false) {
+  const res = what === "resource";
+  const rows = [
+    R(0, 1, "user", { text: res ? "« Quels termes parlent du contexte ? »" : "envoie le prompt explain_term", step: true }),
+    noTools
+      ? R(1, 4, "model", { mv: "sent", chip: res ? "question + ressource" : "prompt", text: (res ? "128 tokens" : "73 tokens") + " · sans bloc « outils »", explain: "Le modèle actif n'appelle pas d'outils : l'hôte envoie ce qui a été choisi, sans le bloc « outils » du serveur.", step: true })
+      : R(1, 4, "model", { mv: "sent", chip: res ? "question + ressource + 2 outils" : "prompt + 2 outils", text: res ? "286 tokens" : "231 tokens", explain: "L'hôte envoie au modèle ce qui a été choisi, avec le bloc « outils » du serveur.", step: true }),
+    R(4, 1, "model", { chip: "réponse finale", text: noTools ? "3,2 s" : res ? "7,4 s" : "8,1 s", explain: "Ici, le modèle répond sans demander d'outil.", step: true }),
+    R(1, 0, "user", { text: res ? "« contexte, fenêtre de contexte… »" : "« Un hook est un point d'accroche… »", step: true }),
+  ];
+  rows.forEach((r) => (r.sv = "glo"));
+  return { title: "Envoi au modèle · " + (res ? "glossary://terms" : "explain_term"), meta: noTools ? "3,3 s, dont 3,2 s de génération · sans bloc « outils »" : res ? "7,5 s, dont 7,4 s de génération" : "8,2 s, dont 8,1 s de génération", rows, why: what };
+}
+
+function prompt() {
+  const rows = [
+    R(0, 1, "user", { text: "choisit le prompt explain_term(term = « hook »)", explain: "Un prompt est choisi par l'utilisateur, comme une commande / : un modèle de demande préparé par le serveur.", step: true }),
+    R(1, 2, "internal", { text: "récupère explain_term", step: true }),
+    R(2, 3, "rpc", { method: "prompts/get", ms: 1, explain: "Le client demande le prompt, avec ses arguments.", json: J({ jsonrpc: "2.0", id: 7, method: "prompts/get", params: { name: "explain_term", arguments: { term: "hook" } } }) }),
+    R(3, 5, "source", { text: "lit la définition de « hook »", tag: "non capturé", step: false }),
+    R(3, 2, "rpc", { method: "prompts/get", text: "1 message", ms: 5, rt: true, explain: "Le serveur renvoie des messages prêts à entrer dans la conversation, la définition déjà insérée.", json: J({ jsonrpc: "2.0", id: 7, result: { description: "Explication de « hook »", messages: [{ role: "user", content: { type: "text", text: "Explique la notion « hook » à un consultant qui découvre les agents, en trois phrases, à partir de cette définition : hook : un point d'accroche…" } }] } }) }),
+    R(2, 1, "internal", { text: "1 message · 52 tokens", step: true, mv: "prompt" }),
+    R(1, 4, "model", { chip: "message de l'utilisateur", ghost: true, ghostTag: "pas encore envoyé", explain: "L'hôte insère les messages dans la conversation, comme si l'utilisateur les avait tapés." }),
+  ];
+  rows.forEach((r) => (r.sv = "glo"));
+  return { title: "Prompt · explain_term", meta: "5 ms", rows, why: "prompt" };
+}
+
+function errors() {
+  const c = {
+    title: "Appel d'outil · à la main", meta: "define_term · erreur de l'outil", why: "call", rows: [
+      R(0, 1, "user", { text: "formulaire : define_term(term = « xyz »)", tag: "à la place du modèle", step: true }),
+      R(1, 2, "internal", { text: "exécute define_term(term = « xyz »)", step: true }),
+      R(2, 3, "rpc", { method: "tools/call", ms: 1, json: J({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "define_term", arguments: { term: "xyz" } } }) }),
+      R(3, 2, "rpc", { method: "tools/call", text: "isError : terme inconnu", ms: 7, rt: true, error: true, explain: "L'outil a échoué, mais le protocole a fonctionné : la réponse est un résultat normal, marqué isError. Le harnais le réinjecte au modèle, qui peut corriger son appel.", json: J({ jsonrpc: "2.0", id: 5, result: { content: [{ type: "text", text: "Terme inconnu : xyz. Termes connus : harnais, LLM nu, contexte, …" }], isError: true } }) }),
+      R(2, 1, "internal", { text: "texte d'erreur · 38 tokens, réinjecté tel quel", step: true, mv: "result" }),
+    ],
+  };
+  const d = {
+    title: "Poignée de main · data.gouv.fr", meta: "échec : Service injoignable", why: true, rows: [
+      R(1, 2, "internal", { text: "ouvre une session HTTP avec data.gouv.fr", step: true }),
+      R(2, 3, "rpc", { method: "initialize", ms: 38, net: true, error: true, cross: true, text: "Service injoignable (ConnectError)", explain: "Le poste n'a pas accès à mcp.data.gouv.fr : la requête est refusée aussitôt. Aucune réponse : la session n'est pas ouverte. Le glossaire, local, reste disponible.", json: J({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "mcp", version: "0.1.0" } } }) }),
+    ],
+  };
+  c.rows.forEach((r) => (r.sv = "glo")); d.rows.forEach((r) => (r.sv = "dg"));
+  return [c, d];
+}
+
+// ---------- états ajoutés le 2026-10-05 (alignement sur AD-27) ----------
+function handshakeListFail() {
+  const h = handshake("glo");
+  const i = h.rows.findIndex((r) => r.method === "prompts/list" && r.rt);
+  h.rows[i] = R(3, 2, "rpc", { method: "prompts/list", text: "délai dépassé (10 s)", ms: 10000, rt: true, error: true, explain: "Le serveur n'a pas répondu à prompts/list dans le délai d'appel. La poignée de main continue : outils et ressources restent disponibles, la connexion reste ouverte.", json: null });
+  h.rows[h.rows.length - 1].text = "🔧 2 · 📄 1 · 💬 liste en échec";
+  h.rows.forEach((r) => (r.sv = "glo"));
+  h.meta = "ouverte en 11 371 ms · 2 outils, 1 ressource · prompts : liste en échec";
+  return h;
+}
+function handshakeClosed() {
+  const h = handshake("glo");
+  h.rows.push(R(2, 3, "note", { text: "Connexion fermée : changement de langue. Reconnectez-vous.", at: 2.5 }));
+  return h;
+}
+function callCut() {
+  const rows = [
+    R(0, 1, "user", { text: "« Que veut dire MCP ? »", step: true }),
+    R(1, 4, "model", { chip: "question + 2 outils", text: "412 tokens", step: true, mv: "sent" }),
+    R(4, 1, "model", { chip: "sortie coupée", text: "réponse coupée à la réserve de sortie · 512 tokens · 38,0 s", error: true, step: true, explain: "Le modèle a écrit jusqu'à la réserve de sortie sans finir sa réponse ni son appel d'outil. L'atelier clôt l'échange : rien n'est envoyé au serveur." }),
+  ];
+  rows.forEach((r) => (r.sv = "glo"));
+  return { title: "Appel d'outil · par le modèle", meta: "coupée : réserve de sortie atteinte · 38,1 s", rows, why: "call" };
+}
+function callMaxCalls() {
+  const rows = [
+    R(0, 1, "user", { text: "« Que veut dire MCP ? »", step: true }),
+    R(1, 4, "model", { chip: "question + catalogue", text: "131 tokens", mv: "sent", explain: "En lazy loading, l'hôte n'envoie qu'une ligne par outil, plus l'outil load_tool_doc.", step: true }),
+    R(4, 1, "model", { chip: "appel : load_tool_doc", text: "list_terms · 3,1 s", explain: "Le modèle demande la documentation d'un outil. L'hôte la lui donne lui-même : aucun message MCP.", step: true }),
+    R(1, 4, "model", { chip: "documentation de list_terms", text: "+60 tokens", step: true }),
+    R(4, 1, "model", { chip: "appel : load_tool_doc", text: "define_term · 3,4 s", step: true }),
+    R(1, 4, "model", { chip: "documentation de define_term", text: "+98 tokens", step: true }),
+    R(4, 1, "model", { chip: "appel : load_tool_doc", text: "list_terms · 3,2 s", step: true }),
+    R(1, 4, "note", { text: "… 3 autres appels au modèle, toujours load_tool_doc", at: 0.5 }),
+    R(1, 4, "note", { text: "L'atelier s'arrête après 6 appels au modèle (tools.max_calls).", at: 0.5, noteError: true }),
+  ];
+  rows.forEach((r) => (r.sv = "glo"));
+  return { title: "Appel d'outil · par le modèle", meta: "arrêtée : 6 appels au modèle, aucun outil MCP appelé · 21,4 s", rows, why: "call" };
+}
+function callOverflow() {
+  const rows = [
+    R(0, 1, "user", { text: "« Quels jeux de données sur la qualité de l'air ? »", step: true }),
+    R(1, 4, "model", { chip: "question + 6 outils", text: "non envoyé : le contexte dépasse la fenêtre utile", error: true, mv: "overflow", step: true, explain: "2 180 tokens pour 1 536 utiles (fenêtre 2 048, réserve 512). L'hôte refuse l'appel avant tout envoi : le modèle ne reçoit rien. Passez en lazy loading ou agrandissez la fenêtre." }),
+  ];
+  rows.forEach((r) => (r.sv = "dg"));
+  return { title: "Appel d'outil · par le modèle", meta: "non envoyé : 2 180 tokens pour 1 536 utiles", rows, why: "call" };
+}
+
+const SCENARIOS = {
+  idle: { server: "glo", open: null, phases: [] },
+  hsLocal: { server: "glo", open: "glo", phases: [handshake("glo")] },
+  hsNet: { server: "dg", open: "dg", phases: [handshake("dg")] },
+  callManual: { server: "glo", open: "glo", tab: "tools", mode: "manual", phases: [handshake("glo"), call("manual")], mv: ["result"] },
+  callModel: { server: "glo", open: "glo", tab: "tools", mode: "model", phases: [handshake("glo"), call("model")], mv: ["sent", "result"], busy: false },
+  resource: { server: "glo", open: "glo", tab: "resources", phases: [handshake("glo"), resource(), sendToModel("resource")], mv: ["resource", "sent"] },
+  prompt: { server: "glo", open: "glo", tab: "prompts", phases: [handshake("glo"), prompt(), sendToModel("prompt")], mv: ["prompt", "sent"] },
+  netFail: { server: "dg", open: null, phases: [errors()[1]], failed: "dg" },
+  errors: { server: "glo", open: "glo", tab: "tools", mode: "manual", phases: [handshake("glo"), errors()[0]], mv: ["error"], failed: "dg" },
+  sendNoTools: { server: "glo", open: "glo", tab: "resources", phases: [handshake("glo"), resource(), sendToModel("resource", true)], mv: ["resource", "sent"], noTools: true, model: "SmolLM2 360M",
+    sentText: "Question + ressource : 128 tokens. Réponse directe, 3,2 s." },
+  listFail: { server: "glo", open: "glo", tab: "prompts", phases: [handshakeListFail()], listFail: "prompts" },
+  cut: { server: "glo", open: "glo", tab: "tools", mode: "model", phases: [handshake("glo"), callCut()], mv: ["sent"],
+    sentText: "Question + bloc outils + gabarit : 412 tokens. Sortie coupée à la réserve de sortie (512 tokens), 38,0 s : ni réponse ni appel d'outil." },
+  maxCalls: { server: "glo", open: "glo", tab: "tools", mode: "model", lazy: true, phases: [handshake("glo"), callMaxCalls()], mv: ["sent"],
+    sentText: "6 appels au modèle, tous load_tool_doc. Le dernier : question + catalogue + 2 documentations, 289 tokens. L'atelier s'arrête à la borne (tools.max_calls)." },
+  overflow: { question: "Quels jeux de données sur la qualité de l'air ?", server: "dg", open: "dg", tab: "tools", mode: "model", phases: [handshake("dg"), callOverflow()], mv: ["overflow"] },
+  closed: { server: "glo", open: null, phases: [handshakeClosed()], closed: "glo" },
+};
+
+// ===================== rendu =====================
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+let sc = null, rowsFlat = [], allRows = [], allPhases = [], revealedWires = new Set(), stepper, arch, replayTimer = null;
+
+function renderHeads() {
+  const heads = $("seq-heads"); heads.replaceChildren();
+  const sv = SERVERS[sc.open || sc.server];
+  COLS.forEach((c, i) => {
+    const b = el("button", "seq-head diagram-block"); b.type = "button";
+    let sub = c.sub;
+    if (c.id === "server") { sub = sv.name; if (sv.net) b.classList.add("is-net"); }
+    if (c.id === "source") { sub = sv.src; }
+    if (c.id === "slm") { b.classList.add("is-model"); if (sc.model) sub = sc.model; }
+    b.append(c.id === "server" && sv.net ? "🌐 " + c.name : c.name, el("small", null, sub));
+    b.dataset.col = i;
+    heads.append(b);
+    explain(b, {
+      user: "Vous, ou le participant. Il parle à l'hôte.",
+      host: "L'application qui héberge le modèle et les clients MCP : le harnais WaveStack.",
+      client: "Le client MCP de ce serveur : il parle JSON-RPC, l'hôte non.",
+      server: sv.net ? "Un service public joint en HTTP : les messages quittent le poste." : "Un processus à part, lancé par l'hôte sur ce poste (stdio).",
+      slm: "Le modèle local. Il ne parle qu'à l'hôte.",
+      source: sv.net ? "Ce que le serveur appelle. Le poste ne voit pas cet échange." : "Le fichier que le serveur lit. L'hôte ne le lit pas.",
+    }[c.id]);
+  });
+}
+
+function geometry(row) {
+  const lo = Math.min(row.a, row.b), hi = Math.max(row.a, row.b);
+  // colonnes de largeur égale avec un écart de 6 px : centre de la colonne i
+  const center = (i) => `calc((100% - 30px) / 6 * ${i + 0.5} + ${i * 6}px)`;
+  return { left: center(lo), width: `calc((100% - 30px) / 6 * ${hi - lo} + ${(hi - lo) * 6}px)`, right: row.b > row.a };
+}
+
+const WHY = {
+  true: ["Pourquoi une poignée de main ?", "Comme au restaurant : « Bonjour, je suis le serveur de salle de WaveStack » (initialize) ; « Bonjour, voici ce que nous servons : des plats à la carte, ce que nous posons sur la table, des formules » (capacités : outils, ressources, prompts) ; « Bien reçu » (notifications/initialized) ; « La carte, s'il vous plaît » (tools/list, resources/list, prompts/list). Ensuite seulement, on commande."],
+  call: ["Qui choisit l'outil ?", "Un outil est choisi par le modèle. L'hôte lui montre les outils, le modèle demande un appel, l'hôte le fait passer par le client. Le modèle ne parle jamais au serveur."],
+  resource: ["Qui choisit la ressource ?", "Une ressource est choisie par l'application (l'hôte), pas par le modèle : elle sert à donner du contexte, comme un fichier joint avec @."],
+  prompt: ["Qui choisit le prompt ?", "Un prompt est choisi par l'utilisateur : un modèle de demande que le serveur prépare, comme une commande /."],
+};
+
+function renderSeq() {
+  const list = $("seq-list"); list.replaceChildren(); rowsFlat = []; allRows = []; allPhases = [];
+  if (!sc.phases.length) {
+    const e = el("li", "seq-empty", "Connectez-vous à un serveur : la poignée de main s'affichera ici, message par message.");
+    list.append(e); return;
+  }
+  sc.phases.forEach((ph, pi) => {
+    const last = pi === sc.phases.length - 1;
+    const head = el("li", "seq-phase");
+    const hb = el("button", "phase-toggle"); hb.type = "button"; hb.setAttribute("aria-expanded", String(last));
+    hb.append(el("span", "chev", "▾"), el("span", null, ph.title), el("span", "phase-meta", "· " + ph.meta));
+    head.append(hb);
+    const why = WHY[ph.why];
+    let whyBox = null;
+    if (why) {
+      const w = el("button", "phase-why", why[0]); w.type = "button"; w.setAttribute("aria-expanded", "false"); head.append(w);
+      whyBox = el("li", "phase-explain", why[1]); whyBox.hidden = true;
+      w.addEventListener("click", () => { whyBox.hidden = !whyBox.hidden; w.setAttribute("aria-expanded", String(!whyBox.hidden)); });
+    }
+    list.append(head); if (whyBox) list.append(whyBox);
+    head.classList.add("diagram-unrevealed"); whyBox?.classList.add("diagram-unrevealed");
+    const items = [];
+    ph.rows.forEach((row) => {
+      const li = renderRow(row); li.hidden = !last; items.push(li); list.append(li);
+      li.classList.add("diagram-unrevealed"); row.li = li;
+      if (!row.ghost && row.kind !== "note") { row.phaseHead = head; row.items = items; rowsFlat.push(row); }
+      // une flèche apparaît à son étape ; un fantôme ou une note, avec l'étape qui le précède
+      row.revealAt = Math.max(rowsFlat.length - 1, 0); allRows.push(row);
+    });
+    allPhases.push({ head, whyBox, rows: ph.rows.slice() });
+    hb.addEventListener("click", () => {
+      const open = hb.getAttribute("aria-expanded") !== "true";
+      hb.setAttribute("aria-expanded", String(open)); items.forEach((i) => (i.hidden = !open));
+      if (!open) items.forEach((i) => i.querySelector(".seq-detail") && (i.querySelector(".seq-detail").hidden = true));
+    });
+  });
+}
+
+function renderRow(row) {
+  const li = el("li", `seq-row k-${row.kind}`);
+  if (row.net) li.classList.add("is-net");
+  if (row.ghost) li.classList.add("is-ghost");
+  if (row.noReply) li.classList.add("no-reply");
+  if (row.error) li.classList.add("is-error");
+  const btn = el("button", "seq-arrow"); btn.type = "button";
+  const g = geometry(row);
+  if (row.kind === "note") {
+    const at = row.at ?? 3.5;
+    const cap = el("div", "seq-cap"); cap.style.left = `calc((100% - 30px) / 6 * ${at} + ${at * 6 - 3}px)`; cap.style.right = "0"; cap.style.justifyContent = "flex-start";
+    cap.append(el("span", row.noteError ? "tag tag-error" : "tag tag-ghost", (row.noteError ? "✖ " : "ⓘ ") + row.text)); btn.append(cap); btn.disabled = true; btn.style.height = "28px";
+    li.append(btn); return li;
+  }
+  const line = el("span", `seq-line ${g.right ? "to-right" : "to-left"}`); line.style.left = g.left; line.style.width = g.width;
+  // une légende déborde à droite de sa flèche quand la flèche est courte (une colonne)
+  const cap = el("div", "seq-cap"); cap.style.left = g.left; cap.style.width = `min(max(${g.width}, 50%), calc(100% - ${g.left}))`;
+  if (Math.abs(row.b - row.a) === 1) cap.style.justifyContent = "flex-start";
+  if (row.kind === "rpc") {
+    const chip = el("span", "chip diagram-block", (row.net ? "🌐 " : "") + row.method); cap.append(chip); row.chipEl = chip;
+  } else if (row.kind === "model") {
+    const chip = el("span", "chip chip-model diagram-block" + (row.b === 1 ? " is-read" : ""), row.chip); cap.append(chip); row.chipEl = chip;
+  }
+  if (row.text) cap.append(el("span", "txt", row.text));
+  if (row.ms != null) cap.append(el("span", "ms", (row.rt ? "aller-retour " : "à ") + row.ms.toLocaleString("fr-FR") + " ms"));
+  if (row.noReply) cap.append(el("span", "tag", "sans réponse"));
+  if (row.tag) cap.append(el("span", row.kind === "source" ? "tag tag-ghost" : "tag badge-user", row.tag));
+  if (row.ghost) cap.append(el("span", "tag tag-ghost", row.ghostTag));
+  if (!row.chipEl) { cap.querySelector(".txt")?.classList.add("diagram-block"); row.chipEl = cap.querySelector(".txt") || cap; }
+  btn.append(line, cap);
+  if (row.error) { const x = el("span", "x-mark", "✖"); x.style.left = `calc(${g.left} + ${g.right ? g.width : "0px"} - 10px)`; btn.append(x); }
+  const name = `${COLS[row.a].name} → ${COLS[row.b].name} : ${row.method || row.chip || ""} ${row.text || ""}`.trim();
+  btn.setAttribute("aria-label", name + (row.ghost ? " (non exécuté ici)" : ""));
+  li.append(btn);
+  if (row.ghost && !row.explain) { btn.disabled = true; return li; }
+  const det = el("div", "seq-detail"); det.hidden = true;
+  if (row.net) det.classList.add("is-net"); if (row.kind === "model") det.classList.add("is-model"); if (row.error) det.classList.add("is-error");
+  const dh = el("div", "d-head");
+  dh.append(el("span", "label", `${COLS[row.a].name} → ${COLS[row.b].name}`));
+  if (row.kind === "rpc") dh.append(el("span", "tag", "capturé sur le transport"));
+  if (row.kind === "internal" || row.kind === "user") dh.append(el("span", "tag tag-ghost", "dans l'hôte · déduit"));
+  if (row.kind === "source") dh.append(el("span", "tag tag-ghost", "dans le serveur · non capturé"));
+  if (row.kind === "model" && !row.ghost) dh.append(el("span", "tag", "événement du modèle"));
+  if (row.ghost) dh.append(el("span", "tag tag-ghost", row.ghostTag));
+  det.append(dh);
+  if (row.explain) det.append(el("p", "sm", row.explain));
+  if (row.http) { const o = el("div", "outbound"); o.append(el("div", null, "🌐 RÉSEAU · Données sortantes"), el("pre", "code", row.http)); det.append(o); }
+  if (row.json) det.append(el("pre", "code", row.json));
+  btn.setAttribute("aria-expanded", "false");
+  btn.addEventListener("click", () => { det.hidden = !det.hidden; btn.setAttribute("aria-expanded", String(!det.hidden)); });
+  li.append(det); return li;
+}
+
+// les nœuds de l'architecture allumés par une ligne, et le fil parcouru
+function archFor(row) {
+  if (!row) return { nodes: [], wire: null };
+  const sv = row.sv, map = { 0: "user", 1: "slm", 2: "host", 3: "c-" + sv, 4: "s-" + sv, 5: "d-" + sv };
+  const pair = [row.a, row.b].sort().join("");
+  const wire = { "02": "user", "12": "slm", "34": "t-" + sv, "45": "src-" + sv }[pair] || null;
+  return { nodes: [map[row.a], map[row.b]], wire };
+}
+let litWire = null, failedWire = null;
+// Découverte progressive : est visible ce qui intervient dans les étapes 0 à `index`.
+function applyReveal(index) {
+  const cols = new Set(), nodes = new Set(), wires = new Set();
+  for (const r of allRows) {
+    const on = index >= 0 && r.revealAt <= index;
+    reveal(r.li, on);
+    if (!on || r.kind === "note") continue;
+    cols.add(r.a); cols.add(r.b); // un fantôme montre aussi ses colonnes : sa flèche a deux bouts
+    if (!r.ghost) { const a = archFor(r); a.nodes.forEach((n) => nodes.add(n)); if (a.wire) wires.add(a.wire); }
+  }
+  for (const ph of allPhases) { const on = ph.rows.some((r) => index >= 0 && r.revealAt <= index); reveal(ph.head, on); if (ph.whyBox) reveal(ph.whyBox, on); }
+  if (sc.failed && index >= 0) { nodes.add("c-" + sc.failed); nodes.add("s-" + sc.failed); wires.add("t-" + sc.failed); } // le dernier échec reste marqué
+  if ([...nodes].some((n) => n.startsWith("c-"))) nodes.add("host");
+  document.querySelectorAll(".seq-head").forEach((h, i) => reveal(h, cols.has(i)));
+  document.querySelectorAll(".lifelines span").forEach((l, i) => reveal(l, cols.has(i)));
+  document.querySelectorAll("#arch [data-node]").forEach((n) => reveal(n, nodes.has(n.dataset.node)));
+  const net = [...nodes].some((n) => /-(dg|ms)$/.test(n));
+  reveal(document.querySelector("#arch .zone-net"), net); reveal(document.querySelector("#arch .boundary"), net);
+  const prims = allRows.some((r) => r.prims && index >= 0 && r.revealAt <= index); // « 🔧 2 · 📄 1 · 💬 1 » à la fin de la poignée de main
+  document.querySelectorAll("#arch [data-prim]").forEach((n) => reveal(n, prims));
+  $("arch-empty").hidden = nodes.size > 0;
+  // « Ce que le modèle voit » suit le stepper (décision d'Anaël du 2026-10-05)
+  const mv = new Set(allRows.filter((r) => r.mv && !r.ghost && index >= 0 && r.revealAt <= index).map((r) => r.mv));
+  document.querySelectorAll("#model-body [data-mv]").forEach((n) => reveal(n, mv.has(n.dataset.mv)));
+  const pending = $("mv-pending"); if (pending) pending.hidden = mv.has("tools") || index < 0;
+  revealedWires = wires;
+}
+function onShow(row, index = -1) {
+  applyReveal(index);
+  document.querySelectorAll(".seq-row.is-current").forEach((n) => n.classList.remove("is-current"));
+  light($("seq-list"), row ? [row.chipEl] : null);
+  const heads = [...document.querySelectorAll(".seq-head")];
+  const a = archFor(row);
+  if (row) {
+    if (row.li.hidden) { row.phaseHead.querySelector(".phase-toggle").setAttribute("aria-expanded", "true"); row.items.forEach((i) => (i.hidden = false)); }
+    row.li.classList.add("is-current"); row.li.scrollIntoView({ block: "nearest" });
+  }
+  light(document.body.querySelector(".seq-heads"), row ? [heads[row.a], heads[row.b]] : null);
+  light($("arch"), a.nodes.map((id) => document.querySelector(`[data-node="${id}"]`)).filter(Boolean));
+  // antenne verte : en direct seulement, pendant une génération (flèche produite par le modèle)
+  document.querySelector(".robot").classList.toggle("is-active", Boolean(row && row.a === 1 && stepper.live));
+  litWire = a.wire; arch.schedule();
+}
+
+function drawArch({ box }) {
+  const q = (id) => document.querySelector(`[data-node="${id}"]`);
+  const parts = [];
+  const add = (id, d, cls, label, lx, ly) => {
+    if (!revealedWires.has(id)) return; // découverte progressive : un fil apparaît une fois parcouru
+    const lit = litWire === id, failed = failedWire === id;
+    parts.push(svgEl("path", { d, class: `diagram-wire ${cls}` }));
+    if (lit) { parts.push(svgEl("path", { d, class: "diagram-path" }), svgEl("path", { d, class: `diagram-path-core ${cls.includes("is-dashed") ? "is-flow" : ""}` })); }
+    if (failed) parts.push(svgEl("path", { d, class: "diagram-path-block" }));
+    if (label) { const t = svgEl("text", { x: lx, y: ly, class: "wire-label", "text-anchor": "middle" }); t.textContent = label; parts.push(t); }
+    if (failed) { const g = svgEl("g", { class: "diagram-marker is-block" }); const c = svgEl("circle", { cx: lx, cy: ly + 12, r: 11 }); const t = svgEl("text", { x: lx, y: ly + 16, "text-anchor": "middle" }); t.textContent = "✖"; g.append(c, t); parts.push(g); }
+  };
+  const host = box(q("host")), user = box(q("user")), slm = box(q("slm"));
+  add("user", `M${user.r},${user.cy} L${host.l},${user.cy}`, "", null);
+  add("slm", `M${slm.r},${slm.cy} L${host.l},${slm.cy}`, "", null);
+  for (const sv of ["glo", "dg", "ms"]) {
+    const c = box(q("c-" + sv)), s = box(q("s-" + sv)), d = box(q("d-" + sv));
+    const net = SERVERS[sv].net;
+    const mid = (c.r + s.l) / 2;
+    add("t-" + sv, `M${c.r},${c.cy} L${s.l},${c.cy}`, net ? "is-dashed" : "", net ? "HTTP" : "stdio", sv === "glo" ? (c.r + s.l) / 2 : (c.r + box($("arch").querySelector(".boundary")).l) / 2, c.cy - 5);
+    add("src-" + sv, `M${s.r},${s.cy} L${d.l},${d.cy}`, "is-dotted", null);
+  }
+  return parts;
+}
+
+function renderServers() {
+  const body = $("servers-body"); body.replaceChildren();
+  const ul = el("ul", "servers");
+  for (const [id, s] of Object.entries(SERVERS)) {
+    const li = el("li"); const lab = el("label", "server" + (s.net ? " is-net" : "") + (sc.open === id ? " is-open" : ""));
+    const r = el("input"); r.type = "radio"; r.name = "srv"; r.checked = sc.server === id;
+    const nm = el("span", "server-name", s.name);
+    nm.append(el("span", s.net ? "tag tag-net" : "tag tag-local", s.net ? "🌐 RÉSEAU" : "Local"));
+    if (sc.open === id) nm.append(el("span", "tag tag-ok", "connecté"));
+    if (sc.failed === id) nm.append(el("span", "tag tag-error", "injoignable"));
+    if (sc.closed === id) nm.append(el("span", "tag", "non connecté"));
+    lab.append(r, nm, el("span", "server-meta", s.transport));
+    li.append(lab); ul.append(li);
+  }
+  body.append(ul);
+  const btns = el("div", "row-btns");
+  const b1 = el("button", "btn btn-primary", sc.open ? "Reconnecter" : "Se connecter"); const b2 = el("button", "btn btn-secondary", "Arrêter"); b2.disabled = true;
+  btns.append(b1, b2); body.append(btns);
+  if (!sc.open) { body.append(el("p", "note", sc.closed ? "Connexion fermée : changement de langue. Reconnectez-vous au Glossaire WaveStack." : sc.failed ? "La connexion à data.gouv.fr a échoué. Le glossaire, local, reste disponible." : "Une fois connecté, choisissez ici un outil, une ressource ou un prompt.")); return; }
+  const net = SERVERS[sc.open].net;
+  const tabs = el("div", "tabs"); tabs.setAttribute("role", "tablist");
+  const T = [["tools", net ? "🔧 Outils 6" : "🔧 Outils 2"], ["resources", "📄 Ressources 1"], ["prompts", sc.listFail === "prompts" ? "💬 Prompts ⚠" : "💬 Prompts 1"]];
+  const cur = sc.tab || "tools";
+  for (const [id, label] of T) {
+    const b = el("button", null, label); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(cur === id));
+    if (net && id !== "tools") { b.setAttribute("aria-disabled", "true"); b.textContent = "⊘ " + label; b.title = "Ce serveur n'annonce pas de " + (id === "resources" ? "ressources" : "prompts"); }
+    b.onclick = () => { if (b.getAttribute("aria-disabled") === "true") return; sc.tab = id; renderServers(); };
+    tabs.append(b);
+  }
+  body.append(tabs);
+  if (net && cur !== "tools") sc.tab = "tools";
+  if (cur === "tools") {
+    const who = el("div", "who"); who.append(el("span", "tag badge-model", "Choisi par le modèle"), el("span", "sm soft", "l'outil, et ses arguments"));
+    body.append(who);
+    const seg = el("div", "seg"); const m1 = el("button", null, "À la main"), m2 = el("button", null, "Par le modèle");
+    const mode = sc.mode || "manual"; m1.setAttribute("aria-pressed", String(mode === "manual")); m2.setAttribute("aria-pressed", String(mode === "model"));
+    m1.onclick = () => { sc.mode = "manual"; renderServers(); }; m2.onclick = () => { sc.mode = "model"; renderServers(); };
+    seg.append(m1, m2); body.append(seg);
+    if (mode === "manual") {
+      body.append(el("p", "note", "Vous jouez le modèle : vous choisissez l'outil et ses arguments."));
+      const f1 = el("label", "field"); f1.append(el("span", null, "Outil")); const s1 = el("select"); s1.append(new Option("local__define_term"), new Option("local__list_terms")); f1.append(s1);
+      const f2 = el("label", "field"); f2.append(el("span", null, "term (texte, requis)")); const i2 = el("input"); i2.value = sc === SCENARIOS.errors ? "xyz" : "MCP"; f2.append(i2);
+      body.append(f1, f2, el("button", "btn btn-primary", "Appeler"));
+    } else {
+      body.append(el("p", "note", "Le modèle actif reçoit votre question et les outils, puis choisit lui-même. Lent sur CPU : 10 à 40 s."));
+      const f = el("label", "field"); f.append(el("span", null, "Question")); const ta = el("textarea"); ta.value = sc.question || "Que veut dire MCP ?"; f.append(ta);
+      const btns2 = el("div", "row-btns"); btns2.append(el("button", "btn btn-primary", "Envoyer au modèle"));
+      body.append(f, btns2, el("p", "note", "Qwen3 1.7B · Local · sait appeler des outils."));
+    }
+  } else if (cur === "resources") {
+    const who = el("div", "who"); who.append(el("span", "tag badge-app", "Choisie par l'application"), el("span", "sm soft", "pas par le modèle"));
+    const r = el("div", "resource"); r.append(el("span", "code", "glossary://terms"), el("span", "sm soft", "Termes du glossaire · text/plain"));
+    const f = el("label", "field"); f.append(el("span", null, "Question (après lecture)")); const ta = el("input"); ta.value = "Quels termes parlent du contexte ?"; f.append(ta);
+    const bb = el("div", "row-btns"); bb.append(el("button", "btn btn-secondary", "Lire"), el("button", "btn btn-primary", "Envoyer au modèle"));
+    body.append(who, r, f, bb);
+    body.append(el("p", "note", sc.noTools ? `${sc.model} · Local · n'appelle pas d'outils : la ressource part sans le bloc « outils ». « Par le modèle » est indisponible dans l'onglet Outils.` : "Qwen3 1.7B · Local · sait appeler des outils."));
+  } else {
+    const who = el("div", "who"); who.append(el("span", "tag badge-user", "Choisi par l'utilisateur"), el("span", "sm soft", "comme une commande /"));
+    if (sc.listFail === "prompts") { body.append(who, el("p", "note", "La liste des prompts a échoué : le serveur n'a pas répondu dans le délai (10 s). La connexion reste ouverte : outils et ressources sont disponibles.")); return; }
+    const f1 = el("label", "field"); f1.append(el("span", null, "Prompt")); const s1 = el("select"); s1.append(new Option("explain_term · Expliquer une notion")); f1.append(s1);
+    const f2 = el("label", "field"); f2.append(el("span", null, "term (requis)")); const i2 = el("input"); i2.value = "hook"; f2.append(i2);
+    const bb = el("div", "row-btns"); bb.append(el("button", "btn btn-secondary", "Obtenir le prompt"), el("button", "btn btn-primary", "Envoyer au modèle"));
+    body.append(who, f1, f2, bb);
+  }
+}
+
+function renderModel() {
+  const body = $("model-body"); body.replaceChildren();
+  if (!sc.open) { body.append(el("p", "sm soft", sc.closed ? "La connexion au Glossaire WaveStack est fermée : reconnectez-vous pour relister ses outils." : sc.failed ? "La connexion à data.gouv.fr a échoué : aucun outil listé." : "Connectez-vous à un serveur : sa documentation d'outils et son poids s'afficheront ici.")); return; }
+  const net = sc.open ? SERVERS[sc.open].net : false;
+  body.append(Object.assign(el("p", "sm soft", "Liste des outils en cours…"), { id: "mv-pending" }));
+  const seg = el("div", "seg"); seg.dataset.mv = "tools"; const a = el("button", null, "Documentation complète"), b = el("button", null, "Lazy loading");
+  a.setAttribute("aria-pressed", String(!sc.lazy)); b.setAttribute("aria-pressed", String(Boolean(sc.lazy))); seg.append(a, b); body.append(seg);
+  const blk = el("div", "mv-block mv-tools"); blk.dataset.mv = "tools";
+  const h = el("h3"); h.append("Bloc « outils »", el("span", "tag badge-model", "choisi par le modèle")); blk.append(h);
+  const tot = el("div", "mv-total"); tot.append(el("span", "big", net ? "1 274" : sc.lazy ? "118" : "158"), el("span", "sm soft", "tokens · estimé")); blk.append(tot);
+  const tb = el("table", "mv-table"); tb.innerHTML = sc.lazy
+    ? "<tr><th>Ligne du catalogue</th><th>Tokens</th></tr><tr><td class='code'>- local__list_terms : Liste les termes…</td><td>14</td></tr><tr><td class='code'>- local__define_term : Donne la définition…</td><td>16</td></tr><tr><td class='code'>load_tool_doc (définition)</td><td>88</td></tr>"
+    : net
+    ? "<tr><th>Outil</th><th>Tokens</th></tr><tr><td class='code'>datagouv__search_datasets</td><td>246</td></tr><tr><td class='code'>… 5 autres</td><td>1 028</td></tr>"
+    : "<tr><th>Outil</th><th>Tokens</th></tr><tr><td class='code'>local__list_terms</td><td>60</td></tr><tr><td class='code'>local__define_term</td><td>98</td></tr>";
+  blk.append(tb);
+  const more = el("button", "linkish", "Voir le JSON envoyé au modèle"); blk.append(more);
+  const pre = el("pre", "code", J([{ type: "function", function: { name: "local__list_terms", description: "Liste les termes du glossaire…", parameters: { type: "object", properties: {} } } }, "…"])); pre.hidden = true; blk.append(pre);
+  more.onclick = () => (pre.hidden = !pre.hidden);
+  body.append(blk);
+  if (!net) { const n = el("p", "note", "Ressources et prompts n'y entrent pas : ils attendent un choix de l'application ou de l'utilisateur."); n.dataset.mv = "tools"; body.append(n); }
+  const mv = sc.mv || [];
+  if (mv.includes("sent")) {
+    const s = el("div", "mv-block mv-sent"); s.dataset.mv = "sent"; const hh = el("h3"); hh.append("Envoyé au modèle", el("span", "tag", "1er appel")); s.append(hh);
+    s.append(el("p", "sm", sc.sentText || (sc.tab === "resources" ? "Question + ressource + bloc outils : 286 tokens. Réponse directe, 7,4 s." : sc.tab === "prompts" ? "Prompt + bloc outils : 231 tokens. Réponse directe, 8,1 s." : "Question + bloc outils + gabarit : 412 tokens. Réponse : un appel d'outil, 6,2 s.")));
+    if (sc.noTools) s.append(el("p", "sm", "Aucun outil envoyé : le modèle actif n'appelle pas d'outils."));
+    s.append(el("p", "sm soft", "Pas de prompt système : l'atelier n'envoie que ce qui est listé ici."));
+    body.append(s);
+  }
+  if (mv.includes("overflow")) {
+    const s = el("div", "mv-block mv-sent"); s.dataset.mv = "overflow"; const hh = el("h3"); hh.append("Non envoyé au modèle", el("span", "tag tag-error", "fenêtre dépassée")); s.append(hh);
+    s.append(el("p", "sm", "Question + bloc outils + gabarit : 2 180 tokens pour 1 536 utiles (fenêtre 2 048, réserve 512). Aucun appel n'est parti."));
+    s.append(el("p", "sm soft", "En lazy loading, le bloc « outils » tombe à environ 190 tokens."));
+    body.append(s);
+  }
+  if (mv.includes("result") || mv.includes("error")) {
+    const s = el("div", "mv-block mv-result"); s.dataset.mv = "result"; const hh = el("h3"); hh.append("Résultat réinjecté", el("span", "num", mv.includes("error") ? "38 tokens" : "41 tokens"));
+    if (mv.includes("error")) hh.append(el("span", "tag tag-error", "isError"));
+    s.append(hh, el("p", "sm soft", mv.includes("sent") ? "Ajouté au contexte du 2e appel au SLM." : "Ce que le harnais remettrait au modèle (plafond : 2 000 caractères)."));
+    s.append(el("pre", "code", mv.includes("error") ? "Terme inconnu : xyz. Termes connus : harnais, LLM nu, contexte, …" : CALL_RESULT));
+    body.append(s);
+  }
+  if (mv.includes("resource")) {
+    const s = el("div", "mv-block mv-resource"); s.dataset.mv = "resource"; const hh = el("h3"); hh.append("Contenu de la ressource", el("span", "num", "64 tokens"), el("span", "tag badge-app", "choisie par l'application")); s.append(hh);
+    s.append(el("p", "sm soft", "Entrerait dans le contexte si l'hôte l'ajoutait. Le modèle ne l'a pas demandé."), el("pre", "code", "harnais\nLLM nu\ncontexte\nfenêtre de contexte\ntoken\noutil\nMCP\n…"));
+    body.append(s);
+  }
+  if (mv.includes("prompt")) {
+    const s = el("div", "mv-block mv-prompt"); s.dataset.mv = "prompt"; const hh = el("h3"); hh.append("Messages du prompt", el("span", "num", "52 tokens"), el("span", "tag badge-user", "choisi par l'utilisateur")); s.append(hh);
+    s.append(el("p", "sm soft", "Entreraient dans la conversation comme un message de l'utilisateur."), el("pre", "code", "user : Explique la notion « hook » à un consultant qui découvre les agents, en trois phrases, à partir de cette définition : hook : …"));
+    body.append(s);
+  }
+}
+
+function renderPrims() {
+  for (const n of document.querySelectorAll("[data-prim]")) n.textContent = "";
+  for (const n of document.querySelectorAll("[data-node]")) n.classList.toggle("dim", false);
+  if (sc.open === "glo") document.querySelector('[data-prim="glo"]').textContent = sc.listFail === "prompts" ? "🔧 2 · 📄 1 · 💬 ⚠" : "🔧 2 · 📄 1 · 💬 1";
+  if (sc.open === "dg") document.querySelector('[data-prim="dg"]').textContent = "🔧 6";
+  // les clients des serveurs non connectés, et leurs serveurs, en retrait
+  for (const sv of ["glo", "dg", "ms"]) if (sv !== sc.open && sv !== sc.failed) ["c-", "s-", "d-"].forEach((p) => document.querySelector(`[data-node="${p}${sv}"]`).classList.add("dim"));
+}
+
+function load(name) {
+  sc = SCENARIOS[name];
+  stopReplay(); $("mk-sc").value = name;
+  failedWire = sc.failed ? "t-" + sc.failed : null;
+  renderHeads(); renderServers(); renderModel(); renderPrims(); renderSeq();
+  document.querySelectorAll(".robot small").forEach((n) => (n.textContent = sc.model || "Qwen3 1.7B"));
+  stepper.load(rowsFlat); // AD-28 : restitution en un bloc, un seul onShow
+  arch.schedule();
+}
+
+// volets masquables : « — » masque, la puce « + Nom » réaffiche
+const PANES = { servers: "Serveurs et commandes", model: "Ce que le modèle voit", arch: "Architecture" };
+function togglePane(id, show) {
+  $("pane-" + id).hidden = !show; $("grid").classList.toggle("no-" + id, !show);
+  const chips = $("hidden-chips"); chips.querySelector(`[data-show="${id}"]`)?.remove();
+  if (!show) { const c = el("button", "pane-chip", "+ " + PANES[id]); c.dataset.show = id; c.onclick = () => togglePane(id, true); chips.append(c); }
+  arch.schedule(); requestAnimationFrame(placeHandles);
+}
+document.querySelectorAll("[data-hide]").forEach((b) => (b.onclick = () => togglePane(b.dataset.hide, false)));
+
+// Gouttières glissables (comme l'Atelier Harnais ; module commun static/panes.js, AD-28).
+// Tailles mémorisées à part de l'atelier (wavestack.mcp.panes).
+const SIZES_KEY = "wavestack.mcp.panes";
+const SIZE_DEFAULT = { "--w-servers": 260, "--w-model": 290, "--h-arch": 206 };
+const SIZE_MIN = { "--w-servers": 200, "--w-model": 220, "--h-arch": 120 };
+const SEQ_MIN = { w: 380, h: 160 };
+let sizes = {};
+try { sizes = JSON.parse(localStorage.getItem(SIZES_KEY))?.sizes || {}; } catch { sizes = {}; }
+const grid = $("grid");
+function applySizes() { for (const k of Object.keys(SIZE_DEFAULT)) grid.style.setProperty(k, (sizes[k] ?? SIZE_DEFAULT[k]) + "px"); }
+function saveSizes() { try { localStorage.setItem(SIZES_KEY, JSON.stringify({ sizes })); } catch { /* pas de stockage : non mémorisé */ } }
+const HANDLES = [
+  { id: "servers", v: "--w-servers", orient: "vertical", sign: 1, label: "Redimensionner : Serveurs et commandes | Séquence" },
+  { id: "model", v: "--w-model", orient: "vertical", sign: -1, label: "Redimensionner : Séquence | Ce que le modèle voit" },
+  { id: "arch", v: "--h-arch", orient: "horizontal", sign: -1, label: "Redimensionner : Séquence | Architecture" },
+];
+function sizeMax(h) {
+  const g = grid.getBoundingClientRect();
+  if (h.v === "--h-arch") return g.height - SEQ_MIN.h;
+  const other = h.v === "--w-servers" ? "--w-model" : "--w-servers";
+  return g.width - SEQ_MIN.w - (sizes[other] ?? SIZE_DEFAULT[other]);
+}
+function setSize(h, value) {
+  sizes[h.v] = Math.round(Math.max(SIZE_MIN[h.v], Math.min(value, sizeMax(h))));
+  applySizes(); placeHandles(); arch.schedule();
+}
+function placeHandles() {
+  const g = grid.getBoundingClientRect();
+  const r = (id) => $(id).getBoundingClientRect();
+  const seq = document.querySelector(".pane-seq").getBoundingClientRect();
+  const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
+  for (const h of HANDLES) {
+    const n = h.el;
+    if (h.id === "servers") { n.hidden = $("pane-servers").hidden; if (!n.hidden) Object.assign(n.style, { left: r("pane-servers").right - g.left + gap / 2 + "px", top: "0px", height: g.height + "px" }); }
+    if (h.id === "model") { n.hidden = $("pane-model").hidden; if (!n.hidden) Object.assign(n.style, { left: seq.right - g.left + gap / 2 + "px", top: seq.top - g.top + "px", height: seq.height + "px" }); }
+    if (h.id === "arch") { n.hidden = $("pane-arch").hidden; if (!n.hidden) { const right = $("pane-model").hidden ? seq.right : r("pane-model").right; Object.assign(n.style, { top: seq.bottom - g.top + gap / 2 + "px", left: seq.left - g.left + "px", width: right - seq.left + "px" }); } }
+    n.setAttribute("aria-valuenow", String(sizes[h.v] ?? SIZE_DEFAULT[h.v]));
+  }
+}
+for (const h of HANDLES) {
+  const n = el("div", "pane-resize-handle");
+  n.setAttribute("role", "separator"); n.setAttribute("aria-orientation", h.orient); n.setAttribute("aria-label", h.label); n.tabIndex = 0;
+  n.setAttribute("aria-valuemin", String(SIZE_MIN[h.v]));
+  h.el = n; grid.append(n);
+  let drag = null;
+  const end = () => { if (!drag) return; if (drag.moved) saveSizes(); drag = null; n.classList.remove("is-dragging"); document.body.classList.remove("is-resizing-x", "is-resizing-y"); };
+  n.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return; e.preventDefault(); n.focus({ preventScroll: true }); n.setPointerCapture(e.pointerId);
+    drag = { x: e.clientX, y: e.clientY, start: sizes[h.v] ?? SIZE_DEFAULT[h.v], moved: false };
+    n.classList.add("is-dragging"); document.body.classList.add(h.orient === "vertical" ? "is-resizing-x" : "is-resizing-y");
+  });
+  n.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const delta = h.orient === "vertical" ? e.clientX - drag.x : e.clientY - drag.y;
+    if (!delta && !drag.moved) return; drag.moved = true; setSize(h, drag.start + h.sign * delta);
+  });
+  n.addEventListener("pointerup", end); n.addEventListener("pointercancel", end); n.addEventListener("lostpointercapture", end);
+  n.addEventListener("dblclick", () => { delete sizes[h.v]; applySizes(); placeHandles(); saveSizes(); arch.schedule(); });
+  n.addEventListener("keydown", (e) => {
+    const keys = h.orient === "vertical" ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"];
+    const dir = keys.indexOf(e.key); if (dir < 0) return; e.preventDefault();
+    setSize(h, (sizes[h.v] ?? SIZE_DEFAULT[h.v]) + h.sign * (dir ? 16 : -16)); saveSizes();
+  });
+}
+applySizes();
+new ResizeObserver(placeHandles).observe(grid);
+
+for (const n of document.querySelectorAll("#arch [data-explain]")) explain(n, n.dataset.explain);
+stepper = createStepper($("stepper-host"), { onShow, describe: (row) => `${COLS[row.a].name} vers ${COLS[row.b].name} : ${row.method || row.chip || row.text || ""}` });
+arch = wireLayer($("arch"), drawArch);
+$("mk-sc").onchange = (e) => load(e.target.value);
+function stopReplay() { if (replayTimer) clearInterval(replayTimer); replayTimer = null; }
+// Rejoue le scénario étape par étape, comme les événements arrivent en direct.
+$("mk-replay").onclick = () => {
+  stopReplay(); stepper.clear(); let i = 0;
+  replayTimer = setInterval(() => { if (i >= rowsFlat.length) return stopReplay(); stepper.push(rowsFlat[i++]); }, 800);
+};
+$("mk-fixed").onclick = (e) => { const on = $("frame").classList.toggle("is-fixed"); e.target.setAttribute("aria-pressed", String(on)); arch.schedule(); };
+$("mk-dark").onclick = (e) => { const on = document.documentElement.dataset.theme !== "dark"; document.documentElement.dataset.theme = on ? "dark" : "light"; e.target.setAttribute("aria-pressed", String(on)); };
+// #scénario[,sombre][,etape=N][,ouvrir=N] : pour les captures (ex. #callModel,sombre)
+const opts = location.hash.slice(1).split(",").filter(Boolean);
+if (opts.includes("sombre")) $("mk-dark").click();
+load(SCENARIOS[opts[0]] ? opts[0] : "hsLocal");
+const before = $("arch-before");
+const beforeLayer = wireLayer(before, ({ box }) => {
+  const q = (k) => before.querySelector(`[data-b="${k}"]`);
+  const parts = [];
+  const ends = { glo: "circle", dg: "diamond", ms: "triangle" };
+  for (const sv of ["glo", "dg", "ms"]) {
+    const a = box(q("i-" + sv)), b = box(q("b-" + sv));
+    const x = b.l - 10, y = b.cy;
+    parts.push(svgEl("path", { d: `M${a.r},${a.cy} L${(a.r + x) / 2},${a.cy} L${(a.r + x) / 2},${y} L${x},${y}`, class: "diagram-wire" }));
+    if (ends[sv] === "circle") parts.push(svgEl("circle", { cx: x, cy: y, r: 6, class: "arch-end" }));
+    if (ends[sv] === "diamond") parts.push(svgEl("path", { d: `M${x},${y - 7} L${x + 7},${y} L${x},${y + 7} L${x - 7},${y} Z`, class: "arch-end" }));
+    if (ends[sv] === "triangle") parts.push(svgEl("path", { d: `M${x - 7},${y + 6} L${x + 7},${y + 6} L${x},${y - 7} Z`, class: "arch-end" }));
+  }
+  return parts;
+});
+const showBefore = (on) => {
+  before.hidden = !on; $("arch").hidden = on;
+  $("v-before").setAttribute("aria-pressed", String(on)); $("v-after").setAttribute("aria-pressed", String(!on));
+  (on ? beforeLayer : arch).schedule();
+};
+$("v-before").onclick = () => showBefore(true);
+$("v-after").onclick = () => showBefore(false);
+if (opts.includes("avant")) showBefore(true);
+for (const o of opts) {
+  if (o.startsWith("etape=")) stepper.show(Number(o.slice(6)) - 1);
+  if (o.startsWith("ouvrir=")) rowsFlat[Number(o.slice(7)) - 1]?.li.querySelector(".seq-arrow").click();
+}
+</script>
+</body>
+</html>

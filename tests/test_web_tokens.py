@@ -531,7 +531,7 @@ def test_static_files_write_no_color_outside_the_tokens():
     not followed by a name character."""
     sources = _static_sources()
     names = {path.name for path in sources}
-    assert {"app.css", "app.js", "theme.js", "diagnostic.html", "models.html"} <= names
+    assert {"app.css", "app.js", "theme.js", "diagnostic.html", "pages.css"} <= names
     assert {"llm.html", "llm.css", "llm.js"} <= names  # story 29: the « LLM nu » screen
     assert {"rag.html", "rag.css", "rag.js"} <= names  # story 30: the RAG workshop
     assert {"mcp.html", "mcp.css", "mcp.js"} <= names  # story 6 (2026-09-30): MCP workshop
@@ -584,7 +584,6 @@ def test_every_page_loads_the_tokens_and_the_theme_script_first():
     assert {p.name for p in pages} >= {
         "index.html",
         "diagnostic.html",
-        "models.html",
         "llm.html",
         "rag.html",
         "mcp.html",
@@ -601,16 +600,72 @@ def test_every_page_loads_the_tokens_and_the_theme_script_first():
         assert re.search(r"<select\b[^>]*\bdata-theme-picker\b", text), page.name
 
 
-# ---------- story 34: the projection mode's ramp (app.css), 9/7 of tokens.css ----------
+# ---------- story 34: the projection mode's ramp, 9/7 of tokens.css ----------
+# Lot 4 (AD-28): in pages.css, shared by every page that offers the mode (panes.js).
 
-APP_CSS = STATIC_DIR / "app.css"
+PAGES_CSS = STATIC_DIR / "pages.css"
 
 
 def _projection_block() -> dict[str, str]:
-    text = APP_CSS.read_text(encoding="utf-8")
+    text = PAGES_CSS.read_text(encoding="utf-8")
     match = re.search(r":root\.projection\s*\{(.*?)\}", text, re.S)
-    assert match, "app.css must redefine the ramp under :root.projection"
+    assert match, "pages.css must redefine the ramp under :root.projection"
     return {n: v.strip() for n, v in re.findall(r"(--[\w-]+)\s*:\s*([^;]+);", match.group(1))}
+
+
+def _shared_pane_classes() -> re.Pattern[str]:
+    """The `pane-*` classes pages.css styles (AD-28): no other sheet sets a rule on them."""
+    text = re.sub(r"/\*.*?\*/", "", PAGES_CSS.read_text(encoding="utf-8"), flags=re.S)
+    names = sorted(set(re.findall(r"\.(pane-[\w-]+)", text)), key=len, reverse=True)
+    return re.compile(r"\.(" + "|".join(names) + r")(?![\w-])")
+
+
+def _subject(selector: str) -> str:
+    """The compound a selector styles: its last one, the functional pseudo-classes left out
+    (`.top-bar:not(:has(.pane-chip)) > select` styles a `select`, not a chip)."""
+    bare = selector
+    while (simpler := re.sub(r":(?:not|has|is|where)\([^()]*\)", "", bare)) != bare:
+        bare = simpler
+    return re.split(r"\s*[>+~]\s*|\s+", bare.strip())[-1]
+
+
+def test_only_pages_css_writes_the_shared_rules():
+    """Lot 4 (AD-28): `diagram-*` rules, the `pane-*` rules of the panes (pages.css's own
+    classes) and the projection ramp live in pages.css only: a page adds its own classes beside
+    them, never redefines nor overrides one in its own sheet. A style inlined in an HTML page
+    counts too."""
+    panes = _shared_pane_classes()
+    offenders = []
+    for path in sorted(STATIC_DIR.rglob("*")):
+        if path.name == "pages.css" or path.suffix not in (".css", ".html"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".html":
+            text = "\n".join(re.findall(r"<style\b[^>]*>(.*?)</style>", text, re.S))
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+        for selector in re.findall(r"([^{}]+)\{", text):
+            shared = re.search(r"\.diagram-[\w-]", selector)
+            pane = any(panes.search(_subject(one)) for one in selector.split(",") if one.strip())
+            if shared or pane or re.search(r":root\.projection\s*$", selector.strip()):
+                offenders.append(f"{path.name}: {' '.join(selector.split())[:80]}")
+    assert not offenders, offenders
+
+
+def test_the_shared_rules_guard_catches_a_diagram_rule(tmp_path):
+    """The guard's pattern itself: a `.diagram-` selector, alone or compound, is one."""
+    for css in (".diagram-block { color: red; }", ".mcp .diagram-block.is-active, .x { }"):
+        selectors = re.findall(r"([^{}]+)\{", css)
+        assert any(re.search(r"\.diagram-[\w-]", s) for s in selectors), css
+    assert not re.search(r"\.diagram-[\w-]", ".mcp-diagram-x { }")
+    panes = _shared_pane_classes()
+    for selector in (
+        ".pane-chips > .pane-chip",
+        ".mcp .pane-title",
+        ".x .pane-text-action:disabled",
+    ):
+        assert panes.search(_subject(selector)), selector
+    for selector in (".pane-title-row", ".top-bar:not(:has(.pane-chip.is-linked)) > select"):
+        assert not panes.search(_subject(selector)), selector
 
 
 def test_projection_sizes_are_the_ramp_times_nine_sevenths():
@@ -646,7 +701,7 @@ def test_projection_sizes_match_the_design_table():
     assert font_sizes <= seen, f"missing from the DESIGN.md table: {sorted(font_sizes - seen)}"
 
 
-# ---------- story 3 of 2026-09-30: /diagnostic and /models sized by the tokens ----------
+# ---------- story 3 of 2026-09-30: /diagnostic sized by the tokens (lot 3: /models merged) --
 
 _FONT_DECLARATION = re.compile(r"\b(font(?:-size)?)\s*:\s*([^;}]+)")
 
@@ -656,7 +711,7 @@ def test_diagnostic_and_models_pages_size_their_text_by_the_tokens():
     size from the type ramp; their shared styles (table, badges, buttons, fields) in
     pages.css, scoped to the annex pages."""
     offenders = []
-    for name in ("diagnostic.html", "models.html"):
+    for name in ("diagnostic.html",):
         page = (STATIC_DIR / name).read_text(encoding="utf-8")
         assert '<body class="annex-page">' in page, name
         css = _COMMENTS[".css"].sub("", "\n".join(re.findall(r"<style>(.*?)</style>", page, re.S)))
@@ -667,11 +722,16 @@ def test_diagnostic_and_models_pages_size_their_text_by_the_tokens():
     assert not offenders, offenders
     shared = (STATIC_DIR / "pages.css").read_text(encoding="utf-8")
     for rule in (
-        ".annex-page .model-table {",
         ".annex-page .hosting-tag-network {",
         ".annex-page .button-primary {",
         ".annex-page .button-secondary {",
         ".annex-page .field-input {",
-        ".annex-page .sort-button {",
+        # Lot 3 of 2026-10-04: the cards of « Diagnostic et modèles ».
+        ".annex-page .model-grid {",
+        ".annex-page .model-card {",
+        ".annex-page .model-logo {",
+        ".annex-page .state-pill {",
+        ".annex-page .checks-panel {",
+        ".annex-page .models-filters {",
     ):
         assert rule in shared, rule

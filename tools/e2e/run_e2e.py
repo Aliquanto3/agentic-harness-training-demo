@@ -347,23 +347,114 @@ class Run:
         return self.stack.fake_requests()
 
 
+# ---------- lot 3 of 2026-10-04: the cards of « Diagnostic et modèles » ----------
+
+
+def _goto_diagnostic(r: Run) -> None:
+    """`/diagnostic`, once its cloud cards are drawn (the local ones may still be searched)."""
+    r.page.goto(f"{r.stack.app_url}/diagnostic")
+    expect(r.page.locator("#cloud-models .model-card").first).to_be_visible(timeout=20_000)
+
+
+def _card(r: Run, value: str):
+    """The card holding the source `value` (`cloud:{id}`, `server:{ref}`)."""
+    return r.page.locator(f'.model-card[data-values~="{value}"]')
+
+
+def _cloud_card(r: Run, model: str):
+    """A cloud card by its model's name."""
+    return r.page.locator("#cloud-models .model-card").filter(
+        has=r.page.locator(".model-card-name", has_text=re.compile(rf"^{re.escape(model)}$"))
+    )
+
+
+def _unfold(card):
+    """Unfolds `card` (a click on its head) unless it is; returns it."""
+    head = card.locator(".model-card-head")
+    expect(head).to_be_visible(timeout=20_000)
+    if head.get_attribute("aria-expanded") != "true":
+        head.click()
+    expect(card.locator(".model-card-detail")).to_be_visible(timeout=5000)
+    return card
+
+
+def _open_checks(r: Run) -> None:
+    """The checks panel open by the user's choice (a closed then open summary): it stays so."""
+    panel = r.page.locator("#checks-panel")
+    summary = panel.locator("summary")
+    if panel.get_attribute("open") is not None:
+        summary.click()
+    summary.click()
+    expect(panel).to_have_attribute("open", "", timeout=5000)
+
+
+_CARD_JS = """(card) => {
+  const head = card.querySelector('.model-card-head');
+  const pill = head.querySelector('.state-pill');
+  const facts = {};
+  for (const dt of card.querySelectorAll('.card-facts dt')) {
+    const dd = dt.nextElementSibling;
+    const fact = [...dd.querySelectorAll('.card-fact')].map((x) => x.textContent).join(' | ');
+    const why = [...dd.querySelectorAll('.card-why')].map((x) => x.textContent).join(' | ');
+    facts[dt.textContent] = [fact || dd.textContent, why];
+  }
+  const group = card.closest('.publisher-group');
+  return {
+    name: card.querySelector('.model-card-name').textContent,
+    origin: card.querySelector('.model-card-origin').textContent,
+    size: head.querySelector('.model-card-size').textContent,
+    state: pill.dataset.state,
+    state_text: pill.textContent,
+    publisher: group?.querySelector('.publisher-group-name')?.textContent ?? '',
+    expanded: head.getAttribute('aria-expanded'),
+    label: head.getAttribute('aria-label'),
+    facts,
+    text: card.innerText,
+  };
+}"""
+
+
+def _card_info(r: Run, value: str) -> dict[str, Any]:
+    """A card unfolded, by one of its sources: its head, its publisher, its state, and each
+    fact of its detail (« Fenêtre », « Prix »…) as [value, reason], spaces made plain."""
+    card = _unfold(_card(r, value))
+    info = card.evaluate(_CARD_JS)
+    plain = lambda t: t.replace("\u202f", " ").replace("\xa0", " ")  # noqa: E731
+    info["facts"] = {k: [plain(v[0]), plain(v[1])] for k, v in info["facts"].items()}
+    for key in ("name", "origin", "size", "text", "state_text"):
+        info[key] = plain(info[key])
+    return info
+
+
+def _api_cards(r: Run) -> list[dict[str, Any]]:
+    """Each card of `/api/diagnostic`, with its group and its sources (`members`)."""
+    cards = []
+    for group in r.api("GET", "/api/diagnostic").json()["models"]["groups"]:
+        by_value = {m["value"]: m for m in group["models"]}
+        for card in group["cards"]:
+            members = [by_value[v] for v in card["source_values"]]
+            cards.append({**card, "group": group, "members": members})
+    return cards
+
+
 # ---------- scenarios ----------
 
 
 def s_diagnostic(r: Run) -> None:
     page = r.page
-    page.goto(f"{r.stack.app_url}/diagnostic")
-    row = page.locator("#cloud-models li", has_text="wavestack-fake")
-    expect(row).to_be_visible(timeout=20_000)
+    _goto_diagnostic(r)
+    # Lot 3 of 2026-10-04: a card, unfolded by a click on its head.
+    row = _unfold(_cloud_card(r, "wavestack-fake"))
     r.check(
         "Clé fournie par la variable WAVESTACK_FAKE_API_KEY" in row.inner_text(),
-        "la ligne du faux modèle indique la clé lue dans key_env",
+        "la carte du faux modèle, dépliée, indique la clé lue dans key_env",
     )
     r.check("e2e-fake-key" not in page.content(), "la valeur de la clé n'apparaît pas dans la page")
     row.get_by_role("button", name="Tester").click()
-    expect(row.locator(".cloud-result.ok")).to_contain_text("Test réussi", timeout=20_000)
-    r.check(True, "« Tester » réussit (appel d'outil get_datetime reçu)", row.inner_text()[-160:])
-    row.get_by_role("button", name="Choisir").click()
+    expect(row.locator(".card-message.is-ok")).to_contain_text("Test réussi", timeout=20_000)
+    expect(row.locator(".model-card-head .state-pill")).to_have_text("Test réussi")
+    r.check(True, "« Tester » réussit (appel d'outil get_datetime reçu), pastille « Test réussi »")
+    row.get_by_role("button", name="Choisir ce modèle…").click()
     dialog = page.locator("#cloud-warning")
     expect(dialog).to_be_visible()
     r.check(
@@ -372,8 +463,13 @@ def s_diagnostic(r: Run) -> None:
     )
     r.shot("01-diagnostic-avertissement-cloud")
     page.locator("#cloud-warning-confirm").click()
-    expect(row).to_contain_text("actif", timeout=20_000)
-    r.check(True, "« Utiliser ce modèle » : la ligne passe à « actif »")
+    expect(row.locator(".model-card-head .state-pill")).to_have_text("Actif", timeout=20_000)
+    r.check(
+        "is-active" in (row.get_attribute("class") or "")
+        and row.locator(".model-card-head").get_attribute("aria-expanded") == "true",
+        "« Utiliser ce modèle » : la carte passe à « Actif », bordure épaisse, toujours dépliée",
+    )
+    _diagnostic_cards(r)
     # Story 2 (2026-09-30): « Ouvrir WaveStack » gave way to « Atelier » of the shared bar.
     ok, took = r.poll(lambda: bool(r.api("GET", "/api/diagnostic").json().get("ready")), 20)
     r.check(ok, "diagnostic prêt", f"{took:.1f} s")
@@ -381,7 +477,85 @@ def s_diagnostic(r: Run) -> None:
     page.wait_for_url(f"{r.stack.app_url}/", timeout=10_000)
     expect(page.locator("#model-indicator")).to_contain_text("wavestack-fake", timeout=20_000)
     r.check(True, "l'indicateur de modèle de la barre de l'atelier montre le faux modèle")
+    # Lot 1 of 2026-10-04 (D2): « Harnais » current, the full title in <title> and in a
+    # visually hidden h1 (no height taken).
+    h1 = page.locator("h1")
+    r.check(
+        page.title() == "WaveStack — Atelier Harnais"
+        and h1.count() == 1
+        and h1.text_content() == "Atelier Harnais"
+        and (h1.bounding_box() or {"height": 0})["height"] <= 1
+        and page.locator('.site-nav a[aria-current="page"]').inner_text() == "Harnais",
+        "atelier : titre « WaveStack — Atelier Harnais », h1 masqué, onglet « Harnais » courant",
+        page.title(),
+    )
     r.wait_idle()
+
+
+def _diagnostic_cards(r: Run) -> None:
+    """Lot 3 of 2026-10-04: the checks folded once green, opened at a warning; the columns at
+    1280 and 1440 px (and 2 when zoomed, 1 under 640 px); one card unfolded at a time, Échap
+    folding it back with the focus on its head; logos served by the page."""
+    page = r.page
+    _goto_diagnostic(r)
+    r.poll(lambda: "en cours" not in page.inner_text("#checks-summary"), 15)
+    summary = page.inner_text("#checks-summary")
+    states = page.eval_on_selector_all("#checks > li", "ls => ls.map(l => l.className)")
+    ok, _ = r.poll(lambda: page.locator("#checks-panel").get_attribute("open") is not None, 5)
+    r.check(
+        summary.startswith("· ")
+        and ("avertissement" in summary or "échec" in summary or "contrôles OK" in summary)
+        and (ok == any(s != "ok" for s in states)),
+        "contrôles : résumé dans le panneau, ouvert d'office à un avertissement",
+        f"{summary} · {states}",
+    )
+    columns = []
+    for width, zoom in ((1280, 1), (1440, 1), (1280, 1.6), (600, 1)):
+        page.set_viewport_size({"width": round(width / zoom), "height": 900})
+        time.sleep(0.3)
+        columns.append(
+            page.eval_on_selector(
+                "#cloud-models .model-grid",
+                "g => getComputedStyle(g).gridTemplateColumns.split(' ').length",
+            )
+        )
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    r.check(
+        columns[0] == 3 and columns[1] in (4, 5) and columns[2] == 2 and columns[3] == 1,
+        "grille : 3 colonnes à 1280 px, 4 ou 5 à 1440 px, 2 en projection agrandie, 1 sous 640 px",
+        str(columns),
+    )
+    heads = page.locator("#cloud-models .model-card-head")
+    first, second = heads.nth(0), heads.nth(1)
+    first.click()
+    second.click()
+    expanded = page.locator('.model-card-head[aria-expanded="true"]')
+    r.check(
+        expanded.count() == 1 and second.get_attribute("aria-expanded") == "true",
+        "une seule carte dépliée à la fois",
+    )
+    region = page.locator(".model-card-detail")
+    r.check(
+        region.get_attribute("role") == "region"
+        and second.get_attribute("aria-controls") == region.get_attribute("id"),
+        "carte dépliée : une région nommée, désignée par l'en-tête (aria-controls)",
+    )
+    page.keyboard.press("Escape")
+    focused = page.evaluate("() => document.activeElement?.className")
+    r.check(
+        expanded.count() == 0 and focused == "model-card-head",
+        "Échap replie la carte, le focus revient sur son en-tête",
+        str(focused),
+    )
+    logos = page.eval_on_selector_all(
+        ".model-logo img", "is => is.map(i => [i.getAttribute('src'), i.naturalWidth])"
+    )
+    r.check(
+        bool(logos) and all(src.startswith("/static/logos/") and w > 0 for src, w in logos),
+        "logos servis par la page (static/logos), chargés",
+        str(logos[:4]),
+    )
+    r.shot("01b-diagnostic-cartes", full_page=True)
 
 
 def s_bare_llm(r: Run) -> None:
@@ -561,12 +735,12 @@ def _parent_off_cards(r: Run, lazy_on: httpx.Response) -> None:
 def s_short_memory(r: Run) -> None:
     r.launch("short_memory")
     prompts = [
-        "Je m'appelle Camille et je suis consultante en cybersécurité.",
+        "Je m'appelle Pascal et je suis consultant en cybersécurité.",
         "Comment je m'appelle, et quel est mon métier ?",
     ]
     r.send(prompts[0])
     r.send(prompts[1])
-    r.check("Camille" in r.last_answer(), "mémoire active : le prénom revient", r.last_answer())
+    r.check("Pascal" in r.last_answer(), "mémoire active : le prénom revient", r.last_answer())
     r.check(len(r.fake_calls()[-1]["messages"]) >= 3, "l'historique est réinjecté")
     r.set_brick("Mémoire courte", False)
     r.send(prompts[1])
@@ -738,6 +912,73 @@ def _braces_stay_text(r: Run, where: str) -> None:
     )
 
 
+def _cache_not_reused(r: Run) -> None:
+    """Lot 1 of 2026-10-04, in local text mode (the ids of the fake llama-server, AD-4): the
+    system message changed between two turns (« Prompt système » switched), the next turn's
+    first call does not extend the engine's cache. `prefix_not_reused` carries `again_tokens`;
+    Orchestration's « Cache non réutilisé » says « <cause> · N tokens relus », folded at the
+    turn's end, its message on a click."""
+    page = r.page
+    was = bool(r.bricks()["system_prompt"]["wanted"])
+    r.set_brick("Prompt système", not was)
+    try:
+        seq = r.ev.mark()
+        ended = r.send("Et maintenant ?")
+        events = [e["payload"] for e in r.ev.since(seq, "prefix_not_reused")]
+        payload = events[0] if events else {}
+        again = payload.get("again_tokens")
+        r.check(
+            ended["payload"]["status"] == "completed"
+            and len(events) == 1
+            and payload.get("cause") == "system"
+            and isinstance(again, int)
+            and again > 0,
+            "cache : « Prompt système » basculé entre deux tours, un `prefix_not_reused` "
+            "(cause « system ») avec `again_tokens`",
+            str(events)[:300],
+        )
+        if not payload:
+            return
+        catalogue = _ui_catalogue("fr")
+        number = page.evaluate("n => new Intl.NumberFormat('fr-FR').format(n)", again)
+        figure = " · ".join(
+            [
+                catalogue["main.orch.prefix_causes.system"],
+                catalogue[f"main.orch.rows.again_tokens.{'one' if again == 1 else 'other'}"].format(
+                    count=number
+                ),
+            ]
+        )
+        row = (
+            _turn_group(r, ended["turn_id"])
+            .locator(".turn-step")
+            .filter(has=page.locator(".turn-step-name", has_text="Cache non réutilisé"))
+        )
+        expect(row).to_have_count(1, timeout=5000)
+        shown = row.locator(".turn-step-figure").inner_text()
+        folded = row.locator(".turn-step-line").get_attribute("aria-expanded") == "false"
+        r.check(
+            shown == figure and folded and row.locator(".turn-step-body").count() == 0,
+            "Orchestration : « Cache non réutilisé », figure « <cause> · N tokens relus », "
+            "repliée à la fin du tour",
+            f"{shown!r} · attendu {figure!r} · repliée {folded}",
+        )
+        row.locator(".turn-step-line").click()
+        body = row.locator(".turn-step-body")
+        expect(body).to_be_visible(timeout=5000)
+        said = " ".join(body.inner_text().split())
+        r.check(
+            " ".join(payload["message_text"].split()) in said,
+            "un clic déplie la ligne et montre son message",
+            said[:200],
+        )
+        follow = page.locator("#follow-live")
+        if follow.is_visible():
+            follow.click()  # the frozen view back to live, for what follows
+    finally:
+        r.set_brick("Prompt système", was)
+
+
 def _read_and_produced(r: Run, seq: int) -> None:
     """Story 32, « Quelle heure est-il ? » with the fake cloud: two numbered calls, the second
     folding what the first read and showing the tool result as new; what each produced, on
@@ -838,6 +1079,21 @@ def _read_and_produced(r: Run, seq: int) -> None:
     summary.click()
     unfolded = children.is_visible()
     r.check(folded and unfolded, "un clic sur le summary replie l'arbre, un second le déplie")
+    # Lot 1 of 2026-10-04: the root open (its keys shown), every node under it folded; a
+    # click unfolds one, and it stays so after the next rendering (another view, then back).
+    inner = tree.locator("details.json-node details.json-node").first
+    sub_folded = (
+        inner.evaluate("n => !n.open")
+        and tree.locator("details.json-node details.json-node[open]").count() == 0
+    )
+    r.check(sub_folded, "« Corps JSON » : racine ouverte, sous-nœuds repliés à l'ouverture")
+    inner.locator(":scope > summary").click()
+    opened = inner.evaluate("n => n.open")
+    _ctx_mode(r, "Lecture groupée")
+    _ctx_mode(r, "Corps JSON")
+    tree = page.locator("#ctx .json-tree").first
+    kept = tree.locator("details.json-node details.json-node").first.evaluate("n => n.open")
+    r.check(opened and kept, "un sous-nœud déplié par un clic le reste au rendu suivant")
     _ctx_focus_shot(r, "42-contexte-corps-json")
     _ctx_mode(r, "Lecture groupée")
 
@@ -880,6 +1136,422 @@ def s_native_tools(r: Run) -> None:
     r.check("Demande un outil" in orch, "Orchestration montre la demande d'outil")
     r.shot("05-outils-natifs-orchestration")
     _slow_tool_turn(r)
+    _diagram_module(r)
+
+
+# ---------- lot 2 (2026-10-04): the shared diagram's module, on a test host ----------
+
+# A host fixed over the page: two blocks (one explained, one not), a wire layer, a stepper; a
+# second layer on a host of no width (a hidden pane). `window.__e2eDiagram` keeps them.
+_DIAGRAM_SETUP_JS = """async () => {
+  const d = await import('/static/diagram.js');
+  document.getElementById('e2e-diagram')?.remove();
+  const host = document.createElement('div');
+  host.id = 'e2e-diagram';
+  host.style.cssText = 'position: fixed; left: 40px; top: 120px; width: 420px; height: 160px;'
+    + ' z-index: 50; background: var(--color-surface-raised);';
+  const said = d.block('e2e-said', 'A');
+  const mute = d.block('e2e-mute', 'B');
+  host.append(said, mute);
+  document.body.appendChild(host);
+  const draws = { shown: 0, hidden: 0 };
+  const layer = d.wireLayer(host, ({ box }) => {
+    draws.shown += 1;
+    const a = box(said), b = box(mute);
+    return [
+      d.wire(`M${a.r},${a.cy} H${b.l}`, 'diagram-wire'),
+      d.marker(b.cx, b.b + 14, '✋', 'is-stop'),
+    ];
+  });
+  const hidden = document.createElement('div');
+  hidden.style.cssText = 'position: relative; width: 0; height: 40px; overflow: hidden;';
+  host.appendChild(hidden);
+  const hiddenLayer = d.wireLayer(hidden, () => {
+    draws.hidden += 1;
+    return [d.wire('M0,0 H10', 'diagram-wire')];
+  });
+  const shown = [];
+  const lives = [];
+  const steps = document.createElement('div');
+  steps.style.cssText = 'position: absolute; left: 8px; bottom: 8px;';
+  host.appendChild(steps);
+  // Lot 4 (AD-28): `describe` names a step, `onLive` hears the live mode change.
+  const stepper = d.createStepper(steps, {
+    onShow: (frame) => shown.push(frame),
+    describe: (frame, index) => `nom ${frame} (${index})`,
+    onLive: (live) => lives.push(live),
+  });
+  const popover = d.explain(said, 'Le bloc A expliqué.');
+  const none = d.explain(mute, '');
+  d.light(host, said);
+  layer.schedule();
+  hiddenLayer.schedule();
+  // Lot 4 (AD-28): a block hidden by `reveal()` (progressive discovery), a path's core.
+  const late = d.block('e2e-late', 'C');
+  host.appendChild(late);
+  d.reveal(late, false);
+  const core = d.svgEl('svg');
+  core.appendChild(d.wire('M0,0 H10', 'diagram-path-core'));
+  host.appendChild(core);
+  window.__e2eDiagram = { d, host, said, mute, layer, hidden, draws, stepper, shown, lives,
+    popover, none, late, core };
+}"""
+
+# The stepper's state: index, live mode, the position's text, its bounds (lot 4: in
+# `aria-disabled`, never `disabled`), the frames shown, the status node, the live dot.
+_DIAGRAM_STEPPER_JS = """() => {
+  const { stepper, shown, lives } = window.__e2eDiagram;
+  const bar = stepper.element;
+  const pos = bar.querySelector('.diagram-step-position');
+  const prev = bar.querySelector('.diagram-step-prev');
+  const next = bar.querySelector('.diagram-step-next');
+  const live = bar.querySelector('.diagram-step-live');
+  const status = bar.querySelector('.diagram-step-status');
+  const dot = live.querySelector('.diagram-step-live-dot');
+  return {
+    index: stepper.index, live: stepper.live, shown: [...shown], lives: [...lives],
+    position: pos.hidden ? null : pos.textContent,
+    positionLive: pos.getAttribute('aria-live'),
+    prev: prev.getAttribute('aria-disabled') === 'true',
+    next: next.getAttribute('aria-disabled') === 'true',
+    nativeDisabled: prev.disabled || next.disabled,
+    pressed: live.getAttribute('aria-pressed'),
+    dot: dot && !dot.hidden ? dot.textContent : null,
+    dotHidden: dot?.getAttribute('aria-hidden'),
+    liveBackground: getComputedStyle(live).backgroundColor,
+    status: status?.textContent ?? null,
+    statusRole: status?.getAttribute('role'),
+    statusPolite: status?.getAttribute('aria-live'),
+    statusWidth: status ? status.getBoundingClientRect().width : null,
+  };
+}"""
+
+
+def _diagram_module(r: Run) -> None:
+    """Lot 2 (2026-10-04): `static/diagram.js` in the page, on a test host: the halo, the wires
+    (none on a host of no width, drawn once it is resized), the stepper's matrix (empty, live,
+    back, forward, bounds, resume, clear) and a block's explanation (anchored under it, closed
+    by Escape or a click elsewhere; none without a text). The test host is removed after,
+    whatever happened: it lies fixed over the shared page."""
+    r.page.evaluate(_DIAGRAM_SETUP_JS)
+    try:
+        _diagram_module_checks(r)
+    finally:
+        r.page.evaluate(
+            "() => { document.getElementById('e2e-diagram')?.remove();"
+            " delete window.__e2eDiagram; }"
+        )
+
+
+def _diagram_module_checks(r: Run) -> None:
+    page = r.page
+    ui = _ui_catalogue("fr")
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["prev"]
+        and state["next"]
+        and not state["nativeDisabled"]
+        and state["position"] is None
+        and state["live"],
+        "lot 2 : pas à pas vide : ◀ ▶ indisponibles (lot 4 : aria-disabled, jamais disabled), "
+        "position masquée, en direct",
+        str(state),
+    )
+    page.wait_for_function("() => window.__e2eDiagram.draws.shown > 0", timeout=5000)
+    drawn = page.evaluate(
+        """() => { const { host, hidden, draws, said, mute } = window.__e2eDiagram;
+        return { paths: host.querySelectorAll(':scope > .diagram-wires .diagram-wire').length,
+          stop: host.querySelector(':scope > .diagram-wires .diagram-marker.is-stop')?.textContent,
+          hidden: hidden.querySelector('.diagram-wires').childElementCount,
+          hiddenDraws: draws.hidden,
+          lit: said.classList.contains('is-active') && !mute.classList.contains('is-active'),
+          halo: getComputedStyle(said).boxShadow, mute: getComputedStyle(mute).boxShadow }; }"""
+    )
+    r.check(
+        drawn["paths"] == 1
+        and drawn["stop"] == "✋"
+        and drawn["hidden"] == 0
+        and drawn["hiddenDraws"] == 0
+        and drawn["lit"]
+        and drawn["halo"] != "none"
+        and drawn["mute"] == "none",
+        "lot 2 : fils et marqueur tracés, halo sur le bloc allumé seul ; conteneur de largeur "
+        "nulle : aucun fil, sans erreur",
+        str(drawn),
+    )
+    # The hidden host shown (no `schedule()`): its ResizeObserver redraws it.
+    page.evaluate("() => { window.__e2eDiagram.hidden.style.width = '40px'; }")
+    try:
+        page.wait_for_function(
+            "() => { const { hidden, draws } = window.__e2eDiagram; return draws.hidden > 0"
+            " && hidden.querySelector('.diagram-wires').childElementCount > 0; }",
+            timeout=5000,
+        )
+        redrawn = True
+    except PlaywrightTimeout:
+        redrawn = False
+    r.check(
+        redrawn,
+        "lot 2 : le conteneur redimensionné est redessiné sans appel à schedule()",
+        str(page.evaluate("() => window.__e2eDiagram.draws")),
+    )
+
+    # Live: each push shows the last step.
+    page.evaluate(
+        "() => ['un', 'deux', 'trois'].forEach((f) => window.__e2eDiagram.stepper.push(f))"
+    )
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+
+    def position(n: int, total: int) -> str:
+        return ui["common.diagram.position"].replace("{n}", str(n)).replace("{total}", str(total))
+
+    r.check(
+        state["index"] == 2
+        and state["live"]
+        and state["position"] == position(3, 3)
+        and state["shown"][-1] == "trois"
+        and not state["prev"]
+        and state["next"]
+        and state["pressed"] == "true",
+        "lot 2 : en direct, chaque push affiche la dernière étape (« 3 / 3 »), ▶ désactivé",
+        str(state),
+    )
+    r.check(
+        state["status"] == ""
+        and state["statusRole"] == "status"
+        and state["statusPolite"] == "polite"
+        and (state["statusWidth"] or 0) <= 1
+        and state["positionLive"] is None
+        and state["dot"] == "● "
+        and state["dotHidden"] == "true"
+        and state["liveBackground"] != "rgba(0, 0, 0, 0)",
+        "lot 4 : en direct, le nœud status du pas à pas (poli, masqué) se tait, la position "
+        "n'est plus une région vivante ; « Suivre le direct » pressé : fond plein et « ● » "
+        "en aria-hidden",
+        str(state),
+    )
+    # A bound's button keeps the focus and does nothing (forced: Playwright waits for an
+    # `aria-disabled` button to be enabled).
+    bound = page.locator("#e2e-diagram .diagram-step-next")
+    bound.click(force=True)
+    after = page.evaluate(_DIAGRAM_STEPPER_JS)
+    focused = page.evaluate(
+        "() => document.activeElement?.classList.contains('diagram-step-next') ?? false"
+    )
+    r.check(
+        after["index"] == 2 and after["live"] and after["shown"] == state["shown"] and focused,
+        "lot 4 : un clic sur ▶ à la borne est sans effet et le bouton garde le focus",
+        f"{after} · focus {focused}",
+    )
+    bar = page.locator("#e2e-diagram .diagram-stepper")
+    bar.locator(".diagram-step-prev").click()
+    page.evaluate("() => window.__e2eDiagram.stepper.push('quatre')")
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["index"] == 1
+        and not state["live"]
+        and state["shown"][-1] == "deux"
+        and state["position"] == position(2, 4)
+        and state["pressed"] == "false"
+        and not state["next"],
+        "lot 2 : ◀ quitte le direct (étape n-1), un push suivant ne déplace pas la vue",
+        str(state),
+    )
+    # Said when ◀ was pressed (3 steps then), not again at each push out of live mode.
+    announce = (
+        ui["common.diagram.announce"]
+        .replace("{n}", "2")
+        .replace("{total}", "3")
+        .replace("{name}", "nom deux (1)")
+    )
+    r.check(
+        state["status"] == announce
+        and state["lives"] == [False]
+        and state["dot"] is None
+        and state["pressed"] == "false",
+        "lot 4 : hors du direct, le nœud status dit « Étape 2 sur 3 : {nom} » (describe) au "
+        "clic, onLive reçoit false, « ● » retiré",
+        f"{state['status']!r} · attendu {announce!r} · {state['lives']}",
+    )
+    bar.locator(".diagram-step-prev").click()
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["index"] == 0 and state["prev"] and state["shown"][-1] == "un",
+        "lot 2 : à l'étape 1, ◀ désactivé",
+        str(state),
+    )
+    bar.locator(".diagram-step-next").click()
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["index"] == 1
+        and not state["live"]
+        and state["shown"][-1] == "deux"
+        and state["position"] == position(2, 4),
+        "lot 2 : ▶ hors du direct avance d'une étape et reste hors du direct",
+        str(state),
+    )
+    bar.locator(".diagram-step-live").click()
+    page.evaluate("() => window.__e2eDiagram.stepper.push('cinq')")
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["index"] == 4
+        and state["live"]
+        and state["shown"][-2:] == ["quatre", "cinq"]
+        and state["next"]
+        and state["pressed"] == "true",
+        "lot 2 : « Suivre le direct » revient à la dernière étape et la suit",
+        str(state),
+    )
+    r.check(
+        state["lives"] == [False, True] and state["status"] == "",
+        "lot 4 : « Suivre le direct » : onLive reçoit true, le nœud status se tait",
+        str(state),
+    )
+
+    # Lot 4: load() puts a whole series back, live, a single onShow on its last frame;
+    # refresh() draws the current step again without touching the live mode.
+    page.evaluate(
+        "() => { const { stepper, shown } = window.__e2eDiagram; stepper.show(0);"
+        " shown.length = 0; stepper.load(['a', 'b', 'c']); }"
+    )
+    loaded = page.evaluate(_DIAGRAM_STEPPER_JS)
+    page.evaluate(
+        "() => { const { stepper, shown } = window.__e2eDiagram; stepper.show(1);"
+        " shown.length = 0; stepper.refresh(); }"
+    )
+    refreshed = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        loaded["shown"] == ["c"]
+        and loaded["index"] == 2
+        and loaded["live"]
+        and loaded["position"] == position(3, 3)
+        and refreshed["shown"] == ["b"]
+        and not refreshed["live"]
+        and refreshed["index"] == 1,
+        "lot 4 : load() restitue en un bloc, en direct, un seul onShow sur la dernière trame ; "
+        "refresh() redessine l'étape courante sans toucher au direct",
+        f"{loaded} · {refreshed}",
+    )
+    page.evaluate("() => window.__e2eDiagram.stepper.clear()")
+    state = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        state["index"] == -1
+        and state["live"]
+        and state["position"] is None
+        and state["prev"]
+        and state["next"]
+        and state["shown"][-1] is None,
+        "lot 2 : clear() : aucune étape, en direct, onShow reçoit null",
+        str(state),
+    )
+
+    # A block's explanation: anchored under it, closed by Escape, then by a click elsewhere.
+    def opened() -> bool:
+        return page.evaluate("() => window.__e2eDiagram.popover.matches(':popover-open')")
+
+    said = page.locator("#e2e-diagram .e2e-said")
+    said.click()
+    ok, _ = r.poll(opened, 3)
+    where = page.evaluate(
+        """() => { const { said, popover } = window.__e2eDiagram;
+        const b = said.getBoundingClientRect(), p = popover.getBoundingClientRect();
+        return { below: p.top >= b.bottom - 1, near: p.top - b.bottom < 40,
+          text: popover.textContent }; }"""
+    )
+    r.check(
+        ok and where["below"] and where["near"] and where["text"] == "Le bloc A expliqué.",
+        "lot 2 : clic sur un bloc : son explication dans un popover ancré sous lui",
+        str(where),
+    )
+    page.keyboard.press("Escape")
+    closed_by_escape, _ = r.poll(lambda: not opened(), 3)
+    said.click()
+    reopened, _ = r.poll(opened, 3)
+    box = page.locator("#e2e-diagram").bounding_box() or {}
+    page.mouse.click(box.get("x", 0) + box.get("width", 0) - 10, box.get("y", 0) + 10)
+    closed_by_click, _ = r.poll(lambda: not opened(), 3)
+    page.locator("#e2e-diagram .e2e-mute").click()
+    time.sleep(0.2)
+    mute = page.evaluate(
+        "() => ({ none: window.__e2eDiagram.none,"
+        " open: document.querySelectorAll(':popover-open').length,"
+        " popovers: document.querySelectorAll('#e2e-diagram .diagram-explain').length })"
+    )
+    r.check(
+        closed_by_escape
+        and reopened
+        and closed_by_click
+        and mute["none"] is None
+        and mute["open"] == 0
+        and mute["popovers"] == 1,
+        "lot 2 : Échap ou un clic ailleurs ferme l'explication ; un bloc sans texte n'en a pas",
+        f"Échap {closed_by_escape} · rouvert {reopened} · clic ailleurs {closed_by_click} · {mute}",
+    )
+    _diagram_module_lot4(r)
+
+
+def _diagram_module_lot4(r: Run) -> None:
+    """Lot 4 (AD-28): the explanation kept open by a click in it, closed when the focus leaves
+    for anything else; the ink ring under the halo; the path's core at 3 px; `reveal()`: a
+    hidden element keeps its place out of the accessibility tree, then fades in."""
+    page = r.page
+
+    def opened() -> bool:
+        return page.evaluate("() => window.__e2eDiagram.popover.matches(':popover-open')")
+
+    said = page.locator("#e2e-diagram .e2e-said")
+    said.click()
+    shown, _ = r.poll(opened, 3)
+    page.locator("#e2e-diagram .diagram-explain").click()
+    time.sleep(0.2)
+    kept = opened()
+    focusable = page.evaluate("() => window.__e2eDiagram.popover.tabIndex === -1")
+    page.locator("#e2e-diagram .e2e-mute").focus()
+    closed, _ = r.poll(lambda: not opened(), 3)
+    r.check(
+        shown and kept and focusable and closed,
+        "lot 4 : la bulle d'explication est focalisable, un clic dedans la garde ouverte, le "
+        "focus parti ailleurs la ferme",
+        f"ouverte {shown} · gardée {kept} · tabindex -1 {focusable} · fermée {closed}",
+    )
+    looks = page.evaluate(
+        """() => { const { said, core } = window.__e2eDiagram;
+        return { halo: getComputedStyle(said).boxShadow,
+          core: getComputedStyle(core.querySelector('.diagram-path-core')).strokeWidth }; }"""
+    )
+    r.check(
+        looks["halo"].count("rgb") >= 2 and looks["core"] == "3px",
+        "lot 4 : le bloc allumé porte l'anneau d'encre sous le halo ; le cœur du fil parcouru "
+        "fait 3 px (--spacing-stroke-path)",
+        str(looks),
+    )
+    hidden = page.evaluate(
+        """() => { const { late } = window.__e2eDiagram; const box = late.getBoundingClientRect();
+        return { cls: late.classList.contains('diagram-unrevealed'),
+          visibility: getComputedStyle(late).visibility, width: box.width }; }"""
+    )
+    page.evaluate("() => window.__e2eDiagram.d.reveal(window.__e2eDiagram.late, true)")
+    revealed = page.evaluate(
+        """() => { const { late } = window.__e2eDiagram;
+        return { cls: late.classList.contains('diagram-unrevealed'),
+          visibility: getComputedStyle(late).visibility,
+          fading: late.classList.contains('diagram-revealing')
+            || getComputedStyle(late).animationName !== 'none' }; }"""
+    )
+    page.evaluate("() => window.__e2eDiagram.d.reveal([window.__e2eDiagram.late], false)")
+    again = page.evaluate("() => getComputedStyle(window.__e2eDiagram.late).visibility")
+    r.check(
+        hidden["cls"]
+        and hidden["visibility"] == "hidden"
+        and hidden["width"] > 0
+        and not revealed["cls"]
+        and revealed["visibility"] == "visible"
+        and revealed["fading"]
+        and again == "hidden",
+        "lot 4 : reveal() : un élément pas encore apparu garde sa place, invisible (hors de "
+        "l'arbre d'accessibilité), puis apparaît en fondu ; masqué de nouveau en revenant",
+        f"{hidden} · {revealed} · {again}",
+    )
 
 
 # ---------- restes différés, story 6: the schema at work, the rail and the event log ----------
@@ -899,7 +1571,7 @@ _SCHEMA_RECORDER_JS = """() => {
       const id = node.dataset.component;
       if (id && !rec.active.includes(id)) rec.active.push(id);
       if (id === 'tools.read_file') {
-        const paths = document.querySelectorAll('#schema .arch-wires .arch-path').length;
+        const paths = document.querySelectorAll('#schema .diagram-wires .diagram-path').length;
         rec.paths = Math.max(rec.paths, paths);
       }
     }
@@ -2339,7 +3011,7 @@ _SITE_NAV_PROBLEMS_JS = """() => {
   const items = [...nav.children].filter(e => e.checkVisibility());
   const links = items.filter(e => e.tagName === 'A').map(e => e.getAttribute('href'));
   const order = links.join(' ');
-  if (order !== '/ / /llm /rag /mcp /diagnostic /models') problems.push(`liens ${order}`);
+  if (order !== '/ / /llm /rag /mcp /diagnostic') problems.push(`liens ${order}`);
   if (!items.some(e => e.id === 'display-menu')) problems.push('« Affichage ▾ » absent');
   for (const e of [...items, document.getElementById('display-menu-toggle')]) {
     if (!e) continue;
@@ -2784,16 +3456,19 @@ def _themes(r: Run, errors: list[str]) -> None:
     )
 
     # The same theme on the other pages (same origin), each with its picker.
-    for path, shot in (
-        ("/diagnostic", "49-theme-sombre-diagnostic"),
-        ("/models", "50-theme-sombre-modeles"),
-    ):
-        page.goto(f"{r.stack.app_url}{path}")
-        if path == "/models":
-            expect(page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
-        else:
-            expect(page.locator("#cloud-models li").first).to_be_visible(timeout=20_000)
+    # Lot 3 of 2026-10-04: /models redirects to « Diagnostic et modèles »; a card unfolded.
+    for path, shot in (("/diagnostic", "49-theme-sombre-diagnostic"),):
+        _goto_diagnostic(r)
+        _unfold(page.locator("#cloud-models .model-card").first)
         time.sleep(0.5)
+        tiles = page.eval_on_selector_all(
+            ".model-logo:not(.is-initial)", "ts => ts.map(t => getComputedStyle(t).backgroundColor)"
+        )
+        r.check(
+            bool(tiles) and set(tiles) == {"rgb(255, 255, 255)"},
+            "sombre : les logos restent sur leur tuile blanche (logo-tile)",
+            str(sorted(set(tiles))),
+        )
         sweep = _contrast_sweep(r, ["body"])
         r.check(
             _theme_attr(r) == "dark"
@@ -3658,20 +4333,51 @@ def _schema_bins(r: Run, what: str, wanted: set[tuple[str, str]]) -> None:
     )
 
 
+# Lot 2 (2026-10-04): whether the schema drew the moving path past the boundary
+# (`.diagram-path-core.is-flow`) at any moment, recorded by a mutation observer.
+_FLOW_RECORDER_JS = """() => {
+  const state = { flow: false };
+  const note = () => {
+    if (document.querySelector('#schema .diagram-wires .diagram-path-core.is-flow')) {
+      state.flow = true;
+    }
+  };
+  state.observer = new MutationObserver(note);
+  state.observer.observe(document.getElementById('schema'), { subtree: true, childList: true });
+  window.__e2eFlow = state;
+}"""
+
+
 def _schema_h5_pending(r: Run) -> None:
     """E032: H5 waits for the user: H5 lit, the path stopped before the boundary on ✋."""
     page = r.page
     hook = page.locator('#schema .arch-hook[data-component="hooks.h5"]')
-    stop = page.locator("#schema .arch-wires .arch-marker.is-stop")
+    stop = page.locator("#schema .diagram-wires .diagram-marker.is-stop")
     ok, _ = r.poll(
         lambda: stop.count() == 1 and "is-active" in (hook.get_attribute("class") or ""), 5
     )
-    paths = page.locator("#schema .arch-wires .arch-path").count()
+    paths = page.locator("#schema .diagram-wires .diagram-path").count()
     marker = stop.text_content() if stop.count() == 1 else ""
     r.check(
         ok and marker == "✋" and paths >= 1,
         "E032 : H5 attend : halo sur H5, chemin arrêté avant la frontière sur ✋",
         f"marqueur {marker!r} · chemins {paths} · H5 {hook.get_attribute('class')}",
+    )
+    # Lot 2 (2026-10-04): the shared halo and wires as the page computes them.
+    looks = page.evaluate(
+        """() => { const shadow = (n) => n ? getComputedStyle(n).boxShadow : null;
+        const dashed = document.querySelector('#schema .diagram-wires .diagram-wire.is-dashed');
+        const h5 = document.querySelector('#schema .arch-hook[data-component="hooks.h5"]');
+        return { lit: shadow(h5),
+          unlit: shadow(document.querySelector('#schema .arch-hook:not(.is-active)')),
+          dash: dashed ? getComputedStyle(dashed).strokeDasharray : null }; }"""
+    )
+    r.check(
+        looks["lit"] not in (None, "none")
+        and looks["unlit"] == "none"
+        and looks["dash"] not in (None, "none"),
+        "lot 2 : halo calculé sur H5 allumé, aucun sur un hook éteint ; fil réseau en tirets",
+        str(looks),
     )
 
 
@@ -3680,7 +4386,7 @@ def _schema_blocked_while_running(r: Run) -> None:
     strip on ✖."""
     page = r.page
     hook = page.locator('#schema .arch-hook[data-component="hooks.h1"]')
-    block = page.locator("#schema .arch-wires .arch-marker.is-block")
+    block = page.locator("#schema .diagram-wires .diagram-marker.is-block")
     ok, _ = r.poll(
         lambda: block.count() == 1 and "is-active" in (hook.get_attribute("class") or ""), 20
     )
@@ -3869,13 +4575,21 @@ def s_h5(r: Run) -> None:
     )
     asked = r.send("Quels sont les jours fériés en France cette année ?", expect_approval=True)
     seq = r.ev.mark()
+    r.page.evaluate(_FLOW_RECORDER_JS)
     r.page.locator("#chat .approval-card").last.get_by_role(
         "button", name="Autoriser", exact=True
     ).click()
     r.ev.wait("approval_resolved", seq, timeout=10)
     r.ev.wait("turn_ended", seq)
+    flow = r.page.evaluate(
+        "() => { window.__e2eFlow.observer.disconnect(); return window.__e2eFlow.flow; }"
+    )
     _focus_back_on_the_card(r)
     r.check(bool(r.ev.since(seq, "outbound_request")), "« Autoriser » : la requête part")
+    r.check(
+        flow,
+        "lot 2 : l'outil réseau autorisé : chemin animé (is-flow) au-delà de la frontière",
+    )
     results = [e["payload"] for e in r.ev.since(seq, "tool_ended")]
     r.check(
         bool(results) and results[-1]["status"] == "error",
@@ -5272,6 +5986,37 @@ def _forced_section(r: Run) -> None:
         and r.page.locator("#bricks .force-section article.brick-card").count() == 0,
         "D3 : la section ne porte que l'interrupteur des actions forcées",
     )
+    # Lot 1 of 2026-10-04: the « ? » by the title, the bricks' help popover, anchored to the
+    # button, still open after a rebuild of the panel (a brick switched by the API, so that no
+    # click light-dismisses it).
+    help_button = section.locator("#force-help")
+    help_button.click()
+    bubble = r.page.locator("#explain-force-section")
+    expect(bubble).to_be_visible(timeout=5000)
+    button_box, bubble_box = help_button.bounding_box(), bubble.bounding_box()
+    anchored = bool(button_box and bubble_box) and (
+        abs(bubble_box["y"] - (button_box["y"] + button_box["height"])) < 24
+        and bubble_box["x"] - 24 < button_box["x"] < bubble_box["x"] + bubble_box["width"]
+    )
+    r.check(
+        help_button.get_attribute("aria-label") == "Ce que font les actions forcées"
+        and bubble.inner_text().strip()
+        == "Le harnais déclenche lui-même l'outil, sans laisser le modèle décider."
+        and anchored,
+        "lot 1 : le « ? » d'« Actions forcées » ouvre son aide, ancrée sous le bouton",
+        f"{button_box} · {bubble_box}",
+    )
+    was = bool(r.bricks()["system_prompt"]["wanted"])
+    seq = r.ev.mark()
+    r.api("POST", "/api/intentions/brick", {"brick": "system_prompt", "wanted": not was})
+    r.ev.wait("bricks_changed", seq, timeout=10)
+    time.sleep(0.5)
+    r.check(
+        r.page.locator("#explain-force-section").evaluate("e => e.matches(':popover-open')"),
+        "lot 1 : l'aide d'« Actions forcées » reste ouverte après un nouveau rendu",
+    )
+    r.page.keyboard.press("Escape")
+    r.set_brick("Prompt système", was)
     r.show_forced(True)
     opened, _ = r.poll(lambda: details.get_attribute("open") is not None, 5)
     r.check(opened, "D3 : « Afficher les actions forcées » déplie la liste des outils")
@@ -5500,7 +6245,7 @@ def s_global_memory(r: Run) -> None:
     r.ev.wait("conversation_cleared", seq, timeout=10)
     r.send("Rappelle-moi mon prénom, puis donne-moi des conseils pour préparer une formation.")
     r.check(
-        "Camille" in r.last_answer(),
+        "Pascal" in r.last_answer(),
         "après « Vider la conversation », le prénom revient de la mémoire globale",
         r.last_answer()[:120],
     )
@@ -5521,7 +6266,7 @@ def s_global_memory(r: Run) -> None:
     card.get_by_role("button", name="Écrire en mémoire : Mémoire globale").click()
     form = card.locator(".force-form")
     expect(form).to_be_visible(timeout=5000)
-    form.locator("input").fill("Camille anime la formation à Nantes.")
+    form.locator("input").fill("Pascal anime la formation à Nantes.")
     seq = r.ev.mark()
     form.get_by_role("button", name="Armer").click()
     r.ev.wait("armed_actions_changed", seq, lambda p: bool(p["actions"]), timeout=10)
@@ -5576,12 +6321,12 @@ def s_global_memory(r: Run) -> None:
     r.shot("20-memoire-tiroir")
 
     seq = r.ev.mark()
-    entries.first.locator("textarea").fill("L'utilisateur s'appelle Camille Martin.")
+    entries.first.locator("textarea").fill("L'utilisateur s'appelle Pascal Martin.")
     entries.first.get_by_role("button", name="Enregistrer l'entrée 1").click()
     r.ev.wait("memory_changed", seq, timeout=10)
     saved = _memory_file(r)
     r.check(
-        saved[0]["text"] == "L'utilisateur s'appelle Camille Martin."
+        saved[0]["text"] == "L'utilisateur s'appelle Pascal Martin."
         and saved[0]["source"] == "user",
         "modifier : memory.json réécrit, source user",
     )
@@ -6289,10 +7034,13 @@ def _compression_step(r: Run):
 
 
 def s_mcp_lab(r: Run) -> None:
-    """Story 6 of 2026-09-30: the MCP workshop (`/mcp`). The link of the shared bar and of the
-    MCP card, the three servers, a connection to the local glossary (its JSON-RPC messages with
-    direction and duration, its two tools and their weight), a valid call then an unknown term
-    (`is_error`), the brick left as it was. Captures 61 and 62. Back to `/`."""
+    """Story 6 of 2026-09-30, then lot 4 of 2026-10-04 (« Atelier MCP en séquence », AD-27,
+    AD-28): the four panes, the glossary's handshake drawn arrow by arrow (five captured
+    methods, the tabs 🔧 2 · 📄 1 · 💬 1), the stepper ◀ ▶ and the progressive discovery
+    (the columns keep their place), a call by hand and `isError`, a resource then sent to the
+    model, a prompt then sent to the model, « Par le modèle » on the fake cloud model (the
+    host between the model and the server, the main gauge untouched), the reload rebuilding
+    the same arrows, the panes hidden and focused. Captures 61 to 63. Back to `/`."""
     page = r.page
     page.set_viewport_size({"width": 1600, "height": 1000})
     errors: list[str] = []
@@ -6307,142 +7055,342 @@ def s_mcp_lab(r: Run) -> None:
         r.goto_app()
 
 
+def _goto_mcp(r: Run) -> None:
+    r.page.goto(f"{r.stack.app_url}/mcp")
+    expect(r.page.locator("body[data-mcp-ready]")).to_be_attached(timeout=15_000)
+
+
+def _mcp_rows(r: Run, kind: str | None = None) -> list[dict[str, str | None]]:
+    """The arrows of the Séquence, in order: their kind, method, ends, and whether shown."""
+    selector = "#mcp-seq li.mcp-row" + (f'[data-kind="{kind}"]' if kind else "")
+    return r.page.locator(selector).evaluate_all(
+        """items => items.map(i => ({key: i.dataset.key, kind: i.dataset.kind,
+            method: i.dataset.method ?? null, from: i.dataset.from, to: i.dataset.to,
+            error: i.classList.contains('is-error'),
+            shown: !i.classList.contains('mcp-ahead')
+              && !i.classList.contains('diagram-unrevealed')}))"""
+    )
+
+
+def _mcp_click(r: Run, selector: str) -> None:
+    """A command, once the page made it available (`aria-disabled`, never `disabled`)."""
+    button = r.page.locator(selector)
+    expect(button).to_have_attribute("aria-disabled", "false", timeout=20_000)
+    button.click()
+
+
+def _mcp_connect(r: Run, server: str, timeout: float = 60) -> dict[str, Any]:
+    page = r.page
+    page.locator(f'#mcp-servers input[value="{server}"]').check()
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-connect")
+    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=timeout)["payload"]
+    expect(page.locator("#mcp-busy")).to_be_hidden(timeout=15_000)
+    return ended
+
+
+def _mcp_heads_x(r: Run) -> list[float]:
+    return r.page.locator("#mcp-heads .mcp-head").evaluate_all(
+        "heads => heads.map(h => Math.round(h.getBoundingClientRect().left))"
+    )
+
+
+def _mcp_revealed_heads(r: Run) -> list[str]:
+    return r.page.locator("#mcp-heads .mcp-head:not(.diagram-unrevealed)").evaluate_all(
+        "heads => heads.map(h => h.dataset.col)"
+    )
+
+
 def _mcp_lab(r: Run, errors: list[str]) -> None:
     page = r.page
     r.goto_app()
     r.wait_idle()
+    if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+        _pick_model(r, A_LABEL)
     brick_before = r.bricks()["mcp"]
-    # (1) The links: the shared bar's, whole, and the MCP card's.
+    # (1) The links, the page and its four panes.
     link = page.locator('.site-nav a[href="/mcp"]')
     r.check(
-        link.is_visible() and link.inner_text() == "Atelier MCP",
-        "barre commune : lien « Atelier MCP » visible, entier, vers /mcp",
+        link.is_visible() and link.inner_text() == "MCP",
+        "barre commune : lien « MCP » visible, entier, vers /mcp",
         link.inner_text() if link.count() else "absent",
     )
     ok, detail = _bar_fits(r)
-    r.check(ok, "barre commune entière avec six pages, sur une ligne, à 1600 × 1000", detail)
+    r.check(ok, "barre commune entière avec cinq onglets, sur une ligne, à 1600 × 1000", detail)
     r.check(
         page.locator('a.brick-workshop-link[href="/mcp"]').count() == 1,
         "la carte de la brique MCP renvoie à l'atelier MCP",
     )
-
-    # (2) The page: the shared bar, the three servers.
     link.click()
     page.wait_for_url("**/mcp")
     expect(page.locator("body[data-mcp-ready]")).to_be_attached(timeout=10_000)
+    panes = page.locator("#layout .pane").evaluate_all("ps => ps.map(p => p.dataset.pane)")
     r.check(
-        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "Atelier MCP"
+        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "MCP"
+        and page.title() == "WaveStack — Atelier MCP"
+        and page.locator("h1").inner_text() == "Atelier MCP"
+        and panes == ["servers", "seq", "model", "arch"]
         and not _site_nav_problems(r),
-        "/mcp : barre commune entière, « Atelier MCP » courant",
-        str(_site_nav_problems(r)),
+        "/mcp : barre commune, « MCP » courant, titre « Atelier MCP », quatre volets",
+        f"{panes} {_site_nav_problems(r)}",
     )
-    servers = page.locator("#mcp-servers .mcp-server")
-    ids = [servers.nth(i).get_attribute("data-server") for i in range(servers.count())]
-    r.check(ids == ["local", "datagouv", "mslearn"], "/mcp : les trois serveurs", str(ids))
-    command = servers.nth(0).inner_text()
+    servers = page.locator("#mcp-servers .mcp-server").evaluate_all(
+        "items => items.map(i => i.dataset.server)"
+    )
+    r.check(servers == ["local", "datagouv", "mslearn"], "/mcp : les trois serveurs", str(servers))
     r.check(
-        "stdio" in command and "wavestack.mcp.local_server" in command,
-        "le glossaire : transport stdio et commande de lancement",
-        command[:200],
+        page.locator("#mcp-seq-empty").is_visible()
+        and not _mcp_revealed_heads(r)
+        and page.locator("#mcp-arch-empty").is_visible(),
+        "avant connexion : la Séquence invite à se connecter, aucune colonne, Architecture vide",
     )
 
-    # (3) The handshake with the local glossary: its messages, its tools, their weight.
+    # (2) The glossary's handshake: five methods captured, the lists, the tabs.
+    ended = _mcp_connect(r, "local")
+    r.check(ended["status"] == "ok", "poignée de main avec le glossaire local", str(ended)[:200])
+    expect(page.locator('#mcp-seq li.mcp-row[data-key$=":lists"]')).to_be_attached(timeout=10_000)
+    rpc = _mcp_rows(r, "rpc")
+    methods = [row["method"] for row in rpc]
+    r.check(
+        methods
+        == [
+            "initialize",
+            "initialize",
+            "notifications/initialized",
+            "tools/list",
+            "tools/list",
+            "resources/list",
+            "resources/list",
+            "prompts/list",
+            "prompts/list",
+        ]
+        and [(row["from"], row["to"]) for row in rpc[:2]]
+        == [("client", "server"), ("server", "client")],
+        "poignée de main : initialize, notifications/initialized, tools/list, resources/list, "
+        "prompts/list, capturés, client ↔ serveur",
+        str(methods),
+    )
+    kinds = [row["kind"] for row in _mcp_rows(r)]
+    r.check(
+        kinds[0] == "host" and kinds[-1] == "host",
+        "flèches déduites : Hôte → Client « lance le serveur », Client → Hôte "
+        "« 🔧 2 · 📄 1 · 💬 1 »",
+        str(kinds),
+    )
+    tabs = [page.locator(f"#mcp-tab-{k}").inner_text() for k in ("tools", "resources", "prompts")]
+    r.check(
+        tabs[0].endswith("Outils 2")
+        and tabs[1].endswith("Ressources 1")
+        and tabs[2].endswith("Prompts 1"),
+        "onglets des primitives : 🔧 Outils 2 · 📄 Ressources 1 · 💬 Prompts 1",
+        str(tabs),
+    )
+    full = page.locator("#mcp-model-body .mcp-total-number").inner_text()
+    page.locator('#mcp-doc-mode [data-value="lazy"]').click()
+    lazy = page.locator("#mcp-model-body .mcp-total-number").inner_text()
+    page.locator('#mcp-doc-mode [data-value="full"]').click()
+    r.check(
+        full != lazy and full != "—",
+        "ce que le modèle voit : le bloc « outils », son total en documentation complète puis "
+        "en lazy loading",
+        f"{full} / {lazy}",
+    )
+
+    # (3) The stepper: back to the first step, the columns appear one by one, in place.
+    steps = page.locator("#mcp-stepper .diagram-step-position").inner_text()
+    last_x = _mcp_heads_x(r)
+    prev = page.locator("#mcp-stepper .diagram-step-prev")
+    for _ in range(40):
+        if prev.get_attribute("aria-disabled") == "true":
+            break
+        prev.click()
+    first_heads = _mcp_revealed_heads(r)
+    first_rows = [row["key"] for row in _mcp_rows(r) if row["shown"]]
+    first_x = _mcp_heads_x(r)
+    page.locator("#mcp-stepper .diagram-step-next").click()
+    page.locator("#mcp-stepper .diagram-step-next").click()
+    third_heads = _mcp_revealed_heads(r)
+    status = page.locator("#mcp-stepper .diagram-step-status").inner_text()
+    r.check(
+        first_heads == ["host", "client"]
+        and len(first_rows) == 1
+        and "server" in third_heads
+        and first_x == last_x
+        and status.startswith("Étape 3 sur"),
+        "stepper : à l'étape 1, l'hôte et le client seuls ; le serveur apparaît ensuite ; les "
+        "colonnes ne bougent pas ; l'étape annoncée",
+        f"{steps} · {first_heads} → {third_heads} · {status}",
+    )
+    page.locator("#mcp-stepper .diagram-step-live").click()
+    r.shot("61-atelier-mcp-poignee-de-main")
+
+    # (4) A call by hand, then an unknown term: `isError`, a result, a red arrow.
+    page.locator("#mcp-tab-tools").click()
+    page.locator("#mcp-call-tool").select_option("define_term")
+    page.locator('#mcp-call-fields input[name="term"]').fill("harnais")
     seq = r.ev.mark()
-    page.locator('button[data-connect="local"]').click()
-    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
-    r.check(ended["status"] == "ok", "connexion de l'atelier au glossaire local", str(ended)[:300])
-    expect(page.locator('#mcp-connect-summary[data-status="ok"]')).to_be_visible(timeout=10_000)
-    messages = page.locator("#mcp-messages .mcp-message")
-    shape = [
-        (
-            messages.nth(i).get_attribute("data-direction"),
-            messages.nth(i).get_attribute("data-method"),
-        )
-        for i in range(messages.count())
-    ]
-    r.check(
-        shape[:2] == [("to_server", "initialize"), ("from_server", "initialize")]
-        and ("to_server", "tools/list") in shape
-        and ("from_server", "tools/list") in shape,
-        "poignée de main : initialize, sa réponse, tools/list et sa réponse, avec leur sens",
-        str(shape),
+    _mcp_click(r, "#mcp-call-run")
+    call = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
+    expect(page.locator("#mcp-model-body .mcp-context-block.is-result")).to_be_visible(
+        timeout=10_000
     )
-    timings = [messages.nth(i).locator(".mcp-timing").inner_text() for i in range(messages.count())]
+    ghosts = len([row for row in _mcp_rows(r, "ghost")])
     r.check(
-        timings and all(re.search(r"\d+ ms", t) for t in timings),
-        "chaque message porte sa durée en ms",
-        str(timings),
+        call["status"] == "ok" and not call["is_error"] and ghosts == 5,
+        "appel à la main : tools/call capturé, résultat réinjecté, cinq fantômes (pas de modèle)",
+        f"{call['status']} · {ghosts}",
     )
-    tools = page.locator("#mcp-tools .mcp-tool")
-    names = [tools.nth(i).get_attribute("data-tool") for i in range(tools.count())]
-    total = page.locator("#mcp-weight-rows .mcp-total")
-    full = int(total.get_attribute("data-full") or 0)
-    lazy = int(total.get_attribute("data-lazy") or 0)
+    page.locator('#mcp-call-fields input[name="term"]').fill("xyz")
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-call-run")
+    unknown = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
+    expect(page.locator("#mcp-seq li.mcp-row.is-error")).not_to_have_count(0, timeout=10_000)
     r.check(
-        names == ["local__list_terms", "local__define_term"] and full > 0 and lazy > 0,
-        "deux outils, leur poids en documentation complète et en lazy loading",
-        f"{names} · {full} · {lazy}",
+        unknown["status"] == "ok"
+        and unknown["is_error"] is True
+        and unknown["connection"] == "open",
+        "terme inconnu : isError, un résultat (statut ok), flèche rouge, connexion ouverte",
+        str(unknown)[:200],
+    )
+    r.shot("62-atelier-mcp-appel")
+
+    # (5) A resource read, then sent to the model with a question.
+    page.locator("#mcp-tab-resources").click()
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-read")
+    read = r.ev.wait("mcp_lab_read_ended", seq, timeout=30)["payload"]
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-read-send")
+    asked = r.ev.wait("mcp_lab_ask_ended", seq, timeout=60)["payload"]
+    sent = [e["payload"] for e in r.ev.since(seq, "mcp_lab_model_started")]
+    r.check(
+        read["status"] == "ok"
+        and asked["status"] == "ok"
+        and sent
+        and [s["part"] for s in sent[0]["sends"]][:2] == ["resource", "question"],
+        "ressource lue puis envoyée au modèle avec la question",
+        f"{read['status']} · {asked.get('outcome')} · {sent[0]['sends'] if sent else None}"[:300],
+    )
+
+    # (6) A prompt got, then sent to the model as the user's message.
+    page.locator("#mcp-tab-prompts").click()
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-prompt-get")
+    got = r.ev.wait("mcp_lab_prompt_ended", seq, timeout=30)["payload"]
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-prompt-send")
+    asked = r.ev.wait("mcp_lab_ask_ended", seq, timeout=60)["payload"]
+    sent = [e["payload"] for e in r.ev.since(seq, "mcp_lab_model_started")]
+    r.check(
+        got["status"] == "ok"
+        and "hook" in got["messages"][0]["text"]
+        and asked["status"] == "ok"
+        and sent
+        and sent[0]["sends"][0]["part"] == "prompt",
+        "prompt explain_term(term = « hook ») obtenu, puis envoyé au modèle",
+        f"{got['status']} · {asked.get('outcome')}",
+    )
+
+    # (7) « Par le modèle » on the fake cloud model: the host between the model and the server.
+    gauge_before = {
+        k: r.state().get(k) for k in ("context_rendered", "context_reconciled", "context_preview")
+    }
+    page.locator("#mcp-tab-tools").click()
+    page.locator('#mcp-call-mode [data-value="model"]').click()
+    page.locator("#mcp-ask-question").fill("Que veut dire MCP ?")
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-ask-send")
+    asked = r.ev.wait("mcp_lab_ask_ended", seq, timeout=90)["payload"]
+    expect(page.locator("#mcp-busy")).to_be_hidden(timeout=15_000)
+    events = r.ev.since(seq)
+    tool = [e for e in events if e["kind"] == "mcp_lab_call_ended" and e["step_id"].endswith(".t1")]
+    model_rows = [row for row in _mcp_rows(r) if "model" in (row["from"], row["to"])]
+    gauge_after = {
+        k: r.state().get(k) for k in ("context_rendered", "context_reconciled", "context_preview")
+    }
+    r.check(
+        asked["status"] == "ok"
+        and asked["outcome"] == "answer"
+        and asked["calls"] == 2
+        and tool
+        and tool[0]["payload"]["by"] == "model",
+        "par le modèle : appel au modèle, tools/call par l'hôte (mcp{n}.t1), réponse finale",
+        str(asked)[:200],
     )
     r.check(
-        page.locator('#mcp-context [data-mode="full"]').count() == 1
-        and page.locator('#mcp-context [data-mode="lazy"]').count() == 1,
-        "ce que le modèle voit : le bloc « outils » dans les deux modes",
+        model_rows and all({row["from"], row["to"]} <= {"model", "host"} for row in model_rows),
+        "le modèle ne parle qu'à l'hôte : aucune flèche entre le modèle et le client ou le serveur",
+        str([(row["from"], row["to"]) for row in model_rows]),
+    )
+    r.check(
+        gauge_after == gauge_before,
+        "la jauge de l'atelier principal ne bouge pas (contexte mcp_lab écarté)",
     )
     light = _contrast_sweep(r, ["main", "nav.site-nav"])
     _pick_theme(page, "dark")
     dark = _contrast_sweep(r, ["main", "nav.site-nav"])
     _pick_theme(page, "system")
     r.check(not light and not dark, "/mcp : contrastes AA en clair et en sombre", str(light + dark))
-    r.shot("61-atelier-mcp-poignee-de-main", full_page=True)
+    r.shot("63-atelier-mcp-par-le-modele")
 
-    # (4) A valid call, then an unknown term: `is_error`, said, never a 500.
-    page.locator("#mcp-call-tool").select_option("local__define_term")
-    page.locator('#mcp-call-fields input[name="term"]').fill("harnais")
-    seq = r.ev.mark()
-    page.locator("#mcp-call-run").click()
-    call = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
-    expect(page.locator('#mcp-call-summary[data-status="ok"]')).to_be_visible(timeout=10_000)
-    reinjected = page.locator(".mcp-call-text pre").inner_text()
+    # (8) The reload: the same arrows, the phases folded but the last, live.
+    before = [(row["key"], row["kind"], row["error"]) for row in _mcp_rows(r)]
+    phases = page.locator("#mcp-seq .mcp-phase").count()
+    _goto_mcp(r)
+    expect(page.locator("#mcp-seq .mcp-phase")).to_have_count(phases, timeout=10_000)
+    after = [(row["key"], row["kind"], row["error"]) for row in _mcp_rows(r)]
+    folded = page.locator('#mcp-seq .mcp-phase-toggle[aria-expanded="false"]').count()
     r.check(
-        call["status"] == "ok"
-        and "harnais" in reinjected.lower()
-        and page.locator(".mcp-call-request pre").count() == 1
-        and page.locator(".mcp-call-raw pre").count() == 1,
-        "appel valide : requête tools/call, réponse brute, texte réinjecté",
-        reinjected[:200],
+        after == before
+        and folded == phases - 1
+        and page.locator("#mcp-stepper .diagram-step-live").get_attribute("aria-pressed") == "true",
+        "page rechargée : last_session rejoué, mêmes flèches, phases repliées sauf la dernière, "
+        "en direct",
+        f"{len(before)} / {len(after)} flèches · {folded} repliées sur {phases}",
     )
-    r.shot("62-atelier-mcp-appel", full_page=True)
-    page.locator('#mcp-call-fields input[name="term"]').fill("zzz")
-    seq = r.ev.mark()
-    page.locator("#mcp-call-run").click()
-    unknown = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
-    expect(page.locator('#mcp-call-summary[data-status="error"]')).to_be_visible(timeout=10_000)
+
+    # (9) The panes: « Ce que le modèle voit » hidden, its chip, shown again; Séquence focused.
+    page.locator('.pane[data-pane="model"] [data-action="hide"]').click()
+    chip = page.locator("#mcp-pane-chips .pane-chip")
+    hidden_ok = page.locator('.pane[data-pane="model"]').is_hidden() and chip.count() == 1
+    chip.first.click()
+    page.locator('.pane[data-pane="seq"] [data-action="focus"]').click()
+    focused = page.locator('.pane[data-pane="seq"].is-focused').count() == 1
+    page.locator('.pane[data-pane="seq"] [data-action="focus"]').click()
     r.check(
-        unknown["status"] == "error" and "is_error" in (unknown.get("error_text") or ""),
-        "terme inconnu : réponse is_error montrée, statut erreur",
-        str(unknown)[:300],
+        hidden_ok
+        and page.locator('.pane[data-pane="model"]').is_visible()
+        and focused
+        and page.locator('.pane[data-pane="seq"] [data-action="hide"]').count() == 0,
+        "volets : « — » masque, la puce « + Ce que le modèle voit » réaffiche, ⛶ met la "
+        "Séquence en focus, la Séquence ne se masque pas",
     )
+    page.locator('#mcp-arch-switch [data-view="before"]').click()
+    before_view = (
+        page.locator("#mcp-arch-before").is_visible() and page.locator("#mcp-arch").is_hidden()
+    )
+    page.locator('#mcp-arch-switch [data-view="after"]').click()
+    r.check(before_view, "Architecture : la vue « Avant MCP », puis « Avec MCP »")
     r.check(not errors, "/mcp : aucune erreur JavaScript", str(errors)[:300])
 
-    # (5) The brick, untouched by the workshop.
+    # (10) The brick, untouched by the workshop.
     r.goto_app()
-    after = r.bricks()["mcp"]
+    after_brick = r.bricks()["mcp"]
     r.check(
-        (after.get("wanted"), after.get("options"))
+        (after_brick.get("wanted"), after_brick.get("options"))
         == (brick_before.get("wanted"), brick_before.get("options")),
         "la brique MCP de l'atelier est inchangée",
     )
 
 
 def s_mcp_lab_page(r: Run) -> None:
-    """Restes du 2026-10-01 (story 6, IA3, IA4, BH16): what `/mcp` does on its own side.
-    The state unreachable (`page.route`), then back; « Occupé » during a real turn of the
-    workshop; « Arrêter » pressed during the glossary's handshake; a preset, a call, the
-    page reloaded (`last_session` replayed); data.gouv.fr cut by the stack (its outbound
-    request shown); then a `last_session` served by `page.route` (a public server, a tool
-    with an object, an integer and a boolean parameter, a bounded call): the fields, an
-    invalid JSON said without a request, the arguments sent, the bound's note, « servi non
-    traduit ». Back to `/`."""
+    """Restes du 2026-10-01 (story 6), then lot 4 of 2026-10-04: what `/mcp` does on its own
+    side. The state unreachable (`page.route`), then back; « Occupé » during a real turn of
+    the workshop; « Arrêter » pressed during the glossary's handshake; data.gouv.fr cut by the
+    stack (its outbound request in the detail, the failure kept on its card); then a
+    `last_session` served by `page.route` (a public server: ⊘ on its resources and prompts, a
+    tool with an object, an integer and a boolean parameter, a bounded call): the fields, an
+    invalid JSON said without a request, the arguments sent. Back to `/`."""
     page = r.page
     page.set_viewport_size({"width": 1600, "height": 1000})
     errors: list[str] = []
@@ -6457,71 +7405,61 @@ def s_mcp_lab_page(r: Run) -> None:
         r.goto_app()
 
 
-def _goto_mcp(r: Run) -> None:
-    r.page.goto(f"{r.stack.app_url}/mcp")
-    expect(r.page.locator("body[data-mcp-ready]")).to_be_attached(timeout=15_000)
-
-
-def _mcp_messages(r: Run) -> list[tuple[str | None, str | None]]:
-    return r.page.locator("#mcp-messages .mcp-message").evaluate_all(
-        "items => items.map(i => [i.dataset.direction, i.dataset.method ?? null])"
-    )
-
-
-def _mcp_busy_checks(r: Run, busy, connect) -> None:  # noqa: ANN001
-    """A turn of the workshop running: « Occupé », « Se connecter » disabled, a direct call
-    refused, « Arrêter » of the MCP workshop greyed (it stops the workshop's exchanges)."""
+def _mcp_busy_checks(r: Run) -> None:
+    """A turn of the workshop running: « Occupé », « Se connecter » unavailable (focus kept),
+    a direct connection refused, « Arrêter » of the MCP workshop unavailable."""
     page = r.page
+    busy = page.locator("#mcp-busy")
     expect(busy).to_be_visible(timeout=10_000)
     refused = r.api("POST", "/api/intentions/mcp_lab_connect", {"server": "local"})
+    connect = page.locator("#mcp-connect")
     r.check(
         "Un tour est en cours" in busy.inner_text()
-        and connect.is_disabled()
+        and connect.get_attribute("aria-disabled") == "true"
         and "Un tour est en cours" in (connect.get_attribute("title") or "")
-        and page.locator("#mcp-stop").is_disabled()
+        and page.locator("#mcp-stop").get_attribute("aria-disabled") == "true"
         and refused.status_code == 409,
         "tour de l'atelier en cours : bandeau « Occupé » avec la raison, « Se connecter » "
-        "désactivé, appel direct 409, « Arrêter » de l'atelier MCP grisé",
+        "indisponible (aria-disabled), connexion directe 409, « Arrêter » indisponible",
         f"{busy.inner_text()} · {refused.status_code}",
     )
 
 
-def _mcp_stop_during_handshake(r: Run, connect) -> bool:  # noqa: ANN001
-    """« Connecter » then « Arrêter » as soon as it is enabled, at most three times (the
+def _mcp_stop_during_handshake(r: Run) -> bool:
+    """« Se connecter » then « Arrêter » as soon as it is available, at most three times (the
     handshake can win the race); whether the stop was seen, checked either way."""
     page = r.page
-    stopped, attempts, missed = None, 0, []
+    stopped, attempts = None, 0
+    page.locator('#mcp-servers input[value="local"]').check()
     while stopped is None and attempts < 3:
         attempts += 1
         seq = r.ev.mark()
-        connect.click()
+        _mcp_click(r, "#mcp-connect")
+        stop = page.locator("#mcp-stop")
         try:
-            page.locator("#mcp-stop").click(timeout=5000)
-        except Exception as exc:  # noqa: BLE001 - the handshake ended first: greyed again
-            missed.append(type(exc).__name__)
+            expect(stop).to_have_attribute("aria-disabled", "false", timeout=5000)
+            stop.click()
+        except Exception:  # noqa: BLE001 - the handshake ended first
+            pass
         ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
-        if ended["status"] == "error":
+        if ended["status"] != "ok":
             stopped = ended
+        expect(page.locator("#mcp-busy")).to_be_hidden(timeout=15_000)
     if stopped is None:
-        r.check(
-            False,
-            "« Arrêter » pressé pendant la poignée de main",
-            f"la poignée de main a gagné la course {attempts} fois ({missed})",
-        )
+        r.check(False, "« Arrêter » pressé pendant la poignée de main", f"{attempts} essai(s)")
         return False
-    summary = page.locator("#mcp-connect-summary")
-    expect(summary).to_have_attribute("data-status", "error", timeout=10_000)
-    expect(page.locator("#mcp-stop")).to_be_disabled(timeout=10_000)
     state = r.api("GET", "/api/mcp_lab").json()
+    meta = page.locator("#mcp-seq .mcp-phase").last.locator(".mcp-phase-meta")
+    expect(meta).to_contain_text("arrêtée", timeout=10_000)
     r.check(
-        "Échange arrêté" in (stopped.get("error_text") or "")
-        and "Échange arrêté" in summary.inner_text()
+        stopped["status"] == "cancelled"
+        and stopped["error_kind"] == "stopped"
         and state["open_server"] is None
         and state["session_state"]["state"] == "idle"
-        and page.locator(".mcp-badge-open").count() == 0,
-        "« Arrêter » pressé pendant la poignée de main : connexion arrêtée et dite, aucune "
+        and page.locator(".mcp-badge-state.is-open").count() == 0,
+        "« Arrêter » pendant la poignée de main : phase « arrêtée par l'utilisateur », aucune "
         "connexion ouverte, session en idle",
-        f"{attempts} essai(s) · {summary.inner_text()[:160]}",
+        f"{attempts} essai(s) · {meta.inner_text()[:120]}",
     )
     return True
 
@@ -6548,99 +7486,46 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
         said,
     )
 
-    # (2) A real turn of the workshop: « Occupé », « Se connecter » disabled, a direct call
-    # refused, « Arrêter » of the MCP workshop greyed (it stops the workshop's exchanges).
+    # (2) A real turn of the workshop: « Occupé », the commands unavailable.
     seq = r.ev.mark()
     r.api("POST", "/api/intentions/send", {"message": "Explique le harnais [lent] [long]"})
     r.ev.wait("model_first_token", seq, timeout=20)
-    busy = page.locator("#mcp-busy")
-    connect = page.locator('button[data-connect="local"]')
     try:
-        _mcp_busy_checks(r, busy, connect)
+        _mcp_busy_checks(r)
     finally:  # the turn never outlives this step, even when a check raised
         r.api("POST", "/api/intentions/stop")
         r.ev.wait("turn_ended", seq, timeout=30)
-    expect(busy).to_be_hidden(timeout=10_000)
-    expect(connect).to_be_enabled(timeout=10_000)
+    expect(page.locator("#mcp-busy")).to_be_hidden(timeout=10_000)
+    expect(page.locator("#mcp-connect")).to_have_attribute("aria-disabled", "false", timeout=10_000)
 
-    # (3) « Arrêter » pressed during the handshake (the glossary's process starting): the
-    # handshake may win the race on a fast workstation, then the gesture is played again.
-    if not _mcp_stop_during_handshake(r, connect):
+    # (3) « Arrêter » pressed during the handshake.
+    if not _mcp_stop_during_handshake(r):
         return
 
-    # (4) The glossary: a preset, a call; the page reloaded replays `last_session`.
-    summary = page.locator("#mcp-connect-summary")
-    seq = r.ev.mark()
-    connect.click()
-    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
-    expect(summary).to_have_attribute("data-status", "ok", timeout=10_000)
-    page.locator("#mcp-call-tool").select_option("local__define_term")
-    presets = page.locator("#mcp-call-preset option").all_inner_texts()
-    page.locator("#mcp-call-preset").select_option("0")
-    term = page.locator('#mcp-call-fields input[name="term"]').input_value()
-    r.check(
-        ended["status"] == "ok" and presets == ["Aucun", "MCP"] and term == "MCP",
-        "préréglage « MCP » de define_term : le champ term rempli",
-        f"{presets} · {term!r}",
-    )
-    seq = r.ev.mark()
-    page.locator("#mcp-call-run").click()
-    call = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
-    expect(page.locator("#mcp-call-summary")).to_have_attribute("data-status", "ok", timeout=10_000)
-    shown = {
-        "messages": _mcp_messages(r),
-        "summary": page.inner_text("#mcp-connect-summary"),
-        "tools": page.locator("#mcp-tools .mcp-tool").count(),
-        "call": page.inner_text("#mcp-call-summary"),
-        "reinjected": page.inner_text(".mcp-call-text pre"),
-    }
-    r.check(
-        call["status"] == "ok"
-        and "Model Context Protocol" in shown["reinjected"]
-        and page.locator(".mcp-served").count() == 0,
-        "appel avec le préréglage : texte réinjecté ; glossaire local, pas de note « servi non "
-        "traduit »",
-        shown["reinjected"][:120],
-    )
-    _goto_mcp(r)
-    expect(page.locator("#mcp-call-summary")).to_have_attribute("data-status", "ok", timeout=10_000)
-    replayed = {
-        "messages": _mcp_messages(r),
-        "summary": page.inner_text("#mcp-connect-summary"),
-        "tools": page.locator("#mcp-tools .mcp-tool").count(),
-        "call": page.inner_text("#mcp-call-summary"),
-        "reinjected": page.inner_text(".mcp-call-text pre"),
-    }
-    r.check(
-        replayed == shown
-        and page.locator('.mcp-server[data-server="local"] .mcp-badge-open').count() == 1,
-        "page rechargée : last_session rejoué, mêmes messages, mêmes outils, même appel, "
-        "connexion ouverte au glossaire",
-        str({k: (shown[k] == replayed[k]) for k in shown}),
-    )
-
-    # (5) data.gouv.fr, the network cut by the stack: the request leaves through the guard,
-    # shown, and fails; the page stays readable.
-    seq = r.ev.mark()
-    page.locator('button[data-connect="datagouv"]').click()
-    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=90)["payload"]
-    expect(summary).to_have_attribute("data-status", "error", timeout=10_000)
-    outbound = page.locator("#mcp-messages .mcp-outbound")
-    first = outbound.first.inner_text() if outbound.count() else ""
+    # (4) data.gouv.fr, the network cut by the stack: the request leaves through the guard,
+    # shown in its detail, and fails; the failure stays on its card.
+    ended = _mcp_connect(r, "datagouv", timeout=90)
+    initialize = page.locator('#mcp-seq li.mcp-row[data-method="initialize"]').last
+    expect(initialize).to_have_class(re.compile(r"\bis-error\b"), timeout=10_000)
+    initialize.locator("button.mcp-arrow").click()
+    detail = initialize.locator(".mcp-message-detail")
+    outbound = detail.locator(".mcp-outbound")
+    card = page.locator('#mcp-servers .mcp-server[data-server="datagouv"]')
     r.check(
         ended["status"] == "error"
-        and "connexion impossible" in summary.inner_text()
-        and outbound.count() >= 1
-        and "POST https://mcp.data.gouv.fr/mcp" in first
-        and page.locator("#mcp-call-form").is_hidden()
-        and page.locator("#mcp-tools-empty").is_visible(),
-        "data.gouv.fr hors réseau : requête sortante POST affichée, connexion en erreur "
-        "dite, ni outil ni appel proposés",
-        f"{summary.inner_text()[:160]} · {first[:120]!r}",
+        and ended["connection"] == "closed"
+        and outbound.count() == 1
+        and "POST https://mcp.data.gouv.fr/mcp" in outbound.inner_text()
+        and card.locator(".mcp-badge-state.is-failed").count() == 1
+        and "reste disponible" in page.locator("#mcp-server-note").inner_text()
+        and page.locator("#mcp-tab-tools").count() == 0,
+        "data.gouv.fr hors réseau : requête sortante POST dans l'encart, initialize en rouge, "
+        "carte « injoignable », le glossaire reste disponible, aucun onglet",
+        f"{ended.get('error_kind')} · {page.locator('#mcp-server-note').inner_text()[:120]}",
     )
-    r.shot("66-atelier-mcp-serveur-public-hors-reseau", full_page=True)
+    r.shot("66-atelier-mcp-serveur-public-hors-reseau")
 
-    # (6) A public server's tools, served by `page.route` (no network here).
+    # (5) A public server's tools, served by `page.route` (no network here).
     calls: list[dict[str, Any]] = []
 
     def state(route) -> None:  # noqa: ANN001
@@ -6657,13 +7542,17 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
     page.route("**/api/mcp_lab", state)
     page.route("**/api/intentions/mcp_lab_call", intercepted)
     _goto_mcp(r)
-    served = page.locator('.mcp-tool[data-tool="datagouv__search_datasets"] .mcp-served')
+    expect(page.locator("#mcp-tab-tools")).to_be_visible(timeout=10_000)
     kinds = page.locator("#mcp-call-fields [data-kind]").evaluate_all(
         "fields => fields.map(f => [f.name, f.dataset.kind, f.type ?? f.tagName])"
     )
+    unavailable = [
+        page.locator(f"#mcp-tab-{k}").get_attribute("aria-disabled")
+        for k in ("resources", "prompts")
+    ]
     r.check(
-        served.count() == 1
-        and "non traduite" in served.inner_text()
+        unavailable == ["true", "true"]
+        and "⊘" in page.locator("#mcp-tab-resources").inner_text()
         and kinds
         == [
             ["query", "text", "text"],
@@ -6671,18 +7560,16 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
             ["filters", "json", "textarea"],
             ["strict", "boolean", "checkbox"],
         ],
-        "serveur public : « servi non traduit » ; un champ par paramètre : texte, nombre, "
+        "serveur public : ressources et prompts « ⊘ » ; un champ par paramètre : texte, nombre, "
         "JSON, case",
-        str(kinds),
+        f"{unavailable} {kinds}",
     )
-    note = _plain(page.inner_text(".mcp-call-text"))
-    outbound = page.locator(".mcp-call-outbound .mcp-outbound")
+    result = page.locator("#mcp-model-body .mcp-context-block.is-result")
     r.check(
-        "Borné : 512 tokens gardés sur 2 048." in note
-        and outbound.count() == 1
-        and "POST https://mcp.data.gouv.fr/mcp" in outbound.inner_text(),
-        "appel tronqué : la note « Borné » sous le texte réinjecté, sa requête sortante",
-        note[-160:],
+        result.count() == 1
+        and "Borné : 512 tokens gardés sur 2 048." in _plain(result.inner_text()),
+        "appel borné rejoué : la note « Borné » sous le résultat réinjecté",
+        _plain(result.inner_text())[-160:] if result.count() else "absent",
     )
     page.locator("#mcp-call-preset").select_option("0")
     query = page.locator('#mcp-call-fields input[name="query"]').input_value()
@@ -6690,7 +7577,7 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
     page.locator('#mcp-call-fields textarea[name="filters"]').fill("{oops")
     page.locator('#mcp-call-fields input[name="strict"]').check()
     page.locator("#mcp-call-run").click()
-    status = page.locator("#mcp-call-status")
+    status = page.locator("#mcp-command-status")
     expect(status).to_have_text("Valeur JSON invalide pour filters.", timeout=5000)
     r.check(
         query == "cybersécurité" and not calls,
@@ -6706,7 +7593,7 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
             {
                 "server": "datagouv",
                 "tool": "search_datasets",
-                "args": {
+                "arguments": {
                     "query": "cybersécurité",
                     "page_size": 20,
                     "filters": {"organization": "anssi"},
@@ -6719,6 +7606,49 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
     )
     page.unroute("**/api/mcp_lab")
     page.unroute("**/api/intentions/mcp_lab_call")
+
+    # (6) « Liste en échec » and « Fenêtre dépassée », served: the glossary's prompts/list left
+    # unanswered (its timeout in `list_errors`), then an ask whose context exceeds the window.
+    def failures(route) -> None:  # noqa: ANN001
+        response = route.fetch()
+        body = response.json()
+        body["last_session"] = _mcp_fake_failures(body["seq"])
+        body["open_server"] = "local"
+        route.fulfill(response=response, json=body)
+
+    page.route("**/api/mcp_lab", failures)
+    _goto_mcp(r)
+    listed = page.locator('#mcp-seq li.mcp-row[data-method="prompts/list"]')
+    expect(listed).to_have_count(1, timeout=10_000)
+    page.locator("#mcp-tab-prompts").click()
+    panel = page.locator("#mcp-panel-prompts")
+    model = page.locator('#mcp-seq li.mcp-row[data-kind="model"]')
+    r.check(
+        "is-error" in (listed.get_attribute("class") or "")
+        and "is-unanswered" in (listed.get_attribute("class") or "")
+        and "La liste des prompts a échoué" in (panel.text_content() or "")
+        and model.count() == 1
+        and "is-error" in (model.get_attribute("class") or "")
+        and "non envoyé" in (model.text_content() or ""),
+        "liste en échec : requête prompts/list en rouge, sans réponse, l'onglet le dit ; fenêtre "
+        "dépassée : la flèche Hôte → modèle « non envoyé » en rouge",
+        f"{listed.get_attribute('class')} · {(panel.text_content() or '')[:80]} · "
+        f"{(model.text_content() or '')[:80] if model.count() else 'absent'}",
+    )
+    page.unroute("**/api/mcp_lab")
+
+    # (7) The reset (`harness_reset`): the series drawn live goes, as a reload would show it.
+    _goto_mcp(r)
+    rows = page.locator("#mcp-seq li.mcp-row")
+    had = rows.count()
+    r.poll(lambda: r.api("GET", "/api/mcp_lab").json()["session_state"]["state"] == "idle", 15)
+    reset = r.api("POST", "/api/intentions/reset")
+    expect(rows).to_have_count(0, timeout=10_000)
+    r.check(
+        had > 0 and reset.status_code == 200 and rows.count() == 0,
+        "réinitialisation : la série affichée en direct disparaît (harness_reset)",
+        f"{had} flèche(s) avant · {reset.status_code}",
+    )
     r.check(not errors, "/mcp : aucune erreur JavaScript", str(errors)[:300])
 
 
@@ -6735,8 +7665,8 @@ _DATAGOUV_SCHEMA = {
 
 
 def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
-    """A `last_session` with a public server's connection and a bounded call, validated by
-    the journal's `Envelope` (its payload models)."""
+    """A `last_session` with a public server's connection and a bounded call (AD-27),
+    validated by the journal's `Envelope` (its payload models)."""
     definition = json.dumps(
         {
             "type": "function",
@@ -6756,46 +7686,46 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
         "inputSchema": _DATAGOUV_SCHEMA,
     }
     listed = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"tools": [served]}})
+    first = seq - 11
+    message = lambda direction, method, text, kind, ms, reply=None: {  # noqa: E731
+        "direction": direction,
+        "method": method,
+        "jsonrpc": text,
+        "elapsed_ms": ms,
+        "elapsed_kind": "round_trip" if kind == "response" else "since_start",
+        "message_type": kind,
+        "reply_to_seq": reply,
+    }
     events = [
         (
             "mcp90",
-            "mcp_lab_message",
+            "mcp_lab_exchange_started",
             {
-                "direction": "to_server",
-                "method": "initialize",
-                "jsonrpc": rpc("initialize", 0),
-                "elapsed_ms": 0,
+                "exchange": "connect",
+                "server": "datagouv",
+                "transport": "streamable_http",
+                "launch_text": "ouvre une session HTTP avec mcp.data.gouv.fr",
             },
         ),
         (
             "mcp90",
             "mcp_lab_message",
-            {
-                "direction": "from_server",
-                "method": "initialize",
-                "jsonrpc": answer(0),
-                "elapsed_ms": 40,
-            },
+            message("to_server", "initialize", rpc("initialize", 0), "request", 0),
         ),
         (
             "mcp90",
             "mcp_lab_message",
-            {
-                "direction": "to_server",
-                "method": "tools/list",
-                "jsonrpc": rpc("tools/list", 1),
-                "elapsed_ms": 45,
-            },
+            message("from_server", "initialize", answer(0), "response", 40, first + 2),
         ),
         (
             "mcp90",
             "mcp_lab_message",
-            {
-                "direction": "from_server",
-                "method": "tools/list",
-                "jsonrpc": listed,
-                "elapsed_ms": 30,
-            },
+            message("to_server", "tools/list", rpc("tools/list", 1), "request", 45),
+        ),
+        (
+            "mcp90",
+            "mcp_lab_message",
+            message("from_server", "tools/list", listed, "response", 30, first + 4),
         ),
         (
             "mcp90",
@@ -6803,6 +7733,8 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
             {
                 "server": "datagouv",
                 "status": "ok",
+                "connection": "open",
+                "primitives": {"tools": True, "resources": False, "prompts": False},
                 "tools": [
                     {
                         "name": "datagouv__search_datasets",
@@ -6824,13 +7756,20 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
         ),
         (
             "mcp91",
-            "mcp_lab_message",
+            "mcp_lab_exchange_started",
             {
-                "direction": "to_server",
-                "method": "tools/call",
-                "jsonrpc": rpc("tools/call", 2),
-                "elapsed_ms": 0,
+                "exchange": "call",
+                "server": "datagouv",
+                "transport": "streamable_http",
+                "by": "hand",
+                "tool": "search_datasets",
+                "arguments": {"query": "cybersécurité"},
             },
+        ),
+        (
+            "mcp91",
+            "mcp_lab_message",
+            message("to_server", "tools/call", rpc("tools/call", 2), "request", 0),
         ),
         (
             "mcp91",
@@ -6840,7 +7779,13 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
                 "method": "POST",
                 "url": "https://mcp.data.gouv.fr/mcp",
                 "body": rpc("tools/call", 2),
+                "message_seq": first + 8,
             },
+        ),
+        (
+            "mcp91",
+            "mcp_lab_message",
+            message("from_server", "tools/call", answer(2), "response", 110, first + 8),
         ),
         (
             "mcp91",
@@ -6848,9 +7793,13 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
             {
                 "server": "datagouv",
                 "tool": "search_datasets",
+                "arguments": {"query": "cybersécurité"},
+                "by": "hand",
                 "status": "ok",
+                "connection": "open",
                 "raw": answer(2),
                 "text": "Jeux de données (e2e) : " + "cybersécurité " * 40,
+                "tokens": 512,
                 "truncated": {"tokens": 512, "total_tokens": 2048, "estimated": False},
                 "duration_ms": 120,
             },
@@ -6859,7 +7808,7 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
     envelopes = []
     for offset, (step, kind, payload) in enumerate(events, start=1):
         envelope = Envelope(
-            seq=seq - len(events) + offset,
+            seq=first + offset,
             ts=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
             session_epoch=0,
             context_id="mcp_lab",
@@ -6869,6 +7818,198 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
             trigger="user",
             brick="mcp",
             component="mcp_lab.datagouv",
+            payload=payload,
+        )
+        envelopes.append(json.loads(envelope.model_dump_json()))
+    return envelopes
+
+
+def _mcp_fake_failures(seq: int) -> list[dict[str, Any]]:
+    """A `last_session` of the glossary (AD-27): its prompts/list left unanswered (the timeout
+    in `list_errors`, the connection open), then an ask refused before any call, its context
+    over the usable window (`model_started`, then `model_ended{overflow}`, no model call)."""
+    rpc = lambda method, n: json.dumps({"jsonrpc": "2.0", "id": n, "method": method})  # noqa: E731
+    answer = lambda n, result: json.dumps({"jsonrpc": "2.0", "id": n, "result": result})  # noqa: E731
+    first = seq - 14
+    message = lambda direction, method, text, kind, ms, reply=None: {  # noqa: E731
+        "direction": direction,
+        "method": method,
+        "jsonrpc": text,
+        "elapsed_ms": ms,
+        "elapsed_kind": "round_trip" if kind == "response" else "since_start",
+        "message_type": kind,
+        "reply_to_seq": reply,
+    }
+    tool = {
+        "name": "local__define_term",
+        "tool": "define_term",
+        "description": "Donne la définition d'une notion (e2e).",
+        "schema": {"type": "object", "properties": {"term": {"type": "string"}}},
+        "definition_text": json.dumps(
+            {"type": "function", "function": {"name": "local__define_term"}}
+        ),
+        "doc_tokens": 98,
+        "line_text": "- local__define_term : Donne la définition d'une notion",
+        "line_tokens": 14,
+    }
+    caps = {"capabilities": {"tools": {}, "resources": {}, "prompts": {}}}
+    too_long = "Non envoyé : le contexte compte 5 000 tokens pour 3 584 utilisables."
+    events = [
+        (
+            "mcp95",
+            "mcp_lab_exchange_started",
+            {
+                "exchange": "connect",
+                "server": "local",
+                "transport": "stdio",
+                "launch_text": "lance le serveur : python -m wavestack.mcp.local_server fr",
+            },
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message("to_server", "initialize", rpc("initialize", 0), "request", 0),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message("from_server", "initialize", answer(0, caps), "response", 40, first + 2),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message(
+                "to_server",
+                "notifications/initialized",
+                json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+                "notification",
+                41,
+            ),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message("to_server", "tools/list", rpc("tools/list", 1), "request", 42),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message(
+                "from_server", "tools/list", answer(1, {"tools": []}), "response", 3, first + 5
+            ),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message("to_server", "resources/list", rpc("resources/list", 2), "request", 46),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message(
+                "from_server",
+                "resources/list",
+                answer(2, {"resources": []}),
+                "response",
+                3,
+                first + 7,
+            ),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message("to_server", "prompts/list", rpc("prompts/list", 3), "request", 50),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_connect_ended",
+            {
+                "server": "local",
+                "status": "ok",
+                "connection": "open",
+                "primitives": {"tools": True, "resources": True, "prompts": True},
+                "tools": [tool],
+                "resources": [
+                    {"uri": "glossary://terms", "name": "terms", "mime_type": "text/plain"}
+                ],
+                "prompts": None,
+                "list_errors": [
+                    {
+                        "method": "prompts/list",
+                        "error_kind": "timeout",
+                        "error_text": "Le serveur n'a pas répondu dans le délai (10 s).",
+                    }
+                ],
+                "full_tokens": 98,
+                "duration_ms": 10_080,
+            },
+        ),
+        (
+            "mcp96",
+            "mcp_lab_exchange_started",
+            {
+                "exchange": "ask",
+                "server": "local",
+                "transport": "stdio",
+                "by": "model",
+                "question": "Que veut dire MCP ?",
+                "doc_mode_requested": "full",
+            },
+        ),
+        (
+            "mcp96.c1",
+            "mcp_lab_model_started",
+            {
+                "index": 1,
+                "sends": [
+                    {"part": "question", "label_text": "question", "tokens": 6},
+                    {"part": "tools", "label_text": "1 outil", "tokens": 98},
+                ],
+                "sends_total_tokens": 104,
+                "prompt_tokens": 5000,
+                "doc_mode": "full",
+                "phase_label": "Envoi au modèle (5 000 tokens)",
+            },
+        ),
+        (
+            "mcp96.c1",
+            "mcp_lab_model_ended",
+            {
+                "index": 1,
+                "status": "error",
+                "outcome": "overflow",
+                "final": True,
+                "error_text": too_long,
+            },
+        ),
+        (
+            "mcp96",
+            "mcp_lab_ask_ended",
+            {
+                "server": "local",
+                "status": "error",
+                "outcome": "overflow",
+                "error_text": too_long,
+                "connection": "open",
+                "duration_ms": 12,
+            },
+        ),
+    ]
+    envelopes = []
+    for offset, (step, kind, payload) in enumerate(events, start=1):
+        envelope = Envelope(
+            seq=first + offset,
+            ts=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+            session_epoch=0,
+            context_id="mcp_lab",
+            step_id=step,
+            parent_step="mcp96" if "." in step else None,
+            call_id=step if ".c" in step else None,
+            kind=kind,
+            actor="harness",
+            trigger="user",
+            brick="mcp",
+            component="mcp_lab.local",
             payload=payload,
         )
         envelopes.append(json.loads(envelope.model_dump_json()))
@@ -7971,7 +9112,8 @@ def _forced_read(r: Run, tools_card: str, preset: str, lang: str) -> list[dict[s
 
 # ---------- languages (4/5): the workshops, the annex pages and the RAG in the language ----------
 
-ANNEX_PAGES = ("llm", "rag", "diagnostic", "models")
+# Lot 3 of 2026-10-04: « Diagnostic et modèles » holds the models' table (`models` texts).
+ANNEX_PAGES = ("llm", "rag", "diagnostic")
 ANNEX_QUESTIONS = {
     "en": "How many characters must a password have at least at Exemplia?",
     "de": "Wie viele Zeichen muss ein Passwort bei Exemplia mindestens haben?",
@@ -7996,7 +9138,7 @@ def _annex_patterns(lang: str) -> list[tuple[str, re.Pattern[str]]]:
     only fixed words of six letters at least say something."""
     french, translated = {}, {}
     for key, value in _ui_catalogue("fr").items():
-        if key.split(".")[0] in ("common", *ANNEX_PAGES):
+        if key.split(".")[0] in ("common", *ANNEX_PAGES, "models"):
             french[f"ui.{key}"] = " ".join(value.split())
     for key, value in _ui_catalogue(lang).items():
         translated[f"ui.{key}"] = " ".join(value.split())
@@ -8033,12 +9175,10 @@ def _goto_annex(r: Run, name: str) -> None:
         _goto_lab(r)
     elif name == "rag":
         _goto_rag_lab(r)
-    elif name == "diagnostic":
-        page.goto(f"{r.stack.app_url}/diagnostic")
-        expect(page.locator("#cloud-models li").first).to_be_visible(timeout=20_000)
     else:
-        page.goto(f"{r.stack.app_url}/models")
-        expect(page.locator("#models-table tbody").first).to_be_attached(timeout=20_000)
+        _goto_diagnostic(r)
+        # A card unfolded: its sections and states in the language too.
+        _unfold(page.locator("#cloud-models .model-card").first)
     time.sleep(0.5)
 
 
@@ -8175,7 +9315,7 @@ def _backend_tool_error(r: Run, lang: str) -> None:
 def s_backend_language(r: Run) -> None:
     """Languages (5/5), story 7 of 2026-09-30: in `en` then `de`, the backend's messages.
     The refusal of an unknown tool as the model reads it; the main screen (cards, their
-    reasons, the log) and the diagnostic and models pages without a French value of
+    reasons, the log) and « Diagnostic et modèles » without a French value of
     `messages.yaml` or `ui.yaml`; captures in German at 1280 and 1600 px, normal and
     projection mode, on the main screen. Always ends in French, at rest."""
     page = r.page
@@ -8193,7 +9333,7 @@ def s_backend_language(r: Run) -> None:
                 f"{lang} : écran principal sans message français du backend",
                 "; ".join(left[:10]),
             )
-            for name in ("diagnostic", "models"):
+            for name in ("diagnostic",):  # lot 3 of 2026-10-04: /models merged into it
                 _annex_page(r, lang, name)
             if lang == "de":
                 r.goto_app()
@@ -8249,7 +9389,7 @@ def s_annex_language(r: Run) -> None:
                             "; ".join(nav),
                         )
                         r.shot(f"annex-language-de-{name}-{width}")
-                        if name == "models" and width == 1280:
+                        if name == "diagnostic" and width == 1280:
                             _models_window_then_network(r)  # story 3 of 2026-09-30
                     page.set_viewport_size({"width": 1600, "height": 1000})
     finally:
@@ -8391,7 +9531,7 @@ def s_model_switch(r: Run) -> None:
     a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
     b_label = f"RÉSEAU · Faux fournisseur B (e2e) · {SECOND_MODEL}"
     r.launch("short_memory")
-    r.send("Je m'appelle Camille.")
+    r.send("Je m'appelle Pascal.")
     options = _picker_options(r)
     r.check(options.get(f"{a_label} (actif)") is True, "sélecteur : modèle actif marqué et grisé")
     r.check(
@@ -8464,10 +9604,10 @@ def s_model_switch(r: Run) -> None:
     r.check(ended["payload"]["status"] == "ok", "chargement terminé", ended["payload"]["status"])
     expect(page.locator("#model-indicator")).to_contain_text(SECOND_MODEL, timeout=10_000)
     r.wait_idle()
-    r.check("Je m'appelle Camille." in page.inner_text("#chat"), "la conversation est conservée")
+    r.check("Je m'appelle Pascal." in page.inner_text("#chat"), "la conversation est conservée")
 
     r.send("Comment je m'appelle ?")
-    r.check("Camille" in r.last_answer(), "le nouveau modèle reçoit l'historique", r.last_answer())
+    r.check("Pascal" in r.last_answer(), "le nouveau modèle reçoit l'historique", r.last_answer())
     r.check(r.fake_calls()[-1].get("model") == SECOND_MODEL, "l'appel part avec le nouveau modèle")
     lines = page.locator("#chat .model-switch-line").all_inner_texts()
     r.check(
@@ -8494,16 +9634,18 @@ def s_model_switch(r: Run) -> None:
     page.locator("#ctx .turn-compare-head button").click()
 
     # Back to the first model from the diagnostic: « Choisir », no relaunch.
-    page.goto(f"{r.stack.app_url}/diagnostic")
-    row_b = page.locator("#cloud-models li", has_text=SECOND_MODEL)
-    expect(row_b).to_contain_text("actif", timeout=10_000)
+    _goto_diagnostic(r)
+    row_b = _cloud_card(r, SECOND_MODEL)
+    expect(row_b.locator(".model-card-head .state-pill")).to_have_text("Actif", timeout=10_000)
     r.check(True, "diagnostic : le modèle actif est lu dans la session applicative")
-    row_a = page.locator("#cloud-models li", has_text="wavestack-fake")
-    row_a.get_by_role("button", name="Choisir").click()
+    row_a = _unfold(_cloud_card(r, "wavestack-fake"))
+    row_a.get_by_role("button", name="Choisir ce modèle…").click()
     page.click("#cloud-warning-confirm")
-    expect(row_a.locator(".cloud-result").last).to_have_text(
+    expect(row_a.locator(".card-status").last).to_have_text(
         "wavestack-fake est actif.", timeout=20_000
     )
+    expect(row_a.locator(".model-card-head .state-pill")).to_have_text("Actif", timeout=10_000)
+    expect(row_b.locator(".model-card-head .state-pill")).not_to_have_text("Actif")
     r.check(True, "diagnostic : « Choisir » change de modèle sans relance, issue affichée")
     body = page.inner_text("body")
     r.check("relancez WaveStack pour l'utiliser" not in body, "diagnostic : jamais « relancez »")
@@ -8581,7 +9723,8 @@ def _slow_probe_stopped(r: Run) -> None:
     import psutil
 
     page = r.page
-    page.goto(f"{r.stack.app_url}/diagnostic")
+    _goto_diagnostic(r)
+    _open_checks(r)  # lot 3 of 2026-10-04: the checks fold once green
     memory = page.locator("#checks li", has_text="Budget mémoire")
     expect(memory).to_be_visible(timeout=10_000)
     text = memory.inner_text()
@@ -8671,18 +9814,22 @@ def s_local_server(r: Run) -> None:
     picker, and back."""
     page = r.page
     address = r.stack.llama_url.removeprefix("http://")
-    page.goto(f"{r.stack.app_url}/diagnostic")
-    llama_row = page.locator("#candidates li", has_text=f"llama-server · {LLAMA_FILE}")
+    _goto_diagnostic(r)
+    llama_row = _card(r, f"server:llama_server/{LLAMA_FILE}")
     expect(llama_row).to_be_visible(timeout=20_000)
+    _unfold(llama_row)
     text = llama_row.inner_text()
     r.check(
-        "Local" in text and r.stack.llama_url in text and "Mémoire du modèle servi" in text,
-        "diagnostic : le modèle servi par llama-server est listé (Local, adresse, mémoire)",
+        f"llama-server · {address}" in text
+        and r.stack.llama_url in text
+        and "Mémoire du modèle servi" in text,
+        "diagnostic : la carte du modèle servi par llama-server (origine, adresse, mémoire)",
         text.replace("\n", " · "),
     )
     r.check(
-        llama_row.get_by_role("button", name="Choisir").count() == 1,
-        "diagnostic : « Choisir » en face du modèle servi",
+        llama_row.get_by_role("button", name="Choisir ce modèle").count() == 1
+        and llama_row.locator(".model-card-head .state-pill").inner_text() == "Avertissement",
+        "diagnostic : « Choisir ce modèle » sur la carte du modèle servi, « Avertissement »",
     )
     # Lot E (E1): the fake llama-server has a context of 8 192 tokens, twice the window.
     r.check(
@@ -8690,30 +9837,37 @@ def s_local_server(r: Run) -> None:
         "diagnostic : llama-server à grand contexte, conseil « -c 4096 »",
         text.replace("\n", " · "),
     )
-    ollama_row = page.locator("#candidates li", has_text="Ollama · faux-ollama:latest")
+    ollama_row = _card(r, "server:ollama/faux-ollama:latest")
+    if ollama_row.count():
+        _unfold(ollama_row)
     r.check(
         ollama_row.count() == 1
         and "introuvable" in ollama_row.inner_text()
+        and "is-unusable" in (ollama_row.get_attribute("class") or "")
+        and ollama_row.locator(".model-card-head .state-pill").inner_text() == "Incompatible"
         and ollama_row.get_by_role("button", name="Choisir").count() == 0,
-        "diagnostic : un modèle Ollama sans GGUF lisible est incompatible, sans « Choisir »",
+        "diagnostic : un modèle Ollama sans GGUF lisible est « Incompatible », sa raison dans la "
+        "carte dépliée, sans « Choisir »",
         ollama_row.inner_text().replace("\n", " · ") if ollama_row.count() else "absent",
     )
+    _unfold(llama_row)
     r.check("palier 2" not in page.inner_text("body"), "diagnostic : plus de « palier 2 »")
 
     # « Choisir » at the diagnostic: a hot switch from the cloud fake model, at the first
     # click (the page no longer rebuilds its rows while it replays the journal).
     seq = r.ev.mark()
-    llama_row.get_by_role("button", name="Choisir").click()
+    llama_row.get_by_role("button", name="Choisir ce modèle").click()
     r.ev.wait("model_load_started", seq, timeout=5)
     ended = r.ev.wait("model_load_ended", seq, timeout=30)
     r.check(ended["payload"]["status"] == "ok", "diagnostic : « Choisir » prépare le modèle servi")
     expect(page.locator("#select-model-status")).to_have_text(
         "faux-llama-server est actif.", timeout=10_000
     )
-    expect(llama_row).to_contain_text("chargé", timeout=10_000)
+    expect(llama_row.locator(".model-card-head .state-pill")).to_have_text("Actif", timeout=10_000)
     r.check(
-        llama_row.get_by_role("button", name="Choisir").count() == 0,
-        "diagnostic : issue affichée, ligne marquée « chargé », sans « Choisir »",
+        llama_row.get_by_role("button", name="Choisir").count() == 0
+        and "is-active" in (llama_row.get_attribute("class") or ""),
+        "diagnostic : issue affichée, carte « Actif » à bordure épaisse, sans « Choisir »",
     )
 
     r.goto_app()
@@ -8821,6 +9975,7 @@ def s_local_server(r: Run) -> None:
     )
     r.shot("23-serveur-local-llama-server")
     _braces_stay_text(r, "mode local")
+    _cache_not_reused(r)
 
     # Story 32: a reasoning cut by the harness stays one call; the harness's note sits
     # between the reflection and the answer. The LLM nu, so that the reasoning's reserve
@@ -8909,78 +10064,71 @@ def _picker_groups(r: Run) -> list[dict[str, Any]]:
 
 
 def _models_row(r: Run, value: str) -> dict[str, str]:
-    """A row of the `/models` table by its value (`cloud:fake`…): each column's text."""
-    row = r.page.locator(f'#models-table tr[data-value="{value}"]')
-    expect(row).to_have_count(1, timeout=10_000)
-    cells = row.locator("td").all_inner_texts()
-    keys = (
-        "model",
-        "publisher",
-        "size",
-        "hosting",
-        "window",
-        "tools",
-        "reasoning",
-        "price",
-        "state",
-    )
-    row_texts: dict[str, str] = {}
-    for key, cell in zip(keys, cells, strict=False):
-        word, _, why = cell.replace("\u202f", " ").replace("\xa0", " ").partition("\n")
-        row_texts[key], row_texts[f"{key}_why"] = word, why  # the word, its reason under it
-    return row_texts
-
-
-# ---------- story 3 of 2026-09-30: sort and filters of /models, the diagnostic's search ------
-
-# Each visible group of the table, its visible rows in order: the pairs out of order for the
-# column `key` (`size`: bytes, then parameters), unknown values always last; `ranks`: the
-# rank of each text value (`reasoning`), the others unknown.
-_MODELS_ORDER_JS = """({key, descending, ranks}) => {
-  const problems = [];
-  const value = (v) =>
-    ranks ? (ranks[v] ?? null) : v === "" || v === undefined ? null : Number(v);
-  const read = (tr) => (key === "size" ? [tr.dataset.size, tr.dataset.params] : [tr.dataset[key]])
-    .map(value);
-  for (const body of document.querySelectorAll("#models-table tbody")) {
-    if (body.hidden) continue;
-    const rows = [...body.querySelectorAll("tr[data-value]")].filter((tr) => !tr.hidden);
-    for (let i = 1; i < rows.length; i++) {
-      const a = read(rows[i - 1]);
-      const b = read(rows[i]);
-      for (let j = 0; j < a.length; j++) {
-        if (a[j] === b[j]) continue;
-        const wrong = a[j] === null || (b[j] !== null && (descending ? a[j] < b[j] : a[j] > b[j]));
-        const [x, y] = [rows[i - 1].dataset.value, rows[i].dataset.value];
-        if (wrong) problems.push(`${x} (${a}) > ${y} (${b})`);
-        break;
-      }
+    """Lot 3 of 2026-10-04: story 25's row, read on the card of `value`, unfolded: its
+    publisher, size, state and each capability with its reason."""
+    info = _card_info(r, value)
+    facts = info["facts"]
+    row = {
+        "name": info["name"],
+        "publisher": info["publisher"],
+        "size": info["size"],
+        "state": info["state"],
+        "text": info["text"],
     }
-  }
-  return problems;
-}"""
+    for key, label in (
+        ("window", "Fenêtre"),
+        ("tools", "Appel d'outils"),
+        ("reasoning", "Raisonnement"),
+        ("price", "Prix"),
+    ):
+        row[key], row[f"{key}_why"] = facts.get(label, ["", ""])
+    return row
 
 
-def _models_order_problems(
-    r: Run, key: str, descending: bool, ranks: dict[str, int] | None = None
-) -> list[str]:
-    return r.page.evaluate(_MODELS_ORDER_JS, {"key": key, "descending": descending, "ranks": ranks})
+# ---------- story 3 of 2026-09-30, lot 3 of 2026-10-04: sort and filters of the cards ------
+
+_CARDS_SHOWN_JS = """() => [...document.querySelectorAll('.publisher-group')].map((g) => ({
+  group: g.dataset.key,
+  cards: [...g.querySelectorAll('article.model-card')].map((c) => c.dataset.card),
+}))"""
 
 
-def _models_sort_marks(r: Run) -> dict[str, str | None]:
-    """`aria-sort` of each header of the table, by its `data-sort` (the price: « price »)."""
-    return r.page.eval_on_selector_all(
-        "#models-table thead th",
-        "ths => Object.fromEntries(ths.map(th => [th.dataset.sort ?? 'price',"
-        " th.getAttribute('aria-sort')]))",
-    )
+def _cards_shown(r: Run) -> list[dict[str, Any]]:
+    """Each visible publisher group, its cards in order."""
+    return r.page.evaluate(_CARDS_SHOWN_JS)
 
 
-def _models_visible_values(r: Run) -> list[str]:
-    return r.page.eval_on_selector_all(
-        "#models-table tbody:not([hidden]) tr[data-value]:not([hidden])",
-        "trs => trs.map(tr => tr.dataset.value)",
-    )
+def _shown_ids(r: Run) -> list[str]:
+    return sorted(c for g in _cards_shown(r) for c in g["cards"])
+
+
+def _order_problems(r: Run, key) -> list[str]:  # noqa: ANN001 - card -> tuple, None unknown
+    """The pairs of cards out of order within each visible group, unknown values last."""
+    by_id = {c["id"]: c for c in _api_cards(r)}
+    problems = []
+    for group in _cards_shown(r):
+        values = [key(by_id[c]) for c in group["cards"]]
+        for i in range(1, len(values)):
+            a, b = values[i - 1], values[i]
+            for x, y in zip(a, b, strict=True):
+                if x == y:
+                    continue
+                if x is None or (y is not None and x > y):
+                    problems.append(f"{group['cards'][i - 1]} ({a}) > {group['cards'][i]} ({b})")
+                break
+    return problems
+
+
+def _size_key(card: dict[str, Any]) -> tuple:
+    return (card["size_bytes_min"], card["members"][0]["params_b"])
+
+
+def _window_key(card: dict[str, Any]) -> tuple:
+    return (max((m["window"] or 0) for m in card["members"]) or None,)
+
+
+def _hosting(r: Run, value: str) -> None:
+    r.page.locator(f'#filter-hosting button[data-value="{value}"]').click()
 
 
 def _folded(text: str) -> str:
@@ -8990,98 +10138,71 @@ def _folded(text: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
 
 
+def _card_words(card: dict[str, Any]) -> str:
+    names = [f"{m['name']} {m['publisher_text']}" for m in card["members"]]
+    return _folded(" ".join([card["name"], card["group"]["publisher_text"], *names]))
+
+
 def _models_sort_and_filters(r: Run) -> None:
-    """Sort by size (twice: descending, `aria-sort`), by the window from the keyboard; the
-    network filter with a free text, its count; no result, then « Réinitialiser les filtres »."""
+    """« Trier par » Taille, then Fenêtre, within each group, unknown values last; the network
+    filter with a free text, its count; no result, then « Réinitialiser les filtres »; the
+    tools, reasoning and publisher filters, a card kept when one of its sources matches."""
     page = r.page
-    models = r.api("GET", "/api/diagnostic").json()["models"]
-    rows = [m for g in models["groups"] for m in g["models"]]
-    total = len(rows)
-    size = page.locator('#models-table th[data-sort="size"] .sort-button')
-    size.click()
-    size.click()
-    marks = _models_sort_marks(r)
-    problems = _models_order_problems(r, "size", descending=True)
+    cards = _api_cards(r)
+    total = len(cards)
+    page.select_option("#filter-sort", "size")
+    problems = _order_problems(r, _size_key)
     r.check(
-        marks["size"] == "descending"
-        and all(v is None for k, v in marks.items() if k != "size")
-        and not problems,
-        "tableau : « Taille » deux fois, décroissant par taille dans chaque groupe, inconnues "
-        "en dernier, aria-sort=descending sur cet en-tête seul",
-        f"{marks} · " + "; ".join(problems[:4]),
+        not problems and len(_shown_ids(r)) == total,
+        "« Trier par : Taille » : croissant par taille dans chaque groupe, inconnues en dernier",
+        "; ".join(problems[:4]),
     )
-    window = page.locator('#models-table th[data-sort="window"] .sort-button')
-    window.focus()
-    page.keyboard.press("Enter")
-    marks = _models_sort_marks(r)
-    problems = _models_order_problems(r, "window", descending=False)
+    page.locator("#filter-sort").focus()
+    page.select_option("#filter-sort", "window")
+    problems = _order_problems(r, _window_key)
     r.check(
-        marks["window"] == "ascending" and marks["size"] is None and not problems,
-        "tableau : Entrée sur « Fenêtre », croissant par fenêtre, aria-sort passé à cet en-tête",
-        f"{marks} · " + "; ".join(problems[:4]),
-    )
-    r.check(
-        page.locator("#models-table thead th", has_text="Prix").locator("button").count() == 0,
-        "tableau : le prix ne se trie pas",
+        not problems, "« Trier par : Fenêtre » : croissant par fenêtre", "; ".join(problems[:4])
     )
 
-    page.select_option("#filter-hosting", "network")
+    _hosting(r, "network")
     page.fill("#filter-text", "gem")
     expected = sorted(
-        m["value"]
-        for m in rows
-        if m["hosting"] == "network" and "gem" in _folded(f"{m['name']} {m['publisher_text']}")
+        c["id"] for c in cards if c["hosting"] == "network" and "gem" in _card_words(c)
     )
-    shown = sorted(_models_visible_values(r))
+    shown = _shown_ids(r)
     status = page.inner_text("#models-status")
     word = "modèle" if len(expected) <= 1 else "modèles"
-    local_hidden = page.eval_on_selector_all(
-        "#models-table tbody",
-        "bs => bs.every(b => b.hidden || [...b.querySelectorAll('tr[data-value]')]"
-        ".some(tr => !tr.hidden))",
-    )
+    pressed = page.locator('#filter-hosting button[aria-pressed="true"]').inner_text()
     r.check(
         bool(expected)
         and shown == expected
         and status == f"{len(expected)} {word} sur {total}"
-        and local_hidden,
-        "filtres : réseau + « gem », les seules lignes réseau dont le nom ou l'éditeur contient "
-        "« gem », compteur « n modèles sur N », groupes vides masqués",
-        f"{shown} · attendu {expected} · « {status} »",
+        and pressed == "Réseau"
+        and "Aucun modèle local ne correspond à ces filtres." in page.inner_text("#candidates"),
+        "filtres : « Réseau » (bouton segmenté) + « gem », les seules cartes cloud dont le nom ou "
+        "l'éditeur contient « gem », compteur « n modèles sur N », groupes vides masqués",
+        f"{shown} · attendu {expected} · « {status} » · {pressed}",
     )
     r.shot("44b-modeles-filtres", full_page=True)
 
     page.fill("#filter-text", "zzz")
-    empty = page.locator("#models-empty")
-    expect(empty).to_be_visible(timeout=5000)
     r.check(
-        page.locator("#models-table").is_hidden()
-        and "Aucun modèle ne correspond à ces filtres." in empty.inner_text()
+        not _shown_ids(r)
+        and "Aucun modèle cloud ne correspond à ces filtres." in page.inner_text("#cloud-models")
         and page.inner_text("#models-status") == f"0 modèle sur {total}",
-        "filtres : « zzz », aucun résultat, message dédié, tableau masqué",
+        "filtres : « zzz », aucun résultat, message dans chaque zone",
         page.inner_text("#models-status"),
     )
-    page.locator("#models-empty-reset").click()
-    shown = _models_visible_values(r)
+    page.locator("#filters-reset").click()
+    shown = _shown_ids(r)
     r.check(
-        empty.is_hidden()
-        and len(shown) == total
+        len(shown) == total
         and page.input_value("#filter-text") == ""
-        and page.input_value("#filter-hosting") == ""
-        and page.inner_text("#models-status").startswith(f"{total} modèles"),
-        "« Réinitialiser les filtres » : toutes les lignes de nouveau, compteur entier",
+        and page.locator('#filter-hosting button[aria-pressed="true"]').inner_text() == "Tous"
+        and page.input_value("#filter-sort") == ""
+        and page.inner_text("#models-status").startswith(f"{total} modèle"),
+        "« Réinitialiser les filtres » : toutes les cartes de nouveau, compteur entier",
         f"{len(shown)} / {total} · {page.inner_text('#models-status')}",
-    )
-
-    reasoning = page.locator('#models-table th[data-sort="reasoning"] .sort-button')
-    reasoning.click()
-    ranks = {"always": 0, "toggle": 1, "never": 2}
-    problems = _models_order_problems(r, "reasoning", descending=False, ranks=ranks)
-    r.check(
-        _models_sort_marks(r)["reasoning"] == "ascending" and not problems,
-        "tableau : « Raisonnement », toujours < activable < jamais dans chaque groupe, "
-        "inconnus en dernier",
-        "; ".join(problems[:4]),
     )
 
     publisher = page.eval_on_selector_all(
@@ -9106,31 +10227,37 @@ def _models_sort_and_filters(r: Run) -> None:
     for selector, option, keep, label in filters:
         if option is not None:
             page.select_option(selector, option)
-        expected = sorted(m["value"] for m in rows if keep(m))
-        shown = sorted(_models_visible_values(r))
+        expected = sorted(c["id"] for c in cards if any(keep(m) for m in c["members"]))
+        shown = _shown_ids(r)
         r.check(
             option is not None and bool(expected) and shown == expected,
-            f"filtres : {label}, ses seules lignes",
+            f"filtres : {label}, ses seules cartes",
             f"{len(shown)} affichées · attendu {len(expected)} · "
             f"en trop {sorted(set(shown) - set(expected))[:4]} · "
             f"manquantes {sorted(set(expected) - set(shown))[:4]}",
         )
         page.locator("#filters-reset").click()
+    # An unfolded card the filters hide folds.
+    _unfold(page.locator("#cloud-models .model-card").first)
+    _hosting(r, "local")
+    r.check(
+        page.locator('.model-card-head[aria-expanded="true"]').count() == 0,
+        "filtres : une carte dépliée qui sort du filtre se replie",
+    )
+    page.locator("#filters-reset").click()
 
 
 def _models_window_then_network(r: Run) -> None:
-    """German, at the width of the moment: sort by « Fenster », then the « Netzwerk » filter;
-    the network rows only, by window in their group, the count right (AC of story 3)."""
+    """German, at the width of the moment: « Sortieren nach : Fenster », then « Netzwerk »;
+    the cloud cards only, by window in their group, the count right (AC of story 3)."""
     page = r.page
-    rows = [
-        m for g in r.api("GET", "/api/diagnostic").json()["models"]["groups"] for m in g["models"]
-    ]
-    network = sorted(m["value"] for m in rows if m["hosting"] == "network")
-    page.locator('#models-table th[data-sort="window"] .sort-button').click()
-    page.select_option("#filter-hosting", "network")
-    option = page.eval_on_selector("#filter-hosting", "s => s.selectedOptions[0].textContent")
-    shown = sorted(_models_visible_values(r))
-    problems = _models_order_problems(r, "window", descending=False)
+    cards = _api_cards(r)
+    network = sorted(c["id"] for c in cards if c["hosting"] == "network")
+    page.select_option("#filter-sort", "window")
+    _hosting(r, "network")
+    option = page.locator('#filter-hosting button[aria-pressed="true"]').inner_text()
+    shown = _shown_ids(r)
+    problems = _order_problems(r, _window_key)
     status = page.inner_text("#models-status")
     word = "Modell" if len(network) == 1 else "Modelle"
     r.check(
@@ -9138,8 +10265,8 @@ def _models_window_then_network(r: Run) -> None:
         and option == "Netzwerk"
         and shown == network
         and not problems
-        and status == f"{len(network)} {word} von {len(rows)}",
-        "de : « Fenster » puis « Netzwerk », les seules lignes réseau, par fenêtre dans leur "
+        and status == f"{len(network)} {word} von {len(cards)}",
+        "de : « Fenster » puis « Netzwerk », les seules cartes cloud, par fenêtre dans leur "
         "groupe, compteur juste",
         f"{option} · {len(shown)} / {len(network)} · « {status} » · " + "; ".join(problems[:3]),
     )
@@ -9159,6 +10286,9 @@ def _diagnostic_search_shown(r: Run) -> None:
         f"{real.get('searching')} · {real.get('progress')}",
     )
     fake = {**real, "searching": True, "progress": {"done": 0, "total": 0}, "candidates": []}
+    # Lot 3 of 2026-10-04: no candidate yet, hence no local card (the session builds them).
+    network = [g for g in real["models"]["groups"] if g["hosting"] == "network"]
+    fake["models"] = {**real["models"], "groups": network}
     fake["ready"] = False
     envelope = {
         "seq": real["seq"] + 1000,
@@ -9181,7 +10311,7 @@ def _diagnostic_search_shown(r: Run) -> None:
             "Recherche et test des modèles en cours…" in search.inner_text()
             and count.is_hidden()
             and "Aucun candidat trouvé." not in page.inner_text("#candidates")
-            and page.locator("#candidates li").count() == 0,
+            and page.locator("#candidates .model-card").count() == 0,
             "diagnostic en recherche, rien à sonder : le message sans compteur, jamais "
             "« Aucun candidat trouvé. »",
             search.inner_text(),
@@ -9207,16 +10337,159 @@ def _diagnostic_search_shown(r: Run) -> None:
         page.unroute("**/api/diagnostic")
         page.unroute("**/api/diagnostic/stream")
     page.goto(f"{r.stack.app_url}/diagnostic")
-    expect(page.locator("#candidates li").first).to_be_visible(timeout=20_000)
+    expect(page.locator("#candidates .model-card").first).to_be_visible(timeout=20_000)
     r.check(
         search.is_hidden() and "Aucun candidat trouvé." not in page.inner_text("#candidates"),
         "diagnostic, recherche finie : la liste des candidats, sans message de recherche",
     )
 
 
+def _diagnostic_card_states(r: Run) -> None:
+    """Lot 3 of 2026-10-04, from a simulated `/api/diagnostic`: a card with an active source
+    and an incompatible one says « Actif » (its sources keep their own state); a model whose
+    last load failed says « Erreur », the cause and « Choisir ce modèle » in its detail; a
+    check in warning opens the checks panel, all green folds it."""
+    page = r.page
+    real = r.api("GET", "/api/diagnostic").json()
+    group = next(
+        (g for g in real["models"]["groups"] if g["hosting"] == "local"),
+        real["models"]["groups"][0],
+    )
+    base = {**group["models"][0], "hosting": "local", "usable": True, "disabled_text": None}
+    active = {**base, "kind": "file", "ref": "C:/e2e/actif.gguf", "value": "file:C:/e2e/actif.gguf"}
+    broken = {
+        **base,
+        "kind": "file",
+        "ref": "D:/e2e/actif.gguf",
+        "value": "file:D:/e2e/actif.gguf",
+        "usable": False,
+        "disabled_text": "Incompatible simulé.",
+    }
+    failed = {**base, "kind": "file", "ref": "C:/e2e/panne.gguf", "value": "file:C:/e2e/panne.gguf"}
+    card = {
+        "id": "card:e2e-actif",
+        "name": "e2e-actif",
+        "hosting": "local",
+        "size_bytes_min": 1024**3,
+        "size_text": "1,0 Go",
+        "params_text": None,
+        "origin_text": "2 sources · e2e",
+        "quantization_text": None,
+        "source_values": [active["value"], broken["value"]],
+    }
+    lone = {**card, "id": "card:e2e-panne", "name": "e2e-panne", "origin_text": "e2e"}
+    lone["source_values"] = [failed["value"]]
+    fake_group = {**group, "hosting": "local", "models": [active, broken, failed]}
+    fake_group["cards"] = [card, lone]
+    network = [g for g in real["models"]["groups"] if g["hosting"] == "network"]
+    fake = {
+        **real,
+        "searching": False,
+        "progress": None,
+        "candidates": [],
+        "models": {**real["models"], "groups": [fake_group, *network]},
+        "loaded": {"kind": "file", "ref": active["ref"], "label": "e2e-actif"},
+        "selected": {"kind": "file", "ref": active["ref"]},
+        "load_errors": [{"kind": "file", "ref": failed["ref"], "reason_text": "Panne simulée."}],
+    }
+
+    def checks(network_status: str) -> str:
+        frames = []
+        for i, (check, status) in enumerate(
+            (("memory", "ok"), ("model", "ok"), ("network", network_status), ("port", "ok"))
+        ):
+            envelope = {
+                "seq": i + 1,
+                "ts": "2026-10-04T00:00:00Z",
+                "session_epoch": 0,
+                "kind": "diagnostic_check",
+                "actor": "harness",
+                "trigger": "harness",
+                "payload": {
+                    "check": check,
+                    "status": status,
+                    "message_text": f"{check} simulé",
+                    "action_text": None,
+                    "blocking": False,
+                },
+            }
+            frames.append(f"id: {i + 1}\nevent: diagnostic_check\ndata: {json.dumps(envelope)}\n\n")
+        return "".join(frames)
+
+    stream = {"body": checks("warn")}
+    page.route("**/api/diagnostic", lambda route: route.fulfill(json=fake))
+    page.route(
+        "**/api/diagnostic/stream",
+        lambda route: route.fulfill(
+            status=200, headers={"Content-Type": "text/event-stream"}, body=stream["body"]
+        ),
+    )
+    try:
+        page.goto(f"{r.stack.app_url}/diagnostic")
+        both = page.locator('.model-card[data-card="card:e2e-actif"]')
+        expect(both).to_be_visible(timeout=10_000)
+        pill = both.locator(".model-card-head .state-pill")
+        r.check(
+            pill.get_attribute("data-state") == "active"
+            and pill.inner_text() == "Actif"
+            and "is-active" in (both.get_attribute("class") or "")
+            and both.locator(".sources-chip").inner_text() == "2 sources",
+            "carte à deux sources, une active et une incompatible : pastille « Actif », "
+            "puce « 2 sources »",
+            f"{pill.get_attribute('data-state')} · {pill.inner_text()}",
+        )
+        both.locator(".model-card-head").click()
+        sources = both.locator(".card-source")
+        expect(sources).to_have_count(2, timeout=5_000)
+        own = sources.locator(".state-pill").evaluate_all("ps => ps.map(p => p.dataset.state)")
+        r.check(
+            own == ["active", "incompatible"]
+            and sources.nth(1).locator("button").count() == 0
+            and "Incompatible simulé." in sources.nth(1).inner_text(),
+            "carte dépliée : chaque source son état, pas de « Choisir » sur l'incompatible",
+            str(own),
+        )
+        lone_card = page.locator('.model-card[data-card="card:e2e-panne"]')
+        lone_pill = lone_card.locator(".model-card-head .state-pill")
+        r.check(
+            lone_pill.get_attribute("data-state") == "error"
+            and lone_pill.inner_text() == "Erreur"
+            and "is-unusable" in (lone_card.get_attribute("class") or ""),
+            "dernier chargement en échec : carte « Erreur », fond inutilisable",
+            lone_pill.inner_text(),
+        )
+        lone_card.locator(".model-card-head").click()
+        expect(lone_card.locator(".model-card-detail")).to_be_visible(timeout=5_000)
+        r.check(
+            "Panne simulée." in lone_card.inner_text()
+            and lone_card.get_by_role("button", name="Choisir ce modèle").count() == 1
+            and both.locator(".model-card-detail").count() == 0,
+            "carte « Erreur » dépliée : la cause et « Choisir ce modèle » pour réessayer ; "
+            "une seule carte dépliée",
+        )
+        panel = page.locator("#checks-panel")
+        r.check(
+            panel.get_attribute("open") is not None
+            and "1 avertissement : réseau" in page.inner_text("#checks-summary"),
+            "un contrôle en avertissement : panneau des contrôles ouvert d'office",
+            page.inner_text("#checks-summary"),
+        )
+        stream["body"] = checks("ok")
+        page.reload()
+        expect(page.locator("#checks-summary")).to_contain_text("4 contrôles OK", timeout=10_000)
+        r.check(
+            panel.get_attribute("open") is None,
+            "tous les contrôles OK : panneau replié",
+            page.inner_text("#checks-summary"),
+        )
+    finally:
+        page.unroute("**/api/diagnostic")
+        page.unroute("**/api/diagnostic/stream")
+
+
 def _open_models_page(r: Run) -> None:
-    r.page.goto(f"{r.stack.app_url}/models")
-    expect(r.page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
+    """Lot 3 of 2026-10-04: the models' table is « Diagnostic et modèles »."""
+    _goto_diagnostic(r)
 
 
 def s_model_catalog(r: Run) -> None:
@@ -9298,19 +10571,26 @@ def s_model_catalog(r: Run) -> None:
         }"""
     )
 
-    # « Tableau des modèles… » noted, then « Ouvrir le tableau »: `/models`, same tab.
+    # « Tableau des modèles… » noted, then « Ouvrir le tableau »: lot 3 of 2026-10-04, the
+    # « Diagnostic et modèles » page, same tab; `/models` redirects there.
     page.select_option("#model-picker", label=PICK_MODELS_LABEL)
     apply = page.locator("#model-picker-apply")
     r.check(apply.inner_text() == "Ouvrir le tableau", "bouton « Ouvrir le tableau »")
     apply.click()
-    page.wait_for_url(f"{r.stack.app_url}/models", timeout=10_000)
-    expect(page.locator("#models-table tbody tr").first).to_be_visible(timeout=10_000)
+    page.wait_for_url(f"{r.stack.app_url}/diagnostic", timeout=10_000)
+    expect(page.locator("#cloud-models .model-card").first).to_be_visible(timeout=20_000)
     current = page.locator('.site-nav a[aria-current="page"]')
-    r.check(current.inner_text() == "Modèles", "page /models : lien « Modèles » courant")
     r.check(
-        page.locator(".site-nav a", has_text="Diagnostic").get_attribute("href") == "/diagnostic",
-        "page /models : le lien « Diagnostic » de la barre commune mène à /diagnostic",
+        current.inner_text() == "🛠️ Diagnostic"
+        and page.locator('.site-nav a[href="/models"]').count() == 0
+        and page.title() == "WaveStack — Diagnostic et modèles"
+        and page.locator("h1").inner_text() == "Diagnostic et modèles",
+        "« Tableau des modèles… » : la page « Diagnostic et modèles », « 🛠️ Diagnostic » courant",
+        current.inner_text(),
     )
+    page.goto(f"{r.stack.app_url}/models")
+    r.check(page.url.endswith("/diagnostic"), "/models redirige vers /diagnostic", page.url)
+    expect(page.locator("#cloud-models .model-card").first).to_be_visible(timeout=20_000)
     llama = _models_row(r, f"server:llama_server/{LLAMA_FILE}")
     r.check(
         llama.get("publisher") == "Qwen (Alibaba)"
@@ -9318,81 +10598,74 @@ def s_model_catalog(r: Run) -> None:
         and llama.get("reasoning") == "activable"
         and llama.get("window") == "4 096 tokens"
         and llama.get("price") == "—",
-        "tableau : faux llama-server Qwen, outils oui, raisonnement activable, 4 096 tokens, "
+        "carte : faux llama-server Qwen, outils oui, raisonnement activable, 4 096 tokens, "
         "prix « — »",
-        str(llama),
+        str({k: v for k, v in llama.items() if k != "text"}),
     )
     reasoning_r = _models_row(r, f"cloud:{REASONING_ENTRY_ID}")
-    r.check(reasoning_r.get("reasoning") == "toujours", "tableau : modèle R « toujours »")
+    r.check(reasoning_r.get("reasoning") == "toujours", "carte : modèle R « toujours »")
     gemini = _models_row(r, "cloud:gemini")
     r.check(
-        gemini.get("model") == "RÉSEAU · Google AI Studio"
-        and gemini.get("model_why") == "gemini-3.5-flash-lite"
+        gemini.get("size") == "RÉSEAU · Google AI Studio"
+        and gemini.get("name") == "gemini-3.5-flash-lite"
         and gemini.get("publisher") == "Gemini (Google)"
         and gemini.get("reasoning") == "activable"
-        and gemini.get("state") == "indisponible"
-        and "clé API" in gemini.get("state_why", "")
+        and gemini.get("state") == "key_missing"
+        and "clé API" in gemini.get("text", "")
         and gemini.get("price") == "0,30 $ / 2,50 $"
         and "par million de tokens" in gemini.get("price_why", ""),
-        "tableau : préréglage Gemini, éditeur « Gemini (Google) », raisonnement « activable », "
-        "indisponible sans clé, avec la raison, prix « 0,30 $ / 2,50 $ » par million de tokens",
-        str(gemini),
+        "carte : préréglage Gemini, éditeur « Gemini (Google) », raisonnement « activable », "
+        "« Clé manquante » avec la raison, prix « 0,30 $ / 2,50 $ » par million de tokens",
+        str({k: v for k, v in gemini.items() if k != "text"}),
     )
     gemma = _models_row(r, "cloud:gemma")
     r.check(
-        gemma.get("model") == "RÉSEAU · Google AI Studio"
-        and gemma.get("model_why") == "gemma-4-26b-a4b-it"
+        gemma.get("name") == "gemma-4-26b-a4b-it"
         and gemma.get("publisher") == "Gemma (Google)"
         and gemma.get("reasoning") == "activable"
-        and gemma.get("size") == "26 B"
-        and gemma.get("state") == "indisponible"
+        and gemma.get("state") == "key_missing"
         and gemma.get("price") == "—",
-        "tableau : préréglage Gemma, éditeur « Gemma (Google) », raisonnement « activable », "
-        "« 26 B » lu dans le nom, indisponible sans clé, prix « — » (gratuit, sans pricing)",
-        str(gemma),
+        "carte : préréglage Gemma, éditeur « Gemma (Google) », raisonnement « activable », "
+        "« Clé manquante », prix « — » (gratuit, sans pricing)",
+        str({k: v for k, v in gemma.items() if k != "text"}),
     )
     fake_a = _models_row(r, f"cloud:{MODEL_ENTRY_ID}")
-    r.check(fake_a.get("reasoning") == "jamais", "tableau : wavestack-fake « jamais »")
-    r.check(fake_a.get("state") == "actif", "tableau : la ligne du modèle actif dit « actif »")
+    r.check(fake_a.get("reasoning") == "jamais", "carte : wavestack-fake « jamais »")
+    r.check(fake_a.get("state") == "active", "carte : celle du modèle actif dit « Actif »")
     ollama = _models_row(r, "server:ollama/faux-ollama:latest")
     r.check(
         ollama.get("reasoning") == "inconnu" and "introuvable" in ollama["reasoning_why"],
-        "tableau : faux Ollama « inconnu », raison visible « introuvable »",
-        str(ollama),
+        "carte : faux Ollama « inconnu », raison visible « introuvable »",
+        str({k: v for k, v in ollama.items() if k != "text"}),
     )
-    network = page.locator("#models-table tr[data-value^='cloud:']")
-    rows = network.all_inner_texts()
+    network = page.locator("#cloud-models .model-card")
     cloud_count = len(r.api("GET", "/api/diagnostic").json()["cloud"]["models"])
+    tags = page.locator("#cloud-models .model-card-head .hosting-tag-network")
     r.check(
-        len(rows) == cloud_count >= 3 and all("RÉSEAU" in t for t in rows),
-        "tableau : chaque ligne réseau montre « RÉSEAU »",
-        f"{len(rows)} lignes, {cloud_count} modèles cloud",
-    )
-    tag = network.first.locator(".hosting-tag-network")
-    r.check(
-        r.css(tag, "background-color") == r.token_color("--color-hosting-network"),
-        "tableau : étiquette réseau sur le jeton jaune",
+        network.count() == cloud_count >= 3
+        and tags.count() == cloud_count
+        and all("RÉSEAU" in t for t in tags.all_inner_texts()),
+        "zone cloud : chaque carte montre « 🌐 RÉSEAU · {fournisseur} »",
+        f"{network.count()} cartes, {cloud_count} modèles cloud",
     )
     r.check(
-        page.locator("#models-table th[scope='rowgroup']").all_inner_texts() == labels
-        and page.locator("#models-table caption").count() == 1,
-        "tableau : une légende, et un en-tête par groupe, ceux du sélecteur",
-        str(page.locator("#models-table th[scope='rowgroup']").all_inner_texts()),
+        r.css(tags.first, "background-color") == r.token_color("--color-hosting-network"),
+        "carte cloud : étiquette réseau sur le jeton jaune",
+    )
+    headers = page.locator(".publisher-group-name").all_inner_texts()
+    r.check(
+        headers == [label.split(" · ", 1)[1] for label in labels],
+        "un en-tête par groupe d'éditeur, ceux du sélecteur, dans son ordre",
+        f"{headers} · {labels}",
     )
     r.check(
         "Capacités lues comme au chargement" in page.inner_text("body"),
-        "tableau : « Capacités lues comme au chargement… »",
+        "page : « Capacités lues comme au chargement… »",
     )
-    r.shot("44-modeles-tableau", full_page=True)
+    r.shot("44-modeles-cartes", full_page=True)
     _models_sort_and_filters(r)  # story 3 of 2026-09-30
-    page.locator(".site-nav a", has_text="Diagnostic").click()
-    page.wait_for_url(f"{r.stack.app_url}/diagnostic", timeout=10_000)
-    r.check(
-        page.locator('.site-nav a[aria-current="page"]').inner_text() == "Diagnostic"
-        and page.locator(".site-nav a", has_text="Modèles").get_attribute("href") == "/models",
-        "diagnostic : même barre commune, « Diagnostic » courant",
-    )
     _diagnostic_search_shown(r)  # story 3 of 2026-09-30
+    _diagnostic_card_states(r)  # lot 3 of 2026-10-04: aggregated state, « Erreur », checks
 
     # One truth: the reasoning card after the load and the table say the same.
     r.goto_app()
@@ -9405,9 +10678,9 @@ def s_model_catalog(r: Run) -> None:
         _open_models_page(r)
         row = _models_row(r, f"cloud:{REASONING_ENTRY_ID}")
         r.check(
-            locked and row.get("reasoning") == "toujours" and row.get("state") == "actif",
-            "modèle R actif : carte verrouillée et ligne « toujours », « actif »",
-            str(row),
+            locked and row.get("reasoning") == "toujours" and row.get("state") == "active",
+            "modèle R actif : carte verrouillée et carte du modèle « toujours », « Actif »",
+            str({k: v for k, v in row.items() if k != "text"}),
         )
     finally:
         r.goto_app()
@@ -9419,8 +10692,8 @@ def s_model_catalog(r: Run) -> None:
     r.check(
         row.get("reasoning") == "jamais"
         and any("ne déclare pas de raisonnement" in t for t in reason),
-        "retour à l'entrée A : ligne « jamais », carte indisponible « ne déclare pas de "
-        "raisonnement »",
+        "retour à l'entrée A : carte du modèle « jamais », carte indisponible « ne déclare "
+        "pas de raisonnement »",
         f"{row.get('reasoning')} · {reason}",
     )
     _models_page_language(r)
@@ -9428,16 +10701,17 @@ def s_model_catalog(r: Run) -> None:
 
 
 def _models_page_language(r: Run) -> None:
-    """Story 2 (2026-09-30): on `/models`, the conversation empty, « English » in « Affichage ▾ »
-    of the shared bar: the page reloads in English. Back to French after."""
+    """Story 2 (2026-09-30): on « Diagnostic et modèles » (lot 3 of 2026-10-04: the models'
+    table), the conversation empty, « English » in « Affichage ▾ » of the shared bar: the page
+    reloads in English. Back to French after."""
     page = r.page
     r.goto_app()
     r.launch("bare_llm")
     r.send("Bonjour")
     r.wait_idle()
     page.goto("about:blank")  # an open main screen would reload itself on `language_changed`
-    page.goto(f"{r.stack.app_url}/models")
-    expect(page.locator("#models-table tbody").first).to_be_attached(timeout=20_000)
+    page.goto(f"{r.stack.app_url}/diagnostic")
+    expect(page.locator("#cloud-models .model-card").first).to_be_attached(timeout=20_000)
     try:
         picker = page.locator("#language-picker")
         panel = page.locator("#display-menu-panel")
@@ -9447,7 +10721,7 @@ def _models_page_language(r: Run) -> None:
         title = picker.get_attribute("title") or ""
         r.check(
             ok and "Videz d'abord la conversation" in title,
-            "/models, un tour joué : sélecteur de langue désactivé, l'infobulle dit de vider "
+            "/diagnostic, un tour joué : sélecteur de langue désactivé, l'infobulle dit de vider "
             "la conversation",
             f"{title} ({took:.1f} s)",
         )
@@ -9457,7 +10731,7 @@ def _models_page_language(r: Run) -> None:
         ok, took = r.poll(lambda: picker.is_enabled(), 10)
         r.check(
             cleared.status_code == 200 and ok,
-            "/models, conversation vidée, menu rouvert : sélecteur de langue actif",
+            "/diagnostic, conversation vidée, menu rouvert : sélecteur de langue actif",
             f"{cleared.status_code} · {took:.1f} s",
         )
         # A refusal (409): its reason in the menu, the picker offered again.
@@ -9475,8 +10749,8 @@ def _models_page_language(r: Run) -> None:
             ok, _ = r.poll(lambda: picker.is_enabled(), 10)
             r.check(
                 ok and picker.input_value() == "fr" and _html_lang(r) == "fr",
-                "/models, refus (409) : la raison dans « Affichage ▾ », le sélecteur de nouveau "
-                "actif, sur « Français »",
+                "/diagnostic, refus (409) : la raison dans « Affichage ▾ », le sélecteur de "
+                "nouveau actif, sur « Français »",
                 f"{alert.inner_text()} · {picker.input_value()}",
             )
         finally:
@@ -9488,29 +10762,29 @@ def _models_page_language(r: Run) -> None:
             panel.is_hidden()
             and focused == "display-menu-toggle"
             and page.locator("#display-menu-alert").is_hidden(),
-            "/models : Échap ferme « Affichage ▾ », le focus revient sur sa face, le refus "
+            "/diagnostic : Échap ferme « Affichage ▾ », le focus revient sur sa face, le refus "
             "s'efface",
             f"focus sur {focused}",
         )
         _open_display(page)
         page.locator("h1").click()
-        r.check(panel.is_hidden(), "/models : un clic hors du menu ferme « Affichage ▾ »")
+        r.check(panel.is_hidden(), "/diagnostic : un clic hors du menu ferme « Affichage ▾ »")
         _open_display(page)
         ok, _ = r.poll(lambda: picker.is_enabled(), 10)
         seq = r.ev.mark()
         with page.expect_navigation(timeout=15_000):  # the page reloads, as on the main screen
             picker.select_option("en")
         r.ev.wait("language_changed", seq, lambda p: p["language"] == "en", timeout=15)
-        expect(page.locator("#models-table tbody").first).to_be_attached(timeout=20_000)
+        expect(page.locator("#cloud-models .model-card").first).to_be_attached(timeout=20_000)
         home = page.locator(".site-nav > a:not(.site-nav-brand)").first.inner_text()
         current = page.locator('.site-nav a[aria-current="page"]').inner_text()
         r.check(
-            page.url.endswith("/models")
+            page.url.endswith("/diagnostic")
             and _html_lang(r) == "en"
-            and (home, current) == ("Workshop", "Models")
+            and (home, current) == ("Harness", "🛠️ Diagnostics")
             and page.locator("#language-picker-code").inner_text() == "EN",
-            "/models : « English » choisi, la page se recharge en anglais (barre commune "
-            "« Workshop », « Models » courant, « EN »)",
+            "/diagnostic : « English » choisi, la page se recharge en anglais (barre commune "
+            "« Harness », « 🛠️ Diagnostics » courant, « EN »)",
             f"{page.url} · lang={_html_lang(r)} · {home} · {current}",
         )
     finally:
@@ -10006,19 +11280,26 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
     top = page.locator("#consumption")
     expect(top).to_be_visible(timeout=5000)
     text = top.inner_text()
-    label, _, amounts = text.partition("\n")
+    # Lot 1 of 2026-10-04: three lines, « Dépense estimée », « 💰 … $ + … $ », « 🍃 … g CO₂e »
+    # (two without a footprint measured).
+    lines = text.split("\n")
+    label, amounts = lines[0], lines[1] if len(lines) > 1 else ""
+    green = spend.get("impact_calls", 0) > 0
     title = top.get_attribute("title") or ""
     r.check(
         label == "Dépense estimée"
+        and amounts.startswith("💰 ")
         and amounts.count(" $") == 2
         and " + " in amounts
+        and len(lines) == (3 if green else 2)
+        and (not green or (lines[2].startswith("🍃 ") and lines[2].endswith(" g CO₂e")))
         and spend.get("calls", 0) >= 2
         and title.startswith("Dépense API estimée de la séance : entrée ")
         and ", sortie " in title
         and " € au taux de " in title
         and top.get_attribute("aria-label") == title,
-        "FinOps : « Dépense estimée » dans la barre de l'atelier, entrée + sortie, la phrase "
-        "entière "
+        "FinOps : « Dépense estimée » dans la barre de l'atelier, « 💰 entrée + sortie » sur sa "
+        "ligne (« 🍃 » sur la troisième), la phrase entière "
         "(euros compris) en infobulle et en nom accessible",
         f"{text!r} · {title} · {spend}",
     )
@@ -10095,9 +11376,9 @@ def _footprint_line(r: Run) -> tuple[str, str]:
 
 
 def _session_footprint(r: Run, what: str) -> None:
-    """GreenOps: the turn's footprint in its head, the session's in the top bar (its line when
-    it fits, always its sentence), the bar whole. Alone (no spend yet), the footprint is the
-    block's whole second line: it must show at 1600 px in normal mode."""
+    """GreenOps: the turn's footprint in its head, the session's in the top bar (lot 1 of
+    2026-10-04: its own line, « 🍃 … g CO₂e », always shown; its sentence in the tooltip), the
+    bar whole at 1600, 1440 and 1280 px, normal and projection mode."""
     page = r.page
     head = page.locator("#orch-scroll .turn-group .turn-group-figures").last.inner_text()
     r.check(
@@ -10109,18 +11390,22 @@ def _session_footprint(r: Run, what: str) -> None:
     spend = r.state().get("consumption_updated") or {}
     shown = page.locator("#consumption-footprint")
     grams = shown.inner_text() if shown.is_visible() else ""
+    lines = top.inner_text().split("\n")
     r.check(
         "Empreinte estimée de la séance : " in title
         and " g CO₂e" in title
         and top.get_attribute("aria-label") == title
         and spend.get("impact_calls", 0) >= 1
-        and (not grams or grams.endswith(" g CO₂e")),
-        f"GreenOps ({what}) : l'empreinte de la séance dans la barre de l'atelier (sa phrase en "
-        "infobulle, sa ligne quand elle tient)",
+        and grams.startswith("🍃 ")
+        and grams.endswith(" g CO₂e")
+        and lines[-1] == grams
+        and len(lines) == (3 if spend.get("calls") else 2),
+        f"GreenOps ({what}) : l'empreinte de la séance dans la barre de l'atelier, « 🍃 » sur sa "
+        "propre ligne (sa phrase en infobulle)",
         f"{top.inner_text()!r} · {title} · {spend.get('impact_calls')}",
     )
     # The bar whole with the session's block, at every width of the themes' check, in normal
-    # and in projection mode (the footprint's line then hides when it does not fit).
+    # and in projection mode, the footprint's line always shown.
     toggle = page.locator("#projection-toggle")
     visible: dict[str, bool] = {}
     try:
@@ -10135,10 +11420,10 @@ def _session_footprint(r: Run, what: str) -> None:
                 shown = page.locator("#consumption-footprint").is_visible()
                 visible[f"{width} {mode}"] = shown
                 r.check(
-                    ok,
-                    f"GreenOps ({what}) : barre entière avec l'empreinte, {width} × {height}, "
-                    f"{mode} (ligne d'empreinte {'visible' if shown else 'en infobulle'})",
-                    detail,
+                    ok and shown,
+                    f"GreenOps ({what}) : barre entière avec l'empreinte visible, "
+                    f"{width} × {height}, {mode}",
+                    detail if shown else "ligne d'empreinte masquée",
                 )
                 if projection:
                     _toggle_projection(page)
@@ -10147,12 +11432,11 @@ def _session_footprint(r: Run, what: str) -> None:
             _toggle_projection(page)
         page.set_viewport_size({"width": 1600, "height": 1000})
         time.sleep(0.3)
-    if not spend.get("calls"):  # the footprint alone: it fits the widest bar
-        r.check(
-            visible.get("1600 mode normal") is True,
-            f"GreenOps ({what}) : l'empreinte seule visible dans la barre à 1600 px (mode normal)",
-            str(visible),
-        )
+    r.check(
+        all(visible.values()),
+        f"GreenOps ({what}) : l'empreinte visible dans la barre à chaque largeur, dans chaque mode",
+        str(visible),
+    )
 
 
 def _gemini_footprint(r: Run, calls: list[dict]) -> None:
@@ -10193,14 +11477,17 @@ def _local_footprint(r: Run, calls: list[dict]) -> None:
     if installed and not spend.get("calls"):
         # Before any priced cloud call: « Empreinte estimée » over the footprint alone.
         label = r.page.locator("#consumption-label").inner_text()
-        amounts = r.page.locator("#consumption-amounts").inner_text()
+        amounts = r.page.locator("#consumption-footprint").inner_text()
+        whole = r.page.locator("#consumption").inner_text()
         r.check(
             label == "Empreinte estimée"
+            and amounts.startswith("🍃 ")
             and amounts.endswith(" g CO₂e")
-            and "$" not in r.page.locator("#consumption").inner_text()
-            and not amounts.lstrip().startswith("·"),
-            "GreenOps : sans dépense, « Empreinte estimée » sur l'empreinte seule (ni « $ », ni "
-            "« · » en tête)",
+            and "$" not in whole
+            and "💰" not in whole
+            and whole.split("\n") == [label, amounts],
+            "GreenOps : sans dépense, deux lignes, « Empreinte estimée » sur « 🍃 … g CO₂e » (ni "
+            "« $ », ni « · » en tête)",
             f"{label!r} · {amounts!r}",
         )
     notes = [c.get("impact_note_text") or "" for c in calls]
@@ -10364,7 +11651,7 @@ def s_priced_estimate(r: Run) -> None:
         spend = r.state().get("consumption_updated") or {}
         money = r.page.locator("#consumption-money").inner_text()
         r.check(
-            spend.get("approx") is True and money.startswith("≈ "),
+            spend.get("approx") is True and money.startswith("💰 ≈ "),
             "E135 : « ≈ » devant la dépense de la séance dans la barre de l'atelier",
             f"{money!r} · approx {spend.get('approx')}",
         )
@@ -10447,8 +11734,8 @@ def _llm_screen(r: Run) -> None:
     # (1) The link, whole in the shared bar (story 2 of 2026-09-30), which stays on one line.
     link = page.locator('.site-nav a[href="/llm"]')
     r.check(
-        link.is_visible() and link.inner_text() == "LLM nu",
-        "barre commune : lien « LLM nu » visible et entier",
+        link.is_visible() and link.inner_text() == "LLM",
+        "barre commune : lien « LLM » visible et entier",
         link.inner_text(),
     )
     ok, detail = _bar_fits(r)
@@ -10470,10 +11757,11 @@ def _llm_screen(r: Run) -> None:
         f"{_theme_attr(r)} · {_body_bg(r)}",
     )
     r.check(
-        page.locator("h1").inner_text() == "LLM nu : l'intérieur du modèle"
-        and page.locator("nav.site-nav a[aria-current=page]").inner_text() == "LLM nu"
+        page.locator("h1").inner_text() == "Atelier LLM : l'intérieur du modèle"
+        and page.title() == "WaveStack — Atelier LLM"
+        and page.locator("nav.site-nav a[aria-current=page]").inner_text() == "LLM"
         and not _site_nav_problems(r),
-        "/llm : titre, barre commune entière, « LLM nu » courant",
+        "/llm : titre « Atelier LLM », barre commune entière, « LLM » courant",
     )
 
     # (3) The fake cloud A: the tokenizer is at the provider.
@@ -11251,14 +12539,39 @@ def _llm_live(r: Run, live: _LiveLab, errors: list[str]) -> None:
 # ---------- story 30: the RAG workshop ----------
 
 RAG_LAB_QUESTION = "Combien de jours de télétravail par semaine ?"
+# Lot 5a: the chain's stages (their technical names, English in every language)...
 RAG_LAB_STAGES = [
-    "Découpage",
+    "Chunking",
     "Embedding",
-    "Base vectorielle",
-    "Recherche",
+    "Vector store",
+    "Dense retrieval",
     "Reranking",
-    "Construction du contexte",
-    "Génération",
+    "Prompt augmentation",
+    "Generation",
+]
+# ... and the sequence's lines, BUILD then RUN (vues-atelier-rag.md §2).
+RAG_LAB_SEQUENCE = [
+    "Documents",
+    "Chunking",
+    "Embedding",
+    "Indexing",
+    "Question",
+    "Embedding",
+    "Dense retrieval",
+    "Reranking",
+    "Prompt augmentation",
+    "Generation",
+]
+RAG_LAB_TILES = [
+    "Documents",
+    "Chunks",
+    "Vector store",
+    "Embedding model",
+    "Reranker",
+    "LLM",
+    "Question",
+    "Augmented prompt",
+    "Réponse",
 ]
 
 # Every text a `.rag-stage-status` shows, recorded as it changes (the run is fast: a status
@@ -11271,21 +12584,48 @@ _WATCH_STATUSES_JS = """() => {
     { childList: true, subtree: true, characterData: true });
 }"""
 
+# The three views' boxes, and whether the page scrolls sideways.
+_RAG_VIEWS_JS = """() => {
+  const box = (id) => { const r = document.getElementById(id).getBoundingClientRect();
+    return { l: r.left, r: r.right, t: r.top, b: r.bottom, h: r.height }; };
+  return { seq: box('rag-seq'), arch: box('rag-arch'), focus: box('rag-focus'),
+    views: box('rag-views'), scroll: document.documentElement.scrollWidth - innerWidth };
+}"""
+
 
 def _goto_rag_lab(r: Run) -> None:
     r.page.goto(f"{r.stack.app_url}/rag")
     expect(r.page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
 
 
-def _rag_lab_run(r: Run, question: str = RAG_LAB_QUESTION) -> tuple[dict[str, Any], int]:
-    """« Lancer la chaîne »: the run's end, and the mark before it."""
+def _rag_mode(r: Run, mode: str) -> None:
+    """« ✎ Composer » (`compose`) or « ▶ Dérouler » (`play`), pressed."""
+    button = r.page.locator(f'#rag-modes [data-mode="{mode}"]')
+    if button.get_attribute("aria-pressed") != "true":
+        button.click()
+    expect(button).to_have_attribute("aria-pressed", "true")
+
+
+def _open_details(r: Run) -> None:
+    """« Toutes les étapes en détail », unfolded (its cards read as rendered)."""
+    r.page.evaluate("() => { document.getElementById('rag-details').open = true; }")
+
+
+def _rag_lab_run(
+    r: Run, question: str = RAG_LAB_QUESTION, compose: bool = False
+) -> tuple[dict[str, Any], int]:
+    """« Lancer la chaîne »: the run's end, and the mark before it. « Lancer » passes into
+    « Dérouler » (lot 5a-2); `compose`: back to « Composer » once the run ended."""
     page = r.page
     page.fill("#rag-question", question)
     expect(page.locator("#rag-run")).to_be_enabled(timeout=10_000)
     seq = r.ev.mark()
     page.click("#rag-run")
+    expect(page.locator('#rag-modes [data-mode="play"]')).to_have_attribute("aria-pressed", "true")
     ended = r.ev.wait("rag_lab_run_ended", seq, timeout=60)
     expect(page.locator("#rag-run")).to_be_enabled(timeout=10_000)
+    if compose:
+        _rag_mode(r, "compose")
     return ended, seq
 
 
@@ -11298,15 +12638,49 @@ def _stage_ended(r: Run, seq: int, kind: str, lane: str = "a") -> dict[str, Any]
     return found[-1] if found else {}
 
 
-def _result_card(r: Run, kind: str, lane: str = "a"):
-    return r.page.locator(f'.rag-lane[data-lane="{lane}"] .rag-stage-card[data-kind="{kind}"]')
+def _result_card(r: Run, kind: str):
+    return r.page.locator(f'#rag-details .rag-lane .rag-stage-card[data-kind="{kind}"]')
+
+
+def _seq_row(r: Run, kind: str):
+    """The sequence's line of a chain's stage (Composer: it carries the stage's editor)."""
+    return r.page.locator(f'#rag-seq li.rag-chain-card[data-kind="{kind}"]')
+
+
+def _option_label(r: Run, kind: str) -> str:
+    """The option a stage's line shows: its select's choice, else its single option."""
+    return _seq_row(r, kind).evaluate(
+        "row => { const s = row.querySelector('select.rag-option');"
+        " return s ? s.selectedOptions[0].textContent"
+        " : row.querySelector('.rag-chain-option').textContent; }"
+    )
+
+
+def _focus_of(r: Run, step: str) -> dict[str, Any]:
+    """A line clicked: the focus's step and name, its components, the wires drawn."""
+    page = r.page
+    page.locator(f'#rag-seq .rag-seq-step[data-step="{step}"] .rag-seq-head').click()
+    time.sleep(0.15)  # the wires, drawn at the next frame
+    return page.evaluate(
+        "() => { const f = document.getElementById('rag-focus');"
+        " return { step: f.dataset.step,"
+        " name: f.querySelector('.rag-focus-name')?.textContent ?? '',"
+        " explain: f.querySelector('.rag-focus-explain')?.textContent ?? '',"
+        " uses: [...f.querySelectorAll('.rag-focus-uses .rag-tag')].map(t => t.dataset.component),"
+        " wires: [...document.querySelectorAll('#rag-views .diagram-path-core')]"
+        ".map(p => p.dataset.component),"
+        " rows: f.querySelectorAll('.rag-items tbody tr').length,"
+        " text: f.innerText }; }"
+    )
 
 
 def s_rag_lab(r: Run) -> None:
     """Story 30, after `rag_rerank` (index built, both fake models on the workstation): the
-    « Atelier RAG » link of the top bar, the chain drawn (seven cards, the shipped options,
-    their explanations), a run on a question (each stage's input, output, excerpts, duration
-    and memory), the same run after a reload, a 409 while a workshop turn runs. Back to `/`."""
+    « Atelier RAG » link of the top bar; lot 5a: the three views side by side (the sequence
+    BUILD then RUN, the architecture, the focus of a line clicked, its wires), the editor in
+    the sequence (Composer); a run on a question (each stage's input, output, excerpts,
+    duration and memory, in the details and in the focus), the same run after a reload, a 409
+    while a workshop turn runs. Back to `/`."""
     page = r.page
     page.set_viewport_size({"width": 1600, "height": 1000})
     errors: list[str] = []
@@ -11328,8 +12702,8 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     # (1) The link, whole in the shared bar (story 2 of 2026-09-30), which stays on one line.
     link = page.locator('.site-nav a[href="/rag"]')
     r.check(
-        link.is_visible() and link.inner_text() == "Atelier RAG",
-        "barre commune : lien « Atelier RAG » visible, entier, vers /rag",
+        link.is_visible() and link.inner_text() == "RAG",
+        "barre commune : lien « RAG » visible, entier, vers /rag",
         link.inner_text(),
     )
     ok, detail = _bar_fits(r)
@@ -11337,44 +12711,138 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         ok, "barre commune et barre de l'atelier entières, sur une ligne, à 1600 × 1000", detail
     )
 
-    # (2) The chain: seven cards in order, their shipped options, their explanations.
+    # (2) Lot 5a: the three views, the sequence BUILD then RUN, the architecture's tiles.
     link.click()
     page.wait_for_url("**/rag")
     expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
-    cards = page.locator("#rag-chain .rag-chain-card")
-    names = [cards.nth(i).locator(".rag-chain-name").inner_text() for i in range(cards.count())]
-    r.check(names == RAG_LAB_STAGES, "/rag : sept cartes dans l'ordre de la chaîne", str(names))
-    options = {
-        page.locator(f'#rag-chain [data-kind="{kind}"] .rag-chain-option').inner_text()
-        for kind in ("embedding", "vector_store", "rerank")
-    }
-    explained = all(
-        len(cards.nth(i).locator(".rag-chain-explain").inner_text()) > 40
-        for i in range(cards.count())
+    page.evaluate("() => localStorage.removeItem('wavestack.ragLab.mode')")
+    page.reload()
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    r.check(
+        page.locator('#rag-modes [data-mode="play"]').get_attribute("aria-pressed") == "true"
+        and page.locator("#rag-reset-chain").is_hidden()
+        and not page.locator("#rag-seq .rag-seq-controls").count(),
+        "/rag s'ouvre en « Dérouler » : ni éditeur ni « Revenir à la chaîne livrée »",
+    )
+    boxes = page.evaluate(_RAG_VIEWS_JS)
+    r.check(
+        boxes["views"]["h"] <= 1000 and boxes["focus"]["l"] > boxes["arch"]["r"],
+        "Dérouler : les trois vues tiennent dans 1 000 px de haut",
+        str(boxes["views"]),
+    )
+    _rag_mode(r, "compose")
+    names = page.locator("#rag-seq .rag-seq-name").all_inner_texts()
+    build = page.locator("#rag-seq-build .rag-seq-step").count()
+    run_rows = page.locator("#rag-seq-run .rag-seq-step").count()
+    bands = [page.inner_text(f"#rag-phase-{p}") for p in ("build", "run")]
+    r.check(
+        names == RAG_LAB_SEQUENCE
+        and (build, run_rows) == (4, 6)
+        and bands[0].startswith("BUILD")
+        and "Indexing" in bands[0]
+        and bands[1].startswith("RUN")
+        and "Retrieval" in bands[1],
+        "séquence : 10 lignes, 4 sous « BUILD · Indexing », 6 sous « RUN · Retrieval »",
+        f"{names} · {bands}",
+    )
+    kinds = _chain_kinds(r)
+    tiles = page.locator("#rag-arch .rag-arch-name").all_inner_texts()
+    groups = page.locator("#rag-arch .rag-arch-group").count()
+    r.check(
+        kinds == RAG_LAB_STAGES_KINDS and tiles == RAG_LAB_TILES and groups == 3,
+        "Composer : une ligne-éditeur par étape de la chaîne ; architecture en trois groupes, "
+        "neuf tuiles (Documents… Réponse)",
+        f"{kinds} · {tiles}",
+    )
+    boxes = page.evaluate(_RAG_VIEWS_JS)
+    seq, arch, focus = boxes["seq"], boxes["arch"], boxes["focus"]
+    r.check(
+        seq["r"] < arch["l"]
+        and arch["r"] < focus["l"]
+        and abs(seq["t"] - focus["t"]) < 40
+        and boxes["scroll"] <= 0,
+        "Composer : séquence, architecture et focus côte à côte, sans défilement horizontal",
+        str(boxes),
+    )
+    options = {kind: _option_label(r, kind) for kind in ("embedding", "vector_store", "rerank")}
+    subs = page.eval_on_selector_all(
+        "#rag-arch .rag-arch-tile",
+        "ts => Object.fromEntries(ts.map(t => [t.dataset.component,"
+        " t.querySelector('.rag-arch-sub').textContent]))",
     )
     r.check(
-        options == {"Faux embedding (e2e)", "sqlite-vec", "Faux reranker (e2e)"} and explained,
-        "chaque carte nomme son option livrée et l'explique",
-        str(options),
+        options
+        == {
+            "embedding": "Faux embedding (e2e)",
+            "vector_store": "sqlite-vec",
+            "rerank": "Faux reranker (e2e)",
+        }
+        and subs.get("embedding_model") == "Faux embedding (e2e)"
+        and subs.get("reranker") == "Faux reranker (e2e)",
+        "chaque ligne nomme son option livrée ; les tuiles Embedding model et Reranker aussi",
+        f"{options} · {subs}",
     )
     r.check(
-        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "Atelier RAG"
+        "Même modèle" in page.inner_text('#rag-seq [data-step="embed_query"]'),
+        "Embedding de la question : « même modèle que l'Embedding des chunks »",
+    )
+    r.check(
+        page.locator("nav.site-nav a[aria-current=page]").inner_text() == "RAG"
+        and page.title() == "WaveStack — Atelier RAG"
+        and page.locator("h1").inner_text().startswith("Atelier RAG")
         and page.locator("select[data-theme-picker]").count() == 1
+        and not page.locator("#rag-compare, #rag-chain-b, #rag-comparison").count()
         and not _site_nav_problems(r),
-        "/rag : barre commune entière, « Atelier RAG » courant, sélecteur de thème",
+        "/rag : barre commune entière, « RAG » courant, titre « Atelier RAG », plus de "
+        "comparaison A/B",
     )
-    generation = page.locator('#rag-chain [data-kind="generation"]')
+    generation = page.locator('#rag-seq [data-step="generation"]')
     r.check(
-        r.css(generation, "background-color") == r.token_color("--color-ink-fill"),
-        "la carte Génération repose sur l'encre (ink-fill), les autres en discipline context",
-        r.css(generation, "background-color"),
+        r.css(generation, "border-left-color") == r.token_color("--color-ink-fill"),
+        "la ligne Generation repose sur l'encre (ink-fill)",
+        r.css(generation, "border-left-color"),
     )
+    # Each line opens its focus on a click, with its wires to the components it calls on.
+    catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
+    uses = {s["key"]: [u["component"] for u in s["uses"]] for s in catalog["steps"]}
+    keys = page.eval_on_selector_all("#rag-seq .rag-seq-step", "rs => rs.map(r => r.dataset.step)")
+    wrong = []
+    for key, name in zip(keys, RAG_LAB_SEQUENCE, strict=True):
+        shown = _focus_of(r, key)
+        if (
+            shown["step"] != key
+            or shown["name"] != name
+            or len(shown["explain"]) < 40
+            or shown["uses"] != uses[key]
+            or sorted(shown["wires"]) != sorted(uses[key])
+            or "Lancez la chaîne" not in shown["text"]
+        ):
+            wrong.append(f"{key}: {shown}")
+    r.check(
+        not wrong and len(keys) == 10,
+        "Composer : chaque ligne ouvre son focus au clic (nom, explication, composants "
+        "sollicités, une flèche par composant), sans chiffres de run",
+        "; ".join(wrong)[:400],
+    )
+    shown = _focus_of(r, "rerank")
+    selected = page.locator('#rag-seq [data-step="rerank"]')
+    r.check(
+        "is-selected" in (selected.get_attribute("class") or "")
+        and shown["uses"] == ["question", "reranker"]
+        and shown["wires"] == ["question", "reranker"],
+        "Reranking sélectionné : flèches vers Question (lu) et Reranker (appelé)",
+        str(shown)[:300],
+    )
+    page.locator('#rag-seq [data-step="chunking"] .rag-seq-head').focus()
+    page.keyboard.press("Enter")
+    expect(page.locator("#rag-focus")).to_have_attribute("data-step", "chunking")
     light = _contrast_sweep(r, ["main", "nav.site-nav"])
     _pick_theme(page, "dark")
     dark = _contrast_sweep(r, ["main", "nav.site-nav"])
     _pick_theme(page, "system")
     r.check(not light and not dark, "/rag : contrastes AA en clair et en sombre", str(light + dark))
-    r.shot("55-atelier-rag-chaine", full_page=True)
+    r.shot("55-atelier-rag-chaine")
+    _rag_lab_views(r)
 
     # (3) A run on the question: each stage, its excerpts, its duration and its memory.
     page.evaluate(_WATCH_STATUSES_JS)
@@ -11395,6 +12863,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "une paire started/ended par étape exécutée, la génération non exécutée",
         str(sorted(started)),
     )
+    _open_details(r)
     statuses = page.evaluate("() => window.__ragStatuses")
     figures = [
         _result_card(r, kind).locator(".rag-stage-figures").inner_text()
@@ -11403,7 +12872,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     r.check(
         any(s.startswith("en cours") for s in statuses)
         and all(re.search(r"\d+ ms", f) and re.search(r"\d+ Mo", f) for f in figures),
-        "chaque carte passe de « en cours » à une durée en ms et une mémoire en Mo",
+        "détail : chaque carte passe de « en cours » à une durée en ms et une mémoire en Mo",
         f"{sorted(set(statuses))[:6]} · {figures[0]!r}",
     )
     cfg_candidates = 8
@@ -11417,7 +12886,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
             re.match(r"\d,\d{3}$", rows.nth(i).locator("td").nth(3).inner_text())
             for i in range(rows.count())
         ),
-        "Recherche : 8 extraits (rag_rerank_candidates) avec rang et score",
+        "Dense retrieval : 8 extraits (rag_rerank_candidates) avec rang et score",
         str([(i["rank"], i["doc_id"], i["score"]) for i in search.get("items", [])]),
     )
     rerank = _stage_ended(r, seq, "rerank")
@@ -11438,14 +12907,28 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         and output.count("Extrait ") == 3
         and "Extrait 1 — " in output
         and "Extrait 3 — " in output,
-        "Contexte : les 3 extraits (top_k) au format de la brique",
+        "Prompt augmentation : les 3 extraits (top_k) au format de la brique",
         output[:200],
     )
     gen = _result_card(r, "generation").inner_text()
     r.check(
         "non exécutée dans l'atelier rag" in gen.lower(),
-        "Génération : « non exécutée dans l'atelier RAG »",
+        "Generation : « non exécutée dans l'atelier RAG »",
         gen[:200],
+    )
+    # In « Dérouler », the focus shows what the step received and produced.
+    _rag_mode(r, "play")
+    shown = _focus_of(r, "vector_search")
+    pills = page.eval_on_selector_all(
+        "#rag-seq .rag-seq-status", "ps => ps.filter(p => !p.hidden).map(p => p.textContent)"
+    )
+    r.check(
+        shown["rows"] == cfg_candidates
+        and re.search(r"\d+ ms", shown["text"]) is not None
+        and len(pills) == len(RAG_LAB_SEQUENCE),
+        "Dérouler : le focus de Dense retrieval montre ses 8 candidats et sa durée ; une "
+        "pastille d'état par ligne",
+        f"{shown['rows']} lignes · {pills}",
     )
     r.check(not errors, "aucune pageerror", str(errors[:3]))
     r.shot("56-atelier-rag-resultats", full_page=True)
@@ -11454,14 +12937,16 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     run_id = ended["payload"]["run_id"]
     page.reload()
     expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
-    reloaded = page.locator(".rag-stage-card").count()
+    _open_details(r)
+    reloaded = page.locator("#rag-details .rag-stage-card").count()
     summary = page.inner_text("#rag-run-summary")
     state = r.api("GET", "/api/rag_lab").json()
     r.check(
         reloaded == len(RAG_LAB_STAGES)
         and RAG_LAB_QUESTION in summary
-        and state["last_run"][0]["payload"]["run_id"] == run_id,
-        "après rechargement, le même run se réaffiche (last_run)",
+        and state["last_run"][0]["payload"]["run_id"] == run_id
+        and page.locator('#rag-modes [data-mode="play"]').get_attribute("aria-pressed") == "true",
+        "après rechargement, le même run se réaffiche (last_run), le mode est gardé",
         f"{reloaded} cartes · {summary}",
     )
 
@@ -11480,14 +12965,308 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     r.api("POST", "/api/intentions/stop")
     r.ev.wait("turn_ended", seq, timeout=30)
     expect(button).to_be_enabled(timeout=10_000)
+    _rag_mode(r, "compose")
     _rag_lab_compare(r)
     _rag_lab_alt(r)
     _rag_lab_hybrid(r)
+    _rag_lab_presets(r)
+
+
+# Lot 5a-2: what « Dérouler » shows now: the steps, tiles and band visible, the tiles just
+# arrived, the blocks lit, the wires, the stepper, the legend and the focus.
+_RAG_PLAY_JS = """() => {
+  const visible = (n) => getComputedStyle(n).visibility !== 'hidden';
+  const tiles = [...document.querySelectorAll('#rag-arch .rag-arch-tile')];
+  const focus = document.getElementById('rag-focus');
+  const step = focus.dataset.step;
+  const row = step ? document.querySelector(`#rag-seq .rag-seq-step[data-step="${step}"]`) : null;
+  const bar = document.querySelector('#rag-stepper .diagram-stepper');
+  const fresh = tiles.filter(t => t.classList.contains('is-new'));
+  return {
+    rows: [...document.querySelectorAll('#rag-seq .rag-seq-step')].filter(visible)
+      .map(r => r.dataset.step),
+    build: [...document.querySelectorAll('#rag-seq-build .rag-seq-step')].filter(visible).length,
+    tiles: tiles.filter(visible).map(t => t.dataset.component),
+    fresh: fresh.map(t => t.dataset.component),
+    animation: fresh.map(t => getComputedStyle(t).animationName),
+    lit: [...document.querySelectorAll('#rag-views .is-active')]
+      .map(n => n.dataset.step || n.dataset.component).sort(),
+    run_band: visible(document.getElementById('rag-phase-run')),
+    focus: step,
+    position: bar?.querySelector('.diagram-step-position').textContent ?? '',
+    prev: bar?.querySelector('.diagram-step-prev').disabled,
+    next: bar?.querySelector('.diagram-step-next').disabled,
+    legend: document.getElementById('rag-legend').textContent,
+    stepper: !document.getElementById('rag-stepper').hidden,
+    live_button: !bar?.querySelector('.diagram-step-live').hidden,
+    wires: [...document.querySelectorAll('#rag-views .diagram-path-core')]
+      .map(p => p.dataset.component).sort(),
+    flowing: document.querySelectorAll('#rag-views .diagram-path-core.is-flow').length,
+    pill: row?.querySelector('.rag-seq-status')?.textContent ?? '',
+    run: row?.dataset.run ?? '',
+    error: focus.querySelector('.rag-stage-error')?.textContent ?? '',
+    generation_top: document.querySelector('#rag-seq [data-step="generation"]')
+      ?.getBoundingClientRect().top ?? 0,
+    height: document.getElementById('rag-views').getBoundingClientRect().height,
+  };
+}"""
+
+# Every state of « Dérouler » a run goes through, recorded as the views change (a frame may
+# last one render only): the step shown, its pill, the blocks lit, the wires drawn.
+_WATCH_PLAY_JS = """() => {
+  window.__ragPlay = [];
+  const note = () => {
+    const step = document.getElementById('rag-focus').dataset.step;
+    const row = step
+      ? document.querySelector(`#rag-seq .rag-seq-step[data-step="${step}"]`) : null;
+    window.__ragPlay.push({
+      step,
+      pill: row?.querySelector('.rag-seq-status')?.textContent ?? '',
+      lit: [...document.querySelectorAll('#rag-views .is-active')]
+        .map(n => n.dataset.step || n.dataset.component).sort(),
+      wires: [...document.querySelectorAll('#rag-views .diagram-path-core')]
+        .map(p => p.dataset.component).sort(),
+      flowing: document.querySelectorAll('#rag-views .diagram-path-core.is-flow').length,
+    });
+  };
+  window.__ragPlayObserver?.disconnect();
+  window.__ragPlayObserver = new MutationObserver(note);
+  window.__ragPlayObserver.observe(document.getElementById('rag-views'),
+    { childList: true, subtree: true, characterData: true, attributes: true,
+      attributeFilter: ['class'] });
+}"""
+
+
+def _rag_play(r: Run) -> dict[str, Any]:
+    time.sleep(0.15)  # the wires, drawn at the next frame
+    return r.page.evaluate(_RAG_PLAY_JS)
+
+
+def _rag_lab_views(r: Run) -> None:
+    """Lot 5a-2, « Dérouler »: the guided tour without a run (image 1: Documents and its tile
+    alone; each ▶ the next step and the tiles it calls on first, arriving, none moving with
+    reduced motion; the steps after it keep their place); a run, from « Composer »: « Lancer »
+    passes into « Dérouler », the steps arrive one by one, the step running lit with its
+    components, its wires flowing; at the end, Generation « non exécutée » and « rejouez avec
+    ◀ ▶ »; ◀ ▶ replay; the same state after a reload; a step in error: its ✖ and its error in
+    the focus."""
+    page = r.page
+    state = r.api("GET", "/api/rag_lab").json()
+    uses = {s["key"]: [u["component"] for u in s["uses"]] for s in state["catalog"]["steps"]}
+    texts = state["content"]
+    keys = ["documents", "chunking", "embed_passages", "vector_store", "question", "embed_query"]
+    keys += ["vector_search", "rerank", "context", "generation"]
+    prev = page.locator("#rag-stepper .diagram-step-prev")
+    nxt = page.locator("#rag-stepper .diagram-step-next")
+
+    # (a) The guided tour: no run of this chain yet.
+    _rag_mode(r, "play")
+    first = _rag_play(r)
+    r.check(
+        first["stepper"]
+        and first["rows"] == ["documents"]
+        and first["tiles"] == ["documents"]
+        and not first["run_band"]
+        and first["prev"]
+        and not first["next"]
+        and first["position"] == "Étape 1 / 10"
+        and first["legend"] == texts["legend_tour_text"]
+        and first["focus"] == "documents"
+        and first["lit"] == ["documents", "documents"]
+        and not first["live_button"]
+        and "Lancez la chaîne" in page.inner_text("#rag-focus"),
+        "Dérouler sans run : image 1, Documents seule et sa tuile, allumées, ◀ grisé, "
+        "« Visite guidée », pas de « Suivre le direct »",
+        str({k: first[k] for k in ("rows", "tiles", "position", "legend", "lit")}),
+    )
+    nxt.click()
+    second = _rag_play(r)
+    r.check(
+        second["rows"] == ["documents", "chunking"]
+        and second["tiles"] == ["documents", "chunks"]
+        and second["fresh"] == ["chunks"]
+        and second["animation"] == ["rag-appear"]
+        and second["lit"] == ["chunking", "chunks", "documents"]
+        and second["wires"] == sorted(uses["chunking"])
+        and not second["flowing"]
+        and not second["prev"],
+        "▶ : Chunking et la tuile Chunks arrivent (is-new), Chunking allumé avec Documents et "
+        "Chunks, ses deux flèches",
+        str({k: second[k] for k in ("rows", "tiles", "fresh", "lit", "wires")}),
+    )
+    nxt.click()
+    third = _rag_play(r)
+    page.emulate_media(reduced_motion="reduce")
+    try:
+        nxt.click()
+        fourth = _rag_play(r)
+    finally:
+        page.emulate_media(reduced_motion="no-preference")
+    r.check(
+        fourth["build"] == 4
+        and fourth["rows"] == keys[:4]
+        and "vector_store" not in third["tiles"]
+        and "vector_store" in fourth["tiles"]
+        and fourth["fresh"] == ["vector_store"]
+        and fourth["animation"] == ["none"]
+        and not fourth["run_band"]
+        and fourth["position"] == "Étape 4 / 10",
+        "▶ trois fois : quatre étapes BUILD visibles, la tuile Vector store apparaît à la "
+        "quatrième (sans mouvement avec prefers-reduced-motion), bandeau RUN encore masqué",
+        str({k: fourth[k] for k in ("rows", "tiles", "fresh", "animation", "position")}),
+    )
+    for _ in range(len(keys) - 4):  # ▶ up to the last image
+        nxt.click()
+    last = _rag_play(r)
+    page.locator('#rag-seq [data-step="chunking"] .rag-seq-head').click()
+    clicked = _rag_play(r)
+    r.check(
+        last["rows"] == keys
+        and last["run_band"]
+        and abs(last["generation_top"] - first["generation_top"]) < 1
+        and abs(last["height"] - first["height"]) < 1
+        and clicked["position"] == "Étape 2 / 10"
+        and clicked["focus"] == "chunking",
+        "visite : à la dernière image tout est visible, aux mêmes places qu'à l'image 1 ; un "
+        "clic sur une ligne montre son image",
+        f"{last['generation_top']} / {first['generation_top']} · {clicked['position']}",
+    )
+
+    # (b) A run, launched from « Composer »: it passes into « Dérouler », live.
+    _rag_mode(r, "compose")
+    page.evaluate(_WATCH_PLAY_JS)
+    ended, seq = _rag_lab_run(r)
+    states = page.evaluate(
+        "() => { window.__ragPlayObserver.disconnect(); return window.__ragPlay; }"
+    )
+    shown = [s["step"] for s in states if s["step"]]
+    order = [k for i, k in enumerate(shown) if i == 0 or k != shown[i - 1]]
+    indices = [keys.index(k) for k in order if k in keys]
+    running = [s for s in states if s["pill"].startswith("en cours") and s["step"] in uses]
+    unlit = [s for s in running if s["lit"] != sorted([s["step"], *uses[s["step"]]])]
+    # The wires are drawn at the next frame: a state whose wires are its step's.
+    drawn = [s for s in running if s["wires"] and s["wires"] == sorted(uses[s["step"]])]
+    r.check(
+        ended["payload"]["status"] == "ok"
+        and len(set(order)) >= 3
+        and indices == sorted(indices)
+        and order[-1] == "generation"
+        and running
+        and not unlit
+        and all(s["flowing"] == len(s["wires"]) for s in drawn),
+        "Lancer passe en Dérouler : les étapes arrivent une à une ; l'étape en cours (« en "
+        "cours ») est allumée avec ses composants, ses flèches animées",
+        f"{order} · en cours : {sorted({s['step'] for s in running})} · "
+        f"flèches vues en cours : {len(drawn)} · {unlit[:2]} · "
+        f"{[s for s in drawn if s['flowing'] != len(s['wires'])][:2]}",
+    )
+    end = _rag_play(r)
+    r.check(
+        end["rows"] == keys
+        and end["focus"] == "generation"
+        and end["pill"] == texts["status"]["not_run_text"]
+        and end["legend"] == texts["legend_done_text"]
+        and "◀ ▶" in end["legend"]
+        and end["position"] == "Étape 10 / 10"
+        and end["next"]
+        and end["live_button"]
+        and not end["flowing"],
+        "fin de run : dernière image Generation « non exécutée », légende « rejouez avec ◀ ▶ »",
+        str({k: end[k] for k in ("focus", "pill", "legend", "position")}),
+    )
+    prev.click()
+    back = _rag_play(r)
+    r.check(
+        back["focus"] == "context"
+        and back["rows"] == keys[:-1]
+        and "llm" not in back["tiles"]
+        and "answer" not in back["tiles"]
+        and back["lit"] == sorted(["context", *uses["context"]])
+        and back["legend"] == texts["legend_replay_text"]
+        and re.search(r"\d+ ms", page.inner_text("#rag-focus")) is not None,
+        "◀ : Prompt augmentation montrée avec ses chiffres, Generation masquée (et ses tuiles "
+        "LLM, Réponse), « Relecture »",
+        str({k: back[k] for k in ("focus", "rows", "tiles", "legend")}),
+    )
+    nxt.click()
+    again = _rag_play(r)
+
+    # (c) Reloaded: the same state, from `last_run`, straight to the last image.
+    page.reload()
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    reloaded = _rag_play(r)
+    same = ("rows", "tiles", "focus", "pill", "legend", "position", "lit", "wires")
+    r.check(
+        again["focus"] == "generation"
+        and all(reloaded[k] == end[k] for k in same)
+        and not reloaded["fresh"],
+        "▶ revient à Generation ; après rechargement, le même état depuis last_run, sur la "
+        "dernière image",
+        str({k: (reloaded[k], end[k]) for k in same if reloaded[k] != end[k]})[:300],
+    )
+    # The steps that read a stage: the question for the question and its Embedding, no
+    # excerpts for the latter, and none of them claims its stage's duration.
+    # From the last one back: a line shown hides the lines after it.
+    read = {key: _focus_of(r, key) for key in ("embed_query", "question", "documents")}
+    r.check(
+        all(RAG_LAB_QUESTION in read[k]["text"] for k in ("question", "embed_query"))
+        and read["embed_query"]["rows"] == 0
+        and read["documents"]["step"] == "documents"
+        and not any(re.search(r"\d+ ms", f["text"]) for f in read.values()),
+        "Dérouler : Documents, Question et l'Embedding de la question montrent ce qu'ils "
+        "lisent (la question), sans extraits ni durée empruntée à leur étape",
+        str({k: f["text"][-160:] for k, f in read.items()})[:400],
+    )
+
+    # (d) A step in error (the fake reranker breaks down): the run lands on it, ✖, its error
+    # in the focus; the chain went on with the search's order (a soft failure).
+    ended, seq = _rag_lab_run(r, f"{RAG_LAB_QUESTION} [reranker-en-panne]")
+    failed = _rag_play(r)
+    nxt.click()
+    after = _rag_play(r)
+    r.check(
+        _stage_ended(r, seq, "rerank").get("status") == "error"
+        and failed["focus"] == "rerank"
+        and failed["run"] == "error"
+        and failed["pill"].startswith(texts["status"]["error_text"])
+        and bool(failed["error"])
+        and failed["rows"] == keys[:8]
+        and after["focus"] == "context",
+        "étape en erreur : le run s'arrête sur Reranking, pastille ✖ et l'erreur dans le "
+        "focus ; ▶ montre la suite",
+        str({k: failed[k] for k in ("focus", "run", "pill", "error", "rows")})[:300],
+    )
+    page.fill("#rag-question", RAG_LAB_QUESTION)
+
+    # (e) Composer: the last run is this chain's, its figures are in « Dérouler »; a setting
+    # edited, « Dérouler » gives the edited chain's guided tour, without the run's figures.
+    _rag_mode(r, "compose")
+    hint = _focus_of(r, "chunking")["text"]
+    _set_stage(r, "context", top_k=2)
+    time.sleep(0.4)
+    _rag_mode(r, "play")
+    tour = _rag_play(r)
+    pills = page.eval_on_selector_all(
+        "#rag-seq .rag-seq-status", "ps => ps.filter(p => !p.hidden).length"
+    )
+    r.check(
+        texts["focus_play_hint_text"] in hint
+        and tour["legend"] == texts["legend_tour_text"]
+        and tour["position"] == f"Étape 1 / {len(keys)}"
+        and not pills
+        and "Lancez la chaîne" in page.inner_text("#rag-focus"),
+        "Composer après un run : le focus renvoie à Dérouler ; un réglage changé, Dérouler "
+        "repart en visite guidée, sans pastille ni chiffres",
+        f"{hint[-120:]!r} · {tour['legend']} · {tour['position']} · {pills} pastilles",
+    )
+    _rag_mode(r, "compose")
+    page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
 
 
 def _chain_kinds(r: Run) -> list[str]:
     return r.page.eval_on_selector_all(
-        "#rag-chain .rag-chain-card", "cards => cards.map(c => c.dataset.kind)"
+        "#rag-seq li.rag-chain-card", "rows => rows.map(c => c.dataset.kind)"
     )
 
 
@@ -11498,21 +13277,29 @@ def _add_stage(r: Run, label: str) -> None:
 
 
 def _stage_button(r: Run, kind: str, label: str):
-    card = r.page.locator(f'#rag-chain .rag-chain-card[data-kind="{kind}"]')
-    return card.get_by_role("button", name=label)
+    return _seq_row(r, kind).get_by_role("button", name=label)
 
 
 def _rag_lab_hybrid(r: Run) -> None:
-    """Increment 4: the Reranking removed, « Recherche lexicale BM25 » added without a fusion
-    (refused on its card, « Lancer » greyed), the Fusion added, the Reranking added back and
-    moved after the Fusion by its buttons; a run: the Fusion gives each excerpt's rank in both
-    searches and its RRF score. A Fusion moved before a search: refused, 409 if posted."""
+    """Increment 4: the Reranking removed, BM25 added without a fusion (refused on its line,
+    « Lancer » greyed), the Fusion added, the Reranking added back and moved after the Fusion
+    by its buttons; a run: the Fusion gives each excerpt's rank in both searches and its RRF
+    score. A Fusion moved before a search: refused, 409 if posted. Lot 5a: the sequence and
+    the architecture follow (a Reranker tile only with the reranking)."""
     page = r.page
     page.locator("#rag-reset-chain").click()
     time.sleep(0.4)
     _stage_button(r, "rerank", "Retirer").click()
-    _add_stage(r, "Recherche lexicale BM25")
-    bm25 = page.locator('#rag-chain .rag-chain-card[data-kind="lexical_search"]')
+    tiles = page.locator("#rag-arch .rag-arch-tile").evaluate_all(
+        "ts => ts.map(t => t.dataset.component)"
+    )
+    r.check(
+        "reranker" not in tiles and "rerank" not in _chain_kinds(r),
+        "sans reranking : plus de tuile Reranker",
+        str(tiles),
+    )
+    _add_stage(r, "BM25")
+    bm25 = _seq_row(r, "lexical_search")
     expect(bm25.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
     run = page.locator("#rag-run")
     r.check(
@@ -11520,28 +13307,32 @@ def _rag_lab_hybrid(r: Run) -> None:
         in bm25.locator(".rag-chain-refusal").inner_text()
         and run.is_disabled()
         and "fusion" in (run.get_attribute("title") or ""),
-        "BM25 sans fusion : la carte BM25 dit « Deux recherches demandent une fusion après "
+        "BM25 sans fusion : la ligne BM25 dit « Deux recherches demandent une fusion après "
         "elles », « Lancer » désactivé",
         bm25.locator(".rag-chain-refusal").inner_text(),
     )
     _add_stage(r, "Reranking")
-    _add_stage(r, "Fusion")
+    _add_stage(r, "Fusion (RRF)")
     before = _chain_kinds(r)
     after_button = _stage_button(r, "rerank", "Déplacer après")
     after_button.focus()
     page.keyboard.press("Enter")  # by the keyboard, never by drag and drop
     time.sleep(0.8)
     kinds = _chain_kinds(r)
+    names = page.locator("#rag-seq-run .rag-seq-name").all_inner_texts()
     r.check(
         before[3:7] == ["vector_search", "lexical_search", "rerank", "fusion"]
         and kinds[3:7] == ["vector_search", "lexical_search", "fusion", "rerank"]
+        and names[2:6] == ["Dense retrieval", "BM25", "Fusion (RRF)", "Reranking"]
         and _stage_button(r, "rerank", "Déplacer après").is_disabled()
-        and not page.locator("#rag-chain .rag-chain-refusal").count(),
-        "Reranking déplacé après la Fusion au clavier (« Déplacer après ») : chaîne valide",
-        f"{before} → {kinds}",
+        and not page.locator("#rag-seq .rag-chain-refusal").count(),
+        "Reranking déplacé après la Fusion au clavier (« Déplacer après ») : chaîne valide, la "
+        "séquence suit l'ordre de la chaîne",
+        f"{before} → {kinds} · {names}",
     )
     expect(run).to_be_enabled(timeout=5000)
     ended, seq = _rag_lab_run(r)
+    _open_details(r)
     fusion = _stage_ended(r, seq, "fusion")
     items = fusion.get("items", [])
     ranks_ok = all(
@@ -11555,86 +13346,260 @@ def _rag_lab_hybrid(r: Run) -> None:
         ended["payload"]["status"] == "ok"
         and items
         and ranks_ok
-        and "Recherche :" in first_row
-        and "Recherche lexicale BM25 :" in first_row
+        and "Dense retrieval :" in first_row
+        and "BM25 :" in first_row
         and re.search(r"0,0\d{3}", first_row) is not None,
         "Fusion : le rang de chaque extrait dans les deux recherches et son score RRF",
         first_row.replace("\n", " | ")[:240],
     )
     r.shot("58-atelier-rag-hybride", full_page=True)
-    # The Fusion moved before a search: its card says why, and a POST anyway is refused.
+    _rag_mode(r, "compose")
+    # The Fusion moved before a search: its line says why, and a POST anyway is refused.
     _stage_button(r, "fusion", "Déplacer avant").click()
     time.sleep(0.4)
-    fusion_card = page.locator('#rag-chain .rag-chain-card[data-kind="fusion"]')
-    expect(fusion_card.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
+    fusion_row = _seq_row(r, "fusion")
+    expect(fusion_row.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
     chain = page.evaluate("() => JSON.parse(localStorage.getItem('wavestack.ragLab')).pipelines")
     refused = r.api(
         "POST", "/api/intentions/rag_lab_run", {"question": RAG_LAB_QUESTION, "pipelines": chain}
     )
     r.check(
-        "Fusion" in fusion_card.locator(".rag-chain-refusal").inner_text()
+        "Fusion" in fusion_row.locator(".rag-chain-refusal").inner_text()
         and run.is_disabled()
         and refused.status_code == 409
-        and "« Fusion »" in refused.json().get("detail", ""),
+        and "« Fusion (RRF) »" in refused.json().get("detail", ""),
         "Fusion déplacée avant une recherche : la raison nomme la Fusion, 409 si l'on poste",
         f"{refused.status_code} {refused.text[:160]}",
     )
     page.locator("#rag-reset-chain").click()
 
 
+def _rag_presets(r: Run) -> dict[str, dict[str, Any]]:
+    """The ready-made architectures' row (Composer): each button's text, pressed, marked."""
+    return r.page.eval_on_selector_all(
+        "#rag-presets .rag-preset",
+        "bs => Object.fromEntries(bs.map(b => [b.dataset.preset, { text: b.textContent,"
+        " pressed: b.getAttribute('aria-pressed'), title: b.title,"
+        " unavailable: b.classList.contains('is-unavailable') }]))",
+    )
+
+
+def _pressed_preset(r: Run) -> list[str]:
+    return [k for k, v in _rag_presets(r).items() if v["pressed"] == "true"]
+
+
+def _rag_lab_presets(r: Run) -> None:
+    """Lot 5b: the ready-made architectures, in Composer only. The shipped chain is « RAG +
+    reranking » (pressed); « RAG hybride » replaces the retrieval segment only (Dense
+    retrieval, BM25, Fusion (RRF)), the chunk size and the `top_k` edited kept, the chain valid;
+    reloaded, the chain kept and « RAG hybride » still pressed; a run: the Fusion shows both
+    searches' ranks, `ok`. A segment composed by hand: none pressed. A preset that would not
+    run (served unavailable by `page.route`): marked, still clickable."""
+    page = r.page
+    _rag_mode(r, "compose")
+    page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
+    catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
+    served = {p["id"]: p for p in catalog.get("presets", [])}
+    shown = _rag_presets(r)
+    r.check(
+        list(served) == ["dense", "hybrid", "rerank"]
+        and all(p["available"] for p in served.values())
+        and [s["kind"] for s in served["hybrid"]["segment"]]
+        == ["vector_search", "lexical_search", "fusion"]
+        and list(shown) == list(served)
+        and all(shown[k]["text"] == served[k]["label_text"] for k in served)
+        and all(served[k]["explain_text"] in shown[k]["title"] for k in served)
+        and _pressed_preset(r) == ["rerank"]
+        and page.locator("#rag-presets").is_visible(),
+        "Composer : trois architectures toutes faites (catalog.presets), « RAG + reranking » "
+        "pressé sur la chaîne livrée, l'explication en infobulle",
+        f"{list(served)} · {shown}",
+    )
+    _set_stage(r, "chunking", chunk_max_chars=300)
+    _set_stage(r, "context", top_k=2)
+    _set_stage(r, "vector_search", candidates=5)  # back to its served value by the preset
+    time.sleep(0.4)
+    dense_id = _seq_row(r, "vector_search").get_attribute("data-stage-id")
+    page.locator('#rag-presets .rag-preset[data-preset="hybrid"]').click()
+    time.sleep(0.8)  # the session's verdict
+    kinds = _chain_kinds(r)
+    served_candidates = str(served["hybrid"]["segment"][0]["params"]["candidates"])
+    candidates = (
+        _seq_row(r, "vector_search").locator('input[data-param="candidates"]').input_value()
+    )
+    kept_id = _seq_row(r, "vector_search").get_attribute("data-stage-id")
+    names = page.locator("#rag-seq-run .rag-seq-name").all_inner_texts()
+    chunk = _seq_row(r, "chunking").locator('input[data-param="chunk_max_chars"]').input_value()
+    top_k = _seq_row(r, "context").locator('input[data-param="top_k"]').input_value()
+    r.check(
+        kinds
+        == [
+            "chunking",
+            "embedding",
+            "vector_store",
+            "vector_search",
+            "lexical_search",
+            "fusion",
+            "context",
+            "generation",
+        ]
+        and names[2:5] == ["Dense retrieval", "BM25", "Fusion (RRF)"]
+        and (chunk, top_k) == ("300", "2")
+        and candidates == served_candidates != "5"
+        and kept_id == dense_id
+        and _pressed_preset(r) == ["hybrid"]
+        and not page.locator("#rag-seq .rag-chain-refusal").count()
+        and page.locator("#rag-run").is_enabled(),
+        "« RAG hybride » : le segment devient Dense retrieval, BM25, Fusion (RRF), le reste "
+        "inchangé (300 caractères, top_k 2 gardés), les candidats du Dense retrieval à la "
+        "valeur servie, son id gardé, le bouton pressé, la chaîne valide",
+        f"{kinds} · {names} · {chunk}/{top_k} · {candidates}/{served_candidates} · "
+        f"{dense_id}/{kept_id} · {_pressed_preset(r)}",
+    )
+    page.reload()
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    time.sleep(0.4)
+    r.check(
+        _chain_kinds(r)[3:6] == ["vector_search", "lexical_search", "fusion"]
+        and _pressed_preset(r) == ["hybrid"],
+        "après rechargement, la chaîne hybride est gardée, « RAG hybride » reste pressé",
+        f"{_chain_kinds(r)} · {_pressed_preset(r)}",
+    )
+    r.shot("59-atelier-rag-architectures")
+    ended, seq = _rag_lab_run(r, compose=True)
+    fusion = _stage_ended(r, seq, "fusion").get("items", [])
+    r.check(
+        ended["payload"]["status"] == "ok"
+        and fusion
+        and all(
+            {s["kind"] for s in i["sources"]} == {"vector_search", "lexical_search"} for i in fusion
+        )
+        and len(_stage_ended(r, seq, "context").get("items", [])) == 2,
+        "« RAG hybride » exécuté : la Fusion donne les rangs des deux recherches, run `ok`",
+        f"{ended['payload'].get('status')} · {len(fusion)} extraits",
+    )
+    _add_stage(r, "Reranking")
+    r.check(
+        _chain_kinds(r)[3:7] == ["vector_search", "lexical_search", "fusion", "rerank"]
+        and _pressed_preset(r) == [],
+        "segment composé à la main (hybride + reranking) : aucun bouton pressé",
+        f"{_chain_kinds(r)} · {_pressed_preset(r)}",
+    )
+    page.locator('#rag-presets .rag-preset[data-preset="dense"]').click()
+    time.sleep(0.8)
+    dense = (_chain_kinds(r), _pressed_preset(r))
+    page.locator('#rag-presets .rag-preset[data-preset="rerank"]').click()
+    time.sleep(0.8)
+    r.check(
+        dense[0][3:5] == ["vector_search", "context"]
+        and dense[1] == ["dense"]
+        and _chain_kinds(r)[3:6] == ["vector_search", "rerank", "context"]
+        and _pressed_preset(r) == ["rerank"],
+        "« RAG dense » puis « RAG + reranking » : chaque fois le segment remplacé, le bouton "
+        "pressé",
+        f"{dense} · {_chain_kinds(r)} · {_pressed_preset(r)}",
+    )
+    _rag_mode(r, "play")
+    r.check(
+        page.locator("#rag-presets").is_hidden(), "Dérouler : pas d'architectures toutes faites"
+    )
+    _rag_mode(r, "compose")
+
+    # A preset the session says would not run (the reranker absent, served by `page.route`):
+    # marked « indisponible », still clickable.
+    def unavailable(route) -> None:  # noqa: ANN001
+        response = route.fetch()
+        body = response.json()
+        for preset in (body.get("catalog") or {}).get("presets", []):
+            if preset["id"] == "rerank":
+                preset["available"], preset["reason_text"] = False, "Reranker absent (e2e)."
+        route.fulfill(response=response, json=body)
+
+    page.locator('#rag-presets .rag-preset[data-preset="dense"]').click()
+    time.sleep(0.8)
+    page.route("**/api/rag_lab", unavailable)
+    try:
+        page.reload()
+        expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+        marked = _rag_presets(r).get("rerank", {})
+        sweep = _contrast_sweep(r, ["#rag-presets"])
+        page.locator('#rag-presets .rag-preset[data-preset="rerank"]').click()
+        time.sleep(0.8)
+        r.check(
+            marked.get("unavailable")
+            and "indisponible" in marked.get("text", "")
+            and "Reranker absent (e2e)." in marked.get("title", "")
+            and _chain_kinds(r)[3:5] == ["vector_search", "rerank"]
+            and not sweep,
+            "préréglage indisponible : marqué « indisponible », la raison en infobulle, "
+            "cliquable (il s'applique), contrastes AA",
+            f"{marked} · {_chain_kinds(r)} · {sweep}",
+        )
+    finally:
+        page.unroute("**/api/rag_lab", unavailable)
+    page.reload()  # the real catalog again, not the faked one
+    expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
+    page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
+
+
 def _rag_lab_alt(r: Run) -> None:
     """Increment 3: the scenario follows the catalog. Without the `rag-alt` extra, FAISS and
-    LanceDB are greyed with the command that installs them; with it, A = sqlite-vec and B =
-    FAISS give the same context, B's index built then read, its import's memory said."""
+    LanceDB are greyed with the command that installs them; with it, the chain on FAISS gives
+    the context of the shipped chain (sqlite-vec), its index built then read, its import's
+    memory said. Lot 5a: one chain, FAISS on it."""
     page = r.page
     state = r.api("GET", "/api/rag_lab").json()
     stores = next(s for s in state["catalog"]["stages"] if s["kind"] == "vector_store")
     faiss = next(o for o in stores["options"] if o["id"] == "faiss")
     page.locator("#rag-reset-chain").click()
-    page.locator("#rag-compare").check()
-    select = page.locator('#rag-chain-b [data-kind="vector_store"] select.rag-option')
+    select = _seq_row(r, "vector_store").locator("select.rag-option")
     expect(select).to_be_visible(timeout=5000)
     if not faiss["available"]:
         print("  (branche : sans l'extra rag-alt)")
         disabled = select.locator("option:disabled").all_inner_texts()
-        reasons = page.locator(
-            '#rag-chain-b [data-kind="vector_store"] .rag-chain-unavailable'
-        ).all_inner_texts()
+        reasons = _seq_row(r, "vector_store").locator(".rag-chain-unavailable")
+        hidden = reasons.first.is_hidden()  # shown on the line selected only
+        _focus_of(r, "vector_store")
+        reasons = reasons.all_inner_texts()
         r.check(
             any(t.startswith("FAISS") for t in disabled)
             and any(t.startswith("LanceDB") for t in disabled)
+            and hidden
             and len(reasons) == 2
             and all("uv sync --extra compression --extra rag-alt" in t for t in reasons),
-            "sans l'extra : FAISS et LanceDB désactivés, la raison donne la commande",
+            "sans l'extra : FAISS et LanceDB désactivés ; la ligne sélectionnée donne la raison "
+            "et la commande",
             str(reasons)[:300],
         )
         page.locator("#rag-reset-chain").click()
         return
     print("  (branche : avec l'extra rag-alt)")
-    _set_stage(r, "b", "vector_store", "faiss")
+    _, seq = _rag_lab_run(r, compose=True)
+    shipped = [(i["rank"], i["chunk_id"]) for i in _stage_ended(r, seq, "context")["items"]]
+    _set_stage(r, "vector_store", "faiss")
     figures = []
     for _ in range(2):
-        ended, seq = _rag_lab_run(r)
-        store = _stage_ended(r, seq, "vector_store", "b")
-        contexts = [_stage_ended(r, seq, "context", lane).get("items", []) for lane in "ab"]
-        figures.append((ended["payload"]["status"], store, contexts))
-    (status, first, contexts), (_, second, _) = figures
-    same = [(i["rank"], i["chunk_id"]) for i in contexts[0]] == [
-        (i["rank"], i["chunk_id"]) for i in contexts[1]
-    ]
+        ended, seq = _rag_lab_run(r, compose=True)
+        store = _stage_ended(r, seq, "vector_store")
+        context = _stage_ended(r, seq, "context").get("items", [])
+        figures.append((ended["payload"]["status"], store, context))
+    (status, first, context), (_, second, _) = figures
     facts = {f["label_text"]: f["value_text"] for f in first.get("facts", [])}
-    card = _result_card(r, "vector_store", "b").inner_text()
+    _open_details(r)
+    card = _result_card(r, "vector_store").inner_text()
     r.check(
-        status == "ok" and same and len(contexts[0]) == 3,
-        "avec l'extra : A = sqlite-vec et B = FAISS, mêmes extraits et mêmes rangs au Contexte",
-        str([(i["rank"], i["doc_id"]) for i in contexts[1]]),
+        status == "ok" and [(i["rank"], i["chunk_id"]) for i in context] == shipped,
+        "avec l'extra : la chaîne sur FAISS garde les extraits et les rangs de sqlite-vec",
+        str([(i["rank"], i["doc_id"]) for i in context]),
     )
     r.check(
         "construit (29 vecteurs)" in first.get("output_text", "")
         and "relu (29 vecteurs)" in second.get("output_text", "")
         and facts.get("Import", "").startswith(("premier import : +", "déjà fait"))
-        and "premier import" in card.lower(),
-        "Base vectorielle de B : « construit », puis « relu », et la mémoire ajoutée à l'import",
+        and ("premier import" in card.lower() or "déjà fait" in card.lower()),
+        "Vector store sur FAISS : « construit », puis « relu », et la mémoire ajoutée à l'import",
         f"{first.get('output_text', '')[:80]} · {second.get('output_text', '')[:60]} · {facts}",
     )
     page.locator("#rag-reset-chain").click()
@@ -11652,59 +13617,48 @@ def _git_status() -> str:
     ).stdout
 
 
-def _set_stage(r: Run, lane: str, kind: str, option: str | None = None, **params: int) -> None:
-    card = r.page.locator(f'.rag-chain[data-lane="{lane}"] .rag-chain-card[data-kind="{kind}"]')
+def _set_stage(r: Run, kind: str, option: str | None = None, **params: int) -> None:
     if option is not None:
-        card.locator("select.rag-option").select_option(option)
-        card = r.page.locator(f'.rag-chain[data-lane="{lane}"] .rag-chain-card[data-kind="{kind}"]')
+        _seq_row(r, kind).locator("select.rag-option").select_option(option)
     for name, value in params.items():
-        field = card.locator(f'input[data-param="{name}"]')
+        field = _seq_row(r, kind).locator(f'input[data-param="{name}"]')
         field.fill(str(value))
         field.dispatch_event("change")
 
 
 def _rag_lab_compare(r: Run) -> None:
-    """Increment 2: A = the shipped chain (sqlite-vec, 700 characters), B = the exhaustive
-    search in memory, 300 characters, `top_k` 2; two runs (computed, then read from the
-    cache); a chain with fewer candidates than excerpts is refused with its reason."""
+    """Increment 2, one chain since lot 5a (the A/B comparison is gone from the page): the
+    exhaustive search in memory, 300 characters, `top_k` 2; two runs (computed, then read from
+    the cache); a chain saved by a page of before (A and B, labels `label_fr`) read again with
+    A only; a chain with fewer candidates than excerpts refused with its reason."""
     page = r.page
     status_before = _git_status()
     lab_dir = r.stack.data_dir / "rag_lab"
     folders_before = set(lab_dir.iterdir()) if lab_dir.is_dir() else set()
     page.locator("#rag-reset-chain").click()
-    page.locator("#rag-compare").check()
-    expect(page.locator("#rag-chain-b .rag-chain-card")).to_have_count(7, timeout=5000)
-    store = page.locator('#rag-chain-b [data-kind="vector_store"] select.rag-option')
+    expect(page.locator("#rag-seq li.rag-chain-card")).to_have_count(7, timeout=5000)
+    store = _seq_row(r, "vector_store").locator("select.rag-option")
     labels = store.locator("option").all_inner_texts()
     r.check(
         "Recherche exhaustive en mémoire" in labels and "sqlite-vec" in labels,
-        "chaîne B : la base vectorielle propose sqlite-vec et la recherche en mémoire",
+        "Vector store : sqlite-vec et la recherche exhaustive en mémoire proposés",
         str(labels),
     )
-    _set_stage(r, "b", "vector_store", "memory")
-    _set_stage(r, "b", "chunking", chunk_max_chars=300)
-    _set_stage(r, "b", "context", top_k=2)
-    ended, seq = _rag_lab_run(r)
-    lanes = page.locator(".rag-lane")
-    embedding_b = _result_card(r, "embedding", "b").inner_text()
-    context_b = _stage_ended(r, seq, "context", "b")
+    _set_stage(r, "vector_store", "memory")
+    _set_stage(r, "chunking", chunk_max_chars=300)
+    _set_stage(r, "context", top_k=2)
+    ended, seq = _rag_lab_run(r, compose=True)
+    _open_details(r)
+    embedding = _result_card(r, "embedding").inner_text()
+    context = _stage_ended(r, seq, "context")
     r.check(
         ended["payload"]["status"] == "ok"
-        and lanes.count() == 2
-        and "calculés (77 passages)" in embedding_b
-        and len(context_b.get("items", [])) == 2
-        and _result_card(r, "context", "b").locator("tbody tr").count() == 2,
-        "comparaison : deux colonnes, B calcule ses 77 passages et garde 2 extraits",
-        embedding_b[:240],
-    )
-    summary = page.inner_text("#rag-comparison")
-    comparison = ended["payload"]["comparison"] or {}
-    r.check(
-        "En commun" in summary
-        and ("Écarts de rang" in summary or "Aucun écart de rang" in summary)
-        and comparison.get("summary_text", "")[:40] in summary,
-        "la synthèse nomme les extraits communs et les écarts de rang",
-        summary[:300],
+        and page.locator("#rag-details .rag-lane").count() == 1
+        and "calculés (77 passages)" in embedding
+        and len(context.get("items", [])) == 2
+        and _result_card(r, "context").locator("tbody tr").count() == 2,
+        "une seule chaîne : l'Embedding calcule ses 77 passages, le prompt garde 2 extraits",
+        embedding[:240],
     )
     folders = set(lab_dir.iterdir()) if lab_dir.is_dir() else set()
     r.check(
@@ -11712,59 +13666,67 @@ def _rag_lab_compare(r: Run) -> None:
         "un dossier nouveau sous rag_lab_dir(), aucun fichier créé dans le dépôt",
         f"{sorted(p.name for p in folders)} · git « {_git_status()[:120]} »",
     )
-    r.shot("57-atelier-rag-comparaison", full_page=True)
-    ended, seq = _rag_lab_run(r)
+    r.shot("57-atelier-rag-composer", full_page=True)
+    ended, seq = _rag_lab_run(r, compose=True)
     r.check(
-        "relus du cache" in _result_card(r, "embedding", "b").inner_text(),
-        "second run : l'Embedding de B dit « relus du cache »",
+        "relus du cache" in _result_card(r, "embedding").inner_text(),
+        "second run : l'Embedding dit « relus du cache »",
     )
-    # The chains are remembered by the browser, the comparison too. Languages (2/5): saved in
-    # the former format, each chain's label named `label_fr`, they are read again.
+    # A page of before lot 5a saved two chains (A and B), each label named `label_fr`
+    # (languages 2/5): A is read again, B is dropped.
     page.evaluate(
         "() => { const key = 'wavestack.ragLab';"
         " const saved = JSON.parse(localStorage.getItem(key));"
-        " saved.pipelines = saved.pipelines.map((p, i) => {"
-        " const { label_text: _, ...rest } = p;"
-        " return { label_fr: `Chaîne ${'AB'[i]}`, ...rest }; });"
+        " const [a] = saved.pipelines.map(({ label_text: _, ...rest }) => rest);"
+        " const b = JSON.parse(JSON.stringify(a));"
+        " b.stages.find(s => s.kind === 'chunking').params.chunk_max_chars = 900;"
+        " saved.pipelines = [{ label_fr: 'Chaîne A', ...a }, { label_fr: 'Chaîne B', ...b }];"
         " localStorage.setItem(key, JSON.stringify(saved)); }"
     )
     page.reload()
     expect(page.locator("body[data-rag-ready]")).to_be_attached(timeout=10_000)
-    kept = page.locator('#rag-chain-b [data-kind="chunking"] input[data-param="chunk_max_chars"]')
-    lanes = [page.locator(f"{q} .rag-chain-card").count() for q in ("#rag-chain", "#rag-chain-b")]
+    pressed = page.locator('#rag-modes [data-mode="compose"]').get_attribute("aria-pressed")
+    r.check(pressed == "true", "rechargé en Composer : Composer reste choisi", str(pressed))
+    _rag_mode(r, "compose")
+    kept = _seq_row(r, "chunking").locator('input[data-param="chunk_max_chars"]')
     r.check(
-        page.locator("#rag-compare").is_checked() and kept.input_value() == "300" and all(lanes),
-        "après rechargement, les chaînes A et B sont gardées (localStorage), relues depuis "
-        "l'ancien format (label_fr)",
-        f"cartes {lanes}",
+        kept.input_value() == "300"
+        and page.locator("#rag-seq li.rag-chain-card").count() == 7
+        and not page.locator("#rag-compare, #rag-chain-b").count(),
+        "après rechargement, une chaîne enregistrée A + B (ancien format, label_fr) : seule A "
+        "est gardée",
+        kept.input_value(),
     )
-    # Fewer candidates than excerpts kept: the session's reason on the card (increment 4
+    # Fewer candidates than excerpts kept: the session's reason on the line (increment 4
     # validates each change), « Lancer » greyed; posted anyway, the 409's reason.
-    _set_stage(r, "b", "vector_search", candidates=1)
+    _set_stage(r, "vector_search", candidates=1)
     seq = r.ev.mark()
-    card = page.locator('#rag-chain-b .rag-chain-card[data-kind="vector_search"]')
-    expect(card.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
-    said = card.locator(".rag-chain-refusal").inner_text()
+    row = _seq_row(r, "vector_search")
+    expect(row.locator(".rag-chain-refusal")).to_be_visible(timeout=5000)
+    said = row.locator(".rag-chain-refusal").inner_text()
     chain = page.evaluate("() => JSON.parse(localStorage.getItem('wavestack.ragLab')).pipelines")
     refused = r.api(
         "POST", "/api/intentions/rag_lab_run", {"question": RAG_LAB_QUESTION, "pipelines": chain}
     )
     time.sleep(0.3)
     r.check(
-        "Recherche" in said
+        len(chain) == 1
+        and "Dense retrieval" in said
         and "candidat" in said
         and page.locator("#rag-run").is_disabled()
         and refused.status_code == 409
         and said in refused.json().get("detail", "")
         and not r.ev.since(seq, "rag_lab_run_started"),
-        "candidats < top_k : la page affiche la raison du 409, « Lancer » grisé, rien ne s'exécute",
+        "candidats < top_k : la ligne affiche la raison du 409, « Lancer » grisé, rien ne "
+        "s'exécute",
         f"{said} · {refused.status_code}",
     )
     page.locator("#rag-reset-chain").click()
+    time.sleep(0.4)
     r.check(
-        not page.locator("#rag-compare").is_checked()
-        and page.locator("#rag-chain-b .rag-chain-card").count() == 0,
-        "« Revenir à la chaîne livrée » : une seule chaîne, la livrée",
+        _chain_kinds(r) == RAG_LAB_STAGES_KINDS
+        and not page.locator("#rag-seq .rag-chain-refusal").count(),
+        "« Revenir à la chaîne livrée » : la chaîne livrée, valide",
     )
 
 

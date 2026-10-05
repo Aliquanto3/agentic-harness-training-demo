@@ -63,6 +63,7 @@
   --color-on-vivid: #0A0A14;
   --color-warning-soft: #FFF4D6;
   --color-danger-soft: #FDE8EB;
+  --color-logo-tile: #FFFFFF;
 
   /* typography */
   --typography-pane-title-font-family: Fredoka, system-ui, sans-serif;
@@ -125,6 +126,7 @@
   --spacing-brick-panel-width: 280px;
   --spacing-architecture-band-height: 250px;
   --spacing-stroke-min: 2px;
+  --spacing-stroke-path: 3px;
   --spacing-hit-target-min: 32px;
   --spacing-relief-offset: 4px;
   --spacing-relief-offset-pressed: 1px;
@@ -190,6 +192,7 @@
   --color-on-vivid: #0A0A14;
   --color-warning-soft: #3A3010;
   --color-danger-soft: #3A1820;
+  --color-logo-tile: #FFFFFF;
 }
 
 /* Story 31: « Système » on a dark workstation: the same declarations, without the attribute. */
@@ -251,5 +254,6 @@
     --color-on-vivid: #0A0A14;
     --color-warning-soft: #3A3010;
     --color-danger-soft: #3A1820;
+    --color-logo-tile: #FFFFFF;
   }
 }

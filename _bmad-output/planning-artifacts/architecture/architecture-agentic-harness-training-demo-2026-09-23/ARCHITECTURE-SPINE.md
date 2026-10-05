@@ -7,7 +7,7 @@ paradigm: 'Moteur de tour à journal d’événements (event-sourced) ; interfac
 scope: 'WaveStack V1 complet (paliers 1 et 2) : harnais, moteur d’inférence, interface à 5 volets, briques, installation et lancement'
 status: final
 created: '2026-09-23'
-updated: '2026-10-03'
+updated: '2026-10-05'
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-30, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41, FR-42, FR-43, NFR-1, NFR-2, NFR-3, NFR-4, NFR-5, NFR-6, NFR-7, NFR-8, NFR-9, NFR-10, NFR-11]
 sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
@@ -121,7 +121,7 @@ Règles de dépendance :
     - `harness_error` ;
     - story 29 (écran « LLM nu », CAP-44) : `llm_tokenized{request_id, text, char_count, model_label, hosting, exact, tokenizer_text, tokens: [{id, text, special}], token_count, more, estimate, chars_per_token, unavailable_text, dimensions: {vocab_size, embedding_length, layer_count, head_count, context_length, embedding_params, figures_text, source_text} | null, dimensions_text, figures_text}`, émis dans le **contexte `llm`** : `context_id = "llm"`, `turn_id` nul, `step_id` (et `call_id` pour un appel au modèle) `llm{n}`, numérotés sur la vie de la session. Le texte brut est découpé sans gabarit ; 512 tokens au plus dans `tokens`, `more` le reste ; un modèle cloud n'a pas de tokenizer local (`exact = false`, `tokens` vide, `estimate`). Les dimensions viennent du moteur (`Engine.dimensions()`, facultative), sinon de l'en-tête GGUF ; les chiffres sont mis en forme par la session. Aucun `context_rendered`, `context_preview` ni `context_reconciled` n'est émis dans ce contexte ; la page `/` ne le montre que dans son journal des événements, et `/api/state` l'écarte de la jauge. Incrément 2 : `llm_generation_started{request_id, prompt, rendered, prompt_tokens, exact, sampling, reserve, reasoning, phase_label}`, `llm_token{request_id, index, token_id | null, text, channel, elapsed_ms}` (un par token du moteur local ; un par fragment reçu d'un fournisseur cloud, `token_id` nul) et `llm_generation_ended{request_id, status: completed|cancelled|limit|error, duration_ms, read_tps, reasoning_tokens, answer_tokens, message_text}`, autour des `model_call_*` de l'appel (`call_id = llm{n}`). `model_call_started` porte `sampling{temperature, top_k, top_p, min_p, source: harness|screen|provider, note_text}` pour tout appel au modèle, chaque valeur nulle quand elle n'est pas envoyée : `harness` pour les appels locaux de l'atelier (les valeurs par défaut), `screen` pour l'écran, `provider` pour un appel cloud qui n'envoie rien. `prefix_not_reused.cause` gagne `llm` (l'écran a occupé le cache du moteur). Incrément 3 : `model_load_step{model, step: release|probe|check|engine|ready, label_text, elapsed_ms, duration_ms, rss_bytes}`, hors tour comme `model_load_*`, émis par `_load` à chaque étape franchie (RSS mesurée par le registre, AD-8), et `model_load_ended.memory{rss_before, rss_after, cost_bytes, where_text}` sur `ok`. `GET /api/llm_lab` donne `last_load` (les enveloppes du dernier chargement, lues dans le journal) et `reasoning{mode, reason_text, budget, reserve}` (`reasoning_mode`, AD-6) ; `llm_generate{reasoning}` est refusée (409) quand le mode est `never` ou `unknown`, forcée quand il est `always`. Story 5 du 2026-09-30 : `llm_generation_started` gagne `usable` (fenêtre moins réserve) et `figures_text.window`, que le schéma de la fenêtre lit tels quels. Les 100 candidats les plus probables de chaque token (`candidates.top_from_logits` : leur `p` à T = 1, leur texte, `tail = 1 − Σp`) ne vont jamais dans le journal : la session les garde en mémoire pour la dernière génération avec candidats seulement (une nouvelle génération les efface ; un changement de moteur les rend caducs) ; `llm_token.candidates` reste aux cinq premiers. `GET /api/llm_lab` donne `distribution{tokens}` (combien de tokens sont gardés).
     - story 30 (Atelier RAG, CAP-45) : dans le **contexte `rag_lab`** (`turn_id` nul, `step_id` `lab{n}` pour le run et `lab{n}.{lane}.s{i}` pour une étape, `brick = rag`, `component = rag_lab.{kind}`, que le schéma ne dessine pas, `actor = harness`, `trigger = user`) : `rag_lab_run_started{run_id, question, lanes: [{lane, label_text, stages: [{stage_id, kind, option, label_text, option_label_text, params}]}], phase_label}`, `rag_lab_stage_started{run_id, lane, stage_id, kind, option, phase_label}`, `rag_lab_stage_progress{…, done, total}`, `rag_lab_stage_ended{…, status: ok|error|skipped|cancelled|not_run, input_text, output_text, facts: [{label_text, value_text}], items: [{rank, before, chunk_id, doc_id, title_text, text, score, sources}], borrowed, error_text, duration_ms, rss_bytes, memory_text}` (une étape sautée ou non exécutée n'émet que son `*_ended`) et `rag_lab_run_ended{run_id, status: ok|error|cancelled, duration_ms, comparison}`. Tout est calculé par `rag/lab.py` (rangs, scores, contexte construit, chiffres) ; aucune `harness_error` de la brique RAG n'est émise par l'atelier, qui dit ses erreurs dans l'étape. `GET /api/rag_lab` donne `last_run`, les enveloppes du dernier run lues dans le journal.
-    - story 6 du 2026-09-30 (Atelier MCP, CAP-6) : dans le **contexte `mcp_lab`** (`turn_id` nul, `step_id` `mcp{n}` pour chaque échange, une connexion ou un appel, `brick = mcp`, `component = mcp_lab.{server}`, que le schéma ne dessine pas, `actor = harness`, `trigger = user`) : `mcp_lab_message{direction: to_server|from_server, method, jsonrpc, elapsed_ms, reconstructed}` (un message JSON-RPC tel qu'il passe sur le transport ; `elapsed_ms` : l'aller-retour d'une réponse depuis sa requête, le temps depuis le début de l'échange pour une requête ou une notification), `mcp_lab_connect_ended{server, status: ok|error, tools: [{name, tool, description, schema, definition_text, doc_tokens, line_text, line_tokens}], full_tokens, lazy_tokens, load_tool_doc_tokens, lazy_definition_text, estimated, error_text, duration_ms}` et `mcp_lab_call_ended{server, tool, status: ok|error, raw, text, truncated, error_text, duration_ms}`. Un serveur public y ajoute ses `outbound_request` (même contexte, même `step_id`, `component = mcp_lab.{server}`). `GET /api/mcp_lab` donne `last_session`, les enveloppes de la dernière connexion et des appels faits dessus.
+    - story 6 du 2026-09-30 (Atelier MCP, CAP-6) : dans le **contexte `mcp_lab`** (`turn_id` nul, `step_id` `mcp{n}` pour chaque échange, une connexion ou un appel, `brick = mcp`, `component = mcp_lab.{server}`, que le schéma ne dessine pas, `actor = harness`, `trigger = user`) : `mcp_lab_message{direction: to_server|from_server, method, jsonrpc, elapsed_ms, reconstructed}` (un message JSON-RPC tel qu'il passe sur le transport ; `elapsed_ms` : l'aller-retour d'une réponse depuis sa requête, le temps depuis le début de l'échange pour une requête ou une notification), `mcp_lab_connect_ended{server, status: ok|error, tools: [{name, tool, description, schema, definition_text, doc_tokens, line_text, line_tokens}], full_tokens, lazy_tokens, load_tool_doc_tokens, lazy_definition_text, estimated, error_text, duration_ms}` et `mcp_lab_call_ended{server, tool, status: ok|error, raw, text, truncated, error_text, duration_ms}`. Un serveur public y ajoute ses `outbound_request` (même contexte, même `step_id`, `component = mcp_lab.{server}`). `GET /api/mcp_lab` donne `last_session`, les enveloppes de la dernière connexion et des appels faits dessus. **Lot 4 du 2026-10-04** : le contrat complet du contexte `mcp_lab` (ouverture de chaque échange, poignée de main étendue, ressources, prompts, appels au modèle, requêtes sortantes d'un modèle cloud, `last_session`) est fixé par AD-27, qui l'emporte sur cette ligne ; `prefix_not_reused.cause` gagne `mcp_lab`.
   - `model_delta` transporte du texte UTF-8 complet, regroupé toutes les 50 ms au plus. `model_call_ended{raw_output, reasoning, text, tool_calls, prompt_tokens, output_tokens, prompt_ms, gen_ms, stop_reason: stop|length|cancelled|error}` fait foi, et les projections remplacent les deltas par lui. Il porte aussi `output_tps` et `usage_source: engine|api|estimate`.
     - Dans les deux modes, `prompt_ms` court de l’envoi au premier delta (tous canaux ; en mode chat, « attente du premier token, réseau compris »), `gen_ms` du premier au dernier delta, et `output_tps = output_tokens / (gen_ms / 1000)`, arrondi à l’unité, calculé par la session (`null` si `gen_ms` est nul). Sans `usage`, les tokens de sortie sont estimés comme ceux de l’entrée (AD-4), sur tous les canaux.
     - En mode chat, `raw_output` est la suite des deltas `choices[0].delta` en JSON Lines, et `tool_calls` garde l’identifiant d’origine du fournisseur à côté de celui de la session (AD-4).
@@ -146,7 +146,7 @@ Règles de dépendance :
     - **(b) Refusées hors `idle`** (et hors `diagnostic` pour les quatre intentions du diagnostic), avec la raison : envoyer, rejouer, changer de modèle (`select_model`), de fenêtre ou de bornes, télécharger un modèle (`download_model`), enregistrer une clé (`set_api_key`), tester un modèle cloud (`test_cloud_model`), modifier la mémoire globale, vider la conversation, lancer un scénario.
     - **Écran « LLM nu » (story 29).** `llm_generate{prompt, sampling}` est de classe (b) : acceptée en `idle` seulement, elle passe la session en `llm_lab` sous le verrou, dans l'appel qui l'accepte, puis tourne sur le thread de travail ; « Arrêter » (classe c) l'interrompt, et `idle` revient à sa fin. `llm_tokenize{text}` est acceptée en `idle` et tourne sur le thread de travail sans changer l'état. Avec le moteur en processus, l'état du contexte principal est copié puis restauré autour de l'appel de l'écran (comme pour le sous-agent, AD-11) ; à défaut, le premier appel du tour suivant trace `prefix_not_reused{cause: llm}`. Story 5 du 2026-09-30 : `llm_compare{prompt, sampling_a, sampling_b, reasoning, candidates}` est de classe (b) comme `llm_generate` : acceptée en `idle` seulement, elle passe la session en `llm_lab` une fois et la garde pendant deux générations séquentielles (jamais parallèles, moteur local comme cloud), `request_id` `llm{n}.a` puis `llm{n}.b` ; « Arrêter » arrête la comparaison entière (B se termine `cancelled` sans démarrer) ; `idle` revient après B. `POST /api/llm_lab/distribution{index, sampling}` est une lecture, acceptée dans tout état.
     - **Atelier RAG (story 30).** `rag_lab_run{question, pipelines}` est de classe (b) : acceptée en `idle` seulement (une raison en `idle`, comme l'absence de modèle, n'empêche rien : rien n'est généré), elle passe la session en `rag_lab` (« Atelier RAG : exécution en cours ; attendez sa fin ou arrêtez-la. ») sous le verrou, dans l'appel qui l'accepte, puis tourne sur le thread de travail, en série avec les tours et `_sync_rag` ; « Arrêter » (classe c) arme un `CancelToken` testé entre deux étapes et entre deux passages d'un embedding ou d'un reranking ; à la fin, `idle` revient avec la raison qu'il portait. Une chaîne refusée (option indisponible, réglage hors bornes, ordre invalide) répond 409 avec la raison qui nomme l'étape, sans rien émettre. L'atelier est un bac à sable : il ne change ni la configuration ni l'état de la brique RAG.
-    - **Atelier MCP (story 6 du 2026-09-30).** `mcp_lab_connect{server}` et `mcp_lab_call{server, tool, args}` sont de classe (b) : acceptées en `idle` seulement (sinon 409 avec la raison, rien n'est émis), elles passent la session en `mcp_lab` (« Atelier MCP : échange en cours ; attendez sa fin ou arrêtez-le. ») sous le verrou, puis l'échange tourne sur le thread de travail, qui attend la connexion vivant sur la boucle asyncio (AD-24) ; `idle` revient avec la raison qu'il portait. Un appel exige la connexion de l'atelier à ce serveur et un outil qu'il a listé (sinon 409). « Arrêter » (classe c) arme le `CancelToken` de l'échange **et ferme la connexion** de l'atelier, seule façon d'interrompre une attente sur la boucle. **Bac à sable** : l'atelier ouvre ses propres connexions (`mcp/lab.LabConnection`, une `McpConnection` dont le transport est espionné), une seule à la fois, jamais celles de la brique (`_mcp_conns`), et ne change ni `_mcp_enabled`, ni `_mcp_lazy`, ni le registre de la brique ; sa connexion se ferme à la connexion suivante, au `stop`, au changement de langue et à la fermeture de la session (aucun processus enfant ne survit, AD-21). Les serveurs publics passent par `create_async_client` et la garde réseau (AD-15), la portée de trace de l'atelier posée sur la connexion pour que `outbound_request` porte le contexte `mcp_lab`.
+    - **Atelier MCP (story 6 du 2026-09-30).** `mcp_lab_connect{server}` et `mcp_lab_call{server, tool, args}` sont de classe (b) : acceptées en `idle` seulement (sinon 409 avec la raison, rien n'est émis), elles passent la session en `mcp_lab` (« Atelier MCP : échange en cours ; attendez sa fin ou arrêtez-le. ») sous le verrou, puis l'échange tourne sur le thread de travail, qui attend la connexion vivant sur la boucle asyncio (AD-24) ; `idle` revient avec la raison qu'il portait. Un appel exige la connexion de l'atelier à ce serveur et un outil qu'il a listé (sinon 409). « Arrêter » (classe c) arme le `CancelToken` de l'échange **et ferme la connexion** de l'atelier, seule façon d'interrompre une attente sur la boucle. **Bac à sable** : l'atelier ouvre ses propres connexions (`mcp/lab.LabConnection`, une `McpConnection` dont le transport est espionné), une seule à la fois, jamais celles de la brique (`_mcp_conns`), et ne change ni `_mcp_enabled`, ni `_mcp_lazy`, ni le registre de la brique ; sa connexion se ferme à la connexion suivante, au `stop`, au changement de langue et à la fermeture de la session (aucun processus enfant ne survit, AD-21). Les serveurs publics passent par `create_async_client` et la garde réseau (AD-15), la portée de trace de l'atelier posée sur la connexion pour que `outbound_request` porte le contexte `mcp_lab`. **Lot 4 du 2026-10-04** : `mcp_lab_read{server, uri}`, `mcp_lab_prompt{server, prompt, arguments}` et `mcp_lab_ask{server, question?, of?, doc_mode}` rejoignent la classe (b) aux mêmes conditions (verrou `mcp_lab`, 409 avec la raison, rien d'émis) ; leurs préconditions et la portée de « Arrêter » pendant une génération sont dans AD-27. La réinitialisation ferme aussi la connexion de l'atelier (`mcp_lab_closed{cause: reset}`).
     - **(c) Préemptives** : décision H5 (qui porte son `approval_id` ; la première réponse l’emporte), arrêt du tour, réinitialisation (qui vaut arrêt puis réinitialisation).
   - **Actions armées.** Une `ArmedAction{armed_id, kind, brick, target, args}` n’existe que dans la session, et le front projette la puce depuis les événements.
     - Elles sont consommées après `on_user_message` et avant le premier appel au modèle, dans l’ordre d’armement, par l’exécuteur (AD-14), avec `trigger = user`.
@@ -414,6 +414,7 @@ Règles de dépendance :
     - `read_file` résout le chemin et refuse tout ce qui sort de `content/demo_files/` ;
     - la calculatrice évalue par `ast`, avec une liste blanche d’opérateurs, jamais par `eval` ;
     - un test couvre chaque cas.
+  - **Lot 4 du 2026-10-04.** L’Atelier MCP n’exécute ni hooks ni effets : un appel de son modèle ne passe que par le `check` d’un exécuteur propre à l’atelier, sur son registre (AD-27, bac à sable). La règle ci-dessus reste celle du tour.
 
 ### AD-15 — Sorties réseau : une fabrique, tout est tracé
 
@@ -516,7 +517,7 @@ Règles de dépendance :
     - Aptos n’est jamais embarquée : elle est appelée par `local()`.
     - **Écran « LLM nu » (story 29).** `GET /llm` sert `static/llm.html` (avec `llm.css` et `llm.js`, module natif), sur les jetons de `tokens.css` seulement, `theme.js` en tête et un sélecteur `[data-theme-picker]`. `GET /api/llm_lab` donne ce que la page lit avant le flux : ses textes (`content/llm_lab.yaml`, ou `content_error_text`), le modèle actif, l'état de la session, l'exactitude du tokenizer et `seq` ; la page lit ensuite `/api/stream` à partir de `seq` et ne garde que le contexte `llm`, `session_state` et `model_load_ended`. Intention `llm_tokenize{text}` (1 à 2 000 caractères), de classe (b) : acceptée en `idle` seulement, sur le thread de travail, sans changer l'état. La page garde dans le navigateur le brouillon du prompt et les réglages d'échantillonnage (`wavestack.llm.sampling`). Story 5 du 2026-09-30 : `POST /api/intentions/llm_compare` (réponse `{request_id, request_ids}`) ; `POST /api/llm_lab/distribution{index (défaut 0), sampling (bornes de `SAMPLING_BOUNDS`)}` rend `{index, token_text, candidates: [{text, p, kept, p_sampled}], tail, sampling, kept_count, tokens}`, calculé par `candidates.distribution` (même chaîne que `candidates_from_logits` : top-k, top-p renormalisé, min-p, au moins un gardé, puis la température), ou 404 avec un texte lisible (`session.llm_lab.distribution.*`) quand rien n'est gardé pour ce token. Les réglages B de la comparaison sont aussi gardés par le navigateur (`wavestack.llm.sampling_b`) ; B tourne sans les candidats (la distribution vivante est celle de A).
     - **Atelier RAG (story 30).** `GET /rag` sert `static/rag.html` (avec `rag.css` et `rag.js`, module natif ; le SSE est recopié de `app.js`, inchangé), sur les jetons de `tokens.css` seulement, `theme.js` en tête et un sélecteur `[data-theme-picker]`. `GET /api/rag_lab` donne `{catalog, default_pipeline, content, content_error_text, unavailable_text, last_run, session_state, seq}` ; la page lit ensuite `/api/stream` à partir de `seq` et ne garde que les `rag_lab_*` et `session_state`. La question et les chaînes en cours d'édition (`wavestack.ragLab`, lecture protégée) sont ce que la page garde dans le navigateur. `POST /api/rag_lab/validate{pipelines}` (lecture seule, rien n'est émis) rend `{valid, refusals: [{lane, stage_id, reason_text}]}` : les règles de la chaîne sont celles de la session (`rag/lab.check_pipeline`), la page ne fait que placer la raison sur la carte fautive. Le lien « Atelier RAG » de la barre haute suit celui de « LLM nu ».
-    - **Atelier MCP (story 6 du 2026-09-30).** `GET /mcp` sert `static/mcp.html` (avec `mcp.css` et `mcp.js`, même tête que les autres pages). `GET /api/mcp_lab` donne `{servers, content, content_error_text, call_presets, open_server, last_session, session_state, seq}` (`servers` : les trois de `mcp_servers(cfg)`, avec transport, adresse ou commande de lancement, `sends_text`) ; la page lit ensuite `/api/stream` à partir de `seq` et ne garde que le contexte `mcp_lab` et `session_state` ; l'atelier principal range ces événements au journal seulement. **JSON-RPC brut : capture réelle.** `mcp.Client` (SDK 2.2) accepte tout `Transport` (un gestionnaire de contexte asynchrone qui rend les flux lus et écrits) : `LabConnection` enveloppe ceux du transport stdio ou Streamable HTTP, et chaque `SessionMessage` qui y passe est sérialisé comme le transport le sérialise (`model_dump_json(by_alias=True, exclude_unset=True)`) ; `reconstructed` reste donc faux, la reconstruction depuis `mcp_types` n'est pas utilisée. **Poids** : chaque outil passe par le `_mcp_spec` de la brique et un `ToolRegistry` propre à l'atelier (`definition`), donc la définition que rend `_tool_definitions` ; le lazy loading compte `load_tool_doc` avec une ligne par outil (`mcp/lab.catalog_line`, partagé avec `_doc_catalog`) ; compte par le moteur chargé, sinon estimation (`_count_tokens`, `estimated`). Le texte réinjecté d'un appel : `result_text` puis `_bound_result`.
+    - **Atelier MCP (story 6 du 2026-09-30).** `GET /mcp` sert `static/mcp.html` (avec `mcp.css` et `mcp.js`, même tête que les autres pages). `GET /api/mcp_lab` donne `{servers, content, content_error_text, call_presets, open_server, last_session, session_state, seq}` (`servers` : les trois de `mcp_servers(cfg)`, avec transport, adresse ou commande de lancement, `sends_text`) ; la page lit ensuite `/api/stream` à partir de `seq` et ne garde que le contexte `mcp_lab` et `session_state` ; l'atelier principal range ces événements au journal seulement. **JSON-RPC brut : capture réelle.** `mcp.Client` (SDK 2.2) accepte tout `Transport` (un gestionnaire de contexte asynchrone qui rend les flux lus et écrits) : `LabConnection` enveloppe ceux du transport stdio ou Streamable HTTP, et chaque `SessionMessage` qui y passe est sérialisé comme le transport le sérialise (`model_dump_json(by_alias=True, exclude_unset=True)`) ; `reconstructed` reste donc faux, la reconstruction depuis `mcp_types` n'est pas utilisée. **Poids** : chaque outil passe par le `_mcp_spec` de la brique et un `ToolRegistry` propre à l'atelier (`definition`), donc la définition que rend `_tool_definitions` ; le lazy loading compte `load_tool_doc` avec une ligne par outil (`mcp/lab.catalog_line`, partagé avec `_doc_catalog`) ; compte par le moteur chargé, sinon estimation (`_count_tokens`, `estimated`). Le texte réinjecté d'un appel : `result_text` puis `_bound_result`. **Lot 4 du 2026-10-04** : routes `POST /api/intentions/mcp_lab_read`, `mcp_lab_prompt` et `mcp_lab_ask`, qui rendent `{step_id}` comme les deux premières ; `GET /api/mcp_lab` gagne `ask{model_ready, model_reason_text, tools, tools_reason_text, model: ActiveModel | null}` et, par serveur, `source_label_text` et `source_action_text` (AD-27) ; la page relit cette route après chaque `model_load_ended`. Hors du contexte `mcp_lab`, elle ne garde que `session_state`, `model_load_ended` et `session_reset`. Le filtre de la jauge de `/api/state` écarte `mcp_lab`. La page `/mcp` consomme `static/diagram.js` et `static/panes.js` ; ses clés de navigateur sont dans AD-28.
     - La taille de texte (story 34, NFR-9) : le mode projection redéfinit la rampe `--typography-*-font-size` (× 9/7) sous `:root.projection`, dans `app.css`, `tokens.css` restant le miroir de DESIGN.md ; les petites tailles sont en `em`.
   - **État du navigateur.** Il se limite à l’interface : sélection (et ses clés de liaison, story 34), survol lié, volets masqués, mode focus, mode projection (mémorisé), thème (story 31, `wavestack.theme` : `system`, `light` ou `dark`, mémorisé ; ni événement ni requête), direct ou figé ; sur l'écran « LLM nu », le brouillon du prompt et les réglages A et B (`wavestack.llm.prompt`, `wavestack.llm.sampling`, `wavestack.llm.sampling_b`).
 
@@ -549,7 +550,7 @@ Règles de dépendance :
   - **Modèles cloud.** Le texte commun de l’avertissement et de l’infobulle, la raison « désactivé sans clé » et l’invite fixe du test sont dans `content/`. Les mentions propres à un fournisseur sont des champs de sa déclaration (AD-20), car un point d’accès interne se déclare hors du dépôt.
   - **Écran « LLM nu » (story 29).** `content/llm_lab.yaml` porte le titre, les intertitres des six sections et les textes de chaque section, `{…}` marquant un chiffre que la session met en forme. Validé par pydantic (`session/llm_lab.py`) ; un fichier invalide émet `harness_error` (contexte `llm`) une fois par message, et la page reste servie avec la raison (`content_error_text`).
   - **Atelier RAG (story 30).** `content/rag_lab.yaml` porte les textes de la page, le nom et l'explication (2 à 3 phrases) de chaque type d'étape, le nom de chaque option et de chaque réglage. Validé par pydantic (`rag/lab.py`, `extra = "forbid"`, un texte par type, option et réglage offerts) ; un fichier invalide émet `harness_error` (contexte `rag_lab`, hors brique) une fois par message, et la page reste servie avec la raison (`content_error_text`). Les phrases chiffrées d'une étape (entrée, sortie) sont composées en Python.
-  - **Atelier MCP (story 6 du 2026-09-30).** `content/mcp_lab.yaml` (et `content/i18n/{en,de}/mcp_lab.yaml`) porte les textes pédagogiques de la page, un texte par transport et par méthode JSON-RPC expliquée ; validé par pydantic (`mcp/lab.McpLabContent`, `extra = "forbid"`, champs `*_text`) ; un fichier invalide émet `harness_error` (contexte `mcp_lab`) une fois par cause, et la page reste servie avec la raison. Les libellés d'interface sont dans `ui.yaml`, section `mcp`. Les descriptions d'outils sont celles des serveurs, jamais traduites (le serveur local décrit les siens dans la langue de la session).
+  - **Atelier MCP (story 6 du 2026-09-30).** `content/mcp_lab.yaml` (et `content/i18n/{en,de}/mcp_lab.yaml`) porte les textes pédagogiques de la page, un texte par transport et par méthode JSON-RPC expliquée ; validé par pydantic (`mcp/lab.McpLabContent`, `extra = "forbid"`, champs `*_text`) ; un fichier invalide émet `harness_error` (contexte `mcp_lab`) une fois par cause, et la page reste servie avec la raison. Les libellés d'interface sont dans `ui.yaml`, section `mcp`. Les descriptions d'outils sont celles des serveurs, jamais traduites (le serveur local décrit les siens dans la langue de la session). **Lot 4 du 2026-10-04** : `METHODS` passe à huit méthodes (`resources/list`, `resources/read`, `prompts/list`, `prompts/get` en plus), et le validateur de `McpLabContent` exige un texte pour chacune ; `McpLabContent` gagne les textes de la section « Textes et aides » d'EXPERIENCE.md, le gabarit qui enveloppe une ressource et une question dans le message envoyé au modèle, et, par serveur, `source_label_text` et `source_action_text` (AD-27). `summary_text`, les raisons de disponibilité, la mention d'un contenu non textuel et le texte d'effet d'une issue du fournisseur sont dans `messages.yaml` ; le libellé `prefix_causes.mcp_lab` (« Atelier MCP ») dans `ui.yaml`, trois langues. Le serveur local sert la ressource `glossary://terms` et le prompt `explain_term(term)`, leurs textes dans `content/mcp_local/` et ses surcouches, comme ses outils.
   - **Éditeurs des modèles (story 25).** `content/models/publishers.yaml` : liste ordonnée des éditeurs (`id` distincts, `other` réservé, `label_text`, préfixes d’architecture, expressions régulières sur les noms ; Llama au nom seul, l’architecture `llama` étant partagée ; `names_first` pour un éditeur dont les modèles distillés gardent l’architecture de leur base, DeepSeek), `other_text`, la légende du sélecteur et les libellés « qui le sert ». Validé par pydantic, expressions compilées ; un fichier invalide ne plante rien : tous les modèles vont dans « Autres éditeurs », et `publishers_error_text` le dit sur la page `/models`.
 
 ### AD-20 — Données d’exécution hors du dépôt
@@ -676,6 +677,7 @@ Règles de dépendance :
     L’exécuteur tient pour appelable toute documentation de `tools`, de `documented` ou de `loaded_in_turn` (AD-4) : l’outil qu’on vient de documenter est donc appelable dans le même tour. Appeler un outil dont la documentation n’est pas chargée produit une erreur réinjectée, sauf par une action forcée : en mode chat, elle ajoute la définition de son outil à `tools` ; en mode local, l’appel forcé est rendu avec son résultat et l’outil reste à charger (le modèle peut le demander par `load_tool_doc`).
   - **Tours suivants.** La réponse de `load_skill` reste dans l’historique sous forme de talon court (AD-4), pour ne pas compter deux fois son contenu ; celle de `load_tool_doc` aussi en mode chat, et entière en mode local (ci-dessus).
   - **Action forcée.** Elle est rendue comme un appel d’outil de l’assistant, suivi de sa réponse, placé après le message de l’utilisateur. Elle porte `trigger = user`, et ses segments restent attribués à la brique. Son identifiant vient de la session (AD-4). En mode chat, la définition de son outil figure dans `tools` ; sans `tools` déclaré, elle est rendue en injection (AD-6).
+  - **Lot 4 du 2026-10-04.** Dans l’Atelier MCP, `load_tool_doc` suit le régime ci-dessus selon le mode, mais sans hooks, sans exécuteur unique et sans nouvel essai (AD-27).
 
 ### AD-26 — L’API d’un modèle cloud : champ `api`, format pivot, un traducteur et un adaptateur par API
 
@@ -686,7 +688,213 @@ Règles de dépendance :
   - **Format pivot.** La session tient son historique et écrit ses messages au format Chat Completions (`system`, `user`, `assistant` avec `tool_calls`, `tool`), quel que soit le modèle. Rien d’autre dans la session ne dépend de l’API.
   - **Un traducteur par API, dans `context`.** `render_chat_body(…, api=entry.api)` choisit dans le registre `TRANSLATORS` de `context/render.py` la fonction `(model, messages, tools, tail) → dict` qui écrit le corps natif ; la sérialisation JSON compacte reste commune. `context` reste ainsi le seul écrivain du corps (AD-4), et la méthode des sentinelles s’applique au corps natif : un traducteur garde chaque texte du pivot comme une chaîne JSON à part entière, si bien que les segments restent les octets envoyés. Le traducteur `openai_chat` rend le pivot tel quel ; ses corps sont figés à l’octet par des empreintes (`tests/fixtures/openai_chat_bodies.json`).
   - **Un adaptateur par API, dans `models`.** Le registre `ENGINES` de `models/cloud_api.py` associe chaque API à sa classe d’engine (sous-classe de `CloudEngine`, AD-5) ; `create_cloud_engine(entry, key, …)` est la fabrique unique, utilisée par la session (tours, sous-agent, « LLM nu ») et par « Tester » du diagnostic. Le client HTTP vient toujours de `net/factory.create_client` (AD-15).
-  - **Trois appels du corps.** Le tour (et le sous-agent), « LLM nu » et « Tester » passent `api=entry.api` à `render_chat_body` ; le corps envoyé reste égal à `context_rendered.body` et à `outbound_request.body` du même appel, quelle que soit l’API.
+  - **Trois appels du corps.** Le tour (et le sous-agent), « LLM nu » et « Tester » passent `api=entry.api` à `render_chat_body` ; le corps envoyé reste égal à `context_rendered.body` et à `outbound_request.body` du même appel, quelle que soit l’API. Lot 4 du 2026-10-04 : l'envoi au modèle de l'Atelier MCP (AD-27) en est un quatrième ; comme dans « LLM nu », il n'y a pas de `context_rendered`, et le corps envoyé est égal à `outbound_request.body` du même `mcp{n}.c{k}`.
+
+### AD-27 — Atelier MCP en séquence : le contrat d’événements du contexte `mcp_lab`
+
+- **Binds:** session, `mcp/lab.py`, `mcp/local_server.py`, `trace`, `web` (`app.py`, routes et filtre de la jauge), `static/mcp.js` ; CAP-6, FR-19 à FR-22, FR-43 ; lot 4 du plan de corrections du 2026-10-04 (EXPERIENCE.md, « Atelier MCP en séquence »)
+- **Prevents:** une page qui lit le JSON capturé ou compare des textes traduits pour savoir quoi dessiner ; deux `*_ended` sur un même pas ; un direct et une restitution qui divergent ; un contenu envoyé au modèle qui vient de la page ; un appel de l’atelier qui touche à la jauge, au ratio ou aux coûts du tour ; une connexion de la brique modifiée par l’atelier.
+- **Rule:** Décidé le 2026-10-05 (voie rapide, puis correctifs du gate `reviews/review-lot4-*.md`). Prolonge la ligne story 6 d’AD-2 et l’emporte sur elle. Enveloppe inchangée.
+  - **Principe de lecture.**
+    - La page ne lit jamais `jsonrpc` hors de l’encart qui l’affiche et ne compare jamais un `*_text`. Ce qu’elle dessine vient d’un champ typé.
+    - Elle ne rend que les `kind` de `mcp/lab.KINDS`, plus `session_state`, `model_load_ended` et `session_reset`, en direct comme à la restitution.
+    - Seule combinaison permise : la conjonction de booléens reçus (AD-1). Exemple : « Envoyer au modèle » est actif si `model_ready`, si la dernière connexion est `open`, si la lecture est `ok` et si la session est `idle`.
+  - **Pas et identifiants.**
+    - Grammaire : `^mcp(\d+)(\.[ct]\d+)?$`, lue par `mcp/lab.step_number`. Le pas `mcp_lab` d’une `harness_error` de contenu rend `None`.
+    - `mcp{n}` (`n` sur la vie de la session) est un échange : connexion, appel à la main, lecture, prompt ou envoi au modèle (`ask`).
+    - `mcp{n}.c{k}` (`k` depuis 1) est un appel au modèle d’un `ask` : `step_id = call_id`.
+    - `mcp{n}.t1` est l’outil MCP demandé par le modèle, avec ses messages, ses `outbound_request` et sa fin.
+    - Un sous-pas a `parent_step = mcp{n}`.
+    - **Chaque pas porte exactement une paire `mcp_lab_*`** : `exchange_started` puis le `*_ended` de sa sorte sur `mcp{n}` et `mcp{n}.t1`, `model_started` puis `model_ended` sur `mcp{n}.c{k}`. Les `model_call_*` du même appel partagent `mcp{n}.c{k}` (précédent : `llm_generation_*`). La page ne clôt une phase que sur le `*_ended` de son `mcp{n}`.
+    - `trigger = user` partout. Qui a choisi est dans `by`, que la page lit, jamais `trigger`.
+    - `tool_call_id` suit les conventions sur `mcp{n}.c{k}`. L’atelier n’utilise pas l’ensemble `_call_ids` du tour.
+  - **Messages capturés.**
+    - La session émet `exchange_started`, puis appelle `Capture.begin(step)`. Après le `*_ended`, elle appelle `Capture.end()`.
+    - Une requête et sa réponse s’apparient sur le couple (sens de la requête, `id`), jamais sur l’`id` seul. Une réponse porte le pas de sa requête.
+    - Un message reçu hors de tout échange ouvert va sur `mcp{first}` avec `unsolicited: true`. Il n’est pas une étape du stepper.
+    - `mcp_lab_message` gagne les champs suivants, calculés par `Capture` et la session :
+      - `message_type: request|notification|response|error`, `rpc_id` et `reply_to_seq` (le `seq` de la requête) ;
+      - `elapsed_kind: round_trip|since_start` (depuis le `ts` de l’`exchange_started` de son pas) ;
+      - `summary_text` (« 2 outils », « capacités : tools · resources · prompts », « 1 bloc texte »), écrit dans la langue de la session ;
+      - `error{code, message} | null`, `is_error` et `unsolicited`.
+    - Sur un serveur public, la session remplit `outbound_request.message_seq` pour chaque `POST` : c’est le message `to_server` dont le texte capturé est le corps envoyé. `message_seq` reste `null` pour le `GET`, le `DELETE` et un appel au modèle.
+    - La page ignore tout événement dont le numéro est inférieur au `first` de la série courante (même règle que `last_session`).
+  - **Ouverture.** `mcp_lab_exchange_started` porte les champs suivants :
+    - `exchange: connect|call|read|prompt|ask`, `server`, `transport` et `launch_text` ;
+    - `by` : `hand` ou `model` pour `call`, `app` pour `read`, `user` pour `prompt`, `model` pour un `ask` sans `of`, `app` ou `user` pour un `ask` avec `of` (selon la primitive envoyée), `null` pour `connect` ;
+    - `tool`, `uri`, `prompt`, `arguments` (un seul nom partout, dans l’intention comme dans les événements), `question`, `of` et `doc_mode_requested`.
+
+    Un champ qui ne concerne pas cette sorte d’échange vaut `null`. Pour un `ask` avec `of`, la session recopie `uri` ou `prompt` et `arguments` de l’échange visé.
+  - **Poignée de main.**
+    - `LabConnection` remplace `_serve` : poignée de main étendue, puis une file d’opérations (`call_tool`, `read_resource`, `get_prompt`).
+    - `LabConnection.start()` rend un `Handshake{capabilities, primitives, server_info, protocol_version, tools, resources, prompts, list_errors}`. La session ne touche jamais le `Client` ; celui-ci garde `cache=None`, pour que chaque liste passe par le transport capturé.
+    - La `McpConnection` de la brique reste inchangée et ignore ressources et prompts.
+    - Après `initialize` et `notifications/initialized` viennent `tools/list`, `resources/list` et `prompts/list`, dans cet ordre, chacune **seulement si `primitives` l’annonce**.
+      - Une seule page par liste : le curseur n’est pas suivi.
+      - Chaque liste est bornée par `call_timeout`, dans `connect_timeout`. Une liste en échec ou hors délai va dans `list_errors[{method, error_kind, error_text}]` ; la connexion reste `ok` et cette liste vaut `null`.
+    - `mcp_lab_connect_ended` porte les champs du `Handshake` :
+      - `primitives{tools, resources, prompts}` (booléens) ;
+      - `capabilities` (les clés que le SDK modélise, pour l’encart) ;
+      - `tools`, `resources: [{uri, name, title, mime_type, description}]` et `prompts: [{name, title, description, arguments: [{name, description, required}]}]`.
+
+      Chaque liste vaut `null` si elle n’est pas annoncée ou si elle a échoué. La page tire « ⊘ » de `primitives`, l’échec de `list_errors`. Ces champs sont remplis dès qu’`initialize` a répondu, quel que soit le `status`.
+    - Le serveur local (`MCPServer`) annonce toujours les trois primitives. Il sert la ressource statique `glossary://terms` et le prompt `explain_term(term)`.
+  - **Fins d’échange.**
+    - Tout `mcp_lab_*_ended` porte `status`, `error_kind`, `error_text`, `connection: open|closed` (l’état de la connexion de l’atelier après l’échange), `failed_seq` (la requête restée sans réponse ou en erreur) et `duration_ms`.
+    - Il est émis dans un `finally`, avec un payload minimal qui valide toujours (`error_kind: interrupted`), en plus de `harness_error`.
+
+    | Cas | `status` | `error_kind` | `connection` |
+    | --- | --- | --- | --- |
+    | réussite, résultat `isError` compris (`call_ended.is_error = true`) | `ok` | `null` | `open` |
+    | réponse JSON-RPC `error` | `error` | `jsonrpc_error` | `open` |
+    | injoignable | `error` | `unreachable` | `closed` |
+    | délai dépassé (`error_text` cite le délai) | `error` | `timeout` | `closed` |
+    | requête bloquée par la garde réseau | `error` | `guard_blocked` | `closed` |
+    | connexion perdue | `error` | `lost` | `closed` |
+    | « Arrêter » pendant une requête MCP | `cancelled` | `stopped` | `closed` |
+    | « Arrêter » pendant une génération d’un `ask` | `cancelled` | `stopped` | `open` |
+    | exception imprévue | `error` | `interrupted` | `closed` |
+
+    - `mcp_lab_closed{server, cause: language|reset|session_close|lost}` dit chaque fermeture hors échange. `reset` ferme la connexion de l’atelier et remet `first` et `since` à zéro.
+    - `open_server` de `GET /api/mcp_lab` dit toujours la même chose que la dernière `connection` du journal (test).
+    - Fins propres à chaque sorte d’échange :
+      - `mcp_lab_call_ended{server, tool, arguments, by, is_error, raw, text, tokens, estimated, truncated}`. Un résultat `isError` est un résultat : `status: ok`, et dans un `ask` il entre dans l’appel suivant comme `tool_result`.
+      - `mcp_lab_read_ended{server, uri, contents: [{uri, mime_type, text | null, blob_bytes | null}], raw, text, tokens, estimated, truncated}`.
+      - `mcp_lab_prompt_ended{server, name, arguments, description, messages: [{role, text}], raw, text, tokens, estimated}`. Les arguments sont des chaînes. Un contenu non textuel n’est jamais inliné : il devient sa taille ou une mention tirée de `content/`.
+      - `mcp_lab_ask_ended{server, outcome, calls, model_ms, share_text, final_step}`.
+    - La session garde, pour la connexion courante, **exactement** `read_ended.text` ou les `prompt_ended.messages` bornés. Ce contenu meurt avec la connexion, quelle que soit la cause de la fermeture.
+  - **Intentions** (classe b, AD-3).
+    - Chacune exige une connexion vivante de l’atelier à `server`, sinon 409.
+    - `mcp_lab_read{server, uri}` exige `primitives.resources` et une ressource listée. `mcp_lab_prompt{server, prompt, arguments}` exige `primitives.prompts`, un prompt listé et ses arguments requis.
+    - `mcp_lab_ask{server, question?, of?, doc_mode: full|lazy}` sert à la fois le mode « Par le modèle » des outils et « Envoyer au modèle ».
+      - `of` est le pas d’une lecture ou d’un prompt réussis de la connexion courante. La session envoie le contenu qu’elle a gardé, jamais un contenu renvoyé par la page.
+      - `question` est requise sans `of` ou avec une ressource, absente avec un prompt.
+    - Disponibilité : `GET /api/mcp_lab` donne `ask{model_ready, model_reason_text, tools, tools_reason_text, model: ActiveModel | null}`, calculé sans l’état de la session. La page le relit après chaque `model_load_ended`.
+    - Un `ask` sans `of` exige `model_ready` et `tools`. Avec `of`, `model_ready` suffit, et le bloc « outils » ne part que si `tools` est vrai (sinon `doc_mode = none`) ; EXPERIENCE.md est aligné le 2026-10-05.
+  - **Appels au modèle.** Sur `mcp{n}.c{k}`, une paire encadre les `model_call_*` réels de l’appel : `mcp_lab_model_started` et `mcp_lab_model_ended`.
+    - `mcp_lab_model_started{index, sends: [{part: question|resource|prompt|tools|tool_doc|tool_call|tool_result, label_text, tokens}], sends_total_tokens, prompt_tokens, estimated, doc_mode: full|lazy|none, model, phase_label}`.
+    - `mcp_lab_model_ended{index, status, outcome: tool_call|meta_call|answer|refused|cut|overflow|null, final, direct, tool_call: {name, tool, arguments_text, arguments | null, tool_call_id} | null, answer_text, refusal_text, reasoning_cut: bool, duration_ms, error_kind, error_text}`.
+      - `arguments_text` est la chaîne émise par le modèle ; `arguments` vaut `null` si elle ne s’analyse pas.
+      - `final` marque le dernier appel de l’échange.
+      - `direct` marque une réponse sans outil d’un `ask` sans `of`.
+    - **Rendu par le harnais** (AD-4, AD-5) : `render_context` en local, `render_chat_body(api=entry.api)` en cloud (AD-26).
+      - Contexte minimal, sans prompt système `[ASSUMPTION]`, au format pivot.
+      - Une question est un message utilisateur. Une ressource et sa question forment un seul message utilisateur, par le gabarit de `content/mcp_lab.yaml`. Un prompt envoie ses `messages` bornés (texte seul) comme messages `user` ou `assistant`.
+      - Un outil appelé donne le message `assistant` à `tool_calls`, puis la réponse `tool`.
+      - La session étiquette chaque partie (`part`) à l’assemblage, sans la déduire du `SegmentKind`. Ce que `sends` ne compte pas est le gabarit.
+    - **Définitions d’outils.** Elles viennent du `ToolRegistry` de l’atelier, passé en paramètre à `_tool_definitions` et à `_doc_catalog`, jamais du registre de la brique. C’est la même **définition** que celle des poids de `mcp_lab_connect_ended`.
+    - **Le corps envoyé** est égal à l’`outbound_request.body` du même `mcp{n}.c{k}` (invariant d’AD-26 dans l’atelier).
+    - **Modèle cloud.** L’appel passe par `run_call`, directement, sur le modèle de `_lab_cloud_call` de « LLM nu », avec `origin = model` dans la portée `mcp_lab`. Il émet `model_call_*` et `outbound_request` sur `mcp{n}.c{k}`, et il rend les appels d’outils de `model_call_ended.tool_calls`.
+      - **Jamais `_call_model_chat`**, qui réconcilie la jauge, apprend `_ratio` et ajoute aux coûts du tour.
+      - Une issue du fournisseur émet `harness_error`, avec un texte d’effet propre à l’atelier, et `mcp_lab_model_ended{status: error, error_kind: provider}`.
+      - Le filtre de la jauge de `/api/state` écarte `mcp_lab`, comme `llm` et `sub{n}`.
+    - **Modèle local.** L’appel passe par `_call_model`, comme « LLM nu ». Aucun `context_rendered`, `context_preview` ni `context_reconciled` n’est émis dans `mcp_lab`.
+    - Les bornes d’AD-9 s’appliquent. Un dépassement émet `model_started`, puis `model_ended{status: error, outcome: overflow}`, sans `model_call_*`.
+    - Raisonnement éteint si le mode du modèle le permet, allumé avec le budget d’AD-6 s’il vaut `always` `[ASSUMPTION]`.
+  - **Chiffres de l’atelier.**
+
+    | Ce qu’affiche la page | Champ qui fait foi |
+    | --- | --- |
+    | tokens de la flèche Hôte → modèle | `model_started.prompt_tokens`, compte du rendu (`estimated` vrai en cloud) |
+    | bloc « Envoyé au modèle » | `sends`, `sends_total_tokens` ; puis `model_call_ended.prompt_tokens` et `usage_source` s’il y en a (écart permis) |
+    | tokens d’un contenu (« contenu · 64 tokens ») | `call_ended`, `read_ended` ou `prompt_ended.tokens` : le texte seul |
+    | la même partie dans le message | `sends[part].tokens`, enveloppe comprise : un autre libellé, fourni par `label_text` |
+    | durée de génération | `model_ended.duration_ms` |
+    | synthèse « part de la génération » | `ask_ended.share_text` et `model_ms` (somme des `model_ended.duration_ms`), calculés par la session |
+
+    Un seul nom de booléen pour un compte non exact : `estimated`.
+  - **Bac à sable et AD-14, AD-25.**
+    - L’atelier n’exécute ni hooks ni effets.
+    - Un appel du modèle passe seulement par le `ToolExecutor.check` d’un exécuteur propre à l’atelier, sur son registre. `enabled` contient les outils listés en mode complet, ou les documentations chargées dans l’échange en lazy loading ; `loadable` contient les autres.
+    - H5 ne s’applique pas : le clic sur « Envoyer au modèle » et l’avertissement cloud déjà confirmé en tiennent lieu.
+    - `load_tool_doc` suit le régime d’AD-25 selon le mode : réponse `tool` en local, définition ajoutée à `tools` à l’appel suivant en chat.
+    - **Aucun nouvel essai** (AD-10 ne s’applique pas). Une sortie mal formée, un outil inconnu ou des arguments invalides donnent `outcome: refused`, avec la raison, et clôturent l’échange.
+    - AD-14 et AD-25 restent la règle du tour.
+  - **Fins d’un `ask`.** Le premier outil MCP s’exécute sur `mcp{n}.t1` (`exchange_started{exchange: call, by: model}`, puis `tools/call` capturé, puis `call_ended`).
+
+    | Issue | `status` | `outcome` |
+    | --- | --- | --- |
+    | réponse sans outil, `ask` sans `of` | `ok` | `no_tool` |
+    | réponse après un outil, ou réponse à un envoi `of` | `ok` | `answer` |
+    | appel refusé par le harnais (l’emporte sur `second_tool`) | `ok` | `refused` |
+    | seconde demande d’outil MCP | `limit` | `second_tool` |
+    | sortie coupée à la réserve | `limit` | `cut` |
+    | `tools.max_calls` atteint (AD-10, `load_tool_doc` compris), sans `limit_reached` | `limit` | `max_calls` |
+    | fenêtre dépassée avant envoi | `error` | `overflow` |
+    | erreur du modèle, du fournisseur ou du `tools/call` | `error` | `null` |
+    | « Arrêter » | `cancelled` | `null` |
+
+    « Requête MCP en cours » veut dire une poignée de main inachevée ou une opération de la file en attente. C’est le seul cas où « Arrêter » ferme la connexion.
+  - **Flèches déduites et non capturées** (table normative, une étape du stepper chacune ; ni les fantômes ni les notes ne sont des étapes).
+
+    | Flèche | Naît de | Place | Condition |
+    | --- | --- | --- | --- |
+    | Hôte → Client « lance le serveur… » ou « ouvre une session HTTP… » | `exchange_started{connect}.launch_text` | avant `initialize` | toujours |
+    | Utilisateur → Hôte (question, formulaire, choix) | `exchange_started` de `mcp{n}` | en tête de phase | sauf `connect` |
+    | Hôte → Client « exécute… », « lit… », « obtient… » | `exchange_started` de `call`, `read`, `prompt` ou `mcp{n}.t1` | juste avant la requête capturée | toujours |
+    | Serveur → Source, puis Source → Serveur (non capturé) | la réponse capturée | entre la requête et sa réponse | seulement si une réponse est arrivée, `isError` et erreur JSON-RPC compris ; jamais sur `unreachable`, `timeout`, `guard_blocked` ni `stopped` |
+    | Client → Hôte « n outils · n ressources · n prompts » | `connect_ended{status: ok}` | dernière de la phase | `status: ok` |
+    | Client → Hôte « contenu · n tokens » | `call_ended`, `read_ended` ou `prompt_ended` | après la réponse | `status: ok` |
+    | Hôte → modèle, modèle → Hôte | `model_started`, `model_ended` | à leur `seq` | toujours |
+    | Hôte → Utilisateur « début de la réponse » | `model_ended{final, outcome: answer}` | dernière de la phase | `final` |
+
+    Le libellé de la source vient de `servers[].source_label_text` et `source_action_text` (`content/mcp_lab.yaml`, un texte par serveur). Le nombre N d’étapes est donc déterminé (test E2E sur les huit scénarios de la maquette).
+  - **`last_session`.** Dans le contexte `mcp_lab`, à partir de `mcp{first}` et dans l’ordre des `seq`, `mcp/lab.KINDS` garde :
+    - les dix `mcp_lab_*` : `exchange_started`, `message`, `connect_ended`, `call_ended`, `read_ended`, `prompt_ended`, `model_started`, `model_ended`, `ask_ended`, `closed` ;
+    - `model_call_started` et `model_call_ended` ;
+    - `outbound_request` et `outbound_response`.
+
+    Jamais `model_delta`, `model_first_token`, `harness_error` ni les autres événements du modèle : `model_call_ended` fait foi.
+  - **Cache du moteur.** Un appel local copie puis restaure l’état moteur du contexte principal (`_lab_restore(saved, cause)`). À défaut, le premier appel du tour suivant trace `prefix_not_reused{cause: mcp_lab}`. `PrefixCause` gagne `mcp_lab`, avec le libellé `prefix_causes.mcp_lab` (« Atelier MCP ») dans les trois langues.
+
+  ```mermaid
+  sequenceDiagram
+    participant P as mcp.js
+    participant S as session
+    participant M as appel au modèle
+    participant C as LabConnection
+    P->>S: POST mcp_lab_ask{question, doc_mode}
+    S-->>P: exchange_started{mcp7, ask, by: model}
+    S->>M: rendu (contexte minimal + outils de l'atelier)
+    M-->>P: model_started{mcp7.c1, sends} · model_call_* · [outbound_request{origin: model}]
+    M-->>P: model_ended{mcp7.c1, outcome: tool_call}
+    S-->>P: exchange_started{mcp7.t1, call, by: model}
+    S->>C: tools/call
+    C-->>P: mcp_lab_message ×2 (request, response) · [outbound_request{origin: brick, message_seq}]
+    S-->>P: call_ended{mcp7.t1, status: ok, connection: open}
+    S->>M: rendu + tool_result
+    M-->>P: model_started{mcp7.c2} · model_call_* · model_ended{mcp7.c2, outcome: answer, final}
+    S-->>P: ask_ended{mcp7, status: ok, outcome: answer, calls: 2, share_text}
+  ```
+
+### AD-28 — Modules communs des ateliers : `static/diagram.js` et `static/panes.js`
+
+- **Binds:** `static/diagram.js`, `static/panes.js`, `pages.css` (règles `diagram-*`, `pane-*` et rampe `:root.projection`), `app.js`, `app.css`, `mcp.js`, puis les pages des lots 5 et 6 ; AD-18 (état du navigateur)
+- **Prevents:** un Atelier MCP qui réécrit son propre stepper, son halo ou ses volets ; un Atelier Harnais qui diverge visuellement des ateliers ; une retouche d’accessibilité appliquée à une page et oubliée sur les autres ; deux régions qui annoncent la même chose.
+- **Rule:** Décidé le 2026-10-05 (lot 4 ; `diagram.js` extrait au lot 2 du 2026-10-04, commit 370bb36).
+  - **Seule implémentation.** `static/diagram.js` et les règles `diagram-*` de `pages.css` sont la seule implémentation des blocs, du halo, des fils, des marqueurs, du stepper et de `explain()`.
+    - Une page ajoute ses propres classes à côté, sans jamais réimplémenter ni surcharger une règle `diagram-*` dans sa feuille (test pytest : aucun sélecteur `.diagram-` hors de `pages.css`).
+    - Une retouche se fait dans le module et vaut pour toutes les pages qui l’importent. Les E2E qui couvrent ces règles sont écrits dans la même livraison : il n’en existe pas encore.
+  - **Volets et projection** (décision d’Anaël du 2026-10-05). La mécanique des volets de l’Atelier Harnais (masquer, focus, gouttières, puces « + Nom du volet », mémorisation) sort d’`app.js` et d’`app.css` vers `static/panes.js` et des règles `pane-*` dans `pages.css`. La rampe `:root.projection` passe d’`app.css` à `pages.css`. Les deux suivent la même règle que `diagram.js`, et l’atelier est rebranché sans changement visible.
+  - **État du navigateur, page `/mcp`** (AD-18) :
+    - `wavestack.mcp.panes` : tailles, volets masqués et focus, à part de `wavestack.panes` ;
+    - `wavestack.mcp.arch_view` : « Avant MCP » ou « Avec MCP » ;
+    - `wavestack.projection`, partagée avec l’atelier.
+  - **Compatibilité.** Les signatures des exports existants ne changent pas : un ajout passe par une option facultative. Les trames du stepper restent opaques au module, et la page décide de ce qui est une étape (AD-27) et de ce qui s’allume (AD-1).
+  - **Retouches du lot 4.**
+    - `.diagram-block.is-active` : un anneau d’encre sous le halo vert.
+    - `.diagram-path-core` du fil parcouru à l’épaisseur du jeton `--spacing-stroke-path`, nouveau dans `tokens.css` (valeur dans DESIGN.md, 3 px). Le fil au repos (`.diagram-wire`) ne change pas.
+    - « Suivre le direct » pressé : fond plein, précédé de « ● », posé par le module en `aria-hidden`.
+    - ◀ et ▶ en `aria-disabled`, jamais `disabled`, pour garder le focus. Un clic sur une borne est sans effet.
+    - Annonce : un nœud `role="status"`, toujours poli et masqué visuellement, est réservé au stepper. Il n’est rempli que hors du direct, et la position visible ne porte plus `aria-live`. La région `status` de la page ne porte que ses synthèses.
+    - `explain()` : la bulle est focalisable (`tabindex="-1"`). Elle se ferme au `focusout` quand le focus ne va ni au bloc ni à la bulle ; un clic dans la bulle ne la ferme pas.
+  - **Découverte progressive** (décision d’Anaël du 2026-10-05). `reveal(node, on)` rend visible un élément du schéma ou le masque : classe `diagram-unrevealed` de `pages.css` (hors de l’arbre d’accessibilité), fondu court à l’apparition, sauf `prefers-reduced-motion`. Ce qui est visible à l’étape `index` est décidé par la page à partir des trames 0 à `index` (mise en forme, AD-1) ; les éléments gardent leur place.
+  - **Options nouvelles de `createStepper`.**
+    - `describe(frame, index) → string` : le module annonce « Étape {n} sur {N} : {nom} ». Sans `describe`, il n’annonce que la position.
+    - `onLive(live)` : appelé à chaque changement du mode direct. La page s’en sert pour suspendre son défilement automatique et pour la puce « ↓ {n} nouveaux messages ».
+    - `load(frames)` : restitution en un bloc, en direct, avec un seul `onShow` sur la dernière trame.
+    - `refresh()` : redessine la trame courante sans toucher au mode direct.
+  - **Consommateurs.** L’Atelier Harnais n’importe aujourd’hui ni `createStepper` ni `explain`. Seuls l’anneau et l’épaisseur du fil changent visiblement pour lui. L’Atelier MCP est le premier consommateur du stepper, et `test_ui_texts.py` liste `diagram.js` et `panes.js` pour `mcp.html`.
 
 ## Consistency Conventions
 
@@ -694,7 +902,7 @@ Règles de dépendance :
 | --- | --- |
 | Langue | Tout ce qui s’affiche, les contenus sous `content/` et la documentation utilisateur sont en français par défaut ; l’anglais et l’allemand sont des surcouches sous `content/i18n/{en,de}/` (AD-19), choisies par le sélecteur de langue du menu « Affichage ▾ ». Les textes d’interface passent par `content/ui.yaml` et `t()` (`static/i18n.js`), jamais en dur dans le JS. Le code, les identifiants, les commentaires, les docstrings, les messages de commit et la documentation développeur sont en anglais. |
 | Nommage | Modules et fonctions en `snake_case`, classes en `PascalCase`. Les `kind`, `id` de brique et `SegmentKind` sont en `snake_case` anglais. Les libellés français sont dans `content/`. |
-| Identifiants | `turn_id` = `t{n}` ; `context_id` = `main` ou `sub{n}` ; `call_id` = `{turn_id}.{context_id}.c{n}` ; `step_id` = `{turn_id}.{context_id}.s{n}` ; `segment.id` = `{call_id}.{n}` ; composant = `{brick}.{component}` ; outil MCP = `{server_id}__{tool}` ; `tool_call_id` = 9 caractères `[A-Za-z0-9]` hachés de `{step_id}#{index}` ; test d’un modèle cloud : `context_id` = `diag`, `call_id` = `diag.{n}.c{k}`, `step_id` = `diag.{n}.s{k}` ; modèle cloud = `id` de sa déclaration (`[a-z0-9_]+`). |
+| Identifiants | `turn_id` = `t{n}` ; `context_id` = `main` ou `sub{n}` ; `call_id` = `{turn_id}.{context_id}.c{n}` ; `step_id` = `{turn_id}.{context_id}.s{n}` ; `segment.id` = `{call_id}.{n}` ; composant = `{brick}.{component}` ; outil MCP = `{server_id}__{tool}` ; `tool_call_id` = 9 caractères `[A-Za-z0-9]` hachés de `{step_id}#{index}` ; test d’un modèle cloud : `context_id` = `diag`, `call_id` = `diag.{n}.c{k}`, `step_id` = `diag.{n}.s{k}` ; modèle cloud = `id` de sa déclaration (`[a-z0-9_]+`) ; Atelier MCP : `context_id` = `mcp_lab`, pas = `^mcp(\d+)(\.[ct]\d+)?$` : échange `mcp{n}`, appel au modèle d’un envoi `mcp{n}.c{k}` (`step_id` et `call_id`), outil demandé par le modèle `mcp{n}.t1` (AD-27). |
 | Temps | ISO 8601 à la milliseconde, avec fuseau, pour les horodatages ; `time.monotonic()` pour les durées. |
 | Formats | pydantic v2 pour les événements, les intentions, les effets, les contenus et la configuration. JSON en UTF-8. |
 | Configuration | Défauts dans `wavestack.toml` (dépôt), surcharges dans `settings.json` (AD-20), écrites par la session seule ; `settings.json` s’édite à la main WaveStack arrêté, et la session le réécrit en gardant les clés inconnues. Les dictionnaires fusionnent en profondeur, les listes sont remplacées, sauf `cloud.models`, qui fusionne par `id` (AD-20). |
@@ -834,6 +1042,7 @@ wavestack/                      # racine du dépôt
 | FR-13 à FR-15 : outils | `tools`, `net` | AD-14, AD-15, AD-16 |
 | FR-16 à FR-18 : RAG | `rag` | AD-8, AD-22 |
 | FR-19 à FR-22 : MCP | `mcp`, `net`, `tools` | AD-14, AD-15, AD-21, AD-25 |
+| CAP-6 : Atelier MCP en séquence (lot 4 du 2026-10-04) | `mcp/lab.py`, `mcp/local_server.py`, `session`, `trace`, `web`, `static/mcp.js`, `static/diagram.js`, `static/panes.js`, `content/mcp_lab.yaml`, `content/mcp_local` | AD-1 à AD-5, AD-14, AD-15, AD-18, AD-19, AD-26, AD-27, AD-28 |
 | FR-23 à FR-25 : skills, Caveman | `bricks`, `content/skills` | AD-4, AD-23, AD-25 |
 | FR-26 à FR-28 : hooks | `hooks`, `session` | AD-13, AD-14, AD-23 |
 | FR-29 : sous-agent | `bricks`, `session` | AD-10, AD-11, AD-25 |
@@ -901,4 +1110,5 @@ wavestack/                      # racine du dépôt
 - **Empreinte de la déclaration mémorisée avec la confirmation**, pour redemander l’avertissement si les mentions du fournisseur changent : à revoir si une déclaration change entre deux séances.
 - **Message assistant avec texte et appel d’outil chez Mistral** : un refus en 422 est signalé par une source unique ; par défaut, `content` est omis s’il est vide et gardé sinon. Le test le révélera.
 - **`openai_chat` vers la boucle locale** (possible, non visé) : l’entrée est traitée en cloud (zone Réseau, mémoire nulle). À revoir si un formateur l’utilise.
+- **Atelier MCP, au-delà du lot 4** (AD-27) : curseurs de pagination des listes, notifications `list_changed` et abonnements aux ressources, modèles de ressources (`resources/templates/list`), requêtes du serveur vers le client (échantillonnage, élicitation), boucle de plusieurs outils MCP (elle reste dans l’Atelier Harnais), affichage du prompt rendu en local. À revoir si un serveur de la brique en dépend ou si la formation le demande.
 - **Espacement des appels d’après `x-ratelimit-*`** : écarté en V1 (AD-9). À revoir si le 429 en plein tour gêne les séances plus qu’il n’enseigne.

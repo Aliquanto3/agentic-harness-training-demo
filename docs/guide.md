@@ -10,7 +10,7 @@ modèles (local, serveur, cloud), voir [Modèles](modeles.md).
 - [Programme de formation](#programme-de-formation)
 - [Brique RAG, corpus et index](#brique-rag-corpus-et-index)
 - [Compression du contexte (Headroom)](#compression-du-contexte-headroom)
-- [Écran LLM nu](#écran-llm-nu)
+- [Atelier LLM](#atelier-llm)
 - [Atelier RAG](#atelier-rag)
 - [Atelier MCP](#atelier-mcp)
 - [Langue](#langue)
@@ -21,16 +21,21 @@ modèles (local, serveur, cloud), voir [Modèles](modeles.md).
 
 ![L'atelier après un tour avec la brique Outils : briques à gauche, Vue humain, Contexte LLM, Orchestration et Schéma d'architecture](assets/atelier.jpg)
 
-La barre de navigation, en haut de chaque page, mène aux six écrans :
+La barre de navigation, en haut de chaque page, mène aux cinq onglets ; le titre complet de
+chaque écran est celui de l'onglet du navigateur et de la page :
 
-| Écran | Adresse | À quoi il sert |
-|---|---|---|
-| **Atelier** | `/` | L'écran principal : les briques, la conversation et ses quatre volets |
-| **LLM nu** | `/llm` | L'intérieur du modèle actif, sans aucune brique (voir [Écran LLM nu](#écran-llm-nu)) |
-| **Atelier RAG** | `/rag` | Une chaîne RAG à monter et exécuter pièce par pièce (voir [Atelier RAG](#atelier-rag)) |
-| **Atelier MCP** | `/mcp` | Le protocole MCP entre le harnais et un serveur (voir [Atelier MCP](#atelier-mcp)) |
-| **Diagnostic** | `/diagnostic` | Les vérifications du lancement, le choix du modèle et les clés API (voir [l'installation](installation.md#premier-lancement-et-diagnostic)) |
-| **Modèles** | `/models` | Le tableau des modèles et de leurs capacités (voir [Changer de modèle](modeles.md#changer-de-modèle)) |
+| Onglet | Écran | Adresse | À quoi il sert |
+|---|---|---|---|
+| **Harnais** | Atelier Harnais | `/` | L'écran principal : les briques, la conversation et ses quatre volets |
+| **LLM** | Atelier LLM | `/llm` | L'intérieur du modèle actif, sans aucune brique (voir [Atelier LLM](#atelier-llm)) |
+| **RAG** | Atelier RAG | `/rag` | Une chaîne RAG à monter et exécuter pièce par pièce (voir [Atelier RAG](#atelier-rag)) |
+| **MCP** | Atelier MCP | `/mcp` | Le protocole MCP entre le harnais et un serveur (voir [Atelier MCP](#atelier-mcp)) |
+| **🛠️ Diagnostic** | Diagnostic et modèles | `/diagnostic` | Les vérifications du lancement, le choix du modèle et les clés API (voir [l'installation](installation.md#premier-lancement-et-diagnostic)) |
+
+Le tableau des modèles et de leurs capacités est la page Diagnostic elle-même (voir
+[Changer de modèle](modeles.md#changer-de-modèle)) : une carte par modèle, locaux puis cloud,
+par éditeur ; l'entrée « Tableau des modèles… » du sélecteur de la barre du bas y mène, et
+l'ancienne adresse `/models` y redirige.
 
 Le menu **Affichage ▾**, à droite, règle le thème, la [langue](#langue) et le mode projection
 (tous les textes agrandis pour la salle).
@@ -210,9 +215,9 @@ uv run wavestack
   `[compression] min_chars` (300 caractères) n'est pas compressé. La brique n'a d'effet
   qu'avec Outils, MCP ou RAG : sans eux, rien à compresser.
 
-## Écran LLM nu
+## Atelier LLM
 
-Le lien **« LLM nu »** de la barre de navigation ouvre la page `/llm` : ce qui se passe *dans* le modèle
+Le lien **« LLM »** de la barre de navigation ouvre l'Atelier LLM (page `/llm`) : ce qui se passe *dans* le modèle
 actif, sans aucune brique (ni prompt système, ni historique, ni outil, ni mémoire) et sans
 toucher à la conversation de l'atelier. Le modèle ne s'y change pas : le lien « Changer de modèle
 dans l'atelier » ramène au sélecteur de la barre du bas.
@@ -262,16 +267,26 @@ montre.
 
 ## Atelier RAG
 
-Le lien **« Atelier RAG »** de la barre de navigation ouvre la page `/rag` : l'architecture d'une chaîne
+Le lien **« RAG »** de la barre de navigation ouvre l'Atelier RAG (page `/rag`) : l'architecture d'une chaîne
 RAG, dessinée pièce par pièce, puis exécutée sur une question, étape par étape. C'est un bac à
 sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne change pas.
 
-- **La chaîne.** Sept cartes : découpage du corpus, embedding, base vectorielle, recherche,
-  reranking, construction du contexte, génération. Chaque carte nomme son option (le modèle
-  déclaré dans `[rag.embedding]` et `[rag.reranker]`, sqlite-vec…), ses réglages, et explique
-  ce qu'elle fait ; une note dit ce qu'une exécution rencontrerait (modèle absent, index de la
-  brique à construire). La génération est dessinée mais ne s'exécute pas ici : générer, c'est un
-  tour de l'atelier ; la carte montre ce que le modèle recevrait.
+- **Trois vues.** À gauche la **séquence** des étapes, en deux temps : « BUILD · Indexing »
+  (Documents, Chunking, Embedding des chunks, Indexing dans le vector store), fait une fois pour
+  toutes, puis « RUN · Retrieval » (Question, Embedding de la question, recherches, Reranking,
+  Prompt augmentation, Generation), à chaque question. Au milieu, l'**architecture** : les
+  composants que ces étapes sollicitent, en trois groupes (Données, Modèles, Échange avec
+  l'utilisateur). À droite, le **focus** sur une étape : ce qu'elle fait, les composants qu'elle
+  lit, écrit ou appelle, et après une exécution son entrée, sa sortie, ses chiffres et ses
+  extraits. Les noms techniques restent en anglais dans les trois langues. La Generation est
+  dessinée mais ne s'exécute pas ici : le focus montre ce que le modèle recevrait.
+- **Composer et Dérouler.** « ✎ Composer » montre toute la chaîne, réglable dans la séquence.
+  « ▶ Dérouler » fait arriver les étapes et les composants un à un : sans exécution, c'est une
+  visite guidée (◀ ▶) ; pendant une exécution, chaque étape atteinte s'allume avec ses
+  composants, et ◀ ▶ la rejouent ensuite. Le choix du mode est gardé par le navigateur.
+- **Architectures toutes faites.** En Composer, « RAG dense », « RAG hybride (BM25 + dense) » et
+  « RAG + reranking » remplacent d'un clic le segment de recherche, réglages livrés, sans toucher
+  le Chunking, l'Embedding, le vector store ni le prompt.
 - **L'exécution.** « Lancer la chaîne » exécute chaque étape sur la question (500 caractères au
   plus) et montre ce qu'elle reçoit, ce qu'elle produit, ses chiffres, ses extraits (rang, rang
   d'avant, document, score), sa durée et la mémoire de WaveStack. La chaîne livrée lit l'index
@@ -281,8 +296,8 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   sans reranker, le reranking est sauté et le contexte garde l'ordre de la recherche.
   « Arrêter » interrompt entre deux étapes. Pendant l'exécution, l'atelier attend (état
   « Atelier RAG : exécution en cours »).
-- **Options et réglages.** Chaque carte propose ses options (les indisponibles sont grisées, la
-  raison sous la carte) et ses réglages : taille des extraits (200 à 1 500 caractères), candidats
+- **Options et réglages.** Chaque étape propose ses options (les indisponibles sont grisées, la
+  raison sous l'étape choisie) et ses réglages : taille des extraits (200 à 1 500 caractères), candidats
   retenus et extraits du contexte (1 à 20, jamais moins de candidats que d'extraits). La base
   vectorielle peut être l'index sqlite-vec ou une **recherche exhaustive en mémoire** (Python pur,
   sans index) ; l'embedding peut être un modèle **fastembed** (ONNX), proposé seulement s'il est
@@ -291,21 +306,17 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   dossier>` du dossier de données (par défaut `models--<model_name>`, « / » devenant « -- ») :
   l'atelier ne
   télécharge jamais rien. Une chaîne refusée dit pourquoi, en nommant l'étape.
-- **Comparer deux configurations.** « Comparer avec une autre configuration » ouvre une chaîne
-  B ; les deux s'exécutent l'une après l'autre sur la même question, en deux colonnes, suivies
-  d'une synthèse : extraits communs, propres à A ou à B, écarts de rang (par document quand les
-  deux chaînes découpent le corpus autrement). Les chaînes en cours d'édition sont gardées par le
-  navigateur ; « Revenir à la chaîne livrée » les oublie.
-- **Ajouter, retirer, déplacer.** Entre la base vectorielle et le contexte, les recherches, la
-  fusion et le reranking se déplacent par leurs boutons « ◀ » et « ▶ » (au clavier aussi) et se
-  retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le contexte : la
-  **recherche lexicale BM25** (par mots, sans embedding, k1 = 1,5 et b = 0,75 ; accents et petits
+- **Ajouter, retirer, déplacer.** Entre le vector store et le Prompt augmentation, les
+  recherches, la fusion et le reranking se déplacent par leurs boutons « ▲ » et « ▼ » (au clavier
+  aussi) et se retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le
+  Prompt augmentation : la **recherche par mots-clés BM25** (par mots, sans embedding, k1 = 1,5 et b = 0,75 ; accents et petits
   mots ignorés, sigles et nombres gardés, comme « RH » ou « 35 ») et la **fusion**
   des rangs réciproques (k = 60), qui combine deux recherches en une recherche hybride. Les
   autres étapes sont fixes. WaveStack vérifie la chaîne à chaque modification : une chaîne
   invalide (deux recherches sans fusion après elles, une fusion sans deux recherches avant elle,
-  un reranking avant toute recherche…) affiche sa raison sur la carte fautive, et « Lancer » est
-  désactivé.
+  un reranking avant toute recherche…) affiche sa raison sur l'étape fautive, et « Lancer » est
+  désactivé. Les chaînes en cours d'édition sont gardées par le navigateur ; « Revenir à la
+  chaîne livrée » les oublie.
 - **Le dossier `rag_lab`.** Hors de la chaîne livrée, les vecteurs du corpus sont calculés une
   fois par modèle et par taille d'extrait, puis relus (« relus du cache »), et les index sqlite-vec
   de l'atelier sont construits à côté, dans `rag_lab/` du dossier de données (moins de 1 Mo par
@@ -357,8 +368,8 @@ uv run wavestack
 
 ## Atelier MCP
 
-Le lien **« Atelier MCP »** de la barre de navigation (ou « Voir le protocole dans l'atelier MCP → »
-sur la carte MCP) ouvre la page `/mcp` : le protocole MCP entre le harnais et un serveur, sans
+Le lien **« MCP »** de la barre de navigation (ou « Voir le protocole dans l'atelier MCP → »
+sur la carte MCP) ouvre l'Atelier MCP (page `/mcp`) : le protocole MCP entre le harnais et un serveur, sans
 modèle. C'est un bac à sable : l'atelier ouvre ses propres connexions, la brique MCP de
 l'atelier (ses serveurs cochés, son mode, ses connexions) ne change pas, et rien n'est généré.
 
@@ -407,8 +418,8 @@ La langue change :
   langue (« 1 234 », « 1,234 », « 1.234 »). Ses textes sont dans `content/ui.yaml`.
 
 - **le reste** : les noms et explications des briques, les scénarios et leurs consignes,
-  les ateliers (« LLM nu », « Atelier RAG », « Atelier MCP ») et les pages « Diagnostic » et
-  « Modèles », le corpus RAG et les titres de ses documents, et les messages produits par le
+  les ateliers (« Atelier LLM », « Atelier RAG », « Atelier MCP ») et les pages « Diagnostic et
+  modèles » et « Modèles disponibles », le corpus RAG et les titres de ses documents, et les messages produits par le
   harnais (erreurs, raisons d'indisponibilité, erreurs d'outils lues par le modèle, marque de
   troncature, refus des hooks, résultat de `get_datetime`), tirés de `content/messages.yaml`.
 
@@ -459,10 +470,10 @@ revient à zéro qu'au relancement.
 estimée » dans la barre du bas dès le premier appel payant : le total de la séance, entrée + sortie
 (arrondies au centième de cent), la phrase entière (4 chiffres significatifs, conversion en
 euros) dans l'infobulle. Ce total compte tous les appels payants : les tours, le sous-agent,
-« Tester » au diagnostic et l'écran « LLM nu ». Ni « Vider la conversation » ni « Réinitialiser »
+« Tester » au diagnostic et l'Atelier LLM. Ni « Vider la conversation » ni « Réinitialiser »
 ne le remettent à zéro ; seul un relancement de WaveStack le fait (il n'est jamais écrit sur le
-disque). Les prix déclarés sont aussi dans la colonne « Prix » de la page `/models` et sur la
-ligne « Prix » du diagnostic. Un modèle local n'a pas de coût, et une entrée sans `pricing` non
+disque). Les prix déclarés sont aussi sur la ligne « Prix » de la carte
+dépliée d'un modèle, page Diagnostic. Un modèle local n'a pas de coût, et une entrée sans `pricing` non
 plus.
 
 **Mettre les prix à jour.** Relevez les prix sur la page du fournisseur, puis surchargez l'entrée
@@ -522,8 +533,8 @@ n'arrête jamais un tour : l'appel n'a pas d'empreinte, avec la raison.
 
 **Affichage.** « Empreinte estimée : 0,11 Wh · 0,046 g CO₂e » dans le détail de chaque appel
 (la méthode et ses limites dans l'infobulle), la somme du tour dans son en-tête, et l'empreinte
-de la séance dans la barre du bas : en fin de deuxième ligne de « Dépense estimée »
-(« · 0,12 g CO₂e ») quand elle tient, sinon dans l'infobulle ; « Empreinte estimée » seule tant
-qu'aucun appel payant n'a eu lieu. Comme la dépense, ce total compte les tours, le sous-agent,
-« Tester » et l'écran « LLM nu », et seul un relancement le remet à zéro. L'embedding et le
+de la séance dans la barre du bas : troisième ligne de « Dépense estimée », sous la dépense
+(« 🍃 0,12 g CO₂e »), la phrase entière dans l'infobulle ; « Empreinte estimée » sur deux lignes
+tant qu'aucun appel payant n'a eu lieu. Comme la dépense, ce total compte les tours, le sous-agent,
+« Tester » et l'Atelier LLM, et seul un relancement le remet à zéro. L'embedding et le
 reranker du RAG ne sont pas comptés.

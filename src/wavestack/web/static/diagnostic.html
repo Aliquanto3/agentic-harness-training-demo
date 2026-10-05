@@ -5,7 +5,7 @@
   <script src="/static/theme.js"></script>
   <script type="module" src="/static/i18n.js"></script>
   <script type="module" src="/static/site-nav.js"></script>
-  <title data-i18n="diagnostic.page_title">WaveStack — Diagnostic de démarrage</title>
+  <title data-i18n="diagnostic.page_title">WaveStack — Diagnostic et modèles</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/fonts.css" />
@@ -13,11 +13,9 @@
   <link rel="stylesheet" href="/static/pages.css" />
   <style>
     /* Story 31: colours by the tokens of tokens.css only, in both themes (DESIGN.md >
-       diagnostic-row): a row's background says its state, a result its left rule. Story 3 of
-       2026-09-30: sizes by the tokens too; the page, the badges, the buttons and the fields
-       in pages.css. */
-    main { max-width: 960px; margin-left: auto; margin-right: auto; }
-    .diagnostic-section { margin-top: var(--spacing-5); }
+       diagnostic-row): a check's background says its state. Story 3 of 2026-09-30: sizes by
+       the tokens too. Lot 3 of 2026-10-04: the cards, the filters, the checks panel, the
+       badges, the buttons and the fields in pages.css (`body.annex-page`). */
     .diagnostic-help { margin: 0 0 var(--spacing-2); color: var(--color-ink-soft); }
     .diagnostic-list {
       display: flex;
@@ -36,43 +34,23 @@
     }
     .diagnostic-list > li.ok { background: var(--color-accent-soft); }
     .diagnostic-list > li.warn { background: var(--color-warning-soft); }
-    .diagnostic-list > li.fail, .diagnostic-list > li.incompatible { background: var(--color-danger-soft); }
-    .diagnostic-list > li.found, .diagnostic-list > li.server { background: var(--color-accent-soft); }
-    .diagnostic-list > li.server.warn { background: var(--color-warning-soft); }
+    .diagnostic-list > li.fail { background: var(--color-danger-soft); }
     /* R1 (recette du 02/10): the wait for /api/diagnostic, until each list's first rendering. */
-    .diagnostic-list > li.loading-note {
+    .diagnostic-list > li.loading-note, .loading-note {
       color: var(--color-ink-soft);
       border-style: dashed;
       border-color: var(--color-ink-soft);
     }
-    .served, .action {
+    .action {
       margin-top: var(--spacing-1);
       color: var(--color-ink-soft);
       font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
         var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
     }
-    .served-warning, .cloud-result.ok, .cloud-result.warn, .cloud-result.fail {
-      color: var(--color-ink);
-      border-left: var(--spacing-1) solid transparent;
-      padding-left: var(--spacing-2);
-    }
-    .served-warning, .cloud-result.warn { border-left-color: var(--color-warning); }
-    .cloud-result.ok { border-left-color: var(--color-state-ok); }
-    .cloud-result.fail { border-left-color: var(--color-state-error); }
-    .saved-mark {
-      margin-left: var(--spacing-2);
-      font: var(--typography-label-font-weight) var(--typography-label-font-size) /
-        var(--typography-label-line-height) var(--typography-label-font-family);
-    }
-    .row-actions, .cloud-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--spacing-2);
-      margin-top: var(--spacing-2);
-    }
     /* The search for the models (story 3 of 2026-09-30): until the `model` check, what it
-       does, then how many probes are done, a bar the width of the list. */
+       does, then how many probes are done, a bar the width of the zone. */
     .search-status {
+      margin-top: var(--spacing-3);
       padding: var(--spacing-3);
       background: var(--color-surface-raised);
       border: 1px dashed var(--color-ink-soft);
@@ -92,34 +70,11 @@
       margin-top: var(--spacing-2);
       accent-color: var(--color-primary);
     }
-    #select-model { margin-top: var(--spacing-3); }
-    #select-model p { margin: 0 0 var(--spacing-1); }
+    #select-model { margin-top: var(--spacing-5); }
+    #select-model p { margin: 0 0 var(--spacing-1); color: var(--color-ink-soft); }
     .path-row { display: flex; flex-wrap: wrap; gap: var(--spacing-2); }
     .path-row .field-input { flex: 1 1 60%; }
     #select-model-status { margin: var(--spacing-2) 0 0; }
-    /* A cloud model: a card on the network ground, its provider and model as its title, then
-       hosting and training, the price, the key, the actions. */
-    .diagnostic-list > li.cloud {
-      background: var(--color-discipline-network-soft);
-      border: var(--spacing-stroke-min) dashed var(--color-hosting-boundary);
-    }
-    .cloud-title {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: var(--spacing-1);
-      margin: 0 0 var(--spacing-1);
-      font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
-        var(--typography-heading-line-height) var(--typography-heading-font-family);
-    }
-    .cloud-key-block {
-      margin-top: var(--spacing-2);
-      padding-top: var(--spacing-2);
-      border-top: 1px solid var(--color-line);
-    }
-    .cloud-key { display: flex; flex-wrap: wrap; gap: var(--spacing-2); align-items: center; }
-    .cloud-key .field-input { flex: 1 1 50%; }
-    .cloud-result { margin-top: var(--spacing-1); }
     dialog#cloud-warning {
       max-width: 560px;
       padding: var(--spacing-4);
@@ -133,6 +88,12 @@
       font: var(--typography-heading-font-weight) var(--typography-heading-font-size) /
         var(--typography-heading-line-height) var(--typography-heading-font-family);
     }
+    .row-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--spacing-2);
+      margin-top: var(--spacing-2);
+    }
   </style>
 </head>
 <body class="annex-page">
@@ -140,12 +101,11 @@
        `aria-current` and, on the main screen only, the projection mode (site-nav.js). -->
   <nav class="site-nav" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
     <a href="/" class="site-nav-brand">WaveStack</a>
-    <a href="/">Atelier</a>
-    <a href="/llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM nu</a>
-    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">Atelier RAG</a>
-    <a href="/mcp" title="Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)" data-i18n-title="common.links.mcp_title">Atelier MCP</a>
-    <a href="/diagnostic" aria-current="page">Diagnostic</a>
-    <a href="/models">Modèles</a>
+    <a href="/">Harnais</a>
+    <a href="/llm" title="Atelier LLM : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM</a>
+    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">RAG</a>
+    <a href="/mcp" title="Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)" data-i18n-title="common.links.mcp_title">MCP</a>
+    <a href="/diagnostic" aria-current="page">🛠️ Diagnostic</a>
     <div class="display-menu" id="display-menu">
       <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="common.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="common.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
       <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="common.display.menu" hidden>
@@ -171,17 +131,67 @@
       </div>
     </div>
   </nav>
-  <main>
-    <h1 data-i18n="diagnostic.title">Diagnostic de démarrage WaveStack</h1>
+  <!-- Lot 3 of 2026-10-04: « Diagnostic et modèles », the diagnostic and story 25's table
+       merged (EXPERIENCE.md > diagnostic-models-page; DESIGN.md > Diagnostic et modèles). -->
+  <main class="diagnostic-models">
+    <h1 data-i18n="diagnostic.title">Diagnostic et modèles</h1>
+    <p id="publishers-error" class="models-error" role="alert" hidden></p>
 
-    <section class="diagnostic-section" aria-labelledby="checks-title">
-      <h2 id="checks-title" data-i18n="diagnostic.checks_title">Contrôles</h2>
-      <!-- Recette du 02/10 (R1): until each list's first rendering, what the page waits for. -->
+    <details id="checks-panel" class="checks-panel" open>
+      <summary><span class="checks-panel-title" data-i18n="diagnostic.checks_title">Contrôles</span> <span id="checks-summary" class="checks-panel-summary">· Diagnostic en cours…</span></summary>
+      <!-- Recette du 02/10 (R1): until the first line from the stream, what the page waits for. -->
       <ul id="checks" class="diagnostic-list"><li class="loading-note" data-i18n="diagnostic.loading">Diagnostic en cours…</li></ul>
-    </section>
+    </details>
 
-    <section class="diagnostic-section" aria-labelledby="candidates-title">
-      <h2 id="candidates-title" data-i18n="diagnostic.candidates_title">Modèles détectés</h2>
+    <!-- Story 3 of 2026-09-30, lot 3 of 2026-10-04: filters and sort on the cards already
+         served, nothing reloaded, nothing asked of the server. -->
+    <div id="models-filters" class="models-filters" role="search" aria-label="Filtrer les modèles" data-i18n-aria-label="models.filters.name" hidden>
+      <div class="field" role="group" aria-labelledby="filter-hosting-label">
+        <span id="filter-hosting-label" data-i18n="models.filters.hosting">Hébergement</span>
+        <span id="filter-hosting" class="segmented">
+          <button type="button" data-value="" aria-pressed="true" data-i18n="models.filters.all">Tous</button>
+          <button type="button" data-value="local" aria-pressed="false" data-i18n="models.filters.local">Local</button>
+          <button type="button" data-value="network" aria-pressed="false" data-i18n="models.filters.network">Réseau</button>
+        </span>
+      </div>
+      <label class="field"><span data-i18n="models.filters.publisher">Éditeur</span>
+        <select id="filter-publisher" class="field-input" autocomplete="off">
+          <option value="" data-i18n="models.filters.all">Tous</option>
+        </select>
+      </label>
+      <label class="field"><span data-i18n="models.filters.tools">Appel d'outils</span>
+        <select id="filter-tools" class="field-input" autocomplete="off">
+          <option value="" data-i18n="models.filters.all">Tous</option>
+          <option value="yes" data-i18n="models.filters.answer_yes">Oui</option>
+          <option value="no" data-i18n="models.filters.answer_no_or_unknown">Non ou inconnu</option>
+        </select>
+      </label>
+      <label class="field"><span data-i18n="models.filters.reasoning">Raisonnement</span>
+        <select id="filter-reasoning" class="field-input" autocomplete="off">
+          <option value="" data-i18n="models.filters.all">Tous</option>
+          <option value="yes" data-i18n="models.filters.answer_yes">Oui</option>
+          <option value="no" data-i18n="models.filters.answer_no">Non</option>
+          <option value="unknown" data-i18n="models.filters.answer_unknown">Inconnu</option>
+        </select>
+      </label>
+      <label class="field field-text"><span data-i18n="models.filters.text">Nom ou éditeur</span>
+        <input type="search" id="filter-text" class="field-input" autocomplete="off" placeholder="gemma, qwen…" data-i18n-placeholder="models.filters.text_placeholder" />
+      </label>
+      <label class="field"><span data-i18n="models.sort_by.label">Trier par</span>
+        <select id="filter-sort" class="field-input" autocomplete="off">
+          <option value="" data-i18n="models.sort_by.catalog">Ordre du catalogue</option>
+          <option value="size" data-i18n="models.sort_by.size">Taille</option>
+          <option value="name" data-i18n="models.sort_by.name">Nom</option>
+          <option value="window" data-i18n="models.sort_by.window">Fenêtre</option>
+          <option value="state" data-i18n="models.sort_by.state">État</option>
+        </select>
+      </label>
+      <button type="button" id="filters-reset" class="button-secondary" data-i18n="models.filters.reset">Réinitialiser les filtres</button>
+      <p id="models-status" class="models-count" role="status" aria-live="polite"></p>
+    </div>
+
+    <section class="models-zone" aria-labelledby="candidates-title">
+      <h2 id="candidates-title" data-i18n="diagnostic.candidates_title">💻 Modèles locaux détectés</h2>
       <!-- Story 3 of 2026-09-30: until the `model` check, the search and its probes, never
            « Aucun candidat trouvé. » -->
       <div id="candidates-search" class="search-status" role="status" hidden>
@@ -189,24 +199,27 @@
         <p id="candidates-progress-text" class="search-count" hidden></p>
         <progress id="candidates-progress" class="search-bar" max="1" value="0" aria-labelledby="candidates-progress-text" hidden></progress>
       </div>
-      <ul id="candidates" class="diagnostic-list"><li class="loading-note" data-i18n="diagnostic.loading">Diagnostic en cours…</li></ul>
+      <div id="candidates" class="model-groups"><p class="models-zone-note loading-note" data-i18n="diagnostic.loading">Diagnostic en cours…</p></div>
       <div id="select-model">
         <p id="model-path-label" data-i18n="diagnostic.path_label">Ou indiquez le chemin d'un fichier GGUF :</p>
         <div class="path-row">
           <input type="text" id="model-path" class="field-input" aria-labelledby="model-path-label" placeholder="C:\chemin\vers\modele.gguf" data-i18n-placeholder="diagnostic.path_placeholder" />
-          <button id="submit-path" class="choose button-primary" data-i18n="diagnostic.path_button">Choisir ce fichier</button>
+          <button id="submit-path" type="button" class="button-primary" data-i18n="diagnostic.path_button">Choisir ce fichier</button>
         </div>
         <p id="select-model-status" role="status"></p>
       </div>
     </section>
 
-    <section class="diagnostic-section" aria-labelledby="cloud-title">
-      <h2 id="cloud-title" data-i18n="diagnostic.cloud_title">Modèles cloud</h2>
+    <section class="models-zone models-zone-cloud" aria-labelledby="cloud-title">
+      <h2 id="cloud-title" data-i18n="diagnostic.cloud_title">☁️ Modèles cloud</h2>
       <p class="diagnostic-help" data-i18n="diagnostic.cloud_help">Hors du poste : chaque appel envoie tout le contexte au fournisseur.</p>
       <!-- Finition V1 (#27): the session's cap and its spend so far (diagnostic.cloud_cap). -->
       <p class="diagnostic-help" id="cloud-cap" hidden></p>
-      <ul id="cloud-models" class="diagnostic-list"><li class="loading-note" data-i18n="diagnostic.loading">Diagnostic en cours…</li></ul>
+      <div id="cloud-models" class="model-groups"><p class="models-zone-note loading-note" data-i18n="diagnostic.loading">Diagnostic en cours…</p></div>
     </section>
+    <p class="models-note" data-i18n="models.note">Capacités lues comme au chargement : mêmes règles que les cartes des briques.</p>
+    <!-- A card's state that changes (a load ended, a test finished), said politely. -->
+    <p id="cards-live" class="visually-hidden" aria-live="polite"></p>
   </main>
 
   <dialog id="cloud-warning" aria-labelledby="cloud-warning-title">
@@ -219,127 +232,236 @@
   </dialog>
 
   <script type="module">
-    // Languages (4/5): the page's texts come from `content/ui.yaml` (section `diagnostic`)
-    // through `t()`, its formats from the language; the session's messages stay its own.
-    import { numberFormat, ready, t } from "/static/i18n.js";
+    // Languages (4/5): the page's texts come from `content/ui.yaml` (sections `diagnostic` and
+    // `models`) through `t()`, its formats from the language; the session's texts stay its own.
+    // Lot 3 of 2026-10-04: one card per model, grouped by the session (`models.groups[].cards`,
+    // AD-1): the page joins each card's sources (`models.groups[].models`) to their candidate
+    // (`candidates[]`) or cloud row (`cloud.models[]`) by kind and ref, filters, sorts and lays
+    // them out; it never groups nor computes a capability.
+    import { locale, numberFormat, ready, section, t } from "/static/i18n.js";
 
+    const $ = (id) => document.getElementById(id);
     const quote = (value) => t("common.format.quote", { text: value });
-    const checksEl = document.getElementById("checks");
-    const candidatesEl = document.getElementById("candidates");
-    const selectStatusEl = document.getElementById("select-model-status");
-    const searchEl = document.getElementById("candidates-search");
-    const searchTextEl = document.getElementById("candidates-progress-text");
-    const searchBarEl = document.getElementById("candidates-progress");
+    const COLUMNS = section("models.columns");
+    const checksEl = $("checks");
+    const checksPanel = $("checks-panel");
+    const checksSummaryEl = $("checks-summary");
+    const localEl = $("candidates");
+    const cloudEl = $("cloud-models");
+    const filtersEl = $("models-filters");
+    const statusEl = $("models-status");
+    const liveEl = $("cards-live");
+    const selectStatusEl = $("select-model-status");
+    const searchEl = $("candidates-search");
+    const searchTextEl = $("candidates-progress-text");
+    const searchBarEl = $("candidates-progress");
+    const warningEl = $("cloud-warning");
+    const filterEls = {
+      publisher: $("filter-publisher"),
+      tools: $("filter-tools"),
+      reasoning: $("filter-reasoning"),
+      text: $("filter-text"),
+      sort: $("filter-sort"),
+    };
+    let hostingFilter = "";
+
+    // ---------- what /api/diagnostic said ----------
+    let body = null; // the last answer
+    let selectedModel = null; // `{kind, ref}` of the saved choice and of the loaded model
+    let loadedModel = null;
+    let cloud = { models: [], key_hint_text: "" };
+    let spendCap = null; // finition V1 (#27): `spend_cap`
     // Story 3 of 2026-09-30: `/api/diagnostic.searching` until the `model` check's first
-    // result, and the last `diagnostic_progress{done, total}` (probes done on probes needed).
+    // result, and the last `diagnostic_progress{done, total}`.
     let searching = false;
     let progress = null;
-    const items = new Map();
-    // `{kind, ref}` of the saved choice and of the loaded model, whatever their kind (story 18).
-    let selectedModel = null;
-    let loadedModel = null;
+    let candidates = new Map(); // "file:{path}" | "server:{ref}" -> candidate
+    let loadErrors = new Map(); // "{kind}:{ref}" -> the cause of its last failed load
     const isModel = (model, kind, ref) => Boolean(model && model.kind === kind && model.ref === ref);
-    let busy = false;  // one select_model request at a time
+
+    // ---------- the page's own state ----------
+    let expanded = null; // the unfolded card's id (one at a time)
+    let busy = false; // one intention at a time
+    let pending = null; // `{kind, ref}` chosen, until its load ends (« Chargement… »)
+    const testResults = new Map(); // cloud id -> the live `cloud_test` check (null: under way)
+    const cloudStatus = new Map(); // cloud id -> the last intention's message
+    const cardStatus = new Map(); // card id -> the last « Choisir » message
+    let lastStates = null; // card id -> state, for the live announcements
+
     // Story 17: a choice may start a hot switch, answered « Chargement de {modèle}… »; its
-    // `model_load_ended` gives the outcome (it may come before the answer), then the marks
-    // come from the application session.
+    // `model_load_ended` gives the outcome (it may come before the answer).
     // `switching`: the request that may start a switch; `ref` (from its answer) is the model
     // it loads, and `outcomes` the `model_load_ended` texts that came before the answer.
     let switching = null; // { show(text), ref, answered, outcomes, timer }
     const SWITCH_TIMEOUT_MS = 5 * 60 * 1000; // a missed outcome never pins a message
 
-    function startSwitch(show) {
+    function startSwitch(show, model) {
       finishSwitch();
       switching = { show, ref: null, answered: false, outcomes: new Map() };
+      pending = model;
       const mine = switching;
       mine.timer = setTimeout(() => { if (switching === mine) finishSwitch(); }, SWITCH_TIMEOUT_MS);
+      render();
       return mine;
     }
 
     function finishSwitch(text) {
-      const pending = switching;
-      if (!pending) return;
-      clearTimeout(pending.timer);
+      const done = switching;
+      if (!done) return;
+      clearTimeout(done.timer);
       switching = null;
-      if (text !== undefined) pending.show(text);
+      pending = null;
+      if (text !== undefined) done.show(text);
+      render();
     }
 
     // The answer of the request `mine` started: its message now, unless the load it started
     // (`body.ref`) already ended.
-    function answerSwitch(mine, body, message) {
+    function answerSwitch(mine, answer, message) {
       if (switching !== mine) {
         mine.show(message);
         return;
       }
-      if (!body.switching) {
+      if (!answer.switching) {
         finishSwitch(message);
         return;
       }
-      mine.ref = body.ref;
+      mine.ref = answer.ref;
       mine.answered = true;
-      if (mine.outcomes.has(body.ref)) finishSwitch(mine.outcomes.get(body.ref));
+      if (mine.outcomes.has(answer.ref)) finishSwitch(mine.outcomes.get(answer.ref));
       else mine.show(message);
     }
 
-    // Messages carry file names and paths: build nodes, never innerHTML.
-    function fillLine(li, label, text, detail) {
-      const strong = document.createElement("strong");
-      strong.textContent = label;
-      li.replaceChildren(strong, ` — ${text}`);
-      if (detail) {
-        const div = document.createElement("div");
-        div.className = "action";
-        div.textContent = detail;
-        li.appendChild(div);
+    // ---------- nodes: messages carry file names and paths, never innerHTML ----------
+
+    function node(tag, className, text) {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      if (text !== undefined && text !== null) element.textContent = text;
+      return element;
+    }
+
+    // Morphs `old` into `fresh`: a node whose rendering did not change is kept, with its
+    // typed text and its focus; a changed one keeps its element when the tag is the same.
+    function morph(old, fresh) {
+      if (old.nodeType !== fresh.nodeType || old.nodeName !== fresh.nodeName) {
+        old.replaceWith(fresh);
+        return;
       }
+      if (old.nodeType === Node.TEXT_NODE) {
+        if (old.data !== fresh.data) old.data = fresh.data;
+        return;
+      }
+      if (old.nodeType !== Node.ELEMENT_NODE || old.isEqualNode(fresh)) return;
+      for (const { name } of [...old.attributes]) if (!fresh.hasAttribute(name)) old.removeAttribute(name);
+      for (const { name, value } of fresh.attributes) if (old.getAttribute(name) !== value) old.setAttribute(name, value);
+      patchList(old, [...fresh.childNodes]);
     }
 
-    // Keeps every row whose rendering did not change, with its buttons, its typed key and
-    // its focus: a button replaced under the pointer loses the click.
+    // Keeps every row whose rendering did not change, with its buttons, its typed key and its
+    // focus (a button replaced under the pointer loses the click); lot 3 of 2026-10-04: rows
+    // matched by their `data-key` (a card, a group), the others by their place.
     function patchList(container, rows) {
+      const keyed = new Map();
+      for (const child of container.children) if (child.dataset.key) keyed.set(child.dataset.key, child);
       rows.forEach((row, i) => {
-        const old = container.children[i];
-        if (!old) container.appendChild(row);
-        else if (old.outerHTML !== row.outerHTML) old.replaceWith(row);
+        const key = row.nodeType === Node.ELEMENT_NODE ? row.dataset.key : undefined;
+        const here = container.childNodes[i] ?? null;
+        let old = null;
+        if (key) old = keyed.get(key) ?? null;
+        else if (here && !(here.nodeType === Node.ELEMENT_NODE && here.dataset.key)) old = here;
+        if (!old) {
+          container.insertBefore(row, here);
+          return;
+        }
+        if (old !== here) container.insertBefore(old, here);
+        morph(old, row);
       });
-      while (container.children.length > rows.length) container.lastElementChild.remove();
+      while (container.childNodes.length > rows.length) container.lastChild.remove();
     }
 
-    // R1: « Diagnostic en cours… » leaves the checks at their first line from the stream;
-    // `patchList` replaces it in the two other lists at their first rendering.
+    // ---------- the checks (EXPERIENCE.md > checks-panel) ----------
+
+    const items = new Map(); // check key -> its line
+    const checkStates = new Map(); // check key -> { check, status, blocking }
+    let panelChosen = false; // the user opened or closed it: their choice holds
+
+    function fillLine(li, label, text, detail) {
+      const strong = node("strong", "", label);
+      li.replaceChildren(strong, ` — ${text}`);
+      if (detail) li.appendChild(node("div", "action", detail));
+    }
+
+    // R1: « Diagnostic en cours… » leaves the checks at their first line from the stream.
     function dropLoadingNote() {
       checksEl.querySelector(":scope > .loading-note")?.remove();
     }
 
+    const checkName = (check) => t(`diagnostic.check_names.${check}`);
+
+    // « · 4 contrôles OK : mémoire, modèle, réseau, port », worst first; open at the first
+    // warning or failure and during the first diagnostic, unless the user chose.
+    function renderChecksSummary() {
+      const running = !checkStates.has("model") || searching;
+      const states = [...checkStates.values()];
+      const parts = [];
+      for (const [kind, keep] of [
+        ["blocking", (s) => s.status === "fail" && s.blocking],
+        ["fail", (s) => s.status === "fail" && !s.blocking],
+        ["warn", (s) => s.status === "warn"],
+      ]) {
+        const names = [...new Set(states.filter(keep).map((s) => s.name))];
+        const count = states.filter(keep).length;
+        if (count) parts.push(t(`diagnostic.checks_summary.${kind}`, { count, names: names.join(", ") }));
+      }
+      if (running) parts.unshift(t("diagnostic.loading"));
+      else if (!parts.length) {
+        const names = states.map((s) => s.name);
+        parts.push(t("diagnostic.checks_summary.ok", { count: states.length, names: names.join(", ") }));
+      }
+      checksSummaryEl.textContent = `· ${parts.join(" · ")}`;
+      const wanted = running || states.some((s) => s.status !== "ok");
+      if (!panelChosen && checksPanel.open !== wanted) checksPanel.open = wanted;
+    }
+
     // `live`: false for the journal's history, replayed by the stream when the page opens;
-    // /api/diagnostic already says what it led to (the lists, each model's last test).
+    // /api/diagnostic already says what it led to (the cards, each model's last test).
     function renderCheck(payload, live) {
       if (payload.check === "cloud_test") {
         if (!live) return;
         testResults.set(payload.model_id, payload);
-        renderCloud();
+        render();
         return;
       }
       const key = payload.check === "cloud" ? `cloud:${payload.message_text}` : payload.check;
       let li = items.get(key);
       if (!li) {
-        li = document.createElement("li");
+        li = node("li");
         items.set(key, li);
         dropLoadingNote();
         checksEl.appendChild(li);
       }
       li.className = payload.status;
-      fillLine(li, payload.check, payload.message_text, payload.action_text);
+      li.dataset.check = payload.check;
+      fillLine(li, checkName(payload.check), payload.message_text, payload.action_text);
+      checkStates.set(key, { name: checkName(payload.check), status: payload.status, blocking: payload.blocking });
+      renderChecksSummary();
       if (payload.check === "model" && live) loadDiagnostic();
     }
 
-    function renderHarnessError(payload) {
-      const li = document.createElement("li");
-      li.className = "fail";
+    // `live`: false for the history replayed by the stream; its line is shown, but an error of
+    // an earlier moment (a brick's, a turn's) neither counts as a failure nor opens the panel.
+    function renderHarnessError(payload, live) {
+      const li = node("li", "fail");
       fillLine(li, t("diagnostic.error"), payload.message_text, payload.cause);
       dropLoadingNote();
       checksEl.appendChild(li);
+      if (!live) return;
+      checkStates.set(`error:${checkStates.size}`, { name: t("diagnostic.error"), status: "fail", blocking: false });
+      renderChecksSummary();
     }
+
+    // ---------- the search (story 3 of 2026-09-30) ----------
 
     // While the search runs: what it does and, once probes are needed, how many are done.
     // Everything already in the probe cache (`total` 0): the message alone, without a count.
@@ -362,146 +484,10 @@
       renderSearch();
     }
 
-    function renderCandidates(candidates) {
-      if (!candidates.length && searching) {
-        patchList(candidatesEl, []); // not « Aucun candidat trouvé. »: the search runs
-        return;
-      }
-      if (!candidates.length) {
-        const li = document.createElement("li");
-        li.textContent = t("diagnostic.no_candidate");
-        patchList(candidatesEl, [li]);
-        return;
-      }
-      const rows = [];
-      for (const c of candidates) {
-        if (c.source === "server") {
-          rows.push(servedRow(c));
-          continue;
-        }
-        const li = document.createElement("li");
-        li.className = c.status;
-        const title = document.createElement("strong");
-        title.textContent = c.name || c.server_url || c.source;
-        li.appendChild(title);
-        const details = [
-          c.architecture ? t("diagnostic.architecture", { name: c.architecture }) : null,
-          c.source,
-          c.reason,
-        ].filter(Boolean).join(" · ");
-        li.append(` — ${details}`);
-        addMarks(li, "file", c.path);
-        const where = document.createElement("div");
-        where.className = "action";
-        where.textContent = c.path || c.server_url || "";
-        li.appendChild(where);
-        if (c.status === "found" && c.path && !isModel(loadedModel, "file", c.path)) {
-          li.appendChild(chooseButton({ kind: "file", ref: c.path }));
-        }
-        rows.push(li);
-      }
-      patchList(candidatesEl, rows);
-    }
-
-    function addMarks(li, kind, ref) {
-      for (const [model, text] of [[loadedModel, t("diagnostic.loaded")], [selectedModel, t("diagnostic.saved_choice")]]) {
-        if (!ref || !isModel(model, kind, ref)) continue;
-        const mark = document.createElement("span");
-        mark.className = "saved-mark";
-        mark.textContent = text;
-        li.appendChild(mark);
-      }
-    }
-
-    function chooseButton(model) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "choose button-primary";
-      button.disabled = busy;
-      button.textContent = t("diagnostic.choose");
-      button.addEventListener("click", () => chooseModel(model));
-      const actions = document.createElement("div");
-      actions.className = "row-actions";
-      actions.appendChild(button);
-      return actions;
-    }
-
-    // Story 18: a model an already-running local server serves. « Local », `provider · nom`,
-    // its address and the memory it takes; WaveStack neither launches nor stops the server.
-    function servedRow(c) {
-      const li = document.createElement("li");
-      li.className = c.status;
-      const tag = document.createElement("span");
-      tag.className = "hosting-tag-local";
-      tag.textContent = t("diagnostic.local");
-      const title = document.createElement("strong");
-      title.textContent = `${c.provider} · ${c.name}`;
-      li.append(tag, title, t("diagnostic.served.title"));
-      addMarks(li, "server", c.ref);
-      const where = document.createElement("div");
-      where.className = "action";
-      where.textContent = c.server_url || "";
-      li.appendChild(where);
-      if (c.status !== "incompatible") {
-        const size = document.createElement("div");
-        size.className = "served";
-        const gb = numberFormat({ minimumFractionDigits: 1, maximumFractionDigits: 1 });
-        const go = c.served_bytes
-          ? t("diagnostic.served.size", { size: gb.format(c.served_bytes / 1024 ** 3) })
-          : t("diagnostic.served.unknown");
-        const where = c.resident ? t("diagnostic.served.resident") : t("diagnostic.served.on_first_call");
-        // Lot E (E1): llama-server's context cache, when its GGUF could not be read here.
-        const cache = c.engine === "llama_server" && c.context_counted === false
-          ? t("diagnostic.served.no_cache")
-          : "";
-        size.textContent = t("diagnostic.served.memory", { size: go, cache, where });
-        li.appendChild(size);
-      }
-      if (c.warning_text) {
-        // Lot E (E1): llama-server launched with a context much larger than the window.
-        li.classList.add("warn");
-        const warning = document.createElement("div");
-        warning.className = "served served-warning";
-        warning.textContent = c.warning_text;
-        li.appendChild(warning);
-      }
-      if (c.status === "incompatible") {
-        const why = document.createElement("div");
-        why.className = "action";
-        why.textContent = c.reason || t("diagnostic.served.unusable");
-        li.appendChild(why);
-      } else if (!isModel(loadedModel, "server", c.ref)) {
-        li.appendChild(chooseButton({ kind: "server", ref: c.ref }));
-      }
-      return li;
-    }
-
-    // ---------- cloud models (story 11): key, « Tester », « Choisir » behind the warning ----------
-    const cloudEl = document.getElementById("cloud-models");
-    const warningEl = document.getElementById("cloud-warning");
-    // model id -> the live `diagnostic_check{check: cloud_test}` (null: a test under way),
-    // over the row's `last_test`
-    const testResults = new Map();
-    const cloudStatus = new Map(); // model id -> the last intention's message
-    let cloud = { models: [], key_hint_text: "" };
-    let spendCap = null; // finition V1 (#27): `spend_cap` of `/api/diagnostic`
-    let warningFor = null;
-    let warningOpener = null; // the « Choisir » button that opened the warning
-
-    function node(tag, className, text) {
-      const element = document.createElement(tag);
-      if (className) element.className = className;
-      if (text !== undefined) element.textContent = text;
-      return element;
-    }
-
-    // A row kept by `patchList` keeps its listeners: they read the model as it is now.
-    const currentModel = (m) => cloud.models.find((x) => x.id === m.id) || m;
-
     // Finition V1 (#27): « Plafond de dépense de la séance : x $ dépensés sur 5 $ », with the
     // cloud models only.
     function renderCap() {
-      const capEl = document.getElementById("cloud-cap");
+      const capEl = $("cloud-cap");
       capEl.hidden = !spendCap || !cloud.models.length;
       if (capEl.hidden) return;
       const usd = (n) => t("common.format.usd", { amount: numberFormat({ maximumSignificantDigits: 4 }).format(n) });
@@ -509,90 +495,588 @@
       capEl.textContent = t("diagnostic.cloud_cap", { total, cap: usd(spendCap.cap_usd) });
     }
 
-    function renderCloud() {
+    // ---------- each card's state (EXPERIENCE.md > State Patterns) ----------
+
+    const candidateOf = (m) => candidates.get(`${m.kind}:${m.ref}`) ?? null;
+    const cloudRowOf = (id) => cloud.models.find((x) => x.id === id) ?? null;
+    // A failed last load, even without a cause (`reason_text` empty): its presence says it.
+    const failed = (m) => loadErrors.has(`${m.kind}:${m.ref}`);
+    const errorOf = (m) => loadErrors.get(`${m.kind}:${m.ref}`) || t("diagnostic.not_loaded", { model: m.name });
+
+    function sourceState(m) {
+      if (isModel(loadedModel, m.kind, m.ref)) return "active";
+      if (isModel(pending, m.kind, m.ref)) return "loading";
+      if (failed(m)) return "error";
+      if (!m.usable) return "incompatible";
+      if (candidateOf(m)?.warning_text) return "warning";
+      return "available";
+    }
+
+    function cloudState(m, row) {
+      if (isModel(loadedModel, "cloud", m.ref)) return "active";
+      if (isModel(pending, "cloud", m.ref)) return "loading";
+      if (testResults.has(m.ref) && testResults.get(m.ref) === null) return "testing";
+      if (row?.disabled_text || !m.usable) return "key_missing";
+      const result = testResults.has(m.ref) ? testResults.get(m.ref) : row?.last_test;
+      if (result) return { ok: "test_ok", warn: "test_warn", fail: "test_fail" }[result.status] ?? "ready";
+      return "ready";
+    }
+
+    // The most useful state of a card's sources, in this order.
+    const AGGREGATE = ["active", "loading", "error", "available", "warning", "incompatible"];
+    const PILL = {
+      active: "is-active",
+      test_ok: "is-ok",
+      error: "is-error",
+      incompatible: "is-error",
+      test_fail: "is-error",
+      warning: "is-warning",
+      test_warn: "is-warning",
+      key_missing: "is-unavailable",
+    };
+    const stateText = (state) => t(`diagnostic.states.${state}`);
+    function pill(state) {
+      const element = node("span", `state-pill ${PILL[state] ?? ""}`.trim(), stateText(state));
+      element.dataset.state = state;
+      return element;
+    }
+
+    // ---------- the cards ----------
+
+    // Each card with its group and its sources, in the order served.
+    function views() {
+      const groups = body?.models?.groups;
+      if (!Array.isArray(groups)) return [];
+      const shown = [];
+      groups.forEach((group, g) => {
+        const byValue = new Map(group.models.map((m) => [m.value, m]));
+        const cards = group.cards?.length
+          ? group.cards
+          : group.models.map((m) => ({ id: `card:${m.value}`, name: m.name, hosting: m.hosting, size_text: m.size_text, origin_text: m.prefix_text, source_values: [m.value] }));
+        cards.forEach((card, index) => {
+          const members = card.source_values.map((v) => byValue.get(v)).filter(Boolean);
+          if (!members.length) return;
+          const cloudCard = card.hosting === "network";
+          const row = cloudCard ? cloudRowOf(members[0].ref) : null;
+          const states = cloudCard ? [cloudState(members[0], row)] : members.map(sourceState);
+          const state = cloudCard ? states[0] : AGGREGATE.find((s) => states.includes(s)) ?? "available";
+          shown.push({ card, group, members, row, state, cloud: cloudCard, order: g * 10000 + index });
+        });
+      });
+      return shown;
+    }
+
+    // Neither case nor accents: « Réseau » matches « reseau ».
+    const folded = (text) => (text ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+    function memberMatches(m, wanted) {
+      if (wanted.publisher && m.publisher_id !== wanted.publisher) return false;
+      if (wanted.tools === "yes" && m.tools !== true) return false;
+      if (wanted.tools === "no" && m.tools === true) return false; // no, or unknown
+      if (wanted.reasoning === "yes" && !["always", "toggle"].includes(m.reasoning)) return false;
+      if (wanted.reasoning === "no" && m.reasoning !== "never") return false;
+      if (wanted.reasoning === "unknown" && m.reasoning !== "unknown") return false;
+      return true;
+    }
+
+    function matches(v, wanted) {
+      if (wanted.hosting && v.card.hosting !== wanted.hosting) return false;
+      const words = [v.card.name, v.group.publisher_text, ...v.members.map((m) => `${m.name} ${m.publisher_text}`)];
+      if (wanted.text && !folded(words.join(" ")).includes(wanted.text)) return false;
+      return v.members.some((m) => memberMatches(m, wanted));
+    }
+
+    function wantedFilters() {
+      return {
+        hosting: hostingFilter,
+        publisher: filterEls.publisher.value,
+        tools: filterEls.tools.value,
+        reasoning: filterEls.reasoning.value,
+        text: folded(filterEls.text.value.trim()),
+      };
+    }
+
+    // « Trier par »: within each group, unknown values always last; ties keep the catalogue's
+    // order. Texts by the language's collator.
+    const STATE_RANK = ["active", "loading", "error", "test_ok", "ready", "available", "testing", "test_warn", "warning", "key_missing", "test_fail", "incompatible"];
+    const SORT_KEYS = {
+      size: (v) => [v.card.size_bytes_min ?? null, v.members[0].params_b ?? null],
+      name: (v) => [v.card.name],
+      window: (v) => [Math.max(0, ...v.members.map((m) => m.window || 0)) || null],
+      state: (v) => [STATE_RANK.indexOf(v.state)],
+    };
+    let collator = null;
+
+    function compareValues(a, b) {
+      for (let i = 0; i < a.length; i++) {
+        const x = a[i];
+        const y = b[i];
+        if (x === y) continue;
+        if (x === null) return 1;
+        if (y === null) return -1;
+        const order = typeof x === "string" ? collator.compare(x, y) : x - y;
+        if (order) return order;
+      }
+      return 0;
+    }
+
+    function logoNode(group, alt, className = "model-logo") {
+      if (group.logo) {
+        const tile = node("span", className);
+        const img = node("img");
+        img.src = `/static/logos/${group.logo}`;
+        img.alt = alt;
+        tile.appendChild(img);
+        return tile;
+      }
+      // Without a logo: the publisher's initial, on its tile.
+      const letter = (group.publisher_text.match(/[\p{L}\p{N}]/u) ?? ["?"])[0].toUpperCase();
+      const tile = node("span", `${className} is-initial`, letter);
+      tile.setAttribute("aria-hidden", "true");
+      return tile;
+    }
+
+    // « {nom}, {éditeur}, {taille ou RÉSEAU · fournisseur}, {état} », then « {n} sources ».
+    function cardName(v) {
+      const size = v.cloud
+        ? v.members[0].prefix_text
+        : [v.card.size_text, v.card.params_text].filter(Boolean).join(" ") || t("diagnostic.card.unknown_size");
+      const vars = { name: v.card.name, publisher: v.group.publisher_text, size, state: stateText(v.state) };
+      if (v.members.length < 2) return t("diagnostic.card.name", vars);
+      return t("diagnostic.card.name_sources", { ...vars, sources: t("diagnostic.card.sources", { count: v.members.length }) });
+    }
+
+    const detailIds = new Map();
+    const detailId = (id) => {
+      if (!detailIds.has(id)) detailIds.set(id, `model-detail-${detailIds.size + 1}`);
+      return detailIds.get(id);
+    };
+
+    function cardNode(v) {
+      const { card, group, members } = v;
+      const open = expanded === card.id;
+      const classes = ["model-card"];
+      if (v.cloud) classes.push("is-cloud");
+      if (v.state === "active") classes.push("is-active");
+      if (["incompatible", "error"].includes(v.state)) classes.push("is-unusable");
+      if (open) classes.push("is-expanded");
+      const article = node("article", classes.join(" "));
+      article.dataset.key = card.id;
+      article.dataset.card = card.id;
+      article.dataset.values = card.source_values.join(" ");
+      article.dataset.state = v.state;
+
+      const head = node("button", "model-card-head");
+      head.type = "button";
+      head.dataset.action = "toggle";
+      head.dataset.card = card.id;
+      head.setAttribute("aria-expanded", String(open));
+      if (open) head.setAttribute("aria-controls", detailId(card.id));
+      head.setAttribute("aria-label", cardName(v));
+      const title = node("span", "model-card-title");
+      title.append(node("span", "model-card-name", card.name), node("span", "model-card-origin", card.origin_text));
+      const size = node("span", "model-card-size");
+      if (v.cloud) size.append(node("span", "hosting-tag-network", members[0].prefix_text));
+      else {
+        size.append(node("span", "model-card-bytes", card.size_text ?? "—"));
+        if (card.params_text) size.append(node("span", "model-card-params", card.params_text));
+      }
+      const foot = node("span", "model-card-foot");
+      foot.append(pill(v.state));
+      if (members.length > 1) foot.append(node("span", "sources-chip", t("diagnostic.card.sources", { count: members.length })));
+      const saved = members.some((m) => isModel(selectedModel, m.kind, m.ref) && !isModel(loadedModel, m.kind, m.ref));
+      if (saved) foot.append(node("span", "model-mark", t("diagnostic.saved_choice")));
+      if (v.row?.disclosure?.trial) foot.append(node("span", "model-mark", t("diagnostic.card.trial")));
+      head.append(logoNode(group, group.publisher_text), title, size, foot);
+      article.append(head);
+      if (!open) return article;
+
+      const fold = node("button", "button-secondary model-card-fold", t("diagnostic.card.fold"));
+      fold.type = "button";
+      fold.dataset.action = "fold";
+      fold.dataset.card = card.id;
+      fold.title = t("diagnostic.card.fold_name");
+      article.append(fold, v.cloud ? cloudDetail(v) : localDetail(v));
+      return article;
+    }
+
+    function detailRegion(v) {
+      const region = node("div", "model-card-detail");
+      region.id = detailId(v.card.id);
+      region.setAttribute("role", "region");
+      region.setAttribute("aria-label", v.card.name);
+      return region;
+    }
+
+    function cardSection(key, titleKey, ...children) {
+      const element = node("section", "card-section");
+      element.dataset.key = key;
+      element.append(node("h4", "", t(titleKey)), ...children.filter(Boolean));
+      return element;
+    }
+
+    const message = (kind, text) => node("p", `card-message is-${kind}`, text);
+
+    function servedMemory(c) {
+      const gb = numberFormat({ minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      const size = c.served_bytes
+        ? t("diagnostic.served.size", { size: gb.format(c.served_bytes / 1024 ** 3) })
+        : t("diagnostic.served.unknown");
+      const where = c.resident ? t("diagnostic.served.resident") : t("diagnostic.served.on_first_call");
+      // Lot E (E1): llama-server's context cache, when its GGUF could not be read here.
+      const cache = c.engine === "llama_server" && c.context_counted === false ? t("diagnostic.served.no_cache") : "";
+      return t("diagnostic.served.memory", { size, cache, where });
+    }
+
+    // A source's messages, in full: its last load's failure, why it cannot be used, its
+    // server's warning, a note on the file, a served model's memory.
+    function sourceMessages(m) {
+      const c = candidateOf(m);
+      const list = [];
+      if (failed(m)) list.push(message("error", t("diagnostic.card.load_error", { reason: errorOf(m) })));
+      if (!m.usable) list.push(message("error", m.disabled_text || c?.reason || t("diagnostic.served.unusable")));
+      else if (c?.reason) list.push(message("warn", c.reason));
+      if (c?.warning_text) list.push(message("warn", c.warning_text));
+      if (c?.source === "server" && c.status !== "incompatible") list.push(message("ok", servedMemory(c)));
+      if (!list.length) {
+        const arch = c?.architecture ? ` (${t("diagnostic.architecture", { name: c.architecture })})` : "";
+        list.push(message("ok", `${t("diagnostic.card.no_message")}${arch}`));
+      }
+      return list;
+    }
+
+    const whereOf = (m) => (m.kind === "server" ? candidateOf(m)?.server_url || m.title_text : m.ref);
+
+    function chooseButton(m, labelKey) {
+      const button = node("button", "button-primary", t(labelKey));
+      button.type = "button";
+      button.dataset.action = "choose";
+      button.dataset.kind = m.kind;
+      button.dataset.ref = m.ref;
+      button.disabled = busy || pending !== null;
+      return button;
+    }
+
+    // Capabilities: one value, or one per source when they differ (a window bounded by
+    // llama-server's -c), each with its reason, visible.
+    function facts(members) {
+      const dl = node("dl", "card-facts");
+      const rows = [
+        [COLUMNS.window, (m) => [m.window_text, m.window_reason_text]],
+        [COLUMNS.tools, (m) => [m.tools_text, m.tools_reason_text]],
+        [COLUMNS.reasoning, (m) => [m.reasoning_text, m.reason_text]],
+        [COLUMNS.price, (m) => [m.price_text, m.price_reason_text]],
+      ];
+      for (const [label, read] of rows) {
+        const dd = node("dd");
+        const values = members.map(read);
+        const same = values.every(([text, why]) => text === values[0][0] && why === values[0][1]);
+        (same ? [values[0]] : values).forEach(([text, why], i) => {
+          const line = node(
+            "span",
+            "card-fact",
+            same ? text : t("common.format.label_value", { label: members[i].origin_text, value: text })
+          );
+          dd.append(line);
+          if (why) dd.append(node("span", "card-why", why));
+        });
+        dl.append(node("dt", "", label), dd);
+      }
+      return dl;
+    }
+
+    function localDetail(v) {
+      const { members } = v;
+      const region = detailRegion(v);
+      const loaded = body?.loaded?.label;
+      const left = node("div", "card-column");
+      left.dataset.key = "left";
+      if (members.length > 1) {
+        // Several sources: each its line, its state, its messages and its own « Choisir ».
+        const rows = members.map((m) => {
+          const state = sourceState(m);
+          const row = node("div", `card-source${state === "active" ? " is-active" : ""}`);
+          row.dataset.key = `source:${m.value}`;
+          row.dataset.value = m.value;
+          const main = node("div", "card-source-main");
+          main.append(node("strong", "", m.origin_text), node("p", "card-path", whereOf(m)), ...sourceMessages(m));
+          row.append(main, node("span", "card-source-size", m.bytes_text ?? "—"), pill(state));
+          if (state !== "active" && m.usable) row.append(chooseButton(m, "diagnostic.card.choose_source"));
+          return row;
+        });
+        const sources = cardSection("sources", "diagnostic.sections.sources", ...rows);
+        sources.classList.add("card-section-wide");
+        region.append(sources);
+      } else {
+        const [m] = members;
+        left.append(
+          cardSection("diagnostic", "diagnostic.sections.diagnostic", ...sourceMessages(m)),
+          cardSection(
+            "where",
+            m.kind === "server" ? "diagnostic.sections.address" : "diagnostic.sections.file",
+            node("p", "card-path", whereOf(m))
+          )
+        );
+        region.append(left);
+      }
+      const right = node("div", "card-column");
+      right.dataset.key = "right";
+      right.append(cardSection("capabilities", "diagnostic.sections.capabilities", facts(members)));
+      region.append(right);
+      const actions = node("div", "card-actions");
+      actions.dataset.key = "actions";
+      if (members.length === 1) {
+        const [m] = members;
+        if (m.usable && !isModel(loadedModel, m.kind, m.ref)) actions.append(chooseButton(m, "diagnostic.card.choose"));
+      }
+      const offered = members.some((m) => m.usable && !isModel(loadedModel, m.kind, m.ref));
+      if (offered && loaded) actions.append(node("span", "card-hint", t("diagnostic.card.replace_hint", { model: loaded })));
+      if (cardStatus.has(v.card.id)) actions.append(node("span", "card-status", cardStatus.get(v.card.id)));
+      if (actions.childNodes.length) region.append(actions);
+      return region;
+    }
+
+    function cloudDetail(v) {
+      const m = v.members[0];
+      const row = v.row;
+      const region = detailRegion(v);
+      if (!row) {
+        region.append(cardSection("capabilities", "diagnostic.sections.capabilities", facts(v.members)));
+        return region;
+      }
+      const d = row.disclosure ?? {};
+      const data = node("dl", "card-facts");
+      const fact = (label, text) => data.append(node("dt", "", label), node("dd", "", text));
+      if (d.hosting_text) fact(t("diagnostic.card.hosting"), d.hosting_text);
+      fact(t("diagnostic.card.training"), row.training_text);
+      if (d.trial) fact(t("diagnostic.card.trial"), t("models.filters.answer_yes"));
+      if (row.host) {
+        data.append(node("dt", "", t("diagnostic.sections.address")));
+        const dd = node("dd");
+        dd.append(node("span", "card-path is-inline", row.host));
+        data.append(dd);
+      }
+      const notes = d.notes_text ? node("p", "card-why", d.notes_text) : null;
+      const dataSection = cardSection("data", "diagnostic.sections.data", data, notes);
+
+      // The key: its field and « Enregistrer la clé », where it comes from, the hint.
+      const keyRow = node("div", "card-key");
+      const input = node("input", "field-input");
+      input.type = "password";
+      input.autocomplete = "off";
+      input.dataset.keyInput = row.id;
+      // AD-20: the variable's name only, never its value; a key typed here comes first.
+      const fromEnv = row.key_source === "env";
+      input.placeholder = fromEnv
+        ? t("diagnostic.key.from_env", { env: row.key_env })
+        : row.key_set ? t("diagnostic.key.saved") : t("diagnostic.key.placeholder");
+      input.setAttribute("aria-label", t("diagnostic.key.label", { provider: row.provider }));
+      const save = node("button", "button-secondary", t("diagnostic.key.save"));
+      save.type = "button";
+      save.dataset.action = "save-key";
+      save.dataset.id = row.id;
+      save.disabled = busy;
+      keyRow.append(input, save);
+      const keyNotes = [];
+      if (fromEnv) keyNotes.push(node("p", "card-why", t("diagnostic.key.env_source", { env: row.key_env })));
+      else if (row.key_env && !row.key_set) keyNotes.push(node("p", "card-why", t("diagnostic.key.env_hint", { env: row.key_env })));
+      keyNotes.push(node("p", "card-why", cloud.key_hint_text));
+      const keySection = cardSection("key", "diagnostic.sections.key", keyRow, ...keyNotes);
+
+      const caps = cardSection("capabilities", "diagnostic.sections.capabilities", facts(v.members));
+      const result = testResults.has(row.id) ? testResults.get(row.id) : row.last_test;
+      const tests = [];
+      if (result) {
+        const parts = [result.message_text];
+        if (result.answer) parts.push(t("diagnostic.answer", { answer: quote(result.answer) }));
+        if (result.tool_call) {
+          parts.push(t("diagnostic.tool_call", { name: result.tool_call.name, arguments: result.tool_call.arguments ?? "" }));
+        }
+        if (result.action_text) parts.push(result.action_text);
+        const kind = { ok: "ok", warn: "warn", fail: "error" }[result.status] ?? "warn";
+        tests.push(message(kind, parts.join(" · ")));
+      }
+      if (cloudStatus.has(row.id)) tests.push(node("p", "card-status", cloudStatus.get(row.id)));
+      const testSection = tests.length ? cardSection("last-test", "diagnostic.sections.last_test", ...tests) : null;
+
+      // A missing key: its field first (EXPERIENCE.md > Carte cloud : Clé manquante).
+      const first = row.key_set || fromEnv ? [dataSection, keySection] : [keySection, dataSection];
+      const left = node("div", "card-column");
+      left.dataset.key = "left";
+      left.append(...first);
+      const right = node("div", "card-column");
+      right.dataset.key = "right";
+      right.append(...[caps, testSection].filter(Boolean));
+      region.append(left, right);
+
+      // The actions: « Tester », « Choisir ce modèle… » behind the warning, then their notes.
+      const actions = node("div", "card-actions");
+      actions.dataset.key = "actions";
+      const test = node("button", "button-secondary", t("diagnostic.test"));
+      test.dataset.action = "test";
+      const choose = node("button", "button-primary", t("diagnostic.card.choose_cloud"));
+      choose.dataset.action = "choose-cloud";
+      const active = isModel(loadedModel, "cloud", row.id);
+      for (const button of [test, choose]) {
+        button.type = "button";
+        button.dataset.id = row.id;
+        button.disabled = busy || pending !== null || Boolean(row.disabled_text);
+        if (row.disabled_text) button.title = row.disabled_text;
+      }
+      actions.append(test);
+      if (!active) actions.append(choose);
+      if (row.disabled_text) actions.append(node("span", "card-hint is-reason", row.disabled_text));
+      actions.append(node("span", "card-hint", row.test_hint_text));
+      if (!active) actions.append(node("span", "card-hint", t("diagnostic.card.cloud_hint")));
+      region.append(actions);
+      return region;
+    }
+
+    function groupNode(group, shown) {
+      const element = node("section", "publisher-group");
+      element.dataset.key = `${group.hosting}:${group.publisher_id}`;
+      const header = node("h3", "publisher-group-header");
+      const logo = logoNode(group, "", "model-logo is-small");
+      header.append(logo, node("span", "publisher-group-name", group.publisher_text), node("span", "publisher-group-count", t("diagnostic.card.publisher_count", { count: shown.length })));
+      const grid = node("div", "model-grid");
+      grid.append(...shown.map(cardNode));
+      element.append(header, grid);
+      return element;
+    }
+
+    // The publishers of the cards served, in the catalogue's order (groups come by publisher).
+    function fillPublishers(all) {
+      const seen = new Map();
+      for (const v of all) if (!seen.has(v.group.publisher_id)) seen.set(v.group.publisher_id, v.group.publisher_text);
+      const current = [...filterEls.publisher.options].slice(1).map((o) => `${o.value}=${o.textContent}`).join("|");
+      const wanted = [...seen].map(([id, text]) => `${id}=${text}`).join("|");
+      if (current === wanted) return;
+      const value = filterEls.publisher.value;
+      const options = [...seen].map(([id, text]) => {
+        const option = node("option", "", text);
+        option.value = id;
+        return option;
+      });
+      filterEls.publisher.replaceChildren(filterEls.publisher.options[0], ...options);
+      filterEls.publisher.value = seen.has(value) ? value : "";
+    }
+
+    function zone(all, hosting, wanted) {
+      const mine = all.filter((v) => v.card.hosting === hosting);
+      const shown = mine.filter((v) => matches(v, wanted));
+      const sort = SORT_KEYS[filterEls.sort.value];
+      const groups = new Map();
+      for (const v of shown) {
+        const key = `${v.group.hosting}:${v.group.publisher_id}`;
+        if (!groups.has(key)) groups.set(key, { group: v.group, cards: [] });
+        groups.get(key).cards.push(v);
+      }
+      const rows = [...groups.values()].map(({ group, cards }) => {
+        if (sort) cards.sort((a, b) => compareValues(sort(a), sort(b)) || a.order - b.order);
+        return groupNode(group, cards);
+      });
+      return { rows, mine, shown };
+    }
+
+    function zoneNote(text, key) {
+      const note = node("p", "models-zone-note", text);
+      note.dataset.key = key;
+      return note;
+    }
+
+    // Everything the page shows, from what the session said and the page's own state.
+    function render() {
+      renderSearch();
       renderCap();
-      if (!cloud.models.length) {
-        patchList(cloudEl, [node("li", "", t("diagnostic.no_cloud"))]);
+      renderChecksSummary();
+      paint();
+    }
+
+    // The cards, the zones and the counter; a card, a typed key and the focus survive it.
+    function paint() {
+      if (!body) return;
+      const error = $("publishers-error");
+      const errorText = body.models?.publishers_error_text ?? "";
+      error.hidden = !errorText;
+      error.textContent = errorText;
+      const all = views();
+      fillPublishers(all);
+      const wanted = wantedFilters();
+      const filtering = Object.values(wanted).some(Boolean);
+      let local = zone(all, "local", wanted);
+      let network = zone(all, "network", wanted);
+      // An unfolded card the filters hide (or the session no longer lists) folds.
+      if (expanded && ![...local.shown, ...network.shown].some((v) => v.card.id === expanded)) {
+        expanded = null;
+        local = zone(all, "local", wanted);
+        network = zone(all, "network", wanted);
+      }
+      if (!body.models) {
+        patchList(localEl, [zoneNote(t("models.table_unavailable"), "unavailable")]);
+        patchList(cloudEl, []);
+      } else {
+        const localRows = local.rows;
+        if (!local.mine.length) {
+          // Not « Aucun candidat trouvé. » while the search runs.
+          if (!searching) localRows.push(zoneNote(t("diagnostic.no_candidate"), "none"));
+        } else if (!local.shown.length) localRows.push(zoneNote(t("diagnostic.card.no_match_local"), "no-match"));
+        patchList(localEl, localRows);
+        const cloudRows = network.rows;
+        if (!network.mine.length) cloudRows.push(zoneNote(t("diagnostic.no_cloud"), "none"));
+        else if (!network.shown.length) cloudRows.push(zoneNote(t("diagnostic.card.no_match_cloud"), "no-match"));
+        patchList(cloudEl, cloudRows);
+      }
+      // The counter: « 17 modèles (19 sources) au dernier diagnostic », « 5 modèles sur 17 ».
+      const total = all.length;
+      const sources = all.reduce((n, v) => n + v.members.length, 0);
+      const shown = local.shown.length + network.shown.length;
+      filtersEl.hidden = !total;
+      $("submit-path").disabled = busy || pending !== null; // one choice at a time
+      statusEl.textContent = !total
+        ? t("models.none")
+        : filtering
+          ? t("models.count_filtered", { count: shown, total: String(total) })
+          : sources > total
+            ? t("models.count_sources", { count: total, sources: String(sources) })
+            : t("models.count", { count: total });
+      announce(all);
+    }
+
+    // A card whose state changed (a load ended, a test finished): said, never by colour alone.
+    function announce(all) {
+      const states = new Map(all.map((v) => [v.card.id, v.state]));
+      if (lastStates) {
+        const changed = all.filter((v) => lastStates.has(v.card.id) && lastStates.get(v.card.id) !== v.state);
+        if (changed.length) {
+          liveEl.textContent = changed
+            .map((v) => t("common.format.label_value", { label: v.card.name, value: stateText(v.state) }))
+            .join(" · ");
+        }
+      }
+      lastStates = states;
+    }
+
+    // ---------- the actions ----------
+
+    function cardOf(id) {
+      return document.querySelector(`article[data-card="${CSS.escape(id)}"]`);
+    }
+
+    function fold(id) {
+      if (expanded !== id) return;
+      expanded = null;
+      paint();
+      cardOf(id)?.querySelector(".model-card-head")?.focus();
+    }
+
+    function toggle(id) {
+      if (expanded === id) {
+        fold(id);
         return;
       }
-      const rows = [];
-      for (const m of cloud.models) {
-        const li = node("li", "cloud");
-        const d = m.disclosure;
-        li.title = [
-          t("diagnostic.hosting", { hosting: d.hosting_text }),
-          t("diagnostic.training", { training: m.training_text }),
-          d.trial ? t("diagnostic.trial") : null,
-          d.notes_text,
-        ].filter(Boolean).join("\n");
-        // Its title: the provider and the model, after the network badge, then its marks.
-        const title = node("div", "cloud-title");
-        title.append(node("span", "hosting-tag-network", t("diagnostic.network")), node("strong", "", `${m.provider} · ${m.model}`));
-        for (const [on, text] of [[m.loaded, t("diagnostic.active")], [m.selected && !m.loaded, t("diagnostic.saved_choice")]]) {
-          if (on) title.appendChild(node("span", "saved-mark", text));
-        }
-        li.appendChild(title);
-        const line = d.trial ? "diagnostic.cloud_line_trial" : "diagnostic.cloud_line";
-        li.appendChild(node("div", "action", t(line, { hosting: d.hosting_text, training: m.training_text })));
-        // FinOps: the declared prices, as the session wrote them (none without `pricing`).
-        if (m.price_text) li.appendChild(node("div", "action", m.price_text));
-        // The key: its field and « Enregistrer la clé », where it comes from, the hint.
-        const keyBlock = node("div", "cloud-key-block");
-        const keyRow = node("div", "cloud-key");
-        const input = node("input", "field-input");
-        input.type = "password";
-        input.autocomplete = "off";
-        // AD-20: the variable's name only, never its value; a key typed here comes first.
-        const fromEnv = m.key_source === "env";
-        input.placeholder = fromEnv
-          ? t("diagnostic.key.from_env", { env: m.key_env })
-          : m.key_set ? t("diagnostic.key.saved") : t("diagnostic.key.placeholder");
-        input.setAttribute("aria-label", t("diagnostic.key.label", { provider: m.provider }));
-        const save = node("button", "choose button-secondary", t("diagnostic.key.save"));
-        save.type = "button";
-        save.disabled = busy;
-        save.addEventListener("click", () => {
-          if (input.value.trim()) setApiKey(currentModel(m), input.value);
-        });
-        keyRow.append(input, save);
-        if (fromEnv) keyBlock.appendChild(node("div", "action", t("diagnostic.key.env_source", { env: m.key_env })));
-        else if (m.key_env && !m.key_set) {
-          keyBlock.appendChild(node("div", "action", t("diagnostic.key.env_hint", { env: m.key_env })));
-        }
-        keyBlock.append(keyRow, node("div", "action", cloud.key_hint_text));
-        li.appendChild(keyBlock);
-        // The actions: « Tester » (secondary), « Choisir » (primary), then their notes.
-        const test = node("button", "choose button-secondary", t("diagnostic.test"));
-        const choose = node("button", "choose button-primary", t("diagnostic.choose"));
-        for (const button of [test, choose]) {
-          button.type = "button";
-          button.disabled = busy || Boolean(m.disabled_text);
-          if (m.disabled_text) {
-            button.title = m.disabled_text;
-            button.dataset.blocked = "true"; // `setBusy(false)` leaves it disabled
-          }
-        }
-        test.addEventListener("click", () => testCloud(currentModel(m)));
-        choose.addEventListener("click", () => openWarning(currentModel(m), choose));
-        const actions = node("div", "cloud-actions");
-        actions.append(test, choose);
-        li.appendChild(actions);
-        if (m.disabled_text) li.appendChild(node("div", "action", m.disabled_text));
-        li.appendChild(node("div", "action", m.test_hint_text));
-        const result = testResults.has(m.id) ? testResults.get(m.id) : m.last_test;
-        if (result) {
-          const parts = [result.message_text];
-          if (result.answer) parts.push(t("diagnostic.answer", { answer: quote(result.answer) }));
-          if (result.tool_call) {
-            parts.push(t("diagnostic.tool_call", { name: result.tool_call.name, arguments: result.tool_call.arguments ?? "" }));
-          }
-          if (result.action_text) parts.push(result.action_text);
-          li.appendChild(node("div", `cloud-result ${result.status}`, parts.join(" · ")));
-        }
-        if (cloudStatus.has(m.id)) li.appendChild(node("div", "cloud-result", cloudStatus.get(m.id)));
-        rows.push(li);
-      }
-      patchList(cloudEl, rows);
+      expanded = id;
+      paint();
+      cardOf(id)?.querySelector(".model-card-head")?.focus();
     }
 
     async function post(path, payload) {
@@ -601,21 +1085,26 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const body = await response.json();
-      return { ok: response.ok, body };
+      const answer = await response.json();
+      return { ok: response.ok, body: answer };
+    }
+
+    function setBusy(value) {
+      busy = value;
+      paint();
     }
 
     // `mine`: the switch this request may start (« Choisir »), else none.
-    async function cloudIntention(m, path, payload, pending, mine = null) {
+    async function cloudIntention(m, path, payload, waiting, mine = null) {
       if (busy) return;
       setBusy(true);
-      cloudStatus.set(m.id, pending);
-      renderCloud();
+      cloudStatus.set(m.id, waiting);
+      paint();
       try {
-        const { body } = await post(path, payload);
-        const message = body.message_text || body.detail || "";
-        if (mine) answerSwitch(mine, body, message);
-        else cloudStatus.set(m.id, message);
+        const { body: answer } = await post(path, payload);
+        const text = answer.message_text || answer.detail || "";
+        if (mine) answerSwitch(mine, answer, text);
+        else cloudStatus.set(m.id, text);
       } catch (error) {
         if (mine && switching === mine) finishSwitch();
         cloudStatus.set(m.id, t("diagnostic.failed", { cause: error.message }));
@@ -635,24 +1124,26 @@
       cloudIntention(m, "/api/intentions/test_cloud_model", { id: m.id }, t("diagnostic.testing"));
     }
 
+    let warningFor = null;
+    let warningOpener = null; // the « Choisir ce modèle… » button that opened the warning
+
     function openWarning(m, opener) {
       if (!m.warning) {
         // Without its warning, a cloud model cannot be confirmed, hence not chosen (AD-21).
         cloudStatus.set(m.id, t("diagnostic.no_warning"));
-        renderCloud();
+        paint();
         return;
       }
       warningFor = m;
       warningOpener = opener;
-      document.getElementById("cloud-warning-title").textContent = m.warning.title_text;
-      const points = document.getElementById("cloud-warning-points");
-      points.replaceChildren(...["sent_text", "provider_text", "unseen_text"].map((k) => node("li", "", m.warning[k])));
-      document.getElementById("cloud-warning-confirm").textContent = m.warning.confirm_text;
-      document.getElementById("cloud-warning-cancel").textContent = m.warning.cancel_text;
+      $("cloud-warning-title").textContent = m.warning.title_text;
+      $("cloud-warning-points").replaceChildren(...["sent_text", "provider_text", "unseen_text"].map((k) => node("li", "", m.warning[k])));
+      $("cloud-warning-confirm").textContent = m.warning.confirm_text;
+      $("cloud-warning-cancel").textContent = m.warning.cancel_text;
       // In the page, never a browser dialog (EXPERIENCE.md cloud-warning); modal, so Échap
-      // closes it and the rows behind wait.
+      // closes it and the cards behind wait.
       warningEl.showModal();
-      document.getElementById("cloud-warning-confirm").focus();
+      $("cloud-warning-confirm").focus();
     }
 
     // Échap, « Annuler » or « Utiliser ce modèle »: the warning is no longer pending.
@@ -661,29 +1152,112 @@
       if (warningOpener?.isConnected) warningOpener.focus();
       warningOpener = null;
     });
-    document.getElementById("cloud-warning-cancel").addEventListener("click", () => {
-      warningEl.close();
-    });
-    document.getElementById("cloud-warning-confirm").addEventListener("click", () => {
+    $("cloud-warning-cancel").addEventListener("click", () => warningEl.close());
+    $("cloud-warning-confirm").addEventListener("click", () => {
       const m = warningFor;
       warningEl.close();
       if (m && busy) {
         cloudStatus.set(m.id, t("diagnostic.already_busy"));
-        renderCloud();
+        paint();
       } else if (m) {
         const mine = startSwitch((text) => {
           cloudStatus.set(m.id, text);
-          renderCloud();
-        });
-        cloudIntention(
-          m,
-          "/api/intentions/select_model",
-          { kind: "cloud", ref: m.id, acknowledged: true },
-          t("diagnostic.choosing"),
-          mine
-        );
+          paint();
+        }, { kind: "cloud", ref: m.id });
+        cloudIntention(m, "/api/intentions/select_model", { kind: "cloud", ref: m.id, acknowledged: true }, t("diagnostic.choosing"), mine);
       }
     });
+
+    // `cardId`: the card whose « Choisir » it is (its message under its actions), else the
+    // free path's.
+    async function chooseModel(model, cardId = null) {
+      if (busy || pending !== null) return;
+      setBusy(true);
+      const show = (text) => {
+        selectStatusEl.textContent = text;
+        if (cardId) cardStatus.set(cardId, text);
+        paint();
+      };
+      show(t("diagnostic.checking"));
+      const mine = startSwitch(show, model);
+      try {
+        const { body: answer } = await post("/api/intentions/select_model", model);
+        answerSwitch(mine, answer, answer.message_text || answer.detail || (answer.ready ? t("diagnostic.ready") : t("diagnostic.see_above")));
+      } catch (error) {
+        if (switching === mine) finishSwitch();
+        show(t("diagnostic.failed", { cause: error.message }));
+      } finally {
+        setBusy(false);
+        loadDiagnostic();
+      }
+    }
+
+    // One listener for every card's buttons: a kept button reads the model as it is now.
+    document.querySelector("main").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button || button.disabled) return;
+      const id = button.dataset.id;
+      switch (button.dataset.action) {
+        case "toggle":
+          toggle(button.dataset.card);
+          break;
+        case "fold":
+          fold(button.dataset.card);
+          break;
+        case "choose":
+          chooseModel({ kind: button.dataset.kind, ref: button.dataset.ref }, button.closest("article")?.dataset.card ?? null);
+          break;
+        case "save-key": {
+          const input = document.querySelector(`input[data-key-input="${CSS.escape(id)}"]`);
+          const key = input?.value.trim();
+          const row = cloudRowOf(id);
+          if (key && row) {
+            input.value = "";
+            setApiKey(row, key);
+          }
+          break;
+        }
+        case "test":
+          if (cloudRowOf(id)) testCloud(cloudRowOf(id));
+          break;
+        case "choose-cloud":
+          if (cloudRowOf(id)) openWarning(cloudRowOf(id), button);
+          break;
+      }
+    });
+
+    // Échap folds the unfolded card and gives the focus back to it (the display menu and the
+    // warning keep their own Échap).
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !expanded || warningEl.open) return;
+      if (event.target.closest?.(".site-nav")) return;
+      // In a field (a key being typed, a filter), Échap belongs to the field: nothing folds.
+      if (["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName)) return;
+      fold(expanded);
+    });
+
+    $("submit-path").addEventListener("click", () => {
+      const path = $("model-path").value.trim();
+      if (path) chooseModel({ kind: "file", ref: path });
+    });
+
+    // ---------- filters and sort: presentation, nothing asked of the server ----------
+
+    function setHosting(value) {
+      hostingFilter = value;
+      for (const button of $("filter-hosting").querySelectorAll("button")) {
+        button.setAttribute("aria-pressed", String(button.dataset.value === value));
+      }
+      paint();
+    }
+
+    function resetFilters() {
+      for (const el of Object.values(filterEls)) el.value = "";
+      setHosting("");
+      filterEls.text.focus();
+    }
+
+    // ---------- /api/diagnostic and the stream ----------
 
     // One `/api/diagnostic` request at a time; the calls made meanwhile give one more.
     let loading = null;
@@ -707,30 +1281,38 @@
 
     async function fetchDiagnostic() {
       const response = await fetch("/api/diagnostic");
-      const body = await response.json();
-      if (historyUpTo === null) historyUpTo = body.seq ?? 0;
-      selectedModel = body.selected;
-      loadedModel = body.loaded;
-      cloud = body.cloud || cloud;
-      spendCap = body.spend_cap ?? spendCap;
-      searching = Boolean(body.searching);
-      progress = searching ? (body.progress ?? progress) : null;
+      const answer = await response.json();
+      if (historyUpTo === null) historyUpTo = answer.seq ?? 0;
+      body = answer;
+      selectedModel = answer.selected;
+      loadedModel = answer.loaded;
+      cloud = answer.cloud || cloud;
+      spendCap = answer.spend_cap ?? spendCap;
+      searching = Boolean(answer.searching);
+      progress = searching ? (answer.progress ?? progress) : null;
+      candidates = new Map();
+      for (const c of answer.candidates || []) {
+        if (c.source === "server") candidates.set(`server:${c.ref}`, c);
+        else if (c.path && (!candidates.has(`file:${c.path}`) || c.status === "found")) candidates.set(`file:${c.path}`, c);
+      }
+      loadErrors = new Map((answer.load_errors || []).map((e) => [`${e.kind}:${e.ref}`, e.reason_text]));
       renderSearch();
-      renderCloud();
-      renderCandidates(body.candidates || []);
+      renderCap();
+      renderChecksSummary();
+      paint();
       // An outcome missed by the stream (a reconnection): the loaded model says it.
       const mine = switching;
-      const active = body.loaded?.ref;
+      const active = answer.loaded?.ref;
       if (mine?.answered && active === mine.ref) {
         // Named like `model_load_ended` would: the outcome reads the same whichever comes first.
-        const text = t("diagnostic.is_active", { model: body.loaded.label });
+        const text = t("diagnostic.is_active", { model: answer.loaded.label });
         setTimeout(() => { if (switching === mine) finishSwitch(text); }, 3000);
       }
     }
 
     // The stream replays the whole journal first. Its events up to `historyUpTo` (the
     // journal's `seq` when the page first read /api/diagnostic) are history: their lines
-    // are shown, without reloading the lists nor being taken for a switch's outcome.
+    // are shown, without reloading the cards nor being taken for a switch's outcome.
     let historyUpTo = null;
 
     // `live`: false for the history.
@@ -747,8 +1329,6 @@
       source.addEventListener("diagnostic_progress", (event) => onEnvelope(event, onProgress));
       source.addEventListener("consumption_updated", (event) => onEnvelope(event, onSpend));
     }
-    await ready; // the page's texts and formats in the session's language (languages 4/5)
-    loadDiagnostic().then(openStream);
 
     // Finition V1 (#27): the spend so far, live (turns run in the workshop's tab meanwhile).
     function onSpend(payload, live) {
@@ -758,7 +1338,7 @@
     }
 
     function onModelLoadEnded(payload, live) {
-      if (!live) return; // an earlier load: the lists already show where it led
+      if (!live) return; // an earlier load: the cards already show where it led
       if (switching) {
         const text = payload.status === "ok"
           ? [t("diagnostic.is_active", { model: payload.model.label }), payload.reason_text].filter(Boolean).join(" ")
@@ -770,42 +1350,17 @@
       loadDiagnostic();
     }
 
-    function setBusy(value) {
-      busy = value;
-      for (const button of document.querySelectorAll("button.choose")) {
-        button.disabled = value || button.dataset.blocked === "true";
-      }
+    await ready; // the page's texts and formats in the session's language (languages 4/5)
+    collator = new Intl.Collator(locale(), { sensitivity: "base", numeric: true });
+    // The user opens or closes the checks: their choice holds until the page reloads (a
+    // click on the summary, Entrée and Espace included).
+    checksPanel.querySelector("summary").addEventListener("click", () => { panelChosen = true; });
+    for (const button of $("filter-hosting").querySelectorAll("button")) {
+      button.addEventListener("click", () => setHosting(button.dataset.value));
     }
-
-    async function chooseModel(model) {
-      if (busy) return;
-      setBusy(true);
-      selectStatusEl.textContent = t("diagnostic.checking");
-      const mine = startSwitch((text) => {
-        selectStatusEl.textContent = text;
-      });
-      try {
-        const response = await fetch("/api/intentions/select_model", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(model),
-        });
-        const body = await response.json();
-        answerSwitch(mine, body, body.message_text || body.detail ||
-          (body.ready ? t("diagnostic.ready") : t("diagnostic.see_above")));
-      } catch (error) {
-        if (switching === mine) finishSwitch();
-        selectStatusEl.textContent = t("diagnostic.failed", { cause: error.message });
-      } finally {
-        setBusy(false);
-        loadDiagnostic();
-      }
-    }
-
-    document.getElementById("submit-path").addEventListener("click", () => {
-      const path = document.getElementById("model-path").value.trim();
-      if (path) chooseModel({ kind: "file", ref: path });
-    });
+    for (const el of Object.values(filterEls)) el.addEventListener("input", paint);
+    $("filters-reset").addEventListener("click", resetFilters);
+    loadDiagnostic().then(openStream);
   </script>
 </body>
 </html>

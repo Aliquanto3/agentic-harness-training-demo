@@ -11,6 +11,7 @@ commandes près.
 - [Windows](#windows)
 - [macOS et Linux](#macos-et-linux)
 - [Le modèle local](#le-modèle-local)
+- [Modèles du RAG](#modèles-du-rag)
 - [Premier lancement et diagnostic](#premier-lancement-et-diagnostic)
 - [Mise à jour](#mise-à-jour)
 - [Extras optionnels](#extras-optionnels)
@@ -153,6 +154,53 @@ du 2026-09-27), ou par llama-server (voir [Utiliser un serveur déjà lancé](mo
 Sans modèle local, WaveStack fonctionne aussi avec un modèle cloud : collez une clé API au
 diagnostic (voir [Modèles cloud](modeles.md#modèles-cloud)).
 
+## Modèles du RAG
+
+La brique RAG (et l'Atelier RAG) utilise deux petits modèles GGUF, distincts du modèle de
+conversation et jamais proposés comme tel. Chacun est nommé dans une seule section de
+`wavestack.toml`, qui donne aussi son adresse de téléchargement et son sha256 :
+
+| Rôle | Fichier | Taille | Section | Dossier |
+|---|---|---|---|---|
+| Embedding (obligatoire pour le RAG) | `granite-embedding-107m-multilingual-Q8_0.gguf` (IBM, Apache-2.0) | 121 Mo | `[rag.embedding]` | `models/embedding/` |
+| Reranking (facultatif, case « Reranking ») | `bge-reranker-v2-m3-Q4_K_M.gguf` (BAAI, Apache-2.0) | 438 Mo | `[rag.reranker]` | `models/reranker/` |
+
+Les dossiers sont relatifs au dossier `models/` du dossier de données
+(`%LOCALAPPDATA%\WaveStack\models\embedding\` sous Windows,
+`~/.local/share/wavestack/models/embedding/` ailleurs ; de même pour `reranker\`).
+
+**Les télécharger.** Depuis la carte RAG de l'Atelier Harnais, sans ligne de commande :
+« Télécharger le modèle d'embedding », puis, dans la sous-option « Reranking », « Télécharger
+le modèle de reranking ». WaveStack vérifie la taille et le sha256 de chaque fichier.
+
+**Hors ligne, ou derrière un proxy qui bloque Hugging Face.** Téléchargez les deux fichiers sur
+un autre poste (adresses `url` des sections `[rag.embedding]` et `[rag.reranker]` de
+`wavestack.toml`), copiez-les sous ces noms exacts dans `models/embedding/` et
+`models/reranker/`, puis cliquez de nouveau sur la carte RAG (ou relancez WaveStack).
+
+**Les index.** Les index du corpus sont livrés avec le dépôt, un par langue :
+`data/rag_index.sqlite` (français), `data/rag_index.en.sqlite` et `data/rag_index.de.sqlite`.
+Il n'y a rien à construire sur une installation neuve : seul le modèle d'embedding manque. Pour
+reconstruire un index (après un changement de `[rag.embedding]`, de `[rag] chunk_max_chars` ou
+du corpus), utilisez « Construire l'index » sur la carte RAG, ou le script, une langue à la fois :
+
+```bash
+uv run python scripts/build_rag_index.py --download --lang fr   # télécharge d'abord l'embedding
+uv run python scripts/build_rag_index.py --lang en
+uv run python scripts/build_rag_index.py --lang de
+```
+
+`--download` ne prend que le modèle d'embedding (le reranker n'entre pas dans l'index) ;
+`--model C:\chemin\modele.gguf` désigne un fichier copié ailleurs (le même que celui de
+`[rag.embedding]`). Détails : [Brique RAG, corpus et index](guide.md#brique-rag-corpus-et-index).
+
+**Pour l'Atelier RAG seulement :**
+
+- FAISS et LanceDB, deux bases vectorielles de plus : `uv sync --extra rag-alt` (≈ 390 Mo,
+  voir [Extras optionnels](#extras-optionnels)) ;
+- fastembed, un second modèle d'embedding, est **facultatif** et n'est pas livré : voir
+  [FAISS et LanceDB](guide.md#faiss-et-lancedb-extra-rag-alt) pour l'ajouter sur un poste.
+
 ## Premier lancement et diagnostic
 
 Au lancement, WaveStack vérifie la mémoire disponible, la présence d'un modèle GGUF déjà sur le
@@ -160,7 +208,7 @@ poste, l'accès réseau et la disponibilité du port — chaque résultat s'affi
 terminal et sur la page de diagnostic. Si aucun modèle n'est trouvé, la page propose de saisir le
 chemin d'un fichier `.gguf` (partage, clé USB, cache Hugging Face, LM Studio, Ollama). Avec
 plusieurs modèles utilisables, cliquez sur « Choisir » en face de celui que vous voulez, puis
-ouvrez l'atelier par le lien « Atelier » de la barre de navigation. Pour la suite (l'interface,
+ouvrez l'Atelier Harnais par le lien « Harnais » de la barre de navigation. Pour la suite (l'interface,
 les scénarios, les ateliers), voir le [guide d'utilisation](guide.md).
 
 ### Page ouverte au lancement
@@ -173,7 +221,7 @@ les scénarios, les ateliers), voir le [guide d'utilisation](guide.md).
 - Si WaveStack tourne déjà, la commande ouvre l'interface principale quand l'instance est prête,
   sinon le diagnostic.
 - Le diagnostic reste accessible par l'indicateur de modèle de la barre du bas et par le lien
-  « Diagnostic » de la barre de navigation, en haut de chaque page.
+  « 🛠️ Diagnostic » de la barre de navigation, en haut de chaque page.
 
 ### Premier lancement long sur un poste qui a beaucoup de modèles
 

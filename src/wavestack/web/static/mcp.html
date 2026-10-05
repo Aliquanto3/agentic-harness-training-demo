@@ -15,15 +15,14 @@
 </head>
 <body class="mcp-page">
   <!-- Story 2 (2026-09-30): the bar shared by every page, the same HTML in each but for
-       `aria-current` and, on the main screen only, the projection mode (site-nav.js). -->
+       `aria-current`; lot 4 (2026-10-04): the projection mode offered here too (panes.js). -->
   <nav class="site-nav" aria-label="Pages de WaveStack" data-i18n-aria-label="common.links.pages" data-i18n-links>
     <a href="/" class="site-nav-brand">WaveStack</a>
-    <a href="/">Atelier</a>
-    <a href="/llm" title="LLM nu : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM nu</a>
-    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">Atelier RAG</a>
-    <a href="/mcp" title="Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)" data-i18n-title="common.links.mcp_title" aria-current="page">Atelier MCP</a>
-    <a href="/diagnostic">Diagnostic</a>
-    <a href="/models">Modèles</a>
+    <a href="/">Harnais</a>
+    <a href="/llm" title="Atelier LLM : l'intérieur du modèle actif (tokens, vecteurs, génération token par token)" data-i18n-title="common.links.llm_title">LLM</a>
+    <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title">RAG</a>
+    <a href="/mcp" title="Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)" data-i18n-title="common.links.mcp_title" aria-current="page">MCP</a>
+    <a href="/diagnostic">🛠️ Diagnostic</a>
     <div class="display-menu" id="display-menu">
       <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="common.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="common.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
       <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="common.display.menu" hidden>
@@ -45,94 +44,122 @@
             </select>
           </span>
         </label>
+        <div class="display-menu-row">
+          <button type="button" id="projection-toggle" class="projection-toggle" aria-pressed="false" title="Mode projection : agrandit tous les textes pour la salle ; le navigateur s'en souvient" data-i18n-title="main.projection.title" data-i18n="main.projection.name">Mode projection</button>
+        </div>
         <p class="display-menu-alert" id="display-menu-alert" role="alert" hidden></p>
       </div>
     </div>
   </nav>
 
-  <!-- Story 6 (2026-09-30): the MCP workshop, its five sections in the order of a real
-       exchange (atelier-mcp.md). Every text comes from content/mcp_lab.yaml (`data-text`) or
-       ui.yaml, section `mcp` (`data-i18n`); everything shown from `GET /api/mcp_lab` and the
-       `mcp_lab_*` events (AD-1). -->
-  <main class="mcp-main">
-    <header class="mcp-header">
-      <h1 id="mcp-title" data-text="title_text">Atelier MCP : le protocole à manipuler</h1>
-      <p class="mcp-intro" data-text="intro_text"></p>
-      <p class="mcp-error" id="mcp-content-error" role="alert" hidden></p>
-      <p class="mcp-busy" id="mcp-busy" role="status" hidden></p>
-    </header>
+  <!-- Lot 4 of 2026-10-04 (« Atelier MCP en séquence », AD-27, AD-28): four panes as the
+       Atelier Harnais's (panes.js), the sequence drawn from the `mcp_lab` events (AD-1).
+       Texts from content/mcp_lab.yaml (`data-text`) or ui.yaml, section `mcp` (`data-i18n`). -->
+  <header class="mcp-page-head">
+    <h1 class="mcp-title" data-i18n="mcp.title">Atelier MCP</h1>
+    <p class="mcp-intro" data-text="intro_text"></p>
+    <div class="pane-chips" id="mcp-pane-chips"></div>
+  </header>
+  <p class="mcp-error" id="mcp-content-error" role="alert" hidden></p>
 
-    <section class="mcp-section" id="sec-servers" aria-labelledby="sec-servers-title">
-      <h2 class="mcp-section-title" id="sec-servers-title"><span class="mcp-step" aria-hidden="true">1</span> <span data-text="servers_title_text">Les serveurs</span></h2>
-      <p class="mcp-note" data-text="servers_help_text"></p>
-      <ul class="mcp-servers" id="mcp-servers" aria-label="Serveurs MCP" data-i18n-aria-label="mcp.servers_label"></ul>
-      <div class="mcp-actions">
-        <button type="button" id="mcp-stop" class="mcp-button-secondary" data-i18n="mcp.stop" disabled>Arrêter</button>
-        <span class="mcp-status" id="mcp-status" role="status" aria-live="polite"></span>
+  <main class="layout mcp-layout" id="layout">
+    <section class="pane" data-pane="servers" aria-labelledby="mcp-t-servers">
+      <header class="pane-header">
+        <div class="pane-heading">
+          <h2 class="pane-title" id="mcp-t-servers" data-i18n="mcp.panes.servers">Serveurs et commandes</h2>
+          <p class="pane-subtitle" data-i18n="mcp.subtitles.servers">Choisissez un serveur, puis ce que vous lui demandez</p>
+        </div>
+        <div class="pane-actions">
+          <button type="button" data-action="focus" title="Mode focus" data-i18n-title="common.panes.focus" aria-label="Mode focus" data-i18n-aria-label="common.panes.focus">⛶</button>
+          <button type="button" data-action="hide" title="Masquer le volet" data-i18n-title="common.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="common.panes.hide_short">—</button>
+        </div>
+      </header>
+      <div class="pane-body" id="mcp-servers-body">
+        <p class="mcp-busy" id="mcp-busy" hidden></p>
+        <fieldset class="mcp-server-set">
+          <legend class="mcp-legend" data-i18n="mcp.servers.legend">Serveur</legend>
+          <ul class="mcp-server-list" id="mcp-servers"></ul>
+        </fieldset>
+        <p class="mcp-note" id="mcp-server-note" hidden></p>
+        <div class="mcp-row-buttons">
+          <button type="button" class="mcp-button-primary" id="mcp-connect" data-i18n="mcp.servers.connect">Se connecter</button>
+          <button type="button" class="mcp-button-secondary" id="mcp-stop" aria-disabled="true" data-i18n="mcp.servers.stop">Arrêter</button>
+        </div>
+        <p class="mcp-command-status" id="mcp-command-status" role="status"></p>
+        <div class="mcp-commands" id="mcp-commands"></div>
       </div>
     </section>
 
-    <section class="mcp-section" id="sec-handshake" aria-labelledby="sec-handshake-title">
-      <h2 class="mcp-section-title" id="sec-handshake-title"><span class="mcp-step" aria-hidden="true">2</span> <span data-text="handshake_title_text">La poignée de main</span></h2>
-      <p class="mcp-note" data-text="handshake_help_text"></p>
-      <p class="mcp-note" id="mcp-handshake-empty" data-text="handshake_empty_text"></p>
-      <p class="mcp-summary" id="mcp-connect-summary" role="status" hidden></p>
-      <ol class="mcp-messages" id="mcp-messages" aria-label="Messages JSON-RPC de la poignée de main" data-i18n-aria-label="mcp.messages_label"></ol>
-    </section>
+    <div class="right">
+      <div class="top-row">
+        <section class="pane" data-pane="seq" aria-labelledby="mcp-t-seq">
+          <header class="pane-header">
+            <span class="pane-step" aria-hidden="true">1</span>
+            <div class="pane-heading">
+              <h2 class="pane-title" id="mcp-t-seq" data-i18n="mcp.panes.seq">Séquence</h2>
+              <p class="pane-subtitle" data-i18n="mcp.subtitles.seq">Qui parle à qui, dans l'ordre</p>
+            </div>
+            <div class="mcp-stepper-host" id="mcp-stepper"></div>
+            <div class="pane-actions">
+              <button type="button" data-action="focus" title="Mode focus" data-i18n-title="common.panes.focus" aria-label="Mode focus" data-i18n-aria-label="common.panes.focus">⛶</button>
+            </div>
+          </header>
+          <div class="pane-body" id="mcp-seq-body">
+            <div class="mcp-seq-frame">
+              <div class="mcp-heads" id="mcp-heads"></div>
+              <div class="mcp-seq-stage" id="mcp-seq-stage">
+                <div class="mcp-lifelines" id="mcp-lifelines" aria-hidden="true"></div>
+                <p class="mcp-empty" id="mcp-seq-empty" data-text="handshake_empty_text"></p>
+                <div class="mcp-seq" id="mcp-seq"></div>
+              </div>
+            </div>
+            <button type="button" class="mcp-new-chip" id="mcp-new-messages" hidden></button>
+          </div>
+        </section>
 
-    <section class="mcp-section" id="sec-tools" aria-labelledby="sec-tools-title">
-      <h2 class="mcp-section-title" id="sec-tools-title"><span class="mcp-step" aria-hidden="true">3</span> <span data-text="tools_title_text">La documentation des outils</span></h2>
-      <p class="mcp-note" data-text="tools_help_text"></p>
-      <p class="mcp-note" id="mcp-tools-empty" data-text="tools_empty_text"></p>
-      <div class="mcp-tools-layout">
-        <div class="mcp-tools" id="mcp-tools"></div>
-        <div class="mcp-weights" id="mcp-weights" hidden>
-          <h3 class="mcp-subtitle" data-i18n="mcp.weight_title">Poids dans le contexte</h3>
-          <table class="mcp-weight-table" id="mcp-weight-table">
-            <thead>
-              <tr>
-                <th scope="col" data-i18n="mcp.weight_tool">Outil</th>
-                <th scope="col" data-i18n="mcp.weight_full">Documentation complète</th>
-                <th scope="col" data-i18n="mcp.weight_lazy">Lazy loading</th>
-              </tr>
-            </thead>
-            <tbody id="mcp-weight-rows"></tbody>
-          </table>
-          <p class="mcp-note" id="mcp-weight-source"></p>
-        </div>
+        <section class="pane" data-pane="model" aria-labelledby="mcp-t-model">
+          <header class="pane-header">
+            <span class="pane-step" aria-hidden="true">2</span>
+            <div class="pane-heading">
+              <h2 class="pane-title" id="mcp-t-model" data-i18n="mcp.panes.model">Ce que le modèle voit</h2>
+              <p class="pane-subtitle" data-i18n="mcp.subtitles.model">Ce qui entre dans son contexte, et son poids</p>
+            </div>
+            <div class="pane-actions">
+              <button type="button" data-action="focus" title="Mode focus" data-i18n-title="common.panes.focus" aria-label="Mode focus" data-i18n-aria-label="common.panes.focus">⛶</button>
+              <button type="button" data-action="hide" title="Masquer le volet" data-i18n-title="common.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="common.panes.hide_short">—</button>
+            </div>
+          </header>
+          <div class="pane-body" id="mcp-model-body"></div>
+        </section>
       </div>
-    </section>
 
-    <section class="mcp-section" id="sec-call" aria-labelledby="sec-call-title">
-      <h2 class="mcp-section-title" id="sec-call-title"><span class="mcp-step" aria-hidden="true">4</span> <span data-text="call_title_text">L'appel</span></h2>
-      <p class="mcp-note" data-text="call_help_text"></p>
-      <p class="mcp-note" id="mcp-call-empty" data-text="call_empty_text"></p>
-      <form class="mcp-call-form" id="mcp-call-form" aria-label="Appel d'un outil" data-i18n-aria-label="mcp.call_form" hidden>
-        <div class="mcp-call-pickers">
-          <label class="mcp-label"><span data-i18n="mcp.call_tool">Outil</span>
-            <select id="mcp-call-tool" autocomplete="off"></select>
-          </label>
-          <label class="mcp-label"><span data-i18n="mcp.call_preset">Préréglage</span>
-            <select id="mcp-call-preset" autocomplete="off"></select>
-          </label>
+      <section class="pane" data-pane="arch" aria-labelledby="mcp-t-arch">
+        <header class="pane-header">
+          <span class="pane-step" aria-hidden="true">3</span>
+          <div class="pane-heading">
+            <h2 class="pane-title" id="mcp-t-arch" data-i18n="mcp.panes.arch">Architecture</h2>
+            <p class="pane-subtitle" data-i18n="mcp.subtitles.arch">Où tourne chaque pièce, et par quel transport</p>
+          </div>
+          <div class="mcp-switch" id="mcp-arch-switch" role="radiogroup" aria-label="Vue de l'architecture" data-i18n-aria-label="mcp.arch.view">
+            <button type="button" role="radio" aria-checked="false" data-view="before" data-i18n="mcp.arch.before">Avant MCP</button>
+            <button type="button" role="radio" aria-checked="true" data-view="after" data-i18n="mcp.arch.after">Avec MCP</button>
+          </div>
+          <div class="pane-actions">
+            <button type="button" data-action="focus" title="Mode focus" data-i18n-title="common.panes.focus" aria-label="Mode focus" data-i18n-aria-label="common.panes.focus">⛶</button>
+            <button type="button" data-action="hide" title="Masquer le volet" data-i18n-title="common.panes.hide_short" aria-label="Masquer le volet" data-i18n-aria-label="common.panes.hide_short">—</button>
+          </div>
+        </header>
+        <div class="pane-body" id="mcp-arch-body">
+          <div class="mcp-arch" id="mcp-arch"></div>
+          <div class="mcp-arch mcp-arch-before" id="mcp-arch-before" hidden></div>
         </div>
-        <div class="mcp-call-fields" id="mcp-call-fields"></div>
-        <div class="mcp-actions">
-          <button type="submit" id="mcp-call-run" class="mcp-button-primary" data-i18n="mcp.call_run">Appeler</button>
-          <span class="mcp-status" id="mcp-call-status" role="status" aria-live="polite"></span>
-        </div>
-      </form>
-      <p class="mcp-summary" id="mcp-call-summary" role="status" hidden></p>
-      <div class="mcp-call-result" id="mcp-call-result"></div>
-    </section>
-
-    <section class="mcp-section" id="sec-context" aria-labelledby="sec-context-title">
-      <h2 class="mcp-section-title" id="sec-context-title"><span class="mcp-step" aria-hidden="true">5</span> <span data-text="context_title_text">Ce que le modèle voit</span></h2>
-      <p class="mcp-note" data-text="context_help_text"></p>
-      <p class="mcp-note" id="mcp-context-empty" data-text="context_empty_text"></p>
-      <div class="mcp-context" id="mcp-context"></div>
-    </section>
+      </section>
+    </div>
   </main>
+
+  <!-- AD-27 (Accessibilité): the page's summaries and its failures, each once. -->
+  <p class="mcp-sr-only" id="mcp-status" role="status"></p>
+  <p class="mcp-sr-only" id="mcp-alert" role="alert"></p>
 
   <script type="module" src="/static/mcp.js"></script>
 </body>

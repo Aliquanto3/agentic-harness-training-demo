@@ -964,3 +964,35 @@
   progress: 2026-10-04 (décision d'Anaël) — (1) fait : `cli._install_console_close` enregistre un gestionnaire `SetConsoleCtrlHandler` (Windows) qui, sur CTRL_CLOSE_EVENT, ferme la session dans les ≈ 5 s que Windows accorde, et laisse Ctrl+C et Ctrl+Break au gestionnaire de Python ; `tests/test_cli_launch.py::test_closing_the_console_window_closes_the_session`, `::test_the_console_handler_is_registered_with_windows`. Mesuré par le même script : fenêtre fermée, `gemma3:1b` déchargé aussitôt (`/api/ps` vide dès la fermeture) ; double Ctrl+C toujours bon (2,5 s, modèle déchargé). Restent (4), (5), (6).
   progress: 2026-10-04 (après la fusion de la PR #21) — (1) Windows Terminal : fenêtre WT dédiée (titre fixe) fermée par `WM_CLOSE` comme son ✕, `gemma3:1b` chargé : modèle déchargé en moins d'une seconde, WaveStack arrêté. (5) SM-5 fait : zip de `main` (`2b47012`, 21,7 Mo), décompression 1,1 s ; `uv run wavestack` avec un cache uv vide, Python 3.13 téléchargé par uv (`UV_PYTHON_PREFERENCE=only-managed`, dossier vide) et un dossier de données vide : première réponse à 36,5 s, diagnostic de premier lancement (20 fichiers GGUF testés) fini à 8 min 55 s (bloquant : `model`, attendu), 2B choisi par son chemin et chargé en 6 s : atelier prêt à 9 min 24 s (cible < 20 min) ; aucune erreur à la console. Écarts : poste déjà connu (réseau sans proxy, Ollama et ses 19 modèles présents), page non ouverte (pilotage par l'API). Restent (4) #36 et (6) le choix enregistré après un E119 raté.
   progress: 2026-10-04 (décision d'Anaël) — (6) corrigé : quand le retour d'E119 échoue, `AppSession._forget_choice` vide `selected_model` ; le lancement suivant demande un modèle au lieu de recharger celui qu'Ollama refuse. `tests/test_model_servers.py::test_a_way_back_that_fails_leaves_no_model_and_says_so` (assertions ajoutées, en échec sans le correctif). Reste (4) #36 : la forme réelle du refus, faute d'un compte Anthropic à solde nul ; le code reconnaît la forme documentée.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-lot-1-quick-wins-2026-10-04.md`
+  summary: Vérifier que la barre du bas tient sous 1280 px de large depuis que la dépense tient sur trois lignes et que l'empreinte n'est plus masquée faute de place (`fitFootprint` retiré au lot 1).
+  evidence: medium non vérifié. L'E2E `_session_footprint` mesure 1600, 1440 et 1280 px en normal et en projection, et tout passe. Sous 1280 px, aucune mesure. Pour trancher : `_bar_fits` à 1152 et 1024 px, en normal et en projection.
+- source_spec: `_bmad-output/implementation-artifacts/spec-lot-1-quick-wins-2026-10-04.md`
+  summary: Raccourcir le README sous 100 lignes : `tests/test_docs_links.py::test_readme_is_a_short_onboarding_page` est rouge.
+  evidence: Le README faisait déjà 120 lignes au commit de base 64c660d. Le lien vers « Modèles du RAG » ajouté au lot 1 le porte à 121 lignes.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-lot-4-atelier-mcp-en-sequence-2026-10-04.md`
+  summary: Rendre déterministes les deux chemins de fermeture d'une connexion de l'Atelier MCP perdue hors échange (`mcp_lab_closed{lost}` et `call_ended{lost}`) dans `test_a_server_gone_closes_the_workshops_connection`.
+  evidence: le test accepte l'une ou l'autre fin selon la course entre la tâche de connexion et l'appel suivant ; chaque chemin n'est couvert que par le hasard du minutage (non vérifié : il faudrait un point d'accroche dans la tâche de connexion pour forcer chaque branche).
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
+  summary: Passer au vocabulaire « chunk » / « prompt » les refus de l'Atelier RAG et les comptes `rag_lab.noun` de `content/messages.yaml` (fr, en, de), qui disent encore « extrait » et « contexte ».
+  evidence: `messages.yaml` est un fichier carrefour des lots 3 à 6 (ajouts seulement pendant le parallélisme) ; à faire après la fusion du lot 6.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
+  summary: Retirer les clés orphelines de la comparaison A/B (`rag.chain_a`, `rag.chain_b`, `rag.chain_b_steps`, `rag.comparison.*`) de `content/ui.yaml` et de ses copies en/de, avec la voie B du backend (5c-1).
+  evidence: Plus aucun appel depuis rag.js ; `rag.chain` reste utilisé par app.js. Gardées pendant le parallélisme (fichier carrefour).
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5a-2-execution-progressive-et-pas-a-pas.md`
+  summary: Vérifier en E2E que la raison d'indisponibilité de FAISS ou LanceDB devient visible une fois la ligne Vector store choisie (branche sans l'extra rag-alt).
+  evidence: low ; `_rag_lab_alt` lit `all_inner_texts()`, qui renvoie le texte même masqué. Pour trancher : `is_visible()` après `_focus_of(r, "vector_store")`.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5b-1-architectures-toutes-faites.md`
+  summary: Vérifier en E2E que le focus clavier revient sur le bouton du préréglage appliqué après le redessin de la rangée (Atelier RAG, mode Composer).
+  evidence: low ; `applyPreset` refocalise le bouton, aucun contrôle de `document.activeElement` dans les scénarios RAG.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/SPEC.md`
+  summary: Mettre à jour les lignes `rag-screen`, `rag-chain` et `rag-stage-card` d'EXPERIENCE.md (et DESIGN.md si besoin) d'après `vues-atelier-rag.md` : trois vues, modes Composer / Dérouler, architectures toutes faites, sans comparaison A/B.
+  evidence: Documents UX partagés interdits pendant le parallélisme des lots 3 à 6 ; la décision UX du lot 5 vit dans sa spec.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/SPEC.md`
+  summary: E2E `annex_language` et `backend_language` : en anglais et en allemand, `/diagnostic` affiche encore en français l'erreur de téléchargement (`models.download.http_error`, « le serveur a répondu 503… ») et les messages `models.openai_chat.with_provider_message` laissés par les scénarios précédents.
+  evidence: Reproduit au commit de base 370bb36 (`--only rag rag_rerank rag_lab annex_language backend_language`), donc antérieur au lot 5 ; relève du lot 3 (Diagnostic) ou des messages du backend.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/SPEC.md`
+  summary: E2E `mcp_full`, « mode cloud : les descriptions d'outils, MCP compris, en arbres JSON » échoue (arbres vides).
+  evidence: Reproduit au commit de base 370bb36 (`--only mcp_full`), antérieur au lot 5 ; relève du Contexte LLM (app.js) ou du lot 4.

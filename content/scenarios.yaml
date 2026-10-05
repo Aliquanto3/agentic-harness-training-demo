@@ -94,7 +94,7 @@ scenarios:
       renvoyez le second prompt pour voir l'oubli.
     bricks: [short_memory]
     prompts:
-      - Je m'appelle Camille et je suis consultante en cybersécurité.
+      - Je m'appelle Pascal et je suis consultant en cybersécurité.
       - Comment je m'appelle, et quel est mon métier ?
 
   system_prompt:

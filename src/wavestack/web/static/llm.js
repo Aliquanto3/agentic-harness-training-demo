@@ -171,11 +171,9 @@ function renderContent() {
     const value = text(node.dataset.text);
     if (value) node.textContent = value;
   }
+  // Lot 1 of 2026-10-04 (D2): the h1 only; <title> keeps the full title (`llm.page_title`).
   const title = text("title_text");
-  if (title) {
-    $("llm-title").textContent = title;
-    document.title = `WaveStack — ${title}`;
-  }
+  if (title) $("llm-title").textContent = title;
   $("llm-intro").textContent = text("intro_text");
   const change = text("change_model_text");
   if (change) $("llm-change-model").textContent = change;

@@ -67,7 +67,7 @@ scenarios:
       sehen.
     bricks: [short_memory]
     prompts:
-      - Ich heiße Camille und bin Beraterin für Cybersicherheit.
+      - Ich heiße Pascal und bin Berater für Cybersicherheit.
       - Wie heiße ich, und was ist mein Beruf?
 
   system_prompt:

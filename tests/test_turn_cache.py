@@ -261,6 +261,7 @@ def test_a_system_prompt_changed_between_turns_is_named():
     assert reread["message_text"].startswith("Le message système a changé")
     cached = len(engine.calls[0]) + len("Bonjour.")
     again = len(engine.calls[1]) - reread["common_tokens"]
+    assert reread["again_tokens"] == again  # lot 1 of 2026-10-04: Orchestration's figure
     assert f"sur {cached} en cache" in reread["message_text"].replace(" ", "")
     assert f"relit {again} tokens" in reread["message_text"].replace(" ", "")
     assert reread["message_text"].count("modèle hybride") == 1  # the cost on Qwen3.5: everything

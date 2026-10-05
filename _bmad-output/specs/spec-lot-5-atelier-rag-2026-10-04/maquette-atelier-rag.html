@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Maquette v2 — Atelier RAG : séquence, architecture, focus (lot 5)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Maquette statique du lot 5, v2 (retours d'Anaël du 2026-10-05) : les vrais tokens et styles
+       du dépôt, des données fictives. S'ouvre directement dans Edge ou Chrome (file://).
+       Les règles « rag-seq-* », « rag-arch-* », « rag-focus-* » sont celles proposées pour rag.css. -->
+  <link rel="stylesheet" href="../../../src/wavestack/web/static/fonts.css" />
+  <link rel="stylesheet" href="../../../src/wavestack/web/static/tokens.css" />
+  <link rel="stylesheet" href="../../../src/wavestack/web/static/pages.css" />
+  <link rel="stylesheet" href="../../../src/wavestack/web/static/rag.css" />
+  <style>
+    /* ---------- maquette seulement ---------- */
+    .mock-bar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-2);
+      padding: var(--spacing-2) var(--spacing-3); margin-bottom: var(--spacing-3);
+      background: var(--color-primary-soft); border: 1px dashed var(--color-primary);
+      border-radius: var(--rounded-md); color: var(--color-ink);
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1.4 var(--typography-label-font-family);
+    }
+    .mock-bar button {
+      min-height: 32px; padding: 0 var(--spacing-3); border-radius: var(--rounded-full);
+      border: 1px solid var(--color-primary); background: var(--color-surface-raised);
+      color: var(--color-primary); font: inherit; cursor: pointer;
+    }
+    .mock-bar .mock-sep { flex: 1; }
+    .mock-bar p { margin: 0; }
+
+    /* ---------- proposé pour rag.css ---------- */
+    .rag-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-3); margin: var(--spacing-3) 0; }
+    .rag-toolbar .rag-question { flex: 1 1 28rem; width: auto; }
+    .rag-modes { display: inline-flex; border: 1px solid var(--color-primary); border-radius: var(--rounded-full); overflow: hidden; }
+    .rag-modes button {
+      min-height: var(--spacing-hit-target-min); padding: 0 var(--spacing-4); border: 0;
+      background: var(--color-surface-raised); color: var(--color-primary);
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1 var(--typography-label-font-family); cursor: pointer;
+    }
+    .rag-modes button[aria-pressed="true"] { background: var(--color-primary); color: var(--color-on-primary); }
+    .rag-stepper-caption { color: var(--color-ink-soft); }
+    .rag-presets { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-2); }
+    .rag-presets[hidden], .rag-stepper-box[hidden] { display: none; }
+    .rag-presets-label, .rag-view-label {
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) / var(--typography-label-line-height) var(--typography-label-font-family);
+      color: var(--color-ink-soft); text-transform: uppercase;
+    }
+    .rag-preset {
+      min-height: var(--spacing-hit-target-min); padding: 0 var(--spacing-3);
+      border-radius: var(--rounded-full); border: 1px solid var(--color-primary);
+      background: var(--color-surface-raised); color: var(--color-primary);
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1 var(--typography-label-font-family); cursor: pointer;
+    }
+    .rag-preset[aria-pressed="true"] { background: var(--color-primary-soft); color: var(--color-primary-deep); border-width: 2px; }
+    .rag-preset[aria-pressed="true"]::before { content: "● "; }
+    .rag-stepper-box { display: flex; align-items: center; gap: var(--spacing-3); }
+
+    /* les trois vues : séquence | architecture | focus */
+    .rag-views {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(21rem, 1fr) 5rem minmax(15rem, 0.62fr) var(--spacing-5) minmax(24rem, 1.15fr);
+      align-items: start;
+      margin-top: var(--spacing-4);
+    }
+    .rag-seq { grid-column: 1; }
+    .rag-arch { grid-column: 3; }
+    .rag-focus { grid-column: 5; }
+    @media (max-width: 1300px) {
+      .rag-views { grid-template-columns: minmax(18rem, 1fr) 4rem minmax(14rem, 0.8fr); }
+      .rag-focus { grid-column: 1 / -1; margin-top: var(--spacing-5); }
+    }
+    .rag-view-label { display: block; margin: 0 0 var(--spacing-2); }
+
+    /* séquence : BUILD puis RUN, bien visibles */
+    .rag-phase {
+      display: flex; align-items: baseline; gap: var(--spacing-2); flex-wrap: wrap;
+      margin: 0 0 6px; padding: 6px var(--spacing-3);
+      border-radius: var(--rounded-sm);
+      font: var(--typography-heading-font-weight) var(--typography-heading-font-size) / 1.2 var(--typography-heading-font-family);
+    }
+    .rag-phase small { font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) / 1.3 var(--typography-body-sm-font-family); }
+    .rag-phase-tag { padding: 1px var(--spacing-2); border-radius: var(--rounded-full); font: 700 var(--typography-label-font-size) / 1.4 var(--typography-label-font-family); letter-spacing: 0.06em; }
+    .rag-phase.is-build { background: var(--color-primary); color: var(--color-on-primary); }
+    .rag-phase.is-build .rag-phase-tag { background: var(--color-on-primary); color: var(--color-primary); }
+    .rag-phase.is-run { background: var(--color-discipline-context); color: var(--color-on-discipline); margin-top: var(--spacing-3); }
+    .rag-phase.is-run .rag-phase-tag { background: var(--color-on-discipline); color: var(--color-discipline-context); }
+    .rag-seq ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    .rag-seq-step {
+      position: relative; padding: 6px var(--spacing-3);
+      background: var(--color-surface-raised); border: 1px solid var(--color-line);
+      border-left: 4px solid var(--color-primary); border-radius: var(--rounded-sm);
+    }
+    .rag-seq-step.is-run { border-left-color: var(--color-discipline-context); }
+    .rag-seq-step.is-model { border-left-color: var(--color-ink-fill); }
+    .rag-seq-step.is-hidden, .rag-arch-tile.is-hidden, .rag-arch-group.is-hidden, .rag-phase.is-hidden { visibility: hidden; }
+    .rag-seq-head {
+      display: flex; align-items: center; gap: var(--spacing-2); width: 100%;
+      padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+    }
+    .rag-seq-head:focus-visible { outline: var(--spacing-stroke-min) solid var(--color-primary); outline-offset: 2px; }
+    .rag-seq-name { font-weight: 700; }
+    .rag-tag {
+      padding: 0 var(--spacing-2); border: 1px solid var(--color-line); border-radius: var(--rounded-full);
+      color: var(--color-ink-soft); font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1.5 var(--typography-label-font-family);
+      white-space: nowrap;
+    }
+    .rag-seq-status {
+      margin-left: auto; padding: 0 var(--spacing-2); border: 1px solid var(--color-ink-soft); border-radius: var(--rounded-full);
+      font: var(--typography-number-font-weight) var(--typography-label-font-size) / 1.5 var(--typography-number-font-family); white-space: nowrap;
+    }
+    .rag-seq-status[hidden] { display: none; }
+    [data-run="ok"] .rag-seq-status::before { content: "✓ "; color: var(--color-discipline-context); font-weight: 700; }
+    [data-run="running"] .rag-seq-status { border-color: var(--color-state-active); }
+    .rag-seq-line { margin: var(--spacing-1) 0 0 calc(1.7em + var(--spacing-2)); color: var(--color-ink-soft);
+      font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) / var(--typography-body-sm-line-height) var(--typography-body-sm-font-family); }
+    .rag-seq-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-2); margin: var(--spacing-2) 0 0 calc(1.7em + var(--spacing-2)); }
+    .rag-seq-controls[hidden] { display: none; }
+    .rag-seq-controls .rag-option { max-width: 16rem; margin: 0; }
+    .rag-seq-controls .rag-param { display: inline-flex; align-items: center; gap: var(--spacing-1); margin: 0; }
+    .rag-views .is-active { box-shadow: 0 0 0 4px var(--color-state-active); }
+    .rag-seq-step.is-selected { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+    /* architecture : les composants, regroupés comme sur la diapo d'Anaël (RAG_0 à RAG_6) */
+    .rag-arch-group {
+      margin: 0 0 var(--spacing-2); padding: 6px var(--spacing-2) var(--spacing-2);
+      background: var(--color-primary-soft); border: 1px solid var(--color-primary); border-radius: var(--rounded-md);
+    }
+    .rag-arch-group h4 { margin: 0 0 6px; text-align: center; color: var(--color-primary-deep);
+      font: var(--typography-heading-font-weight) var(--typography-body-font-size) / 1.2 var(--typography-heading-font-family); text-transform: uppercase; letter-spacing: 0.04em; }
+    .rag-arch-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    .rag-arch-tile {
+      display: grid; grid-template-columns: auto 1fr; column-gap: var(--spacing-2); align-items: center;
+      padding: 4px var(--spacing-2); background: var(--color-surface-raised); border: 1px solid var(--color-line);
+      border-radius: var(--rounded-sm); color: var(--color-ink); line-height: 1.25;
+    }
+    .rag-arch-tile[data-off] { display: none; }
+    .rag-arch-icon { grid-row: 1 / span 2; font-size: 1.3em; }
+    .rag-arch-name { font-weight: 700; }
+    .rag-arch-sub { color: var(--color-ink-soft); font: var(--typography-body-sm-font-weight) calc(var(--typography-body-sm-font-size) * 0.92) / 1.25 var(--typography-body-sm-font-family); overflow-wrap: anywhere; }
+    .rag-arch-tile.is-new { animation: rag-appear 0.35s ease-out; }
+    @keyframes rag-appear { from { transform: translateX(-10px) scale(0.96); } }
+    @media (prefers-reduced-motion: reduce) { .rag-arch-tile.is-new { animation: none; } }
+
+    /* focus sur l'étape */
+    .rag-focus {
+      padding: var(--spacing-4); background: var(--color-surface-raised);
+      border: 1px solid var(--color-line); border-top: 6px solid var(--color-primary); border-radius: var(--rounded-md);
+      
+    }
+    .rag-focus.is-run { border-top-color: var(--color-discipline-context); }
+    .rag-focus-phase { margin: 0; color: var(--color-ink-soft); font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1.4 var(--typography-label-font-family); text-transform: uppercase; }
+    .rag-focus h3 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-2); margin: var(--spacing-1) 0 var(--spacing-3);
+      font: var(--typography-heading-font-weight) calc(var(--typography-heading-font-size) * 1.25) / 1.2 var(--typography-heading-font-family); }
+    .rag-focus-explain { margin: 0 0 var(--spacing-3); font-size: calc(var(--typography-body-font-size) * 1.05); }
+    .rag-focus-uses { display: flex; flex-wrap: wrap; gap: var(--spacing-2); margin: 0 0 var(--spacing-3); }
+    .rag-focus-io { display: grid; grid-template-columns: auto 1fr; gap: var(--spacing-1) var(--spacing-3); margin: 0 0 var(--spacing-3); }
+    .rag-focus-io dt { font-weight: 700; }
+    .rag-focus-io dd { margin: 0; }
+    .rag-focus-facts { display: flex; flex-wrap: wrap; gap: var(--spacing-2); margin: 0 0 var(--spacing-3); padding: 0; list-style: none; }
+    .rag-focus-facts li { padding: var(--spacing-1) var(--spacing-2); background: var(--color-discipline-neutral-soft); border-radius: var(--rounded-sm);
+      font: var(--typography-number-font-weight) var(--typography-label-font-size) / 1.4 var(--typography-number-font-family); }
+    .rag-focus-note { margin: 0 0 var(--spacing-3); padding: var(--spacing-2) var(--spacing-3); background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--rounded-sm); }
+    .rag-focus pre { margin: 0; padding: var(--spacing-3); white-space: pre-wrap; background: var(--color-surface); border: 1px solid var(--color-line); border-radius: var(--rounded-sm);
+      font: 400 var(--typography-body-sm-font-size) / 1.45 var(--typography-number-font-family); color: var(--color-ink); }
+    .rag-vector { display: flex; flex-wrap: wrap; gap: var(--spacing-1); margin: 0 0 var(--spacing-3); }
+    .rag-vector span { padding: 2px var(--spacing-2); border-radius: var(--rounded-sm); background: var(--color-accent-soft); color: var(--color-ink);
+      font: var(--typography-number-font-weight) var(--typography-label-font-size) / 1.4 var(--typography-number-font-family); }
+    .rag-focus .rag-items td, .rag-focus .rag-items th { padding: var(--spacing-1) var(--spacing-2); }
+    .rag-arrow-lit { fill: var(--color-ink); }
+    details.rag-all { margin-top: var(--spacing-4); }
+    details.rag-all summary { cursor: pointer; color: var(--color-primary); font-weight: 700; }
+  </style>
+</head>
+<body class="rag-page">
+  <main class="rag-main">
+    <div class="mock-bar">
+      <strong>Maquette v2</strong>
+      <p>« Composer » : la chaîne entière, réglable. « Dérouler » : les étapes et les composants arrivent un à un ; ◀ ▶ pour avancer, ou « Lancer la chaîne » pour une exécution simulée en direct. Cliquez sur une étape pour la voir en focus.</p>
+      <span class="mock-sep"></span>
+      <button type="button" id="mock-theme">◐ Thème : clair</button>
+    </div>
+
+    <header class="rag-header">
+      <h1>Atelier RAG : l'architecture RAG à manipuler</h1>
+      <p class="rag-intro">Un RAG en deux temps : l'indexation (build) range une fois pour toutes les extraits du corpus dans une base vectorielle ; la requête (run), à chaque question, y cherche les extraits utiles et les place dans le contexte du modèle. C'est un bac à sable : la brique RAG de l'atelier ne change pas.</p>
+    </header>
+
+    <section class="rag-section" aria-labelledby="sec-chain-title">
+      <h2 class="rag-section-title" id="sec-chain-title"><span class="rag-step" aria-hidden="true">1</span> <span>La chaîne RAG, étape par étape</span></h2>
+      <div class="rag-toolbar">
+        <label class="rag-visually-hidden" for="mock-question">Question</label>
+        <input type="text" id="mock-question" class="rag-question" value="Combien de jours de télétravail par semaine ?" />
+        <button type="button" class="rag-button-primary" id="mock-run">Lancer la chaîne</button>
+        <button type="button" class="rag-button-secondary" id="mock-stop" disabled>Arrêter</button>
+      </div>
+      <div class="rag-toolbar">
+        <div class="rag-modes" role="group" aria-label="Vue">
+          <button type="button" data-mode="compose" aria-pressed="false">✎ Composer</button>
+          <button type="button" data-mode="play" aria-pressed="true">▶ Dérouler</button>
+        </div>
+        <div class="rag-presets" id="mock-presets"></div>
+        <div class="rag-stepper-box" id="mock-stepper-box">
+          <div class="diagram-stepper" role="group" aria-label="Étapes du schéma" id="mock-stepper">
+            <button type="button" class="diagram-step-prev" aria-label="Étape précédente" title="Étape précédente">◀</button>
+            <span class="diagram-step-position"></span>
+            <button type="button" class="diagram-step-next" aria-label="Étape suivante" title="Étape suivante">▶</button>
+            <button type="button" class="diagram-step-live">● Suivre le direct</button>
+          </div>
+          <span class="rag-stepper-caption" id="mock-caption"></span>
+        </div>
+      </div>
+
+      <div class="rag-views" id="mock-views">
+        <div class="rag-seq" id="mock-seq">
+          <span class="rag-view-label">Séquence</span>
+        </div>
+        <div class="rag-arch" id="mock-arch">
+          <span class="rag-view-label">Architecture</span>
+        </div>
+        <article class="rag-focus" id="mock-focus" aria-live="polite"></article>
+      </div>
+
+      <details class="rag-all">
+        <summary>Toutes les étapes en détail (tableaux complets, durées, mémoire)</summary>
+        <p class="rag-note">La section « Ce que fait chaque étape » d'aujourd'hui, repliée : le focus suffit pour suivre, le détail reste consultable.</p>
+      </details>
+    </section>
+  </main>
+
+<script>
+// ---------------------------------------------------------------- textes
+const COMPONENTS = {
+  documents: ["data", "📄", "Documents", "12 fichiers Markdown d'Exemplia"],
+  chunks: ["data", "🧩", "Extraits (chunks)", "29 extraits de 700 caractères au plus"],
+  vstore: ["data", "🗄️", "Base vectorielle (vector store)", "sqlite-vec · 29 vecteurs"],
+  embedder: ["models", "🔢", "Modèle de vectorisation (embedding)", "Granite Embedding 107M (Q8_0)"],
+  reranker: ["models", "⚖️", "Modèle de reclassement (reranker)", "BGE Reranker v2 M3 (Q4_K_M)"],
+  llm: ["models", "🧠", "LLM", "Modèle actif de l'atelier"],
+  question: ["exchange", "💬", "Question", "« Combien de jours de télétravail par semaine ? »"],
+  prompt: ["exchange", "📝", "Prompt augmenté", "Les extraits retenus + la question"],
+  answer: ["exchange", "💡", "Réponse", "Non générée dans l'atelier RAG (lot 5c)"],
+};
+const GROUPS = [["data", "Données"], ["models", "Modèles"], ["exchange", "Échange avec l'utilisateur"]];
+
+// Une étape : phase, libellé (une action), terme technique, composants sollicités
+// (in : lu par l'étape, out : écrit, use : modèle appelé), l'étape de la chaîne qui la porte.
+const STEPS = {
+  documents: { phase: "build", label: "Charger les documents", tag: "corpus", uses: [["documents", "in"]] },
+  chunking: { phase: "build", label: "Découper en extraits", tag: "chunking", uses: [["documents", "in"], ["chunks", "out"]], stage: "chunking" },
+  embed_passages: { phase: "build", label: "Vectoriser les extraits", tag: "embedding", uses: [["chunks", "in"], ["embedder", "use"]], stage: "embedding" },
+  vector_store: { phase: "build", label: "Ranger dans la base vectorielle", tag: "indexation", uses: [["embedder", "in"], ["vstore", "out"]], stage: "vector_store" },
+  question: { phase: "run", label: "Recevoir la question", tag: "requête", uses: [["question", "in"]] },
+  embed_query: { phase: "run", label: "Vectoriser la question", tag: "embedding", uses: [["question", "in"], ["embedder", "use"]] },
+  vector_search: { phase: "run", label: "Chercher les extraits proches", tag: "dense", uses: [["vstore", "in"]], stage: "vector_search", movable: true },
+  lexical_search: { phase: "run", label: "Chercher par mots-clés", tag: "BM25", uses: [["chunks", "in"], ["question", "in"]], stage: "lexical_search", movable: true },
+  fusion: { phase: "run", label: "Fusionner les classements", tag: "RRF", uses: [], stage: "fusion", movable: true },
+  rerank: { phase: "run", label: "Reclasser les candidats", tag: "reranking", uses: [["question", "in"], ["reranker", "use"]], stage: "rerank", movable: true },
+  context: { phase: "run", label: "Construire le contexte", tag: "prompt augmenté", uses: [["chunks", "in"], ["question", "in"], ["prompt", "out"]], stage: "context" },
+  generation: { phase: "run", label: "Générer la réponse", tag: "LLM", uses: [["prompt", "in"], ["llm", "use"], ["answer", "out"]], stage: "generation" },
+};
+const OPTIONS = {
+  chunking: [["Par paragraphes"], [["Taille maximale", 700, "caractères"]]],
+  embedding: [["Granite Embedding 107M (Q8_0)", "fastembed (ONNX, hors ligne)"], []],
+  vector_store: [["sqlite-vec", "Recherche exhaustive en mémoire", "FAISS (indisponible)", "LanceDB (indisponible)"], []],
+  vector_search: [["Similarité cosinus"], [["Candidats", 8, "extraits"]]],
+  lexical_search: [["BM25 (k1 = 1,5, b = 0,75)"], [["Candidats", 8, "extraits"]]],
+  fusion: [["Rangs réciproques (k = 60)"], []],
+  rerank: [["BGE Reranker v2 M3 (Q4_K_M)"], []],
+  context: [["Extraits numérotés"], [["Extraits gardés", 3, "extraits"]]],
+  generation: [["Modèle actif de l'atelier"], []],
+};
+const PRESETS = {
+  dense: ["RAG simple", ["vector_search"], "Une seule recherche par le sens (vectorielle) : le RAG le plus simple. Rapide, mais il peut manquer un sigle ou un nombre exact."],
+  hybrid: ["RAG hybride", ["vector_search", "lexical_search", "fusion"], "Une recherche par le sens et une par mots-clés (BM25), puis la fusion de leurs classements : le sigle exact et la paraphrase se retrouvent tous deux."],
+  rerank: ["RAG avec reclassement", ["vector_search", "rerank"], "La recherche vectorielle retient des candidats, puis un modèle de reclassement les relit avec la question et les réordonne : plus juste, plus lent. C'est la chaîne livrée."],
+};
+
+const ROWS = (cols, rows) => ({ cols, rows });
+const FOCUS = {
+  documents: {
+    explain: "Le corpus que le RAG rend consultable : les documents d'une entreprise fictive, Exemplia. Il ne change pas d'une question à l'autre ; c'est pourquoi tout le travail sur lui se fait une fois, avant les questions : c'est l'indexation.",
+    io: [["Entrée", "le dossier du corpus"], ["Sortie", "12 documents (RH, informatique, sécurité)"]],
+    facts: ["12 documents", "38 Ko de texte", "en français"],
+  },
+  chunking: {
+    explain: "Les documents sont coupés en extraits (chunks) : les paragraphes sont regroupés tant qu'ils tiennent dans la taille maximale, un paragraphe trop long est coupé en fin de phrase. Un extrait trop petit perd son contexte ; trop grand, il noie l'information.",
+    io: [["Entrée", "12 documents"], ["Sortie", "29 extraits"]],
+    facts: ["taille max. 700 caractères", "moyenne 512", "le plus long 698"],
+    table: ROWS(["#", "Document", "Début de l'extrait"], [["1", "Politique de télétravail", "Le télétravail est ouvert à tous les salariés après la période d'essai…"], ["2", "Politique de télétravail", "Il est possible deux jours par semaine, à fixer avec son responsable…"], ["3", "Charte informatique", "Le poste de travail est fourni par la DSI ; toute installation…"]]),
+  },
+  embed_passages: {
+    explain: "Le modèle de vectorisation (embedding) transforme chaque extrait en un vecteur de 384 nombres. Deux textes au sens proche donnent des vecteurs proches, même sans mot commun. Ce calcul est fait une fois : ici, les vecteurs sont ceux de l'index de la brique RAG, relus sans être recalculés.",
+    io: [["Entrée", "29 extraits"], ["Sortie", "29 vecteurs de 384 nombres"]],
+    facts: ["Granite Embedding 107M", "384 dimensions", "déjà calculés (index de la brique)"],
+    vector: ["0,021", "−0,113", "0,054", "0,008", "−0,072", "…", "(384 nombres)"],
+  },
+  vector_store: {
+    explain: "Les vecteurs des extraits sont rangés dans une base vectorielle, calculée une fois pour toutes. Elle sait retrouver vite les vecteurs les plus proches d'un autre. À chaque question, on n'aura plus qu'à vectoriser la question.",
+    io: [["Entrée", "29 vecteurs"], ["Sortie", "un index sqlite-vec"]],
+    facts: ["sqlite-vec", "métrique cosinus", "46 Ko sur disque"],
+  },
+  question: {
+    explain: "La question posée en langage naturel. Elle part vers la vectorisation pour une recherche par le sens, telle quelle vers une recherche par mots-clés si la chaîne en a une, et rejoint enfin le prompt du modèle.",
+    io: [["Question", "« Combien de jours de télétravail par semaine ? »"]],
+    facts: ["44 caractères", "8 mots"],
+  },
+  embed_query: {
+    explain: "Le même modèle de vectorisation transforme la question en vecteur. Il doit être le même que pour les extraits : deux modèles différents ne rangent pas les sens dans le même espace, leurs vecteurs ne se comparent pas.",
+    io: [["Entrée", "la question"], ["Sortie", "un vecteur de 384 nombres"]],
+    facts: ["même modèle que les extraits", "4 ms"],
+    vector: ["0,018", "−0,097", "0,061", "0,012", "−0,055", "…", "(384 nombres)"],
+  },
+  vector_search: {
+    explain: "La base vectorielle rend les extraits dont le vecteur est le plus proche de celui de la question (similarité cosinus, de −1 à 1), sans seuil : les 8 plus proches, pertinents ou non.",
+    io: [["Entrée", "le vecteur de la question"], ["Sortie", "8 candidats classés"]],
+    facts: ["8 demandés", "meilleur 0,812", "moins bon 0,604", "9 ms"],
+    table: ROWS(["Rang", "Document", "Score"], [["1", "Charte informatique · VPN", "0,812"], ["2", "Politique de télétravail · jours", "0,798"], ["3", "Politique de télétravail · matériel", "0,761"], ["4", "Politique de télétravail · éligibilité", "0,742"], ["5", "Congés et absences", "0,688"]]),
+  },
+  lexical_search: {
+    explain: "Une recherche par mots-clés, sans vecteur : les extraits qui partagent des mots avec la question passent devant, un mot rare pesant plus qu'un mot courant (BM25). Elle retrouve un sigle, un code ou un nombre exact (« RH », « 35 ») qu'une recherche par le sens peut manquer.",
+    io: [["Entrée", "la question, mot à mot"], ["Sortie", "8 candidats classés"]],
+    facts: ["mots gardés : télétravail, jours, semaine", "6 ms"],
+    table: ROWS(["Rang", "Document", "Score BM25"], [["1", "Politique de télétravail · jours", "7,41"], ["2", "Politique de télétravail · éligibilité", "5,02"], ["3", "Congés et absences", "2,87"]]),
+  },
+  fusion: {
+    explain: "Deux recherches donnent deux classements ; la fusion des rangs réciproques (RRF) les combine : chaque extrait gagne 1 / (60 + son rang) dans chaque liste. Un extrait bien classé par les deux passe devant : c'est la recherche hybride.",
+    io: [["Entrée", "2 classements de 8"], ["Sortie", "11 candidats, dont 5 trouvés par les deux"]],
+    facts: ["k = 60", "1 ms"],
+    table: ROWS(["Rang", "Document", "Vectorielle", "Mots-clés", "Score"], [["1", "Politique de télétravail · jours", "2ᵉ", "1ᵉʳ", "0,0325"], ["2", "Politique de télétravail · éligibilité", "4ᵉ", "2ᵉ", "0,0318"], ["3", "Charte informatique · VPN", "1ᵉʳ", "—", "0,0164"]]),
+  },
+  rerank: {
+    explain: "Un modèle de reclassement (reranker) relit la question et chaque candidat ensemble, et note leur pertinence. La recherche vectorielle comparait deux vecteurs calculés séparément ; le reclasseur lit les deux textes côte à côte : il juge mieux, mais il est bien plus lent. C'est pourquoi il ne voit que les candidats retenus.",
+    io: [["Entrée", "la question et 8 candidats"], ["Sortie", "les 8 candidats réordonnés"]],
+    facts: ["BGE Reranker v2 M3", "8 paires question / extrait", "2 140 ms (la recherche : 9 ms)"],
+    table: ROWS(["Rang", "Avant", "Document", "Score"], [["1", "2 ↑", "Politique de télétravail · jours", "0,931"], ["2", "4 ↑", "Politique de télétravail · éligibilité", "0,874"], ["3", "1 ↓", "Charte informatique · VPN", "0,402"], ["4", "3 ↓", "Politique de télétravail · matériel", "0,377"]]),
+  },
+  context: {
+    explain: "Seuls les premiers extraits entrent dans le prompt, numérotés, avec le titre de leur document, avant la question : c'est le prompt augmenté. Chaque extrait coûte des tokens dans la fenêtre du modèle.",
+    io: [["Entrée", "8 candidats classés"], ["Sortie", "un prompt de 1 412 caractères"]],
+    facts: ["3 extraits gardés sur 8", "≈ 380 tokens"],
+    pre: "Réponds à partir des extraits suivants.\n\nExtrait 1 — Politique de télétravail\nLe télétravail est possible deux jours par semaine…\n\nExtrait 2 — Politique de télétravail\nIl est ouvert à tous les salariés après la période d'essai…\n\nExtrait 3 — Charte informatique\nLe VPN est obligatoire hors des locaux…\n\nQuestion : Combien de jours de télétravail par semaine ?",
+  },
+  generation: {
+    explain: "Le LLM lit le prompt augmenté et répond en s'appuyant sur les extraits. Une bonne réponse dépend de ce que les étapes précédentes lui ont apporté.",
+    note: "Non exécutée dans l'atelier RAG pour l'instant (lot 5c) : voici ce que le LLM recevrait.",
+    io: [["Entrée", "le prompt augmenté (≈ 380 tokens)"], ["Sortie", "la réponse"]],
+    facts: ["modèle actif de l'atelier"],
+  },
+};
+const DURATIONS = { chunking: "4 ms", embed_passages: "182 ms", vector_store: "12 ms", question: "", embed_query: "4 ms", vector_search: "9 ms", lexical_search: "6 ms", fusion: "1 ms", rerank: "2 140 ms", context: "1 ms" };
+const LINES = {
+  documents: "12 documents", chunking: "29 extraits", embed_passages: "29 vecteurs (déjà faits)", vector_store: "index prêt",
+  question: "reçue", embed_query: "1 vecteur", vector_search: "8 candidats", lexical_search: "8 candidats",
+  fusion: "11 candidats", rerank: "8 réordonnés", context: "3 extraits gardés", generation: "ce que le LLM recevrait",
+};
+
+// ---------------------------------------------------------------- état
+const st = { mode: "play", preset: "rerank", index: 0, live: false, selected: null, progress: null, timer: null, ran: false };
+
+function steps() {
+  const seg = PRESETS[st.preset][1];
+  return ["documents", "chunking", "embed_passages", "vector_store", "question", "embed_query", ...seg, "context", "generation"];
+}
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+// ---------------------------------------------------------------- rendu
+function render() {
+  const list = steps();
+  const shown = st.mode === "compose" ? list.length - 1 : st.index;
+  const current = st.mode === "compose" ? st.selected ?? null : list[st.index];
+  for (const b of document.querySelectorAll("[data-mode]")) b.setAttribute("aria-pressed", String(b.dataset.mode === st.mode));
+  renderPresets();
+  document.getElementById("mock-presets").hidden = st.mode !== "compose";
+  document.getElementById("mock-stepper-box").hidden = st.mode !== "play";
+  renderSeq(list, shown, current);
+  renderArch(list, shown, current);
+  renderFocus(current, list);
+  renderStepper(list);
+  requestAnimationFrame(() => drawArrows(current));
+}
+
+function renderPresets() {
+  const box = document.getElementById("mock-presets");
+  box.replaceChildren(el("span", "rag-presets-label", "Architectures toutes faites"));
+  for (const [id, [label, , help]] of Object.entries(PRESETS)) {
+    const b = el("button", "rag-preset", label);
+    b.type = "button";
+    b.title = help;
+    b.setAttribute("aria-pressed", String(id === st.preset));
+    b.addEventListener("click", () => { st.preset = id; st.selected = null; render(); });
+    box.append(b);
+  }
+}
+
+function status(key, j, list) {
+  if (st.mode === "compose" || !st.ran) return null;
+  const done = () => (key === "generation" ? ["not_run", "non exécutée"] : ["ok", DURATIONS[key] ? `${LINES[key]} · ${DURATIONS[key]}` : LINES[key]]);
+  if (j < st.index) return done();
+  if (j === st.index) return st.live ? ["running", `en cours${st.progress && key === "rerank" ? ` · ${st.progress}` : ""}`] : done();
+  return null;
+}
+
+function renderSeq(list, shown, current) {
+  const box = document.getElementById("mock-seq");
+  box.querySelectorAll(":scope > :not(.rag-view-label)").forEach((n) => n.remove());
+  const phases = { build: el("ol"), run: el("ol") };
+  const header = (phase) => {
+    const h = el("p", `rag-phase is-${phase}`);
+    h.innerHTML = phase === "build"
+      ? `<span class="rag-phase-tag">BUILD</span> ① Indexation <small>une fois pour toutes, avant les questions</small>`
+      : `<span class="rag-phase-tag">RUN</span> ② Requête <small>à chaque question</small>`;
+    return h;
+  };
+  const hb = header("build"), hr = header("run");
+  let n = 0;
+  list.forEach((key, j) => {
+    const def = STEPS[key];
+    n += 1;
+    const li = el("li", `rag-seq-step is-${def.phase}`);
+    li.dataset.key = key;
+    if (key === "generation") li.classList.add("is-model");
+    if (j > shown) li.classList.add("is-hidden");
+    if (key === current) li.classList.add(st.mode === "play" ? "is-active" : "is-selected");
+    const head = el("button", "rag-seq-head");
+    head.type = "button";
+    head.append(el("span", "rag-chain-number", String(n)), el("span", "rag-seq-name", def.label), el("span", "rag-tag", def.tag));
+    const s = status(key, j, list);
+    const pill = el("span", "rag-seq-status", s ? s[1] : "");
+    pill.hidden = !s;
+    if (s) li.dataset.run = s[0];
+    head.append(pill);
+    head.addEventListener("click", () => {
+      if (st.mode === "compose") { st.selected = key; }
+      else { st.live = false; stopTimer(); st.index = j; }
+      render();
+    });
+    li.append(head);
+    if (st.mode === "compose") li.append(controls(key, list, j));
+    phases[def.phase].append(li);
+  });
+  if (shown < list.indexOf("question")) hr.classList.add("is-hidden");
+  box.append(hb, phases.build, hr, phases.run);
+}
+
+function controls(key, list, j) {
+  const box = el("div", "rag-seq-controls");
+  const def = STEPS[key];
+  if (key === "embed_query") { box.append(el("span", "rag-arch-sub", "Même modèle que « Vectoriser les extraits »")); return box; }
+  if (!def.stage) { box.hidden = true; return box; }
+  const [options, params] = OPTIONS[def.stage];
+  if (options.length > 1) {
+    const sel = el("select", "rag-option");
+    for (const o of options) sel.append(el("option", null, o));
+    box.append(sel);
+  } else box.append(el("span", "rag-arch-sub", options[0]));
+  for (const [label, value, unit] of params) {
+    const l = el("label", "rag-param");
+    const input = el("input", "rag-param-input");
+    input.type = "number"; input.value = value;
+    l.append(el("span", "rag-param-name", label), input, el("span", "rag-param-unit", unit));
+    box.append(l);
+  }
+  if (def.movable) {
+    const prev = STEPS[list[j - 1]], next = STEPS[list[j + 1]];
+    for (const [sym, label, dis] of [["▲", "Déplacer avant", !prev?.movable], ["▼", "Déplacer après", !next?.movable], ["Retirer", "Retirer", false]]) {
+      const b = el("button", "rag-move-button", sym); b.type = "button"; b.disabled = dis; b.title = label; box.append(b);
+    }
+  }
+  return box;
+}
+
+let seen = new Set();
+function renderArch(list, shown, current) {
+  const box = document.getElementById("mock-arch");
+  box.querySelectorAll(":scope > :not(.rag-view-label)").forEach((n) => n.remove());
+  const inChain = new Set(list.flatMap((k) => STEPS[k].uses.map(([c]) => c)));
+  const revealed = new Set(list.slice(0, shown + 1).flatMap((k) => STEPS[k].uses.map(([c]) => c)));
+  const solicited = new Set(current ? STEPS[current].uses.map(([c]) => c) : []);
+  for (const [gid, gname] of GROUPS) {
+    const g = el("section", "rag-arch-group");
+    g.append(el("h4", null, gname));
+    const ul = el("ul");
+    let any = false;
+    for (const [cid, [grp, icon, name, sub]] of Object.entries(COMPONENTS)) {
+      if (grp !== gid) continue;
+      const li = el("li", "rag-arch-tile");
+      li.dataset.key = `c:${cid}`;
+      if (!inChain.has(cid)) li.dataset.off = "";
+      if (!revealed.has(cid)) li.classList.add("is-hidden");
+      else { any = true; if (st.mode === "play" && !seen.has(cid)) li.classList.add("is-new"); }
+      if (solicited.has(cid) && st.mode === "play") li.classList.add("is-active");
+      li.append(el("span", "rag-arch-icon", icon), el("span", "rag-arch-name", name), el("span", "rag-arch-sub", sub));
+      ul.append(li);
+    }
+    if (!any) g.classList.add("is-hidden");
+    g.append(ul);
+    box.append(g);
+  }
+  seen = revealed;
+}
+
+function renderFocus(key, list) {
+  const box = document.getElementById("mock-focus");
+  box.replaceChildren();
+  if (!key) {
+    box.append(el("p", "rag-focus-phase", "Focus"), el("p", "rag-focus-explain", "Cliquez sur une étape de la séquence pour la voir ici en détail."));
+    return;
+  }
+  const def = STEPS[key];
+  const f = FOCUS[key];
+  box.classList.toggle("is-run", def.phase === "run");
+  const n = list.indexOf(key) + 1;
+  box.append(el("p", "rag-focus-phase", `${def.phase === "build" ? "Indexation · build" : "Requête · run"} — étape ${n} sur ${list.length}`));
+  const h = el("h3");
+  h.append(el("span", "rag-chain-number", String(n)), el("span", null, def.label), el("span", "rag-tag", def.tag));
+  box.append(h);
+  if (f.note) box.append(el("p", "rag-focus-note", f.note));
+  box.append(el("p", "rag-focus-explain", f.explain));
+  if (def.uses.length) {
+    const uses = el("div", "rag-focus-uses");
+    uses.append(el("span", "rag-view-label", "Composants sollicités"));
+    for (const [c, how] of def.uses) uses.append(el("span", "rag-tag", `${COMPONENTS[c][1]} ${COMPONENTS[c][2]}${how === "in" ? " · lu" : how === "out" ? " · écrit" : " · appelé"}`));
+    box.append(uses);
+  }
+  const showData = st.mode === "play" && st.ran;
+  if (!showData) {
+    box.append(el("p", "rag-note", "Lancez la chaîne pour voir ici ce que l'étape reçoit, produit et coûte."));
+    return;
+  }
+  const dl = el("dl", "rag-focus-io");
+  for (const [k, v] of f.io) dl.append(el("dt", null, k), el("dd", null, v));
+  box.append(dl);
+  const facts = el("ul", "rag-focus-facts");
+  for (const x of f.facts) facts.append(el("li", null, x));
+  box.append(facts);
+  if (f.vector) { const v = el("div", "rag-vector"); for (const x of f.vector) v.append(el("span", null, x)); box.append(v); }
+  if (f.table) {
+    const t = el("table", "rag-items");
+    const tr = el("tr");
+    for (const c of f.table.cols) tr.append(el("th", null, c));
+    const thead = el("thead"); thead.append(tr);
+    const tbody = el("tbody");
+    for (const r of f.table.rows) { const row = el("tr"); r.forEach((c, i) => row.append(el("td", i === 0 || /^[\d,]+( [↑↓])?$/.test(c) ? "rag-num" : null, c))); tbody.append(row); }
+    t.append(thead, tbody);
+    box.append(t);
+  }
+  if (f.pre || key === "generation") box.append(el("pre", null, f.pre ?? FOCUS.context.pre));
+}
+
+function renderStepper(list) {
+  const bar = document.getElementById("mock-stepper");
+  bar.querySelector(".diagram-step-prev").disabled = st.index <= 0;
+  bar.querySelector(".diagram-step-next").disabled = st.index >= list.length - 1;
+  bar.querySelector(".diagram-step-position").textContent = `Étape ${st.index + 1} / ${list.length}`;
+  bar.querySelector(".diagram-step-live").setAttribute("aria-pressed", String(st.live));
+  document.getElementById("mock-caption").textContent = st.ran
+    ? (st.live ? "Exécution en cours…" : st.index === list.length - 1 ? "Exécution terminée : rejouez avec ◀ ▶." : "Relecture de l'exécution.")
+    : "Visite guidée : les étapes et les composants arrivent un à un.";
+  document.getElementById("mock-run").disabled = st.live;
+  document.getElementById("mock-stop").disabled = !st.live;
+}
+
+// ---------------------------------------------------------------- flèches étape → composants
+const NS = "http://www.w3.org/2000/svg";
+const svgEl = (tag, attrs) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
+const host = document.getElementById("mock-views");
+const svg = svgEl("svg", { class: "diagram-wires", "aria-hidden": "true" });
+host.append(svg);
+
+function drawArrows(current) {
+  const o = host.getBoundingClientRect();
+  svg.setAttribute("width", o.width); svg.setAttribute("height", o.height);
+  svg.setAttribute("viewBox", `0 0 ${o.width} ${o.height}`);
+  const defs = svgEl("defs", {});
+  const m = svgEl("marker", { id: "arrow-lit", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "6", markerHeight: "6", orient: "auto-start-reverse" });
+  m.append(svgEl("path", { d: "M0 0 L10 5 L0 10 z", class: "rag-arrow-lit" }));
+  defs.append(m);
+  const parts = [defs];
+  const row = current && host.querySelector(`.rag-seq-step[data-key="${current}"]`);
+  if (row) {
+    const r = row.getBoundingClientRect();
+    const uses = STEPS[current].uses;
+    uses.forEach(([c, how], i) => {
+      const tile = host.querySelector(`[data-key="c:${c}"]`);
+      if (!tile) return;
+      const t = tile.getBoundingClientRect();
+      const x1 = r.right - o.left + 2, y1 = (r.top + r.bottom) / 2 - o.top + (i - (uses.length - 1) / 2) * 10;
+      const x2 = t.left - o.left - 2, y2 = (t.top + t.bottom) / 2 - o.top;
+      const dx = Math.max(30, (x2 - x1) / 2);
+      const d = how === "in"
+        ? `M${x2} ${y2} C${x2 - dx} ${y2}, ${x1 + dx} ${y1}, ${x1 + 6} ${y1}`
+        : `M${x1} ${y1} C${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2 - 4} ${y2}`;
+      parts.push(svgEl("path", { d, class: "diagram-path" }));
+      parts.push(svgEl("path", { d, class: `diagram-path-core${st.live ? " is-flow" : ""}`, "marker-end": "url(#arrow-lit)" }));
+    });
+  }
+  svg.replaceChildren(...parts);
+}
+
+// ---------------------------------------------------------------- exécution simulée
+function stopTimer() { clearInterval(st.timer); st.timer = null; }
+function runSim() {
+  stopTimer();
+  st.mode = "play"; st.ran = true; st.live = true; st.index = 0; st.progress = null; seen = new Set();
+  let rerankTicks = 0;
+  render();
+  st.timer = setInterval(() => {
+    const list = steps();
+    if (list[st.index] === "rerank" && rerankTicks < 4) { rerankTicks += 1; st.progress = `${rerankTicks * 2} / 8`; render(); return; }
+    if (st.index >= list.length - 1) { st.live = false; stopTimer(); render(); return; }
+    st.index += 1; st.progress = list[st.index] === "rerank" ? "0 / 8" : null; render();
+  }, 900);
+}
+
+document.getElementById("mock-run").addEventListener("click", runSim);
+document.getElementById("mock-stop").addEventListener("click", () => { st.live = false; stopTimer(); render(); });
+for (const b of document.querySelectorAll("[data-mode]")) b.addEventListener("click", () => { stopTimer(); st.live = false; st.mode = b.dataset.mode; render(); });
+const stepper = document.getElementById("mock-stepper");
+stepper.querySelector(".diagram-step-prev").addEventListener("click", () => { stopTimer(); st.live = false; st.index = Math.max(0, st.index - 1); render(); });
+stepper.querySelector(".diagram-step-next").addEventListener("click", () => { stopTimer(); st.live = false; st.index = Math.min(steps().length - 1, st.index + 1); render(); });
+stepper.querySelector(".diagram-step-live").addEventListener("click", () => { if (!st.ran) return; st.index = steps().length - 1; render(); });
+let dark = false;
+document.getElementById("mock-theme").addEventListener("click", (e) => {
+  dark = !dark;
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  e.target.textContent = `◐ Thème : ${dark ? "sombre" : "clair"}`;
+});
+document.documentElement.dataset.theme = "light";
+new ResizeObserver(() => drawArrows(st.mode === "compose" ? st.selected : steps()[st.index])).observe(host);
+document.fonts?.ready.then(render);
+render();
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 title: DESIGN — WaveStack
 status: draft
 created: 2026-09-22
-updated: 2026-09-29
+updated: 2026-10-04
 sources:
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/prd.md
   - ../../prds/prd-agentic-harness-training-demo-2026-09-22/addendum.md
@@ -74,6 +74,8 @@ colors:
   on-vivid: '#0A0A14'
   warning-soft: '#FFF4D6'
   danger-soft: '#FDE8EB'
+  # Lot 3 du 2026-10-04 : tuile des logos d'éditeurs, blanche dans les deux thèmes
+  logo-tile: '#FFFFFF'
   # Thème sombre (story 31) : un jumeau `{clé}-dark` par couleur, mêmes rôles, dessiné jeton
   # par jeton (voir Colors > Thème sombre). tokens.css le pose sous `[data-theme="dark"]` et
   # sous `prefers-color-scheme: dark` sans attribut, sous le nom de la clé claire.
@@ -132,6 +134,7 @@ colors:
   on-vivid-dark: '#0A0A14'
   warning-soft-dark: '#3A3010'
   danger-soft-dark: '#3A1820'
+  logo-tile-dark: '#FFFFFF'
 typography:
   # Base ; le mode projection (story 34, NFR-9) multiplie toute la rampe par 9/7, dans app.css.
   # Story 2 of 2026-09-30: a notch lower (19 → 18 px), under the shared bar.
@@ -203,6 +206,7 @@ spacing:
   brick-panel-width: 280px
   architecture-band-height: 250px
   stroke-min: 2px
+  stroke-path: 3px
   hit-target-min: 32px
   relief-offset: 4px
   relief-offset-pressed: 1px
@@ -613,6 +617,139 @@ components:
     diff-increase: '{colors.ink}'
     diff-decrease: '{colors.ink}'
     radius: '{rounded.md}'
+  # Lot 4 of the 2026-10-04 corrections: the MCP workshop in four panes, its sequence diagram.
+  mcp-panes:
+    left-width: '{spacing.brick-panel-width}'
+    right-width: 290px
+    architecture-height: 206px
+    gap: '{spacing.gutter}'
+  mcp-lifeline-head:
+    background: '{colors.surface}'
+    foreground: '{colors.ink}'
+    border: '{colors.ink-soft}'
+    network-background: '{colors.discipline-network-soft}'
+    network-border: '{colors.hosting-boundary}'
+    network-border-style: dashed
+    model-background: '{colors.ink-fill}'
+    model-foreground: '{colors.on-ink}'
+    typography: '{typography.label}'
+    radius: '{rounded.sm}'
+    min-height: '{spacing.hit-target-min}'
+  mcp-lifeline:
+    stroke: '{colors.muted}'
+    stroke-width: '{spacing.stroke-min}'
+    stroke-style: dashed
+  mcp-arrow:
+    stroke: '{colors.ink}'
+    stroke-width: '{spacing.stroke-min}'
+    network-dash: 6 5
+    internal-stroke: '{colors.ink-soft}'
+    internal-typography: '{typography.body-sm}'
+    source-stroke: '{colors.muted}'
+    source-stroke-style: dotted
+    ghost-stroke: '{colors.muted}'
+    ghost-dash: 3 6
+    error-stroke: '{colors.state-error}'
+    error-stroke-width: 3px
+    current-background: '{colors.accent-soft}'
+    current-marker: '{colors.ink}'
+    duration-typography: '{typography.number}'
+    duration-color: '{colors.ink-soft}'
+    min-row-height: '{spacing.6}'
+  mcp-method-chip:
+    background: '{colors.discipline-harness-soft}'
+    border: '{colors.discipline-harness}'
+    foreground: '{colors.ink}'
+    network-background: '{colors.discipline-network-soft}'
+    network-border: '{colors.hosting-boundary}'
+    network-border-style: dashed
+    typography: '{typography.code}'
+    radius: '{rounded.sm}'
+  mcp-model-chip:
+    produced-background: '{colors.ink-fill}'
+    produced-border: '{colors.ink-fill-edge}'
+    produced-foreground: '{colors.on-ink}'
+    read-background: '{colors.surface-raised}'
+    read-border: '{colors.ink}'
+    read-foreground: '{colors.ink}'
+    ghost-background: '{colors.surface-raised}'
+    ghost-border: '{colors.muted}'
+    ghost-foreground: '{colors.ink-soft}'
+    typography: '{typography.label}'
+    radius: '{rounded.sm}'
+  mcp-phase-header:
+    background: '{colors.surface}'
+    typography: '{typography.label}'
+    meta-color: '{colors.ink-soft}'
+    why-color: '{colors.primary}'
+    explain-background: '{colors.primary-soft}'
+    radius: '{rounded.sm}'
+    min-height: '{spacing.hit-target-min}'
+  mcp-message-detail:
+    background: '{colors.surface-raised}'
+    border: '{colors.line}'
+    rule: '{colors.discipline-harness}'
+    network-rule: '{colors.discipline-network}'
+    model-rule: '{colors.ink-fill}'
+    error-background: '{colors.danger-soft}'
+    error-rule: '{colors.state-error}'
+    rule-width: '{spacing.1}'
+    code-background: '{colors.surface}'
+    code-typography: '{typography.code}'
+    radius: '{rounded.md}'
+  mcp-mode-switch:
+    background: '{colors.surface-raised}'
+    foreground: '{colors.primary}'
+    border: '{colors.primary}'
+    selected-background: '{colors.primary}'
+    selected-foreground: '{colors.on-primary}'
+    typography: '{typography.label}'
+    radius: '{rounded.full}'
+    min-height: '{spacing.hit-target-min}'
+  mcp-primitive-tabs:
+    foreground: '{colors.ink-soft}'
+    selected-foreground: '{colors.ink}'
+    selected-rule: '{colors.primary}'
+    rule: '{colors.line}'
+    unavailable-foreground: '{colors.ink-soft}'
+    typography: '{typography.label}'
+    min-height: '{spacing.hit-target-min}'
+  mcp-chooser-badge-app:
+    background: '{colors.surface-raised}'
+    foreground: '{colors.ink}'
+    border: '{colors.ink}'
+    border-style: dashed
+    radius: '{rounded.full}'
+    typography: '{typography.label}'
+  mcp-context-block:
+    border: '{colors.line}'
+    tools-rule: '{colors.segment-tool-descriptions}'
+    result-rule: '{colors.segment-tool-results}'
+    resource-rule: '{colors.segment-rag}'
+    prompt-rule: '{colors.segment-message}'
+    sent-rule: '{colors.ink-soft}'
+    rule-width: '{spacing.1}'
+    total-typography: '{typography.number-lg}'
+    radius: '{rounded.sm}'
+  mcp-arch-client:
+    background: '{colors.primary-soft}'
+    border: '{colors.primary}'
+    foreground: '{colors.primary-deep}'
+    idle-background: '{colors.discipline-neutral-soft}'
+    idle-border: '{colors.muted}'
+    idle-border-style: dashed
+    idle-foreground: '{colors.ink-soft}'
+    radius: '{rounded.sm}'
+  mcp-arch-before:
+    integration-background: '{colors.surface-raised}'
+    integration-border: '{colors.ink-soft}'
+    connector-stroke: '{colors.ink-soft}'
+    connector-end: '{colors.ink}'
+    connector-end-size: 12px
+    banner-background: '{colors.warning-soft}'
+    banner-typography: '{typography.label}'
+    caption-typography: '{typography.body-sm}'
+    radius: '{rounded.sm}'
   arch-zone-local:
     background: '{colors.surface-raised}'
     label-color: '{colors.primary}'
@@ -691,6 +828,100 @@ components:
     radius: '{rounded.md}'
     search-border: '{colors.ink-soft}'
     search-bar: '{colors.primary}'
+  # Lot 3 of 2026-10-04: the merged « Diagnostic et modèles » page (/diagnostic). One card per
+  # GGUF file, served model or cloud model, in a grid grouped Local then Cloud, then publisher.
+  model-card:
+    background: '{colors.surface-raised}'
+    foreground: '{colors.ink}'
+    secondary-foreground: '{colors.ink-soft}'
+    border: '{colors.line}'
+    hover-border: '{colors.ink-soft}'
+    shadow: '{colors.relief}'
+    radius: '{rounded.md}'
+    padding: '{spacing.4}'
+    gap: '{spacing.4}'
+    min-width: 250px
+    name-typography: '{typography.body}'
+    size-typography: '{typography.number-lg}'
+    params-typography: '{typography.body-sm}'
+    active-border: '{colors.ink}'
+    active-border-width: 3px
+    active-shadow: '{colors.state-active}'
+    unusable-background: '{colors.danger-soft}'
+    unusable-size-foreground: '{colors.ink-soft}'
+    cloud-background: '{colors.discipline-network-soft}'
+    cloud-border: '{colors.hosting-boundary}'
+    cloud-border-style: dashed
+    cloud-border-width: 2px
+    sources-chip-background: '{colors.surface}'
+    sources-chip-foreground: '{colors.ink}'
+    sources-chip-border: '{colors.ink-soft}'
+  model-card-expanded:
+    border: '{colors.primary}'
+    border-width: 2px
+    padding: '{spacing.5}'
+    name-typography: '{typography.heading}'
+    section-title-typography: '{typography.label}'
+    section-title-foreground: '{colors.ink-soft}'
+    divider: '{colors.line}'
+    path-typography: '{typography.code}'
+    path-background: '{colors.surface}'
+    message-rule-width: '{spacing.1}'
+    message-ok-rule: '{colors.state-ok}'
+    message-warning-rule: '{colors.ink-soft}'
+    message-error-rule: '{colors.state-error}'
+    source-row-background: '{colors.surface}'
+    source-row-border: '{colors.line}'
+    source-row-radius: '{rounded.sm}'
+    source-active-border: '{colors.ink}'
+  # A light tile in both themes, so that dark marks (OpenAI, Llama) stay readable in dark mode.
+  model-logo:
+    background: '{colors.logo-tile}'
+    border: '{colors.line}'
+    radius: '{rounded.sm}'
+    size: 48px
+    size-expanded: 64px
+    size-group: 28px
+    initial-background: '{colors.primary-soft}'
+    initial-foreground: '{colors.primary}'
+    initial-border: '{colors.relief}'
+    initial-typography: '{typography.pane-title}'
+  # A dot and a label; colour never carries the state alone, and never yellow (yellow = network).
+  state-pill:
+    background: '{colors.surface}'
+    foreground: '{colors.ink}'
+    border: '{colors.line}'
+    radius: '{rounded.full}'
+    typography: '{typography.label}'
+    dot-size: 12px
+    dot-border: '{colors.ink-soft}'
+    active-background: '{colors.accent-soft}'
+    active-dot: '{colors.state-active}'
+    ok-background: '{colors.accent-soft}'
+    ok-dot: '{colors.state-ok}'
+    error-background: '{colors.danger-soft}'
+    error-dot: '{colors.state-error}'
+    unavailable-foreground: '{colors.ink-soft}'
+    unavailable-dot: '{colors.state-unavailable}'
+    unavailable-dot-style: dashed
+  publisher-group-header:
+    foreground: '{colors.ink}'
+    count-foreground: '{colors.ink-soft}'
+    typography: '{typography.pane-title}'
+    gap: '{spacing.3}'
+  checks-panel:
+    background: '{colors.surface-raised}'
+    border: '{colors.line}'
+    radius: '{rounded.md}'
+    summary-foreground: '{colors.ink-soft}'
+    min-height: 44px
+  models-filters:
+    background: '{colors.surface-raised}'
+    border: '{colors.line}'
+    radius: '{rounded.md}'
+    label-typography: '{typography.label}'
+    segment-selected-background: '{colors.primary}'
+    segment-selected-foreground: '{colors.on-primary}'
   # Story 29: the « LLM nu » screen (/llm). A token: two alternating existing grounds, its id
   # beneath; a special token dashed in the harness colour and named « spécial ».
   token-chip:
@@ -922,6 +1153,8 @@ Grille retenue : 5 volets masquables (référence : [`.working/layout-5-volets-v
 
 Un volet masqué libère sa place : les volets visibles de la même rangée se la partagent ; si le panneau des briques est masqué, les autres volets prennent toute la largeur ; si le schéma est masqué, la rangée du haut prend toute la hauteur. Les gouttières sont aussi des poignées de redimensionnement (`pane-resize-handle`, voir Components). Le mode focus redistribue la grille sans changer l'ordre des volets (voir EXPERIENCE.md). Le comportement par taille d'écran est dans EXPERIENCE.md, section Responsive & Platform.
 
+Pages annexes : 960 px au plus, sauf « Diagnostic et modèles » (lot 3 du 2026-10-04), qui va jusqu'à 1440 px pour sa grille de cartes (voir Components).
+
 Fond de page (`page`) : `{colors.surface}` semé de pois `{colors.dot}` de 1,3 px sur une grille de `{spacing.dot-grid}`, comme un papier de cahier. Les pois restent dans les gouttières et autour des volets ; aucun volet, aucune carte n'en porte.
 
 `[ASSUMPTION]` L'en-tête de volet grandit (titre de 19 px et sous-titre) : le budget vertical dans 1280×650 est à vérifier à l'implémentation, les tokens d'espacement restant inchangés. Si la place manque, le sous-titre est le premier élément à masquer en mode projection, pas le contenu.
@@ -985,7 +1218,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Sélecteur de scénario (`scenario-picker`)** : pastille violet doux avec le nom du module et du scénario en cours.
 - **Sélecteur de modèle (`model-picker`)** : liste déroulante neutre (`select` natif), nom du modèle et taille (ex. « 2B »). Story 25 : groupes « Sur ce poste · {éditeur} » et « Réseau · {éditeur} » (libellés natifs des `optgroup`), options « {préfixe} · {nom} · {taille} » ; la légende est la deuxième option, désactivée, donc dans le gris natif des options désactivées ; aucune couleur propre, le « RÉSEAU » du préfixe suffit dans une liste native.
 - **Sélecteur de thème (`theme-picker`)** (story 31) : `select` natif, fait comme `model-picker` (fond `{colors.surface-raised}`, texte encre, bordure `{colors.line}`, `{rounded.md}`, `label`, hauteur `{spacing.hit-target-min}`), nommé « Thème de l'interface » (`aria-label` et infobulle) ; trois options « ◐ Système », « ☀ Clair », « ☾ Sombre ». Il est dans le menu « Affichage ▾ » de la barre commune des cinq pages (story Langues 2/5, story 2 du 2026-09-30), avec le sélecteur de langue et, sur l'atelier seulement, le mode projection, sur `{colors.surface-raised}`, anneau `{colors.primary}` ; la face du menu montre le symbole du choix et le code de la langue. `color-scheme` fait suivre la liste native. Accessibilité, accepté : les lecteurs d'écran lisent le symbole des options (« ◐ Système »…) avec leur mot.
-- **Tableau des modèles (`model-table`)** (story 25, page `/models` ; story 3 du 2026-09-30 : tri et filtres) : page sur `{colors.surface}`, texte encre, sans pois (un tableau à lire) ; titre « Modèles disponibles » en `heading` agrandi, légende et note en `body` `{colors.ink-soft}`. Table blanche (`{colors.surface-raised}`), bordure `{colors.line}`, `{rounded.sm}` ; `caption` en `label` majuscule `{colors.ink-soft}` ; en-têtes de colonnes en `label` `{colors.ink-soft}` ; un `tbody` par groupe, son en-tête (`th scope="rowgroup"`) sur `{colors.surface}` en `heading` à la taille du corps ; filets de lignes `{colors.line}`. Colonne Modèle : `hosting-tag-local` (neutre) ou `hosting-tag-network` (jaune, tirets encre, 🌐), puis le nom en gras. Taille et fenêtre en `number`. Raison sous chaque mot (outils, raisonnement, fenêtre, état) en `body-sm` `{colors.ink-soft}` ; ligne d'un modèle inutilisable en `{colors.ink-soft}` ; « actif » en gras. Erreur du fichier des éditeurs : bandeau blanc bordé `{colors.danger}` de `{spacing.stroke-min}`, texte encre. Story 3 du 2026-09-30 : le nom de chaque colonne triable (toutes sauf Prix) est un bouton plat de la largeur de l'en-tête, en `label` encre douce, encre au survol et quand il trie, cible `{spacing.hit-target-min}`, focus `{colors.primary}` de 2 px ; sa marque : « ↕ » en encre douce au repos, « ▲ » ou « ▼ » en `{colors.primary}` sur l'en-tête actif (`aria-sort`). Au-dessus du tableau, une bande de filtres `{colors.surface-raised}` bordée `{colors.line}`, `{rounded.md}` : chaque champ son nom en `label` encre douce au-dessus, la liste ou la saisie sur `{colors.surface-raised}` bordée `{colors.ink-soft}`, `{rounded.sm}`, cible `{spacing.hit-target-min}` ; la saisie libre prend la place qui reste ; « Réinitialiser les filtres » en `button-secondary`. Aucun résultat : un encadré `{colors.surface-raised}` à tirets `{colors.ink-soft}`, le message et « Réinitialiser les filtres » en `button-primary`. Tableau, étiquettes, boutons et champs sont communs aux pages annexes (`static/pages.css`, portée `body.annex-page`). Aucun nouveau jeton.
+- **Tableau des modèles (`model-table`)** — *remplacé par « Diagnostic et modèles » (lot 3 du 2026-10-04, ci-dessous) ; `/models` redirige vers `/diagnostic`. La bande de filtres est reprise telle quelle.* (story 25, page `/models` ; story 3 du 2026-09-30 : tri et filtres) : page sur `{colors.surface}`, texte encre, sans pois (un tableau à lire) ; titre « Modèles disponibles » en `heading` agrandi, légende et note en `body` `{colors.ink-soft}`. Table blanche (`{colors.surface-raised}`), bordure `{colors.line}`, `{rounded.sm}` ; `caption` en `label` majuscule `{colors.ink-soft}` ; en-têtes de colonnes en `label` `{colors.ink-soft}` ; un `tbody` par groupe, son en-tête (`th scope="rowgroup"`) sur `{colors.surface}` en `heading` à la taille du corps ; filets de lignes `{colors.line}`. Colonne Modèle : `hosting-tag-local` (neutre) ou `hosting-tag-network` (jaune, tirets encre, 🌐), puis le nom en gras. Taille et fenêtre en `number`. Raison sous chaque mot (outils, raisonnement, fenêtre, état) en `body-sm` `{colors.ink-soft}` ; ligne d'un modèle inutilisable en `{colors.ink-soft}` ; « actif » en gras. Erreur du fichier des éditeurs : bandeau blanc bordé `{colors.danger}` de `{spacing.stroke-min}`, texte encre. Story 3 du 2026-09-30 : le nom de chaque colonne triable (toutes sauf Prix) est un bouton plat de la largeur de l'en-tête, en `label` encre douce, encre au survol et quand il trie, cible `{spacing.hit-target-min}`, focus `{colors.primary}` de 2 px ; sa marque : « ↕ » en encre douce au repos, « ▲ » ou « ▼ » en `{colors.primary}` sur l'en-tête actif (`aria-sort`). Au-dessus du tableau, une bande de filtres `{colors.surface-raised}` bordée `{colors.line}`, `{rounded.md}` : chaque champ son nom en `label` encre douce au-dessus, la liste ou la saisie sur `{colors.surface-raised}` bordée `{colors.ink-soft}`, `{rounded.sm}`, cible `{spacing.hit-target-min}` ; la saisie libre prend la place qui reste ; « Réinitialiser les filtres » en `button-secondary`. Aucun résultat : un encadré `{colors.surface-raised}` à tirets `{colors.ink-soft}`, le message et « Réinitialiser les filtres » en `button-primary`. Tableau, étiquettes, boutons et champs sont communs aux pages annexes (`static/pages.css`, portée `body.annex-page`). Aucun nouveau jeton.
 - **Barre commune (`site-nav`)** (story 2 du 2026-09-30 ; remplace les onglets de page `page-tabs` de la story 25, les liens et le titre de la barre de l'atelier) : le même balisage en tête des six pages (`/`, `/llm`, `/rag`, `/mcp`, `/diagnostic`, `/models` ; `/mcp` depuis la story 6 du 2026-09-30), stylé par `static/pages.css`, fait des jetons existants. Bandeau `{colors.surface-raised}` bordé `{colors.line}`, `{rounded.lg}`, sur la largeur de la fenêtre moins une marge (sur l'atelier, la largeur des volets) ; de gauche à droite : la marque « WaveStack » en `heading` encre (lien vers `/`), puis les liens Atelier, LLM nu, Atelier RAG, Atelier MCP, Diagnostic, Modèles, dans cet ordre fixe, en `label` agrandi (× 1,2), encre douce ; la page courante (`aria-current="page"`) en encre, soulignée de 3 px `{colors.primary}` ; focus : contour `{colors.primary}` de 2 px. À droite, le menu « Affichage ▾ » : face sur `{colors.surface}`, bordure `{colors.line}`, `{rounded.md}`, `label`, avec le symbole du thème et le code de la langue ; son panneau `{colors.surface-raised}` s'ouvre vers le bas (thème, langue, et mode projection sur l'atelier seulement) ; un refus de changement de langue s'y lit sous les sélecteurs, sur `{colors.danger-soft}`. Aucun contrôle n'y est tronqué en `de` à 1 280 et 1 600 px, en mode normal et en projection.
 - **Mode projection (`projection-toggle`)** (story 34, remplace le `text-size-control` « Aa 100 % », jamais construit) : bouton texte « Mode projection » du menu « Affichage ▾ », sur l'atelier seulement (seul `app.js` applique la projection) ; fond transparent, texte encre, bordure `{colors.line}`, `{rounded.md}` ; pressé (`aria-pressed="true"`), fond `{colors.primary}` et texte `{colors.on-primary}`. Il agrandit toute la rampe (voir Typography).
 - **Jauge de contexte (`context-gauge`)** : barre horizontale empilée, rayons pleins, sur une piste claire (`{colors.surface-raised}`, bordure `{colors.on-ink-soft}`) dans la barre foncée. Les groupes gardent l'ordre d'empilement de la palette catégorielle, mais chacun prend la couleur de sa discipline (`discipline` reçu de la session), séparé du suivant par un filet blanc de 1 px ; l'infobulle nomme le groupe, ses tokens et sa discipline (« Prompt système : 31 tokens · Prompt engineering » ; « Hors brique » (message, gabarit, tour du modèle) pour le neutre, même libellé que la légende). La discipline d'un groupe est celle qui porte le plus de tokens parmi ses segments (à égalité, la première dans l'ordre du contexte). Espace libre hachuré. Sous la barre, la légende (`#gauge-legend`, `discipline-legend`) : une pastille bordée `{colors.on-ink-soft}` et le nom de chaque discipline présente, dans l'ordre prompt, context, harness, puis « Hors brique » (message, gabarit, tour du modèle), en `label` `{colors.on-ink-soft}` ; elle passe à la ligne plutôt que d'être coupée, et ne donne pas de tokens par discipline. À droite : `number` « 1 840 / 4 096 tokens · 45 % » en `{colors.on-ink}`. Un marqueur vertical en encre indique le seuil d'alerte. Au dépassement, le pourcentage passe sur pastille rouge avec icône.
@@ -1030,7 +1263,7 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
   L'antenne verte suit la règle du vert : elle ne s'allume que quand le modèle travaille. La pose est aussi dite par un libellé accessible (le robot est une image avec texte alternatif), jamais par l'antenne seule.
 - **Pastilles des nœuds réseau** (story 34) : « contacté », « en échec » ou « non contacté » pour le dernier tour affiché, dans la pastille existante (`arch-node-pill`) ; « indisponible » l'emporte toujours ; l'infobulle dit « Au tour N : contacté. ».
 - **Bilan des sorties (`schema-outbound`)** (story 34) : sous le schéma, dans son volet, une phrase en `body-sm` encre, séparée du schéma par un filet `{colors.line}` : « Au tour N, les données ont quitté le poste K fois : vers le modèle chez … et vers … ». Sans couleur ni icône : c'est un texte à lire à voix haute devant la salle.
-- **Ligne de diagnostic (`diagnostic-row`)** : pastille d'état (vert « OK », rouge « Échec ») avec texte `{colors.on-vivid}`, libellé de la vérification, action corrective en dessous. Story 31 : la page `/diagnostic` charge `tokens.css`, fond `{colors.surface}` et texte encre ; le fond d'une ligne dit son état (`{colors.accent-soft}` pour OK, trouvé ou serveur ; `{colors.warning-soft}` pour un avertissement ; `{colors.danger-soft}` pour un échec ou un modèle incompatible) ; un modèle cloud est sur `{colors.discipline-network-soft}`, bordé de tirets `{colors.hosting-boundary}` ; détails et actions en encre douce ; un avertissement de serveur et le résultat d'un test cloud en encre, derrière un filet gauche de 4 px `{colors.state-ok}`, `{colors.warning}` ou `{colors.state-error}` ; étiquettes `hosting-tag-*` comme dans l'atelier ; `dialog` sur `{colors.surface-raised}`, bordé d'encre. Story 3 du 2026-09-30 : page sur la rampe typographique et les espacements de `tokens.css` seulement (plus aucune taille en `rem`), 960 px au plus ; hiérarchie titre (`heading` agrandi), puis trois sections titrées en `pane-title` : Contrôles, Modèles détectés (avec le choix d'un fichier par son chemin), Modèles cloud. Lignes et cartes sur `{rounded.md}`, bordées `{colors.line}`, détails en `body-sm` encre douce. « Choisir » et « Choisir ce fichier » en `button-primary`, « Tester » et « Enregistrer la clé » en `button-secondary`, à plat quand ils sont indisponibles. Un modèle cloud est une carte : l'étiquette réseau, le fournisseur et le modèle en titre (`heading` à la taille du corps) avec ses marques, puis hébergement et entraînement, le prix, un bloc clé sous un filet `{colors.line}` (champ et bouton, d'où vient la clé), les actions, leurs notes et le résultat du test. Pendant la recherche des modèles, un encadré `{colors.surface-raised}` à tirets `{colors.ink-soft}` dit « Recherche et test des modèles en cours… », puis le compte en `number` et une barre `<progress>` teintée `{colors.primary}` (`accent-color`).
+- **Ligne de diagnostic (`diagnostic-row`)** — *la ligne de contrôle reste, dans le panneau repliable `checks-panel` ; les lignes de modèles et les cartes cloud deviennent des `model-card` (lot 3 du 2026-10-04, ci-dessous).* Pastille d'état (vert « OK », rouge « Échec ») avec texte `{colors.on-vivid}`, libellé de la vérification, action corrective en dessous. Story 31 : la page `/diagnostic` charge `tokens.css`, fond `{colors.surface}` et texte encre ; le fond d'une ligne dit son état (`{colors.accent-soft}` pour OK, trouvé ou serveur ; `{colors.warning-soft}` pour un avertissement ; `{colors.danger-soft}` pour un échec ou un modèle incompatible) ; un modèle cloud est sur `{colors.discipline-network-soft}`, bordé de tirets `{colors.hosting-boundary}` ; détails et actions en encre douce ; un avertissement de serveur et le résultat d'un test cloud en encre, derrière un filet gauche de 4 px `{colors.state-ok}`, `{colors.warning}` ou `{colors.state-error}` ; étiquettes `hosting-tag-*` comme dans l'atelier ; `dialog` sur `{colors.surface-raised}`, bordé d'encre. Story 3 du 2026-09-30 : page sur la rampe typographique et les espacements de `tokens.css` seulement (plus aucune taille en `rem`), 960 px au plus ; hiérarchie titre (`heading` agrandi), puis trois sections titrées en `pane-title` : Contrôles, Modèles détectés (avec le choix d'un fichier par son chemin), Modèles cloud. Lignes et cartes sur `{rounded.md}`, bordées `{colors.line}`, détails en `body-sm` encre douce. « Choisir » et « Choisir ce fichier » en `button-primary`, « Tester » et « Enregistrer la clé » en `button-secondary`, à plat quand ils sont indisponibles. Un modèle cloud est une carte : l'étiquette réseau, le fournisseur et le modèle en titre (`heading` à la taille du corps) avec ses marques, puis hébergement et entraînement, le prix, un bloc clé sous un filet `{colors.line}` (champ et bouton, d'où vient la clé), les actions, leurs notes et le résultat du test. Pendant la recherche des modèles, un encadré `{colors.surface-raised}` à tirets `{colors.ink-soft}` dit « Recherche et test des modèles en cours… », puis le compte en `number` et une barre `<progress>` teintée `{colors.primary}` (`accent-color`).
 
 - **Écran « LLM nu » (`llm-screen`)** (story 29, page `/llm`) : page sur `{colors.surface}`, sans pois, comme `/models` : barre commune (`site-nav`, « LLM nu » courant) en tête ; titre en `heading` agrandi, modèle actif précédé de `hosting-tag-local` ou `hosting-tag-network` (« 🌐 RÉSEAU · {fournisseur} »). Chaque section est une carte `{colors.surface-raised}` bordée `{colors.line}`, `{rounded.lg}`, relief `{colors.relief}`, titrée en `pane-title` après un disque numéroté `{colors.ink-fill}` / `{colors.on-ink}` (comme `pane-step`). Boutons `button-primary` et `button-secondary`, à plat quand ils sont indisponibles, la raison dans un bandeau `{colors.warning-soft}` bordé `{colors.warning}`. Aucune ligature dans la page : `<|im_end|>` se lit tel qu'il est tapé (JetBrains Mono transformerait `<|` en flèche).
 - **Puce de token (`token-chip`)** (story 29) : une pastille `{rounded.sm}` par token, bordure `{colors.line}` ; le texte du token en `code` (blancs rendus visibles : `␣` pour une espace, `↵` pour un retour à la ligne), l'identifiant dessous en `number` petit, encre douce. Deux fonds existants en alternance, `{colors.primary-soft}` et `{colors.accent-soft}` (aucun nouveau jeton, lisibles en encre dans les deux thèmes). Un token spécial (marqueur du gabarit) : fond `{colors.surface-raised}`, bordure en tirets `{spacing.stroke-min}` `{colors.discipline-harness}` et le mot « spécial » en `label` : jamais la couleur seule. Les octets d'un token qui n'est qu'une partie d'un caractère s'écrivent `⟨F0 9F⟩`.
@@ -1048,7 +1281,35 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 - **Chaîne RAG (`rag-chain`)** (story 30) : une grille d'une ligne, une carte par étape, `{rounded.md}`, fond `{colors.discipline-context-soft}`, filet gauche de 4 px `{colors.discipline-context}` (le RAG est du context engineering), texte encre ; entre deux cartes, « → » en encre dans l'écart. Nom de l'étape en `heading` après un disque numéroté `{colors.ink-fill}`, option en gras, réglages et explication en `body-sm`. La génération, celle du modèle, repose sur l'encre : `{colors.ink-fill}`, texte `{colors.on-ink}`, bordure `{colors.ink-fill-edge}`. Une note d'obstacle : fond `{colors.warning-soft}`, filet `{colors.warning}`, précédée de « ⚠ » (jamais la couleur seule).
 - **Carte d'étape (`rag-stage-card`)** (story 30) : carte `{colors.surface}` bordée `{colors.line}`, `{rounded.md}`, dont le filet gauche de 4 px dit l'état, doublé d'un libellé dans une pastille (`{colors.surface-raised}`, bordée `{colors.ink-soft}`, en `number`) : `{colors.state-active}` en cours, `{colors.state-ok}` terminée, `{colors.state-error}` en erreur (message sur `{colors.danger-soft}`), `{colors.warning}` arrêtée, fond `{colors.discipline-neutral-soft}` et filet `{colors.muted}` en attente ou sautée ; la génération, filet `{colors.ink-fill}`. Entrée et sortie en liste de définitions (intitulés en `label` majuscule encre douce), chiffres en `number`, tableau des extraits en `body` (rang et score en `number`, rang d'avant suivi de « ↑ » ou « ↓ », extrait en `body-sm` encre douce sur deux lignes), pied (durée, mémoire) derrière un filet `{colors.line}`. « Emprunté à la brique RAG » sur `{colors.accent-soft}`, filet `{colors.accent}`, précédé de « ⇄ ». Une exécution s'affiche sur une colonne ; deux chaînes comparées, sur deux colonnes.
 - **Réglages de la chaîne et comparaison** (story 30) : dans une carte de `rag-chain`, la liste des options et les champs numériques sur `{colors.surface-raised}`, bordés `{colors.ink-soft}`, `{rounded.sm}`, chiffres en `number` ; une option indisponible : sa raison en `body-sm` derrière un filet `{colors.muted}`, précédée de « ⊘ » ; la case « Comparer » en `accent-color: {colors.primary}`. Les boutons « ◀ », « ▶ » et « Retirer » : `{colors.surface-raised}`, bordés `{colors.ink-soft}`, `{rounded.sm}`, en `label`, cible `{spacing.hit-target-min}`, à plat et encre douce désactivés. Une carte refusée : bordure `{colors.danger}`, la raison sur `{colors.danger-soft}` derrière un filet `{colors.danger}`, précédée de « ✖ ». « Ajouter un composant » : une liste native et un `button-secondary`. Les rangs d'un extrait dans les listes d'avant, sous son document, en `number` petit. La comparaison (`rag-comparison`) : carte `{colors.surface}` bordée `{colors.line}`, filet gauche `{colors.discipline-context}`, la synthèse en `body`, puis quatre colonnes titrées en `label` majuscule encre douce. Aucun jeton nouveau.
-- **Atelier MCP (`mcp-screen`)** (story 6 du 2026-09-30, page `/mcp`) : même cadre que l'Atelier RAG (page `{colors.surface}`, barre commune avec « Atelier MCP » courant, cinq sections `{colors.surface-raised}` numérotées par un disque `{colors.ink-fill}`, boutons `button-primary` et `button-secondary`, bandeau de raison `{colors.warning-soft}`). Les serveurs : une carte chacun en grille qui se replie (`auto-fit`, 20rem au moins), `{rounded.md}`, le glossaire local sur `{colors.discipline-harness-soft}` filet gauche 4 px `{colors.discipline-harness}`, les serveurs publics sur `{colors.discipline-network-soft}` filet `{colors.discipline-network}` ; une pastille « Connexion ouverte » `{colors.state-ok}` / `{colors.on-vivid}`. Les messages JSON-RPC : une ligne chacun, filet de 4 px `{colors.discipline-harness}` à gauche et retrait à droite pour harnais → serveur, à droite et retrait à gauche pour serveur → harnais ; sens en `label`, méthode et JSON en `code` (`{colors.surface}`, bordé `{colors.line}`, `{rounded.sm}`, défilant), durée en `number` encre douce, une étiquette « capturé sur le transport » (ou « reconstitué » sur `{colors.warning-soft}`) ; une requête HTTP sortante sur `{colors.discipline-network-soft}`. Les outils : cartes filet `{colors.segment-tool-descriptions}`, schéma replié ; le tableau des poids en `number`, total souligné d'un filet `{colors.ink-soft}`. Le bloc « outils » (section 5) : deux colonnes, documentation complète et lazy loading, en `code`. Toutes les rangées se replient : l'allemand tient à 1 280 px. Aucun jeton nouveau.
+- **Atelier MCP en séquence (`mcp-screen`, lot 4 du 2026-10-04)** : remplace la page en cinq sections du point suivant. Comportement : EXPERIENCE.md, « Atelier MCP en séquence » ; maquette : [`.working/maquette-atelier-mcp-sequence.html`](.working/maquette-atelier-mcp-sequence.html) ; ces spécifications l'emportent sur la maquette. Jetons nouveaux : les composants `mcp-panes`, `mcp-lifeline-head`, `mcp-lifeline`, `mcp-arrow`, `mcp-method-chip`, `mcp-model-chip`, `mcp-phase-header`, `mcp-message-detail`, `mcp-mode-switch`, `mcp-primitive-tabs`, `mcp-chooser-badge-app`, `mcp-context-block`, `mcp-arch-client`, `mcp-arch-before` du frontmatter ; aucune couleur nouvelle. Fond de page à pois (`page`) comme l'Atelier Harnais, et non plus le fond uni des pages annexes `[ASSUMPTION]`. Quatre volets `pane` (`mcp-panes`) : « Serveurs et commandes » sans numéro, à gauche sur toute la hauteur, `{spacing.brick-panel-width}` ; « 1 Séquence » au centre ; « 2 Ce que le modèle voit » à droite, 290 px ; « 3 Architecture » en bande basse de 206 px sous les deux (moins que `{spacing.architecture-band-height}` : trois rangées de serveurs au lieu des bacs de l'atelier). Numéros `pane-step`, titres `pane-title`, sous-titres `pane-subtitle`, boutons ⛶ et « — », puces `pane-chip` des volets masqués, comme dans l'atelier. `h1` « Atelier MCP » en `heading` agrandi, introduction en `body-sm` encre douce sur la même ligne. Le mode projection (`projection-toggle`) s'applique aussi à cette page.
+  - **Règles communes** : aucun texte sous `{typography.label}` (12 px), toutes les tailles par les jetons de typographie, donc agrandies par le mode projection ; toute commande (segments, onglets, en-têtes de colonnes et de phase, « Pourquoi… ? », « ⓘ », « Voir le JSON », étiquette de l'hôte, puces) a une hauteur d'au moins `{spacing.hit-target-min}` ; tout trait fait au moins `{spacing.stroke-min}`.
+  - **Serveurs et commandes** : une carte par serveur, `{rounded.md}`. Locale sur `{colors.surface-raised}` bordée `{colors.line}` ; publique sur `{colors.discipline-network-soft}` bordée de tirets `{colors.hosting-boundary}` ; étiquettes `hosting-tag-local` et `hosting-tag-network`. Le serveur connecté est bordé de 2 px `{colors.primary}` et porte la puce « connecté » `{colors.state-ok}` / `{colors.on-vivid}` ; il ne prend le halo `{colors.state-active}` que lorsque la flèche courante le touche. « injoignable » en `{colors.state-error}` / `{colors.on-vivid}`. Onglets des primitives (`mcp-primitive-tabs`) en `label`, l'actif souligné de 3 px `{colors.primary}` ; un indisponible en `{colors.ink-soft}`, barré, précédé de « ⊘ ». Icônes fixes : 🔧 outil, 📄 ressource, 💬 prompt. Badges « qui choisit » : `trigger-badge-model` (modèle), `trigger-badge-user` (utilisateur), `mcp-chooser-badge-app` (application, contour en tirets) ; les deux premiers, définis dans `app.css`, passent dans une feuille commune. Sélecteurs « À la main | Par le modèle » et « Documentation complète | Lazy loading » (`mcp-mode-switch`) : pilule segmentée bordée `{colors.primary}`, segment choisi plein `{colors.primary}`, texte `{colors.on-primary}`. Boutons `button-primary` et `button-secondary`.
+  - **Séquence** :
+    - *Colonnes* : six en-têtes `mcp-lifeline-head` (`{rounded.sm}`, `label`, sous-titre en encre douce) ; le serveur public en tirets sur `{colors.discipline-network-soft}`, avec « 🌐 RÉSEAU » ; le SLM sur `{colors.ink-fill}`, comme le robot ; un modèle cloud y ajoute la bordure en tirets `{colors.hosting-boundary}` et « 🌐 RÉSEAU · {fournisseur} », et ses flèches avec l'hôte passent en tirets `6 5`. Lignes de vie `mcp-lifeline` : tirets `{colors.muted}` de 2 px, interrompues sous une flèche qui les traverse.
+    - *Flèches* (`mcp-arrow`) : une par ligne, d'au moins `{spacing.6}` ; légende au-dessus du trait, en grille et non en position absolue, sur deux lignes si besoin. Pointe pleine ; ouverte, tracée à 2 px, pour une notification et un fantôme. Message JSON-RPC : puce `mcp-method-chip` en `code`, sur `{colors.discipline-harness-soft}` bordée `{colors.discipline-harness}` (la teinte des messages de la story 6) ; sur un serveur public, `{colors.discipline-network-soft}`, tirets `{colors.hosting-boundary}`, 🌐, et le trait en tirets `6 5`. Échange avec le modèle (`mcp-model-chip`) : ce que le modèle produit (appel d'outil, réponse finale) sur `{colors.ink-fill}`, texte `{colors.on-ink}` ; ce qu'il lit (question et outils, résultat d'outil) sur `{colors.surface-raised}`, contour `{colors.ink}` de 2 px. Appel dans l'hôte : trait `{colors.ink-soft}`, sans puce, libellé `body-sm` italique encre douce. Échange serveur ↔ source : pointillé `{colors.muted}` et étiquette « non capturé ». Fantôme : tirets courts `3 6` `{colors.muted}`, puce `{colors.surface-raised}` à tirets `{colors.muted}`, libellé encre douce, étiquette à tirets. Durées en `number` encre douce. Erreur : trait `{colors.state-error}` de 3 px et pastille ✖ `{colors.state-error}` / `{colors.on-vivid}` (le marqueur `is-block` du lot 2) en bout de flèche.
+    - *Flèche courante* : repère « ▶ » en `label` encre dans la marge de la ligne, fond `{colors.accent-soft}` sur la ligne, puis sur sa puce l'anneau d'encre de 2 px et le halo `{colors.state-active}` (`diagram-block.is-active`, lot 2) ; les en-têtes de ses deux colonnes portent le même anneau et le même halo.
+    - *Phases et encarts* : en-tête de phase `mcp-phase-header` sur `{colors.surface}`, en `label`, avec chevron et synthèse en encre douce ; « Pourquoi… ? » est un bouton à l'aspect d'un lien souligné `{colors.primary}`, son explication sur `{colors.primary-soft}`. Encart déplié `mcp-message-detail` : `{colors.surface-raised}` bordé `{colors.line}`, filet gauche de 4 px `{colors.discipline-harness}` (réseau `{colors.discipline-network}`, modèle `{colors.ink-fill}`, erreur `{colors.state-error}` sur `{colors.danger-soft}`) ; JSON en `code` sur `{colors.surface}`, `{rounded.sm}`, défilant ; requête sortante en `outbound-payload`. Stepper `diagram-stepper` du lot 2 dans l'en-tête du volet.
+  - **Ce que le modèle voit** : blocs `mcp-context-block`, `{rounded.sm}`, bordés `{colors.line}`, avec un filet gauche de 4 px dans la couleur du segment de contexte qu'ils deviendraient : outils `{colors.segment-tool-descriptions}`, résultat `{colors.segment-tool-results}`, ressource `{colors.segment-rag}` `[ASSUMPTION]`, prompt `{colors.segment-message}` ; « Envoyé au modèle » en `{colors.ink-soft}`. Total en `number-lg`, tableau en `body-sm` et `number`, noms d'outils en `code`.
+  - **Architecture** : les jetons du schéma de l'atelier (`arch-zone-local`, `arch-zone-network`, `arch-boundary`, `arch-harness` pour le cadre « Hôte · WaveStack », `arch-model` pour le robot, `arch-node-local`, `arch-node-network`, `arch-node-unavailable`, `arch-node-active`, `arch-flow`).
+    - *Client MCP* (`mcp-arch-client`) : sur `{colors.primary-soft}`, bordé `{colors.primary}`, texte `{colors.primary-deep}` ; un par serveur, empilés dans le cadre de l'hôte. Un client ou un serveur non connecté passe à l'état neutre, sans opacité : fond `{colors.discipline-neutral-soft}`, bordure en tirets `{colors.muted}`, texte `{colors.ink-soft}`.
+    - *Serveur et source* : le serveur en `arch-node-local` ou `arch-node-network`, ses primitives sur une seconde ligne en `label` (« 🔧 2 · 📄 1 · 💬 1 ») ; la source sur `{colors.surface}` bordée `{colors.ink-soft}`, en pointillé quand elle est côté serveur public. L'étiquette « Hôte · WaveStack » est un bouton de `{spacing.hit-target-min}`.
+    - *Fils* : classes du module de schéma (lot 2, `pages.css`) : `diagram-wire` ; stdio en trait plein, HTTP en tirets (`is-dashed`), serveur → source en pointillé `{colors.muted}` (variante nouvelle `is-dotted`) ; nom du transport en `label` encre douce sur le fil. Le chemin parcouru en `diagram-path`, mouvant sur un fil réseau pendant un échange seulement ; un échec en `diagram-path-block`, avec le marqueur ✖ `is-block`.
+    - *Avant MCP* (`mcp-arch-before`) : même cadre d'hôte et mêmes zones ; à la place des clients, trois intégrations sur `{colors.surface-raised}` bordées `{colors.ink-soft}`, `{rounded.sm}`, chacune reliée à sa source par un fil plein `{colors.ink-soft}` terminé par une forme différente (● rond, ◆ losange, ▲ triangle, 12 px, `{colors.ink}`). En « Avec MCP », les trois fils se terminent par la même prise 🔌. Bandeau « Schéma de principe : rien n'est capturé » sur `{colors.warning-soft}`, en `label`, comme l'étiquette « reconstitué » ; légendes en `body-sm` encre. Sélecteur `mcp-mode-switch` dans l'en-tête du volet.
+  - **Retouches du module commun (lot 2)**, visibles aussi dans l'Atelier Harnais : `diagram-block.is-active` = anneau `{colors.ink}` de 2 px puis halo `{colors.state-active}` de 4 px ; `diagram-path-core` à 3 px ; « Suivre le direct » pressé sur fond plein `{colors.primary}`, texte `{colors.on-primary}`, précédé de « ● ».
+  - Mode sombre : jetons seulement, rien d'écrit en dur.
+- **Atelier MCP (`mcp-screen`)** (story 6 du 2026-09-30, page `/mcp`) : **remplacé au lot 4 du 2026-10-04 par « Atelier MCP en séquence », ci-dessus ; ne vaut plus qu'à titre historique.** même cadre que l'Atelier RAG (page `{colors.surface}`, barre commune avec « Atelier MCP » courant, cinq sections `{colors.surface-raised}` numérotées par un disque `{colors.ink-fill}`, boutons `button-primary` et `button-secondary`, bandeau de raison `{colors.warning-soft}`). Les serveurs : une carte chacun en grille qui se replie (`auto-fit`, 20rem au moins), `{rounded.md}`, le glossaire local sur `{colors.discipline-harness-soft}` filet gauche 4 px `{colors.discipline-harness}`, les serveurs publics sur `{colors.discipline-network-soft}` filet `{colors.discipline-network}` ; une pastille « Connexion ouverte » `{colors.state-ok}` / `{colors.on-vivid}`. Les messages JSON-RPC : une ligne chacun, filet de 4 px `{colors.discipline-harness}` à gauche et retrait à droite pour harnais → serveur, à droite et retrait à gauche pour serveur → harnais ; sens en `label`, méthode et JSON en `code` (`{colors.surface}`, bordé `{colors.line}`, `{rounded.sm}`, défilant), durée en `number` encre douce, une étiquette « capturé sur le transport » (ou « reconstitué » sur `{colors.warning-soft}`) ; une requête HTTP sortante sur `{colors.discipline-network-soft}`. Les outils : cartes filet `{colors.segment-tool-descriptions}`, schéma replié ; le tableau des poids en `number`, total souligné d'un filet `{colors.ink-soft}`. Le bloc « outils » (section 5) : deux colonnes, documentation complète et lazy loading, en `code`. Toutes les rangées se replient : l'allemand tient à 1 280 px. Aucun jeton nouveau.
+
+- **Diagnostic et modèles (lot 3 du 2026-10-04)** : la page `/diagnostic` fusionnée, référence visuelle [`.working/key-diagnostic-modeles.html`](.working/key-diagnostic-modeles.html). Page sur `{colors.surface}`, sans pois, **jusqu'à 1440 px** de large (et non plus 960 px) pour la grille. Sous le titre, le panneau des contrôles, la bande de filtres, puis deux zones : « 💻 Modèles locaux détectés » et « ☁️ Modèles cloud », séparées par un filet encre de 2 px au-dessus de la zone cloud.
+  - **Groupe d'éditeur (`publisher-group-header`)** : le logo en petite tuile (28 px), le nom de l'éditeur (`label_text` de `publishers.yaml`) en `pane-title`, « · n modèles » en encre douce. Puis la grille de ses cartes.
+  - **Grille** : `repeat(auto-fill, minmax(250px, 1fr))`, gouttière `{spacing.4}` ; 4 à 5 colonnes à 1440 px, 2 en projection agrandie. Les lignes incomplètes restent vides (pas d'étirement des cartes).
+  - **Carte de modèle (`model-card`)** : tuile de logo de 48 px à gauche ; à droite, le nom en `body` gras (coupé n'importe où plutôt que tronqué), puis l'origine en encre douce (« Fichier GGUF · Hugging Face », « Ollama · serveur local déjà lancé », « llama-server · 127.0.0.1:8080 », ou le fournisseur pour le cloud). Dessous, sur toute la largeur : la **taille en gros chiffre** (`number-lg`, « 2,5 Go », « ≈ 2,7 Go » pour un modèle servi), les paramètres à côté en encre douce (« 4 B ») ; enfin la pastille d'état et les marques (« choix enregistré », « offre d'essai ») en `primary` sur `primary-soft`. Un modèle à plusieurs sources porte en plus la puce « 2 sources » (`label`, encre sur `{colors.surface}`, bordée encre douce, pilule), distincte des marques violettes. Relief jouet habituel (ombre pleine `{colors.relief}` de 4 px), bordure encre douce au survol.
+  - **Carte active** : bordure encre de 3 px et ombre `{colors.state-active}` : c'est la carte qu'on repère du fond de la salle. **Carte inutilisable** (incompatible ou en erreur) : fond `{colors.danger-soft}`, taille en encre douce.
+  - **Carte cloud** : fond `{colors.discipline-network-soft}`, bordure en tirets encre de 2 px, sans ombre ; la ligne de taille porte à la place l'étiquette `hosting-tag-network` « 🌐 RÉSEAU · {fournisseur} » (un modèle cloud n'a pas de taille). Ce codage réseau, déjà celui de l'atelier, est ce qui sépare local et cloud d'un coup d'œil.
+  - **Carte dépliée (`model-card-expanded`)** : elle prend toute la largeur de sa ligne (`grid-column: 1 / -1`), bordure `{colors.primary}` de 2 px (tirets encre pour une carte cloud), rembourrage `{spacing.5}`, tuile de 64 px, nom en `heading`, et « ✕ Replier » en `button-secondary` en haut à droite. Avec plusieurs sources, une section « Sources » d'abord, sur toute la largeur : une ligne par source sur `{colors.surface}`, bordée `{colors.line}`, `{rounded.sm}` (bordure encre pour la source active), avec l'origine en gras, le chemin en `code`, la taille, la pastille d'état et « Choisir cette source » en `button-primary` à droite. Sous un filet `{colors.line}`, deux colonnes (une seule sous 640 px) de sections titrées en `label` majuscule encre douce : Diagnostic (messages complets derrière un filet gauche de 4 px : `state-ok`, encre douce pour un avertissement, `state-error`), Fichier ou Adresse (`code` sur `{colors.surface}`), Capacités (liste Fenêtre, Appel d'outils, Raisonnement, Prix, la raison de chaque valeur dessous en `body-sm` encre douce) ; pour le cloud, « Où partent les données », Clé API et Dernier test. Les actions, sous un dernier filet : « Choisir ce modèle » en `button-primary`, « Tester » et « Enregistrer la clé » en `button-secondary`, l'aide en encre douce à côté.
+  - **Tuile de logo (`model-logo`)** : fond `{colors.logo-tile}`, blanc dans les deux thèmes (nouveau jeton, à reporter dans `tokens.css`), bordure `{colors.line}`, `{rounded.sm}`, logo contenu sans déformation. Logo de la famille quand la banque-visuels l'a (Qwen, Gemma, Gemini, Claude, DeepSeek, Mistral), sinon celui de la société (Llama → symbole ∞ de Meta, le logotype « LLaMA by Meta » n'ayant pas de symbole séparé ; Phi → Microsoft, Nemotron → NVIDIA, gpt et gpt-oss → OpenAI, SmolLM → Hugging Face, Granite → logo IBM entier, watsonx n'ayant pas de symbole). Sans logo (LFM, MiniCPM, « Autres éditeurs ») : l'initiale en `pane-title` `{colors.primary}` sur `{colors.primary-soft}`. Symbole seulement, jamais le logotype : Qwen, DeepSeek, Hugging Face, OpenAI et Meta, logotypes larges dans la banque, sont recadrés sur leur symbole à l'intégration (`scripts/crop_logos.py`, provenance dans `static/logos/SOURCES.md`) ; la tuile garde sa taille (décisions d'Anaël du 2026-10-04).
+  - **Pastille d'état (`state-pill`)** : un point de 12 px et un libellé en `label`, sur `{colors.surface}` bordé `{colors.line}`. Actif et Test réussi : point vert bordé encre sur `{colors.accent-soft}` ; Incompatible, Erreur, Échec du test : point rouge sur `{colors.danger-soft}` ; Disponible et Prêt : point creux encre douce ; Clé manquante : point en tirets gris, libellé encre douce ; Avertissement et Test en avertissement : « ⚠ » à la place du point. Le jaune n'est jamais un état (il dit « ça sort du poste »), y compris pour les avertissements, à la différence de `diagnostic-row`.
+  - **Panneau des contrôles (`checks-panel`)** : `details` blanc bordé `{colors.line}`, `{rounded.md}`, résumé de 44 px de haut au moins : « ▸ Contrôles · 4 contrôles OK : mémoire, modèle, réseau, port ». Ouvert, il contient les `diagnostic-row` actuelles.
+  - **Bande de filtres (`models-filters`)** : celle du tableau des modèles, avec l'hébergement en bouton segmenté (Tous, Local, Réseau ; segment choisi en `{colors.primary}`, texte `{colors.on-primary}`) et un menu « Trier par » en plus ; le compteur à droite en encre douce.
 
 ## Do's and Don'ts
 
@@ -1067,8 +1328,11 @@ Noms de composants identiques dans EXPERIENCE.md, section Component Patterns.
 | Un sous-titre par volet, qui dit ce qu'il montre | Sous-titre décoratif, slogan, ou qui répète le titre |
 | Distinguer les catégories du schéma (outil, serveur, skill, fichier) par le bac, la forme et l'icône ; la couleur dit la discipline de la brique | Donner une couleur à chaque catégorie de composant |
 | Le robot représente le modèle, et seulement lui | Robot comme décoration, sur un autre composant ou dans un état sans rapport avec le modèle |
+| Séquence MCP : une flèche dit son origine (capturé sur le transport, déduit dans l'hôte, non capturé dans le serveur, événement du modèle, non exécuté ici) par son trait et une étiquette | Dessiner une flèche déduite ou non capturée comme une flèche capturée, ou un fantôme comme un échange réel |
+| Séquence MCP : le modèle n'a de flèches et de fils qu'avec l'hôte, sa colonne collée à celle de l'hôte | Relier le modèle au client ou au serveur MCP, même pour simplifier |
 | Animations réservées au signal « en action » (pouls, flux, antenne) et au fondu de 150 ms de la vue liée, coupées sous `prefers-reduced-motion` | Curseur personnalisé, révélations au scroll, compteurs animés de la charte vitrine, robot animé au repos |
 | Chaque couleur par un jeton de `tokens.css`, avec son jumeau `-dark` (story 31), dans toutes les pages de `static/` | Couleur écrite en dur (`#hex`, `rgb(`, `hsl(`) dans une page, une feuille ou un script de `static/` hors `tokens.css` |
 | Fond d'encre = `{colors.ink-fill}` (violet profond en sombre) | `{colors.ink}` en fond : en sombre, c'est un texte clair |
 | Texte sur fond vif (jaune, vert, rouge, gris neutre) = `{colors.on-vivid}`, explicite | Laisser un texte hériter sa couleur sur un fond vif : il deviendrait clair en sombre |
 | Palette sombre dessinée jeton par jeton, dans DESIGN.md puis `tokens.css` | `filter: invert`, ou une palette calculée en JS |
+| Logos d'éditeurs embarqués dans `static/logos/`, sur une tuile `{colors.logo-tile}`, pour désigner le modèle (lot 3 du 2026-10-04) | Logo chargé d'un CDN, logo recoloré ou inversé en sombre, ou logo qui suggère un partenariat |

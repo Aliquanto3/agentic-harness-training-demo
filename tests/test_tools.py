@@ -244,6 +244,10 @@ def test_text_after_the_call_breaks_the_prefix_and_is_traced():
     reused = events["prefix_not_reused"][0]
     assert 0 < reused["common_tokens"] < events["context_rendered"][1]["used"]
     assert "relit" in reused["message_text"]
+    # Lot 1 of 2026-10-04: the tokens read again, Orchestration's figure.
+    assert reused["again_tokens"] == (
+        events["context_rendered"][1]["used"] - reused["common_tokens"]
+    )
 
 
 def test_completed_turn_enters_history_with_its_calls_and_results():

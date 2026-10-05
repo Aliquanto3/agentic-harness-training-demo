@@ -820,6 +820,9 @@ class ServedModel:
     # (`/props`) and training context (`/v1/models`), the model table's capabilities.
     family: str | None = None
     parameter_size: str | None = None
+    # Lot 3 of 2026-10-04: Ollama's `details.quantization_level` (« Q4_K_M »), so that the
+    # page groups this model with the same file found elsewhere (rule 3, `catalog`).
+    quantization: str | None = None
     chat_template: str | None = None
     n_ctx_train: int | None = None
 
@@ -864,6 +867,7 @@ def _served_by(client: httpx.Client, engine: str, url: str) -> list[ServedModel]
                     resident_size=loaded.get(name),
                     family=_text(details.get("family")),
                     parameter_size=_text(details.get("parameter_size")),
+                    quantization=_text(details.get("quantization_level")),
                 )
             )
         return served

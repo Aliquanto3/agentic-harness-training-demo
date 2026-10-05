@@ -1,0 +1,78 @@
+- id: "5a-1"
+  title: "Trois vues (séquence, architecture, focus), mode Composer, noms anglais, sans A/B"
+  description: >-
+    La section 1 devient la séquence BUILD/RUN, l'architecture de ses composants et le focus
+    d'une étape ; l'éditeur passe dans la séquence (mode Composer) et la comparaison A/B est
+    retirée (CAP-1, CAP-2, vues-atelier-rag.md §1 à §5, §7, §9).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Fichiers : rag.html, rag.js, rag.css, rag/lab.py (STEPS, RagLabContent : steps, components,
+    groups, phases, textes de page ; payload), content/rag_lab.yaml et copies en/de,
+    tests/test_rag_lab.py, tests/test_i18n.py (branche rag_lab), E2E _rag_lab* (A/B retirée,
+    FAISS sur la voie A). diagram.js en import seulement. Garder les sélecteurs E2E de l'éditeur.
+- id: "5a-2"
+  title: "Mode Dérouler : apparition progressive, pas-à-pas et exécution en direct"
+  description: >-
+    Les étapes et les composants arrivent un à un (visite guidée ou run réel), l'étape montrée
+    allume ses composants et ses flèches, le focus montre ses chiffres ; ◀ ▶ rejouent (CAP-3,
+    vues-atelier-rag.md §6).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Aucune modification backend attendue (les événements existent). E2E : _rag_lab_views.
+    Commit « lot 5a » à la fin de cette story.
+- id: "5b-1"
+  title: "Architectures toutes faites : RAG dense, RAG hybride, RAG + reranking"
+  description: >-
+    Trois préréglages déclarés en Python et rendus par le catalogue, appliqués au segment de
+    récupération par une rangée de boutons en mode Composer (CAP-4, vues-atelier-rag.md §8).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    PRESETS et presets.* dans rag/lab.py (validation des ids), content/rag_lab.yaml et copies
+    en/de, Catalog.payload()['presets'] avec disponibilité par check_pipeline. Tests pytest
+    (payload, disponibilité, chaîne hybride exécutée) et E2E _rag_lab_presets. Commit « lot 5b ».
+    Puis compléter les Notes de fusion de SPEC.md.
+- id: "5c-1"
+  title: "Embedding au choix : Granite, fastembed et autres modèles déclarés"
+  description: >-
+    L'étape Embedding propose chaque modèle d'embedding déclaré (et fastembed), avec sa
+    disponibilité et sa raison (CAP-5).
+  spec_checkpoint: true
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Après fusion du lot 3 et validation de 5a/5b. Touche config ([rag.embedding] en liste ?),
+    _rag_lab_catalog d'app_session.py et le cache rag_lab par modèle (cache_key inclut déjà
+    l'identité). Répondre d'abord à la question ouverte sur les modèles à déclarer. Retirer aussi
+    la voie B du backend (LANES_MAX, compare(), textes et clés ui.yaml rag.comparison.*).
+- id: "5c-2"
+  title: "Rerankers déclarés en plus du modèle de la brique"
+  description: >-
+    L'étape Reranking propose plusieurs rerankers déclarés, chacun prêté ou chargé pour le run
+    (CAP-5).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Loans (rag/lab.py) prête la brique ou charge pour le run ; respecter le budget mémoire
+    (LoadRegistry). Options du catalogue : ("rerank", <id déclaré>).
+- id: "5c-3"
+  title: "Génération exécutée par le modèle actif"
+  description: >-
+    L'étape Generation s'exécute avec le modèle actif sur le prompt augmenté, en streaming,
+    arrêtable, au lieu de « non exécutée » (CAP-5).
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Lente sur CPU : progression en tokens, « Arrêter » respecté. Trancher d'abord la question
+    ouverte (dépense, prompt système). Ne pas toucher la jauge ni la conversation de l'atelier.
+    La tuile Réponse de l'architecture montre alors la réponse.
+- id: "5c-4"
+  title: "Téléchargement d'un modèle absent depuis l'Atelier RAG"
+  description: >-
+    Un modèle d'embedding ou de reranking absent se télécharge depuis l'étape qui l'utilise,
+    avec progression, sans passer par l'atelier principal (CAP-5).
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Réutiliser download_model (app_session.py) et ses événements ; place disque vérifiée avant.
