@@ -5,22 +5,27 @@ raisonnement, mémoire, prompt système, outils, RAG, MCP, skills, hooks, sous-a
 compression du contexte. Démonstrateur pédagogique local, qui tourne sur CPU, sans GPU ;
 interface en français, en anglais et en allemand.
 
-![Démonstration de WaveStack : le LLM nu ne connaît pas l'heure ; avec la brique Outils, le modèle appelle get_datetime et chaque étape s'affiche](docs/assets/wavestack-demo.gif)
+![Démonstration de WaveStack : le LLM nu ne connaît pas l'heure ; avec la brique Outils, le modèle appelle get_datetime et chaque étape s'affiche ; puis les ateliers LLM, RAG et MCP](docs/assets/wavestack-demo.gif)
 
 *Même question, sans puis avec outils : le LLM nu avoue ne pas connaître l'heure ; avec les
-outils, le modèle appelle `get_datetime`, et les volets Contexte LLM, Orchestration et Schéma
-montrent chaque étape. [Version vidéo (MP4)](docs/assets/wavestack-demo.mp4).*
+outils, il appelle `get_datetime` et chaque étape s'affiche. Puis l'Atelier LLM (tokens, vecteurs,
+tirage du token suivant), l'Atelier RAG et l'Atelier MCP. [Version vidéo (MP4)](docs/assets/wavestack-demo.mp4).*
 
-## Ce que vous y voyez
+## Comment ça marche
 
-- **Quatre volets synchronisés** : ce que voit l'utilisateur, ce que lit vraiment le modèle,
-  ce que fait le harnais pas à pas, et où tourne chaque pièce (sur le poste ou sur le réseau).
-- **Des briques à brancher une à une**, au fil d'un programme guidé de six modules (5 h 15).
-- **Trois ateliers pour regarder à l'intérieur** : l'Atelier LLM (de l'entrée aux tokens puis à
-  la sortie), l'Atelier RAG (indexation puis requête, architectures toutes faites, modèle au
-  choix pour chaque composant) et l'Atelier MCP.
-- **Un petit modèle local** (Qwen3.5-2B, 1,3 Go), installé sans droits administrateur, ou un
-  modèle cloud si vous avez une clé API.
+Un LLM seul ne fait que prolonger un texte. Le **harnais** est le programme qui l'entoure : à
+chaque message, il assemble le contexte (prompt système, mémoire, descriptions d'outils,
+extraits de documents…), appelle le modèle, exécute les outils que celui-ci demande et lui
+en réinjecte les résultats, jusqu'à la réponse. WaveStack montre cette boucle pendant qu'elle tourne :
+
+- **Des briques à allumer une à une**, au fil d'un programme guidé de six modules (5 h 15) :
+  chaque scénario allume ses briques, donne sa consigne et propose ses prompts.
+- **Quatre volets synchronisés** : ce que voit l'utilisateur, ce que lit vraiment le modèle (en
+  tokens), ce que fait le harnais pas à pas, et où tourne chaque pièce (sur le poste ou non).
+- **Trois ateliers pour regarder à l'intérieur** : l'Atelier LLM (texte, tokens, vecteurs,
+  probabilités, token tiré), l'Atelier RAG (indexation puis requête, architectures toutes
+  faites, modèle au choix par composant) et l'Atelier MCP (les messages JSON-RPC du protocole).
+- **Un petit modèle local** (Qwen3.5-2B, 1,3 Go), sans droits administrateur, ou un modèle cloud.
 
 ## Installation sous Windows
 
@@ -36,16 +41,14 @@ faites autoriser les domaines de [Derrière un proxy d'entreprise](docs/installa
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
-2. **Récupérez WaveStack** et entrez dans son dossier, d'où se lancent les commandes suivantes
-   (avec l'archive zip : décompressez-la, puis `cd agentic-harness-training-demo-main`) :
+2. **Récupérez WaveStack** et entrez dans son dossier (zip : décompressez-le, puis `cd agentic-harness-training-demo-main`) :
 
    ```powershell
    git clone https://github.com/Aliquanto3/agentic-harness-training-demo.git
    cd agentic-harness-training-demo
    ```
 
-3. **Déposez le modèle** (1,28 Go) dans `%LOCALAPPDATA%\WaveStack\models`, le dossier de
-   données de votre profil, hors du dossier cloné (une mise à jour du code n'y touche pas) :
+3. **Déposez le modèle** (1,28 Go) dans `%LOCALAPPDATA%\WaveStack\models`, hors du dossier cloné :
 
    ```powershell
    New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\WaveStack\models" | Out-Null
@@ -63,12 +66,11 @@ faites autoriser les domaines de [Derrière un proxy d'entreprise](docs/installa
 
 5. **Lancez** avec `uv run wavestack`. Le premier lancement télécharge Python 3.13 et les
    dépendances (quelques minutes), puis ouvre le diagnostic. Si plusieurs modèles sont trouvés,
-   cliquez sur « Choisir » en face de Qwen3.5-2B, puis ouvrez l'Atelier par le lien « Harnais ».
+   cliquez sur « Choisir ce modèle » en face de Qwen3.5-2B, puis sur le lien « Harnais ».
 
-**Modèles du RAG.** La brique RAG demande un modèle d'embedding (121 Mo) et, en option, un
-modèle de reranking (438 Mo), à télécharger depuis la carte RAG de l'Atelier Harnais. Ceux de
-l'Atelier RAG (132 à 639 Mo) : page « RAG », « N modèles à télécharger » sous la tuile Embedding
-model ou Reranker, puis « Télécharger ». [Détails et copie à la main](docs/installation.md#modèles-du-rag).
+**Modèles du RAG.** Les modèles d'embedding et de reranking (121 à 639 Mo) se téléchargent depuis
+l'interface : carte RAG de l'Atelier Harnais pour la brique RAG, bouton « Télécharger » de
+l'Atelier RAG pour ses composants. [Détails et copie à la main](docs/installation.md#modèles-du-rag).
 
 **Pour commencer**, choisissez le scénario « LLM nu » en bas à gauche et suivez sa consigne ;
 le [programme de formation](docs/guide.md#programme-de-formation) enchaîne les modules. Ctrl+C
@@ -76,13 +78,11 @@ arrête WaveStack. Mise à jour : `git pull` (ou un nouveau zip), `uv sync` avec
 
 ## Utiliser un modèle cloud (clé API)
 
-Facultatif : le modèle local suffit pour toute la formation. Préréglages fournis : Groq,
-Mistral, Gemini, Gemma, Claude et GPT-6 Luna. Créez une clé dans la console du fournisseur
-(chez Mistral, activez d'abord le plan gratuit « Experiment »), collez-la au diagnostic dans la
-ligne du modèle (« Enregistrer la clé »), puis « Tester », « Choisir » et « Utiliser ce
-modèle ». La clé reste sur ce poste (`%LOCALAPPDATA%\WaveStack\api_keys.json`), n'est jamais
-affichée ni tracée, et ne part que vers l'hôte du fournisseur. Variables d'environnement,
-domaines à autoriser et conditions de chaque fournisseur : [Modèles cloud](docs/modeles.md#modèles-cloud).
+Facultatif : le modèle local suffit pour toute la formation. Préréglages : Groq, Mistral,
+Gemini, Gemma, Claude et GPT-6 Luna. Collez la clé du fournisseur au diagnostic, dans la ligne du
+modèle (« Enregistrer la clé », prise en compte sans relancer), puis « Tester », « Choisir ce
+modèle… » et « Utiliser ce modèle ». La clé reste sur ce poste, n'est jamais affichée ni tracée
+et ne part que vers l'hôte du fournisseur. Plans gratuits, proxy et conditions : [Modèles cloud](docs/modeles.md#modèles-cloud).
 
 ## Aller plus loin
 
