@@ -6165,20 +6165,12 @@ class AppSession:
     def download_model(self, target: str) -> str:
         """Class (b): downloads the embedding model's missing files, on a thread of its own,
         in the `download` state (« Arrêter » stops it). `KeyError` for an unknown target,
-        `SendRefused` outside `idle`, or when there is nothing to download (the files being
-        there, the index and the files are read again)."""
-        if target not in (RAG_TARGET, RERANK_TARGET) or "rag" not in self._bricks:
-            raise KeyError(target)
-        rerank = target == RERANK_TARGET  # story 16: the reranking model
-        model = self._rerank_model if rerank else self._rag_model
-        noun = Message(
-            "session.rag.model_noun.reranking" if rerank else "session.rag.model_noun.embedding"
-        )
-        if model is None:
-            raise SendRefused(
-                (self._rerank_config_error if rerank else self._content_errors.get("rag"))
-                or Message("session.download.no_model", noun=noun)
-            )
+        `SendRefused` outside `idle`, when there is nothing to download (the files being
+        there, the index and the files are read again), or when the disk has not the room
+        for the missing files (lot 5c-4). Lot 5c-4: also the RAG workshop's own models,
+        `rag_lab_embedding:<id>` and `rag_lab_reranker:<id>`, traced outside the brick
+        (context `rag_lab`, component `rag_lab.embedding` or `rag_lab.rerank`)."""
+        model, noun, scope = self._download_target(target)
         with self._lock:
             if self.state != "idle":
                 raise SendRefused(self._refusal_reason())
@@ -6188,16 +6180,73 @@ class AppSession:
             self._rag_caught_up()
             raise SendRefused(Message("session.download.nothing", noun=noun, dest=dest))
         total = sum(f.size for f in missing)
+        free = download_module.free_bytes(dest)
+        if free is not None and free < total:  # lot 5c-4: nothing starts without the room
+            raise SendRefused(
+                Message(
+                    "session.download.disk_full",
+                    noun=noun,
+                    need=Lazy(lambda lang: number(max(1, math.ceil(total / 1_000_000)), lang)),
+                    free=Lazy(lambda lang: number(free // 1_000_000, lang)),
+                    dest=dest,
+                )
+            )
         cancel = download_module.StopToken()
         previous = self._enter_rag_job("download", self._download_fr(0, total, noun), cancel)
         threading.Thread(
             target=self._run_download,
             args=(missing, dest, cancel, previous),
-            kwargs={"noun": noun, "component": RAG_RERANKER if rerank else "rag.retriever"},
+            kwargs={"noun": noun, "scope": scope},
             name="wavestack-download",
             daemon=True,
         ).start()
         return self._download_fr(0, total, noun)
+
+    def _download_target(
+        self, target: str
+    ) -> tuple[EmbeddingModel | RerankerModel, Message, dict[str, Any]]:
+        """A `download_model` target: its model, its noun (« d'embedding », « de
+        reranking ») and its trace scope. The brick's (`rag_embedding`, `rag_reranker`) keep
+        the brick's scope; the workshop's (lot 5c-4, `rag_lab_embedding:<id>`,
+        `rag_lab_reranker:<id>`) are traced outside it, so the RAG card does not show them.
+        `KeyError` for an unknown target, `SendRefused` for a brick's model not declared."""
+        kind, _, model_id = target.partition(":")
+        if kind in ("rag_lab_embedding", "rag_lab_reranker") and model_id:
+            rerank = kind == "rag_lab_reranker"
+            lab_model = (
+                self.cfg.rag_lab_reranker(model_id)
+                if rerank
+                else self.cfg.rag_lab_embedding(model_id)
+            )
+            if lab_model is None:
+                raise KeyError(target)
+            component = "rag_lab.rerank" if rerank else "rag_lab.embedding"
+            scope = self._rag_lab_scope("rag_lab", component, brick=None)
+            return lab_model, self._model_noun(rerank), scope
+        if target not in (RAG_TARGET, RERANK_TARGET) or "rag" not in self._bricks:
+            raise KeyError(target)
+        rerank = target == RERANK_TARGET  # story 16: the reranking model
+        model = self._rerank_model if rerank else self._rag_model
+        noun = self._model_noun(rerank)
+        if model is None:
+            raise SendRefused(
+                (self._rerank_config_error if rerank else self._content_errors.get("rag"))
+                or Message("session.download.no_model", noun=noun)
+            )
+        return (
+            model,
+            noun,
+            {
+                "brick": "rag",
+                "component": RAG_RERANKER if rerank else "rag.retriever",
+            },
+        )
+
+    @staticmethod
+    def _model_noun(rerank: bool) -> Message:
+        return Message(
+            "session.rag.model_noun.reranking" if rerank else "session.rag.model_noun.embedding"
+        )
 
     def _enter_rag_job(self, state: str, reason_text: str, cancel: CancelToken) -> str | None:
         """`download` or `index_build`, switched under the lock from `idle` (class b). Returns
@@ -6255,16 +6304,18 @@ class AppSession:
         previous: str | None,
         *,
         noun: str | None = None,
-        component: str = "rag.retriever",
+        scope: dict[str, Any] | None = None,
     ) -> None:
         """The download thread, then back to `idle`; the index and the files are read again,
         and the model loads if wanted. Each file's sha256 is traced (to pin it in
-        [rag.embedding])."""
+        [rag.embedding]). `scope`: where the trace goes, the brick's embedding model by
+        default (lot 5c-4: the workshop's models outside the brick)."""
+        scope = scope or {"brick": "rag", "component": "rag.retriever"}
         failed: str | None = None
         stopped = False
         digests: dict[str, str] = {}
         try:
-            with scoped(brick="rag", component=component, origin="download"):
+            with scoped(**scope, origin="download"):
                 digests = download_module.download_files(
                     files,
                     dest,
@@ -6279,7 +6330,7 @@ class AppSession:
         noun = noun or Message("session.rag.model_noun.embedding")
         with self._lock:
             self._download_cancel = None
-        with scoped(brick="rag", component=component):  # the card shows it (AD-1)
+        with scoped(**scope):  # the card shows the brick's (AD-1), the workshop its own
             if stopped:
                 # Finition V1 (#20): « Arrêter » is no failure; the `.part` is gone, said in a
                 # neutral line on the card, without the copy by hand of a failure.
@@ -6306,6 +6357,12 @@ class AppSession:
                         "lines": [f"{dest / path} · sha256 {sha}" for path, sha in digests.items()],
                     },
                 )
+        try:
+            # Lot 5c-4: the files read again before `idle`, which the RAG workshop answers by
+            # reading its catalog again (its « Télécharger » then gone).
+            self._rag_refresh()
+        except Exception:  # noqa: BLE001 - AD-16: read again below, said by the card
+            pass
         self._set_state("idle", previous)
         try:
             self._rag_caught_up()
@@ -9191,10 +9248,13 @@ class AppSession:
             _, index_error, _, _, _, missing_text = self._rag_index_state(model, content)
             embedding.note_text = missing_text
             store.note_text = index_error
+        # Lot 5c-4: « Télécharger » in the stage, the RAG card's own offer (its target).
+        embedding.download = self._rag_offers()["download"]
         rerank = options[("rerank", "declared")]
         if self._rerank_model is not None:
             rerank.label_text = self._rerank_model.label_text
         rerank.note_text = self._rerank_static_reason()
+        rerank.download = (self._rerank_card() or {}).get("download")
         # Lot 5c-3: the generation by the workshop's active model, named after it; without a
         # model loaded, it can still be chosen, its stage skipped (the note says so).
         generation = options[("generation", "active")]
@@ -9217,13 +9277,16 @@ class AppSession:
             elif option not in self._rag_lab_imported and not rag_lab.installed(module):
                 state.available, state.reason_text = False, rag_lab.not_installed_fr(option)
         # Lot 5c-1: the workshop's own embedding models, an option each (its id), offered only
-        # when its files are on the workstation (the workshop does not download them yet).
+        # when its files are on the workstation (lot 5c-4: « Télécharger » in the stage else).
         declared_models, rejected = self.cfg.rag_lab_embeddings
         self._rag_lab_trace_rejected(rejected, "embeddings")
         for lab_model in declared_models:
             absent = self._rag_lab_absent(lab_model)
             options[("embedding", lab_model.id)] = rag_lab.OptionState(
-                lab_model.label_text, available=absent is None, reason_text=absent
+                lab_model.label_text,
+                available=absent is None,
+                reason_text=absent,
+                download=self._rag_lab_download(texts, lab_model),
             )
         # Lot 5c-2: the workshop's own reranking models, the same way; a file on the
         # workstation that the adapter would refuse (its GGUF header: segment ids, an LLM
@@ -9233,7 +9296,10 @@ class AppSession:
         for lab_reranker in lab_rerankers:
             refused = self._rag_lab_absent(lab_reranker) or self._rag_lab_refused(lab_reranker)
             options[("rerank", lab_reranker.id)] = rag_lab.OptionState(
-                lab_reranker.label_text, available=refused is None, reason_text=refused
+                lab_reranker.label_text,
+                available=refused is None,
+                reason_text=refused,
+                download=self._rag_lab_download(texts, lab_reranker),
             )
         return rag_lab.Catalog(
             texts, rag_lab.default_pipeline(self.cfg), options, lang=self._language
@@ -9251,6 +9317,23 @@ class AppSession:
         return Message(
             f"session.rag_lab.lab_{kind}_absent", files=files, folder=config.models_dir()
         )
+
+    @staticmethod
+    def _rag_lab_download(
+        texts: rag_lab.RagLabContent, model: config.EmbeddingModel | RerankerModel
+    ) -> dict[str, str] | None:
+        """Lot 5c-4: « Télécharger (≈ N Mo) » for a workshop's model whose files are missing
+        (its `download_model` target, `rag_lab_embedding:<id>` or `rag_lab_reranker:<id>`),
+        or `None`."""
+        missing = download_module.missing_files(model.files, config.models_dir())
+        if not missing:
+            return None
+        kind = "reranker" if isinstance(model, RerankerModel) else "embedding"
+        size_mb = max(1, round(sum(f.size for f in missing) / 1_000_000))
+        return {
+            "target": f"rag_lab_{kind}:{model.id}",
+            "label_text": texts.download_label_text.format(size_mb=size_mb),
+        }
 
     @staticmethod
     def _rag_lab_refused(model: RerankerModel) -> Message | None:

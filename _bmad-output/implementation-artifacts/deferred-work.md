@@ -1008,3 +1008,10 @@
 - source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-3-generation-executee-par-le-modele-actif.md`
   summary: Mettre à jour `SPEC.md` du lot 5 en fin de lot 5c (CAP-5 dit encore « non implémentées dans ce lot », Notes de fusion de 5c à compléter).
   evidence: Revue 5c-3, constat 5 ; ligne 35 de `SPEC.md` périmée depuis 5c-1.
+  closed: 2026-10-05 (5c-4, fin de lot 5c) — `SPEC.md` : CAP-5 dit les stories livrées en lot 5c, Non-goals précisés, section « Notes de fusion de 5c » ajoutée.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-4-telechargement-modele-absent.md`
+  summary: Vérifier sur le PC cible un vrai téléchargement complet depuis l'étape Embedding ou Reranking de l'Atelier RAG (multilingual-e5-small, 132 Mo), jusqu'à l'option devenue disponible sans recharger la page, et le refus « Place insuffisante » sur un disque presque plein.
+  evidence: medium ; la pile E2E coupe le réseau sortant : le parcours clique, voit l'état `download`, arrête (ou constate l'échec hors ligne) et lit l'issue dans l'étape, sans jamais finir un téléchargement. Pendant ce téléchargement, la carte RAG de l'atelier principal montre aussi la progression et « Arrêter » (état `download` partagé, `app.js` non modifié), sans l'issue.
+- source_spec: `_bmad-output/specs/spec-lot-5-atelier-rag-2026-10-04/stories/5c-4-telechargement-modele-absent.md`
+  summary: E2E de l'Atelier RAG — couvrir le refus d'un téléchargement dit dans l'étape (409 « Rien à télécharger » ou « Place insuffisante », classe `is-error`, catalogue relu), la réussite (« Modèle téléchargé », option disponible sans recharger), l'étape Reranking et l'option `declared` de la brique.
+  evidence: medium ; revue 5c-4, constat 4 : la pile E2E est hors ligne et ne joue que le chemin accepté puis arrêté. Piste : un fichier de la taille déclarée (fichier creux) posé sous `models/embedding/` avant le clic pour le 409, ou un petit modèle servi en local pour la réussite.

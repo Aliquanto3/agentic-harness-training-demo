@@ -180,14 +180,15 @@ Les dossiers sont relatifs au dossier `models/` du dossier de données
 « Télécharger le modèle d'embedding », puis, dans la sous-option « Reranking », « Télécharger
 le modèle de reranking ». WaveStack vérifie la taille et le sha256 de chaque fichier.
 
-**Les modèles d'embedding de l'Atelier RAG** (multilingual-e5-small, Qwen3-Embedding 0.6B)
-sont des options de son étape Embedding, à côté de celui de la brique. L'atelier ne les
-télécharge pas encore : téléchargez-les à la main (adresses `url` des entrées
-`[[rag_lab.embeddings]]` de `wavestack.toml`) et copiez-les sous ces noms exacts dans
-`models/embedding/`. Sans son fichier, l'option est grisée, la raison nomme le fichier attendu ;
-WaveStack vérifie son sha256 au chargement. **Le modèle de reranking de l'Atelier RAG**
-(Qwen3-Reranker 0.6B) se place de même, sous son nom exact, dans `models/reranker/` (adresse
-`url` de l'entrée `[[rag_lab.rerankers]]`).
+**Les modèles d'embedding de l'Atelier RAG** (multilingual-e5-small, Qwen3-Embedding 0.6B) sont
+des options de son étape Embedding, à côté de celui de la brique. En mode Composer, l'étape les
+télécharge par son bouton « Télécharger (≈ N Mo) », taille et sha256 vérifiés ; sinon,
+téléchargez-les à la main (adresses `url` des entrées `[[rag_lab.embeddings]]` de
+`wavestack.toml`) et copiez-les sous ces noms exacts dans `models/embedding/`. Sans son
+fichier, l'option est grisée, la raison nomme le fichier attendu ; WaveStack vérifie son sha256
+au chargement. **Le modèle de reranking de l'Atelier RAG** (Qwen3-Reranker 0.6B) se télécharge
+de même depuis l'étape Reranking, ou se place à la main, sous son nom exact, dans
+`models/reranker/` (adresse `url` de l'entrée `[[rag_lab.rerankers]]`).
 
 **Hors ligne, ou derrière un proxy qui bloque Hugging Face.** Téléchargez les fichiers sur un
 autre poste (adresses `url` des sections `[rag.embedding]` et `[rag.reranker]` de

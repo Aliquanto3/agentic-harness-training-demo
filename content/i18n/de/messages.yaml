@@ -338,6 +338,8 @@ session:
     stopped: "Download des {noun}-Modells gestoppt: Die laufende Datei wird gelöscht, die Schaltfläche zum Herunterladen lädt die fehlenden Dateien erneut."
     failed: "Der Download des {noun}-Modells ist fehlgeschlagen."
     by_hand: "Es wird nichts installiert. Um fortzufahren, kopieren Sie die Datei von Hand nach {folder} ({names}) und klicken Sie dann erneut auf die Schaltfläche zum Herunterladen."
+    # Lot 5c-4: the room on the disk, checked before any download starts.
+    disk_full: "Nicht genug Platz für das {noun}-Modell: {need} MB zum Herunterladen benötigt, {free} MB frei in {dest}. Schaffen Sie Platz und klicken Sie dann erneut auf die Schaltfläche zum Herunterladen."
   build:
     no_model: Der RAG-Baustein hat kein deklariertes Modell.
     model_missing: "Erstellung nicht möglich: Das Embedding-Modell ist nicht auf dem Arbeitsplatz. Klicken Sie zuerst auf „Embedding-Modell herunterladen“."
@@ -507,10 +509,10 @@ session:
       effect: "Es wird verworfen; sein Speicherplatz wird freigegeben."
     no_embedding: Es ist kein Embedding-Modell deklariert.
     embedding_absent: "Embedding-Modell fehlt ({names} in {folder}). Laden Sie es über die RAG-Karte der Werkstatt herunter. Oder folgen Sie docs/installation.md, Abschnitt „Modèles du RAG“ (auf Französisch)."
-    lab_embedding_absent: "Nicht verfügbar: Modelldatei fehlt ({files} unter {folder}). Die Werkstatt lädt sie noch nicht herunter: Holen Sie sie von der in wavestack.toml ([[rag_lab.embeddings]]) angegebenen Adresse und legen Sie sie dort ab."
+    lab_embedding_absent: "Nicht verfügbar: Modelldatei fehlt ({files} unter {folder}). Klicken Sie in diesem Schritt im Modus „Zusammenstellen“ auf „Herunterladen“, oder holen Sie sie von der in wavestack.toml ([[rag_lab.embeddings]]) angegebenen Adresse und legen Sie sie dort ab."
     lab_embedding_effect: "Die anderen Embedding-Modelle der Werkstatt bleiben verfügbar."
     # Lot 5c-2: a model of [[rag_lab.rerankers]] that cannot be chosen, and why.
-    lab_reranker_absent: "Nicht verfügbar: Modelldatei fehlt ({files} unter {folder}). Die Werkstatt lädt sie noch nicht herunter: Holen Sie sie von der in wavestack.toml ([[rag_lab.rerankers]]) angegebenen Adresse und legen Sie sie dort ab."
+    lab_reranker_absent: "Nicht verfügbar: Modelldatei fehlt ({files} unter {folder}). Klicken Sie in diesem Schritt im Modus „Zusammenstellen“ auf „Herunterladen“, oder holen Sie sie von der in wavestack.toml ([[rag_lab.rerankers]]) angegebenen Adresse und legen Sie sie dort ab."
     lab_reranker_refused: "Nicht verfügbar: {reason}."
     lab_reranker_effect: "Die anderen Reranking-Modelle der Werkstatt bleiben verfügbar."
     # Lot 5c-3: the Generation stage run by the workshop's active model.

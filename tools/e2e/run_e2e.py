@@ -13463,6 +13463,88 @@ def s_rag_lab(r: Run) -> None:
         r.goto_app()
 
 
+def _rag_lab_download(r: Run) -> None:
+    """Lot 5c-4: « Télécharger » in the Embedding's line (selected) for a workshop's model
+    missing; its click enters `download`, the stage's « Arrêter » stops it, or (the e2e stack
+    being offline) it fails at once: the outcome, traced outside the brick, said in the stage,
+    the button active again. No real download is completed."""
+    page = r.page
+    target = "rag_lab_embedding:qwen3-embedding-0.6b"
+    row = _seq_row(r, "embedding")
+    row.locator(".rag-seq-head").click()
+    button = row.locator(f'button.rag-download[data-target="{target}"]')
+    expect(button).to_be_visible(timeout=5000)
+    catalog = r.api("GET", "/api/rag_lab").json()["catalog"]
+    stage = next(s for s in catalog["stages"] if s["kind"] == "embedding")
+    option = next(o for o in stage["options"] if o["id"] == "qwen3-embedding-0.6b")
+    label = button.inner_text()
+    r.check(
+        option["download"] == {"target": target, "label_text": label}
+        and re.fullmatch(r"Télécharger \(≈ \d+ Mo\)", label) is not None
+        and option["label_text"] in (button.get_attribute("aria-label") or "")
+        and button.is_enabled()
+        and "dans cette étape en mode Composer" in option["reason_text"],
+        "lot 5c-4 : « Télécharger (≈ N Mo) » dans la ligne Embedding pour Qwen3-Embedding absent, "
+        "nommé d'après l'option, la raison invitant à cliquer",
+        f"{label} · {button.get_attribute('aria-label')} · {option.get('download')}",
+    )
+    seq = r.ev.mark()
+    button.click()
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "download", 10)
+    stop = row.locator(f'button.rag-download-stop[data-target="{target}"]')
+    line = row.locator(f'.rag-chain-download[data-target="{target}"]')
+    progress = line.locator(".rag-chain-download-progress")
+
+    def outcome() -> dict[str, Any] | None:
+        stopped = [
+            e
+            for e in r.ev.since(seq, "effect_applied")
+            if e["payload"].get("effect") == "model_download_stopped"
+        ]
+        return (stopped or r.ev.since(seq, "harness_error") or [None])[0]
+
+    # While it downloads (unless, offline, it already failed): the progress and the stage's
+    # « Arrêter » in place of the button, the page's « Arrêter » active too.
+    shown, _ = r.poll(lambda: outcome() is not None or stop.is_visible(), 5)
+    clicked = False
+    if outcome() is None:
+        during = {
+            "progress": progress.is_visible() and bool(progress.inner_text().strip()),
+            "stop": stop.is_visible(),
+            "page_stop": page.locator("#rag-stop").is_enabled(),
+        }
+        r.check(
+            shown and all(during.values()),
+            "lot 5c-4 : pendant le téléchargement, progression et « Arrêter » dans l'étape, "
+            "« Arrêter » de la page actif",
+            str(during),
+        )
+        with contextlib.suppress(PlaywrightTimeout):
+            stop.click(timeout=2000)
+            clicked = True
+
+    ended, _ = r.poll(lambda: outcome() is not None, 30)
+    r.ev.wait("session_state", seq, lambda p: p["state"] == "idle", 30)
+    event = outcome() or {}
+    notice = row.locator(".rag-chain-download-notice")
+    expect(notice).to_contain_text("modèle d'embedding", timeout=5000)
+    expect(button).to_be_enabled(timeout=5000)
+    part = list((r.stack.data_dir / "models").rglob("*.part"))
+    r.check(
+        ended
+        and (not clicked or event.get("payload", {}).get("effect") == "model_download_stopped")
+        and event.get("component") == "rag_lab.embedding"
+        and event.get("brick") is None
+        and event.get("context_id") == "rag_lab"
+        and not [e for e in r.ev.since(seq) if e.get("brick") == "rag"]
+        and not part,
+        "lot 5c-4 : clic, état download, « Arrêter » de l'étape ; issue (arrêt ou échec hors "
+        "ligne) tracée hors de la brique, dite dans l'étape, bouton de nouveau actif, aucun .part",
+        f"{event.get('kind')} · {event.get('component')} · arrêt cliqué : {clicked} · "
+        f"{notice.inner_text()[:160]} · {part}",
+    )
+
+
 def _rag_lab(r: Run, errors: list[str]) -> None:
     page = r.page
     r.goto_app()
@@ -13587,6 +13669,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "sans son fichier, la raison nommant reranker/…",
         f"{choices} · {notes}",
     )
+    _rag_lab_download(r)
     r.check(
         "Même modèle" in page.inner_text('#rag-seq [data-step="embed_query"]'),
         "Embedding de la question : « même modèle que l'Embedding des chunks »",

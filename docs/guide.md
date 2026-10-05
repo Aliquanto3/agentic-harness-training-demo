@@ -128,7 +128,8 @@ sur la carte comme ici.
 Sur une installation neuve, tout se fait depuis la carte RAG, sans ligne de commande :
 
 1. « Télécharger le modèle d'embedding » : le fichier va dans `models/embedding/` du dossier de
-   données (sans réseau, copiez-le à la main à cet endroit, puis cliquez de nouveau) ;
+   données (sans réseau, copiez-le à la main à cet endroit, puis cliquez de nouveau) ; sans la
+   place sur le disque, rien ne démarre et la carte dit combien de Mo il faut ;
 2. « Construire l'index » : le corpus est découpé et indexé sur le poste, dans
    `data/rag_index.sqlite` (sqlite-vec), avec une progression et « Arrêter ».
 
@@ -178,8 +179,9 @@ entrent dans le message. L'étape « Reranking » d'Orchestration montre l'ordre
   l'étape « Reranking » est trop lente sur le poste, baissez `[rag] rerank_candidates` dans
   `settings.json`.
 - **Sans le modèle,** la case propose « Télécharger le modèle de reranking » (fichier dans
-  `models/reranker/`, ou copie à la main au même endroit) et le RAG fonctionne sans reranking.
-  Le dossier `models/reranker/` n'est jamais proposé comme modèle de conversation.
+  `models/reranker/`, ou copie à la main au même endroit ; la place sur le disque est vérifiée
+  d'abord) et le RAG fonctionne sans reranking. Le dossier `models/reranker/` n'est jamais
+  proposé comme modèle de conversation.
 
 ## Compression du contexte (Headroom)
 
@@ -289,12 +291,12 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
 - **L'exécution.** « Lancer la chaîne » exécute chaque étape sur la question (500 caractères au
   plus) et montre ce qu'elle reçoit, ce qu'elle produit, ses chiffres, ses extraits (rang, rang
   d'avant, document, score), sa durée et la mémoire de WaveStack. La chaîne livrée lit l'index
-  de la brique (sans jamais y écrire) ; l'embedder et le reranker sont empruntés à la brique RAG
-  quand elle les a chargés, sinon chargés pour l'exécution (dans le budget mémoire) puis fermés.
-  Sans modèle d'embedding, l'étape le dit : téléchargez-le depuis la carte RAG de l'atelier ;
-  sans reranker, le reranking est sauté et le contexte garde l'ordre de la recherche.
-  « Arrêter » interrompt entre deux étapes. Pendant l'exécution, l'atelier attend (état
-  « Atelier RAG : exécution en cours »).
+  de la brique (sans jamais y écrire) ; l'embedder et le reranker sont empruntés à la brique
+  RAG quand elle les a chargés, sinon chargés pour l'exécution (dans le budget mémoire) puis
+  fermés. Sans modèle d'embedding, l'étape le dit : téléchargez-le depuis son étape (voir plus
+  bas) ou depuis la carte RAG de l'atelier ; sans reranker, le reranking est sauté et le
+  contexte garde l'ordre de la recherche. « Arrêter » interrompt entre deux étapes. Pendant
+  l'exécution, l'atelier attend (état « Atelier RAG : exécution en cours »).
 - **La Generation.** Par défaut (option « Modèle actif de l'atelier », nommée d'après lui), le
   modèle actif de l'atelier génère la réponse. Il reçoit le prompt système de l'atelier tel
   qu'un tour l'enverrait (personnalisé ou par défaut ; rien si la brique « Prompt système » est
@@ -327,33 +329,44 @@ sable : la brique RAG de l'atelier (ses réglages, son index, ses modèles) ne c
   `wavestack.toml` (jamais dans `settings.json`) : **multilingual-e5-small** (384 dimensions,
   512 tokens, préfixes `query: ` et `passage: `) et **Qwen3-Embedding 0.6B** (1 024 dimensions,
   2 048 tokens, une instruction devant la question). Leur fichier va sous `models/embedding/`
-  du dossier de données ; absent, l'option est grisée et la raison nomme le fichier attendu
-  (l'atelier ne le télécharge pas encore). Chaque modèle est chargé le temps de l'exécution,
-  dans son propre emplacement du budget mémoire (`rag_lab.embedding.<id>`), sans jamais
-  décharger celui de la brique, et a son propre cache de vecteurs. Un chunk plus long que ce
-  que le modèle lit d'un coup (`max_tokens`) est tronqué : l'étape l'annonce en avertissement
-  (« 3 chunks sur 16 dépassent 512 tokens, tronqués »). Un GGUF d'embedding ou de reranking
-  (clé `pooling_type` dans son en-tête) n'est jamais proposé comme modèle de conversation, où
-  qu'il soit (dossier des modèles, cache Hugging Face, LM Studio) : Diagnostic et modèles le
-  montrent en rouge, avec la raison.
+  du dossier de données ; absent, l'option est grisée et la raison nomme le fichier attendu.
+  Chaque modèle est chargé le temps de l'exécution, dans son propre emplacement du budget
+  mémoire (`rag_lab.embedding.<id>`), sans jamais décharger celui de la brique, et a son propre
+  cache de vecteurs. Un chunk plus long que ce que le modèle lit d'un coup (`max_tokens`) est
+  tronqué : l'étape l'annonce en avertissement (« 3 chunks sur 16 dépassent 512 tokens,
+  tronqués »). Un GGUF d'embedding ou de reranking (clé `pooling_type` dans son en-tête) n'est
+  jamais proposé comme modèle de conversation, où qu'il soit (dossier des modèles, cache
+  Hugging Face, LM Studio) : Diagnostic et modèles le montrent en rouge, avec la raison.
 - **Reranking au choix.** L'étape Reranking propose, après le modèle de la brique RAG (BGE
   Reranker v2 M3), ceux déclarés en `[[rag_lab.rerankers]]` de `wavestack.toml` :
   **Qwen3-Reranker 0.6B** (1 024 tokens par paire). Son fichier va sous `models/reranker/` ;
-  absent, l'option est grisée et la raison nomme le fichier attendu. Il est chargé le temps de
-  l'exécution dans son propre emplacement du budget (`rag_lab.reranker.<id>`, environ 937 Mo
-  mesurés sur le PC de développement), sans décharger celui de la brique. L'en-tête du GGUF dit
-  comment présenter la paire question-extrait : BGE (un cross-encoder) lit `[BOS] question
-  [EOS] [SEP] extrait [EOS]` et rend un logit, ramené entre 0 et 1 par une sigmoïde ;
-  Qwen3-Reranker (un LLM) lit la paire dans son propre gabarit (`tokenizer.chat_template.rerank`)
-  et rend déjà une probabilité, lue telle quelle. Le focus de l'étape dit cette lecture
-  (« Lecture du score »). Chaque modèle est calibré à sa façon : les scores de rerankers
-  différents ne se comparent pas, seul l'ordre que chacun donne compte. Un cross-encoder BERT
-  qui distingue la question de l'extrait par des identifiants de segment (ms-marco MiniLM :
-  `token_type_count` à 2) est refusé, llama.cpp ne les transmettant pas, comme un LLM sans
-  gabarit de reranking : l'option est grisée avec la raison. Une paire plus longue que
-  `max_tokens` est coupée (l'extrait d'abord, la question aussi si elle dépasse la moitié de
-  la place) : l'étape l'annonce en avertissement (« 2 candidats sur 8 dépassent la longueur
-  d'une paire : coupés à 1 024 tokens… »).
+  absent, l'option est grisée et la raison nomme le fichier attendu (voir « Télécharger un
+  modèle absent » plus bas). Il est chargé le temps de l'exécution dans son propre emplacement
+  du budget (`rag_lab.reranker.<id>`, environ 937 Mo mesurés sur le PC de développement), sans
+  décharger celui de la brique. L'en-tête du GGUF dit comment présenter la paire
+  question-extrait : BGE (un cross-encoder) lit `[BOS] question [EOS] [SEP] extrait [EOS]` et
+  rend un logit, ramené entre 0 et 1 par une sigmoïde ; Qwen3-Reranker (un LLM) lit la paire
+  dans son propre gabarit (`tokenizer.chat_template.rerank`) et rend déjà une probabilité, lue
+  telle quelle. Le focus de l'étape dit cette lecture (« Lecture du score »). Chaque modèle est
+  calibré à sa façon : les scores de rerankers différents ne se comparent pas, seul l'ordre que
+  chacun donne compte. Un cross-encoder BERT qui distingue la question de l'extrait par des
+  identifiants de segment (ms-marco MiniLM : `token_type_count` à 2) est refusé, llama.cpp ne
+  les transmettant pas, comme un LLM sans gabarit de reranking : l'option est grisée avec la
+  raison. Une paire plus longue que `max_tokens` est coupée (l'extrait d'abord, la question
+  aussi si elle dépasse la moitié de la place) : l'étape l'annonce en avertissement
+  (« 2 candidats sur 8 dépassent la longueur d'une paire : coupés à 1 024 tokens… »).
+- **Télécharger un modèle absent.** En Composer, l'étape Embedding (ou Reranking) choisie
+  montre « Télécharger (≈ N Mo) » pour chaque modèle dont le fichier manque : ceux de l'atelier
+  et celui de la brique RAG. Le clic vérifie d'abord la place sur le disque
+  (« Place insuffisante pour le modèle d'embedding : 640 Mo à télécharger, 200 Mo libres
+  dans … », rien ne démarre), puis télécharge depuis l'adresse déclarée, sha256 vérifié : la progression
+  s'affiche dans l'étape avec « Arrêter le téléchargement » (le bouton « Arrêter » de la page
+  l'arrête aussi). À la fin, l'étape dit le résultat (« Modèle téléchargé », arrêt, ou l'échec
+  avec le dossier où copier le fichier à la main) et l'option devient disponible sans recharger
+  la page ; le modèle n'est pas chargé, l'exécution le charge dans le budget. Un téléchargement
+  d'un modèle de l'atelier est tracé hors de la brique (contexte `rag_lab`) : la carte RAG de
+  l'atelier principal n'en affiche pas l'issue. Ni le mode Dérouler ni le focus ne
+  téléchargent ; fastembed reste à copier à la main.
 - **Ajouter, retirer, déplacer.** Entre le vector store et le Prompt augmentation, les
   recherches, la fusion et le reranking se déplacent par leurs boutons « ▲ » et « ▼ » (au clavier
   aussi) et se retirent ; « Ajouter un composant » propose ceux qui manquent, placés avant le

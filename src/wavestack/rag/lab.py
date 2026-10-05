@@ -292,6 +292,11 @@ class RagLabContent(_Strict):
     answer_title_text: str = Field(min_length=1)
     answer_waiting_text: str = Field(min_length=1)
     answer_reasoning_text: str = Field(min_length=1)
+    # Lot 5c-4: « Télécharger (≈ {size_mb} Mo) » for a model missing, in its stage (Composer),
+    # « Arrêter » while it downloads, and the line once it is there.
+    download_label_text: str = Field(min_length=1)
+    download_stop_text: str = Field(min_length=1)
+    download_done_text: str = Field(min_length=1)
     borrowed_text: str = Field(min_length=1)
     loaded_text: str = Field(min_length=1)
     input_text: str = Field(min_length=1)
@@ -414,12 +419,15 @@ def default_pipeline(cfg: config.Config) -> Pipeline:
 @dataclass
 class OptionState:
     """What the page shows of an option: its name, whether it can be chosen (with why not),
-    and a note on what a run would meet (a model missing, the brick's index stale)."""
+    and a note on what a run would meet (a model missing, the brick's index stale). Lot 5c-4:
+    `download`, its model's files missing: the `download_model` target and the button's
+    label (`{"target", "label_text"}`), else `None`."""
 
     label_text: str
     available: bool = True
     reason_text: str | None = None
     note_text: str | None = None
+    download: dict[str, str] | None = None
 
 
 @dataclass
@@ -471,6 +479,7 @@ class Catalog:
                         "reason_text": _rendered(state.reason_text, self.lang),
                         "note_text": _rendered(state.note_text, self.lang),
                         "params": params,
+                        "download": state.download,
                     }
                 )
             stages.append(

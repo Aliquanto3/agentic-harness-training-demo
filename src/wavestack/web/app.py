@@ -140,7 +140,8 @@ class ArmIntention(BaseModel):
 
 
 class DownloadModelIntention(BaseModel):
-    """Stories 15 and 16: the model to download, `rag_embedding` or `rag_reranker`."""
+    """Stories 15 and 16: the model to download, `rag_embedding` or `rag_reranker`; lot 5c-4:
+    a RAG workshop's own model, `rag_lab_embedding:<id>` or `rag_lab_reranker:<id>`."""
 
     target: str
 

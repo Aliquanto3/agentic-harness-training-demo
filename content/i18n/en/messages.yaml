@@ -336,6 +336,8 @@ session:
     stopped: "Download of the {noun} model stopped: the file being downloaded is deleted, “Download” fetches the missing files again."
     failed: "The download of the {noun} model failed."
     by_hand: "Nothing is installed. To continue, copy the file by hand into {folder} ({names}), then click “Download” again."
+    # Lot 5c-4: the room on the disk, checked before any download starts.
+    disk_full: "Not enough room for the {noun} model: {need} MB to download, {free} MB free in {dest}. Free some space, then click “Download” again."
   build:
     no_model: The RAG brick has no declared model.
     model_missing: "Build impossible: the embedding model is not on the workstation. Click “Download” first."
@@ -505,10 +507,10 @@ session:
       effect: "It is forgotten; its memory slot is released."
     no_embedding: No embedding model is declared.
     embedding_absent: "Embedding model missing ({names} in {folder}). Download it from the workshop's RAG card. Or follow docs/installation.md, section “Modèles du RAG” (in French)."
-    lab_embedding_absent: "Unavailable: model file missing ({files} under {folder}). The workshop does not download it yet: get it from the address declared in wavestack.toml ([[rag_lab.embeddings]]) and put it there."
+    lab_embedding_absent: "Unavailable: model file missing ({files} under {folder}). Click “Download” in this stage in “Compose” mode, or get it from the address declared in wavestack.toml ([[rag_lab.embeddings]]) and put it there."
     lab_embedding_effect: "The workshop's other embedding models are still offered."
     # Lot 5c-2: a model of [[rag_lab.rerankers]] that cannot be chosen, and why.
-    lab_reranker_absent: "Unavailable: model file missing ({files} under {folder}). The workshop does not download it yet: get it from the address declared in wavestack.toml ([[rag_lab.rerankers]]) and put it there."
+    lab_reranker_absent: "Unavailable: model file missing ({files} under {folder}). Click “Download” in this stage in “Compose” mode, or get it from the address declared in wavestack.toml ([[rag_lab.rerankers]]) and put it there."
     lab_reranker_refused: "Unavailable: {reason}."
     lab_reranker_effect: "The workshop's other reranking models are still offered."
     # Lot 5c-3: the Generation stage run by the workshop's active model.

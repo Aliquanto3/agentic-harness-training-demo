@@ -321,6 +321,65 @@ body.rag-page {
   display: none;
 }
 
+/* Lot 5c-4: « Télécharger » for a model missing, on the line selected only (like its reason),
+   unless it downloads (the progress and « Arrêter » stay said); the outcome likewise on the
+   line selected only. No opacity: a
+   disabled button keeps its contrast (AA sweep of the E2E). */
+.rag-chain-downloads {
+  flex: 1 1 100%;
+}
+
+.rag-chain-downloads[hidden] {
+  display: none;
+}
+
+.rag-chain-download {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1) var(--spacing-2);
+  margin: var(--spacing-1) 0;
+  color: var(--color-ink);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.rag-seq-step:not(.is-selected) .rag-chain-download:not(.is-active),
+.rag-seq-step:not(.is-selected) .rag-chain-download-notice {
+  display: none;
+}
+
+.rag-chain-download-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-download-progress {
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-download .rag-button-secondary {
+  min-height: var(--spacing-hit-target-min);
+  padding: 0 var(--spacing-3);
+}
+
+.rag-chain-download-notice {
+  margin: var(--spacing-1) 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  border-left: 3px solid var(--color-line);
+  color: var(--color-ink);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+  overflow-wrap: anywhere;
+}
+
+.rag-chain-download-notice.is-error {
+  background: var(--color-danger-soft);
+  border-left-color: var(--color-danger);
+}
+
 .rag-chain-option {
   font-weight: 700;
   overflow-wrap: anywhere;

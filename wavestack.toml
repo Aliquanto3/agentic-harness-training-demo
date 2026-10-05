@@ -144,8 +144,9 @@ fastembed_cost_mb = 150
 # que [rag.embedding] ; fichiers sous embedding/ (jamais proposés comme modèles de conversation),
 # sha256 vérifié au chargement. `id` : unique, 32 caractères au plus, ni « declared » ni
 # « fastembed » ni l'id de la brique ; une entrée invalide est écartée, les autres restent.
-# Lus dans ce fichier seulement (jamais dans settings.json). L'atelier ne les télécharge pas
-# encore : un fichier absent rend l'option indisponible, avec son chemin sous models/.
+# Lus dans ce fichier seulement (jamais dans settings.json). Un fichier absent rend l'option
+# indisponible, avec son chemin sous models/ ; « Télécharger » dans l'étape (Composer) le
+# récupère à l'adresse déclarée, sha256 vérifié.
 # Valeurs de l'essai du 2026-10-05 (essai-modeles-5c.md) ; RSS mesuré sur le PC de
 # développement, à remesurer sur le PC cible.
 [[rag_lab.embeddings]]
@@ -186,8 +187,9 @@ files = [
 # reranker d'architecture LLM (Qwen3-Reranker) passe par son gabarit
 # tokenizer.chat_template.rerank et rend déjà une probabilité (pas de sigmoïde) ; un
 # cross-encoder BERT à identifiants de segment (token_type_count ≥ 2, ms-marco MiniLM) est
-# refusé : llama.cpp ne les transmet pas. L'atelier ne les télécharge pas encore : un fichier
-# absent rend l'option indisponible, avec son chemin sous models/.
+# refusé : llama.cpp ne les transmet pas. Un fichier absent rend l'option indisponible, avec
+# son chemin sous models/ ; « Télécharger » dans l'étape (Composer) le récupère à l'adresse
+# déclarée, sha256 vérifié.
 # Valeurs de l'essai du 2026-10-05 (essai-modeles-5c.md) ; RSS mesuré sur le PC de
 # développement, à remesurer sur le PC cible.
 [[rag_lab.rerankers]]

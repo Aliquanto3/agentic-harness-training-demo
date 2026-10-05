@@ -44,6 +44,8 @@ const store = {
   replaying: false, // `last_run` being read again: one render at its end, not one per event
   land: false, // a run just ended: its stepper lands on its last frame, or its failed step
   promptOpen: false, // lot 5c-3: the generation's prompt unfolded, kept across the renders
+  download: null, // lot 5c-4: the download this page launched, { target, kind }, until `idle`
+  downloadNotices: {}, // lot 5c-4: its outcome, said in its stage, by kind: { text, error }
 };
 
 // ---------- small helpers ----------
@@ -266,7 +268,151 @@ function stageControls(stage, index) {
       box.append(el("p", "rag-chain-unavailable", labelled(other.label_text, other.reason_text)));
     }
   }
+  const downloads = el("div", "rag-chain-downloads");
+  downloads.dataset.kind = stage.kind;
+  fillDownloads(downloads);
+  box.append(downloads);
   return box;
+}
+
+// ---------- lot 5c-4: a model missing, downloaded from its stage ----------
+
+// The components whose download outcome the stage says: the workshop's models, and the
+// brick's (its « declared » options). Taken only during a download this page launched.
+// (Built from their parts: a quoted `rag.…` would read as a text key of ui.yaml.)
+const DOWNLOAD_COMPONENTS = [
+  ...["embedding", "rerank"].map((c) => `rag_lab.${c}`),
+  ...["retriever", "reranker"].map((c) => `rag.${c}`),
+];
+
+// A stage's « Télécharger » lines, one per option whose files are missing (the session's
+// target and label, AD-1), the progress and « Arrêter » in place of the one downloading, and
+// the last outcome under them.
+function fillDownloads(box) {
+  const kind = box.dataset.kind;
+  const options = (stageInfo(kind)?.options ?? []).filter((o) => o.download);
+  box.replaceChildren();
+  for (const option of options) {
+    const target = option.download.target;
+    const line = el("p", "rag-chain-download");
+    line.dataset.target = target;
+    line.append(el("span", "rag-chain-download-name", option.label_text));
+    const ours = store.download?.target === target;
+    line.classList.toggle("is-active", ours);
+    if (ours && store.session.state === "download") {
+      const progress = el("span", "rag-chain-download-progress", store.session.reason_text || "");
+      progress.setAttribute("role", "status");
+      const stop = el("button", "rag-button-secondary rag-download-stop", text("download_stop_text"));
+      stop.type = "button";
+      stop.dataset.target = target;
+      stop.addEventListener("click", stopRun);
+      line.append(progress, stop);
+    } else {
+      const button = el("button", "rag-button-secondary rag-download", option.download.label_text);
+      button.type = "button";
+      button.dataset.target = target;
+      button.setAttribute("aria-label", labelled(option.label_text, option.download.label_text));
+      const busy = busyReason();
+      button.disabled = Boolean(busy || store.download);
+      if (busy) button.title = busy;
+      button.addEventListener("click", () => downloadModel(kind, target));
+      line.append(button);
+    }
+    box.append(line);
+  }
+  const notice = store.downloadNotices[kind];
+  if (notice) {
+    const said = el("p", `rag-chain-download-notice${notice.error ? " is-error" : ""}`, notice.text);
+    said.setAttribute("role", "status");
+    box.append(said);
+  }
+  box.hidden = !box.childElementCount;
+}
+
+// The download line the keyboard was on ({ target, kind }), found again after its line is
+// drawn again: its button (« Télécharger », « Arrêter »), else its stage's option.
+let downloadFocus = null;
+
+function noteDownloadFocus() {
+  const line = document.activeElement?.closest?.(".rag-chain-download");
+  if (line) downloadFocus = { target: line.dataset.target, kind: line.parentElement?.dataset.kind };
+}
+
+function restoreDownloadFocus() {
+  if (!downloadFocus) return;
+  const active = document.activeElement;
+  if (active && active !== document.body && active.isConnected) {
+    // Elsewhere now (or still there): nothing to give back.
+    if (!active.closest(".rag-chain-download")) downloadFocus = null;
+    return;
+  }
+  const line = [...document.querySelectorAll(".rag-chain-download")].find((l) => l.dataset.target === downloadFocus.target);
+  const button = line?.querySelector("button:not(:disabled)");
+  if (button) button.focus();
+  else if (!line) document.querySelector(`#rag-seq .rag-chain-card[data-kind="${downloadFocus.kind}"] select.rag-option`)?.focus();
+  else return; // its button disabled for now (the download starting): given back later
+  downloadFocus = null;
+}
+
+// Every stage's lines drawn again in place (the progress, once a second), the keyboard's
+// focus kept on the same target's line.
+function renderDownloads() {
+  noteDownloadFocus();
+  for (const box of document.querySelectorAll(".rag-chain-downloads")) fillDownloads(box);
+  restoreDownloadFocus();
+}
+
+async function downloadModel(kind, target) {
+  noteDownloadFocus();
+  store.download = { target, kind };
+  delete store.downloadNotices[kind];
+  renderDownloads();
+  const answer = await post("/api/intentions/download_model", { target });
+  if (answer.ok) {
+    renderDownloads();
+    return;
+  }
+  // Refused (the room on the disk, the session busy, the files already there): nothing
+  // started; the catalog read again (a file copied by hand meanwhile).
+  if (store.download?.target === target) store.download = null;
+  store.downloadNotices[kind] = { text: refusalText(answer), error: true };
+  await reloadCatalog();
+}
+
+// The catalog only, read again (a download ended): the options' availability, their reasons
+// and their « Télécharger », the chain checked again.
+async function reloadCatalog() {
+  try {
+    const response = await fetch("/api/rag_lab");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    if (body.catalog) store.catalog = body.catalog;
+  } catch {
+    // the next reload of the page reads it
+  }
+  noteDownloadFocus();
+  redraw();
+  restoreDownloadFocus();
+  validateChains();
+}
+
+// A download's outcome (`effect_applied`, `harness_error` outside a turn), said in the stage
+// of the download this page launched; a load failing afterwards is not the stage's.
+function downloadOutcome(envelope) {
+  if (!store.download || envelope.turn_id || !DOWNLOAD_COMPONENTS.includes(envelope.component)) return;
+  const p = envelope.payload;
+  let notice = null;
+  if (envelope.kind === "harness_error") {
+    const cause = p.cause ? t("main.bricks.notice_cause", { cause: p.cause }) : null;
+    notice = { text: [p.message_text, cause, p.effect_text].filter(Boolean).join(" "), error: true };
+  } else if (p.effect === "model_download") {
+    notice = { text: text("download_done_text"), error: false };
+  } else if (p.effect === "model_download_stopped") {
+    notice = { text: (p.lines ?? []).join(" "), error: false };
+  }
+  if (!notice) return;
+  store.downloadNotices[store.download.kind] = notice;
+  renderDownloads();
 }
 
 // Increment 4: a stage of the retrieval segment moves by buttons (keyboard included), never
@@ -1067,10 +1213,23 @@ function applyEnvelope(envelope) {
   store.lastSeq = Math.max(store.lastSeq, envelope.seq);
   const p = envelope.payload;
   switch (envelope.kind) {
-    case "session_state":
+    case "session_state": {
+      const was = store.session.state;
       store.session = { state: p.state, reason_text: p.reason_text };
       if (p.state === "idle" && closeStaleRun()) renderRun();
       renderBusy();
+      // Lot 5c-4: a download ended (this page's or another's): the catalog read again.
+      if (was === "download" && p.state !== "download") {
+        store.download = null;
+        reloadCatalog();
+      } else {
+        renderDownloads();
+      }
+      return;
+    }
+    case "effect_applied":
+    case "harness_error":
+      downloadOutcome(envelope);
       return;
     case "rag_lab_run_started":
       store.run = {
@@ -1294,7 +1453,8 @@ function renderBusy() {
   const blocked = runBlocked();
   run.disabled = Boolean(blocked) || store.pending || !store.content;
   run.title = blocked || "";
-  $("rag-stop").disabled = store.session.state !== "rag_lab";
+  // Lot 5c-4: « Arrêter » stops a download too (even one launched before a reload).
+  $("rag-stop").disabled = !["rag_lab", "download"].includes(store.session.state);
 }
 
 function renderContent() {
