@@ -28,8 +28,7 @@ Pour Windows 10 ou 11 x64, sans droits administrateur ; prévoyez 3 Go de disque
 tous les modèles du RAG) et 4 Go de RAM libre. Sous macOS ou Linux, ou si une étape bloque
 (politique du poste, proxy), suivez [l'installation détaillée](docs/installation.md).
 **Sur un réseau d'entreprise**, tapez d'abord `$env:UV_SYSTEM_CERTS = "1"` dans le terminal et
-faites autoriser les domaines de
-[Derrière un proxy d'entreprise](docs/installation.md#derrière-un-proxy-dentreprise).
+faites autoriser les domaines de [Derrière un proxy d'entreprise](docs/installation.md#derrière-un-proxy-dentreprise).
 
 1. **Installez `uv`** dans un terminal PowerShell, puis rouvrez le terminal (refusé ? voir [Windows](docs/installation.md#windows)) :
 
@@ -37,16 +36,13 @@ faites autoriser les domaines de
    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
-2. **Récupérez WaveStack** avec Git, puis entrez dans le dossier cloné : toutes les commandes
-   suivantes se lancent depuis ce dossier.
+2. **Récupérez WaveStack** et entrez dans son dossier, d'où se lancent les commandes suivantes
+   (avec l'archive zip : décompressez-la, puis `cd agentic-harness-training-demo-main`) :
 
    ```powershell
    git clone https://github.com/Aliquanto3/agentic-harness-training-demo.git
    cd agentic-harness-training-demo
    ```
-
-   Avec l'archive zip, décompressez-la, puis `cd` dans le dossier obtenu (par exemple
-   `cd agentic-harness-training-demo-main`).
 
 3. **Déposez le modèle** (1,28 Go) dans `%LOCALAPPDATA%\WaveStack\models`, le dossier de
    données de votre profil, hors du dossier cloné (une mise à jour du code n'y touche pas) :
@@ -57,28 +53,22 @@ faites autoriser les domaines de
    Invoke-WebRequest -UseBasicParsing "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" -OutFile "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf"
    ```
 
-   En cas d'échec, prenez [le fichier](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf)
-   avec le navigateur et copiez-le dans ce dossier.
+   En cas d'échec, prenez [le fichier](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf) avec le navigateur et copiez-le dans ce dossier.
 
-4. **Facultatif : ajoutez les extras** (compression Headroom, FAISS et LanceDB dans l'Atelier
-   RAG, empreinte CodeCarbon), en gardant tous ceux voulus dans la même commande :
+4. **Facultatif : ajoutez les extras** (compression Headroom, FAISS et LanceDB, CodeCarbon), tous dans la même commande :
 
    ```powershell
    uv sync --extra compression --extra rag-alt --extra greenops
    ```
 
 5. **Lancez** avec `uv run wavestack`. Le premier lancement télécharge Python 3.13 et les
-   dépendances dans votre profil (quelques minutes), puis ouvre le navigateur sur le
-   diagnostic. Si plusieurs modèles sont trouvés, cliquez sur « Choisir » en face de
-   Qwen3.5-2B, puis ouvrez l'Atelier Harnais par le lien « Harnais » de la barre de navigation.
+   dépendances (quelques minutes), puis ouvre le diagnostic. Si plusieurs modèles sont trouvés,
+   cliquez sur « Choisir » en face de Qwen3.5-2B, puis ouvrez l'Atelier par le lien « Harnais ».
 
 **Modèles du RAG.** La brique RAG demande un modèle d'embedding (121 Mo) et, en option, un
-modèle de reranking (438 Mo) : téléchargez-les depuis la carte RAG de l'Atelier Harnais. Les
-modèles en plus de l'Atelier RAG (132 à 639 Mo chacun) se téléchargent depuis sa page (lien
-« RAG ») : cliquez sur « N modèles à télécharger » sous la tuile Embedding model ou Reranker
-(sans étape Reranking, la phrase au pied du groupe Modèles dit de l'ajouter), puis sur
-« Télécharger (≈ taille) » dans la ligne de l'étape. Détails et copie à la main :
-[Modèles du RAG](docs/installation.md#modèles-du-rag).
+modèle de reranking (438 Mo), à télécharger depuis la carte RAG de l'Atelier Harnais. Ceux de
+l'Atelier RAG (132 à 639 Mo) : page « RAG », « N modèles à télécharger » sous la tuile Embedding
+model ou Reranker, puis « Télécharger ». [Détails et copie à la main](docs/installation.md#modèles-du-rag).
 
 **Pour commencer**, choisissez le scénario « LLM nu » en bas à gauche et suivez sa consigne ;
 le [programme de formation](docs/guide.md#programme-de-formation) enchaîne les modules. Ctrl+C
