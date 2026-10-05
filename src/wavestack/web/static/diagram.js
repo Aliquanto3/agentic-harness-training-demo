@@ -150,7 +150,9 @@ export function explain(node, text) {
 // the step shown. A bound greys its button; with no step, both are grey and the position hidden.
 // `clear()`: no step, live, and `onShow(null, -1)` so the page erases the step it drew. The
 // position is announced (`aria-live`) only out of live mode, not at every live push.
-export function createStepper(host, { onShow } = {}) {
+// Lot 6 (2026-10-04): `liveText`, the right button's text for a stepper over fixed steps
+// (« Tout montrer », the last one), `common.diagram.live` by default.
+export function createStepper(host, { onShow, liveText } = {}) {
   const frames = [];
   let index = -1;
   let live = true;
@@ -171,7 +173,7 @@ export function createStepper(host, { onShow } = {}) {
   };
   const prev = button("diagram-step-prev", "◀", t("common.diagram.prev"));
   const next = button("diagram-step-next", "▶", t("common.diagram.next"));
-  const follow = button("diagram-step-live", t("common.diagram.live"));
+  const follow = button("diagram-step-live", liveText || t("common.diagram.live"));
   const position = document.createElement("span");
   position.className = "diagram-step-position";
   bar.append(prev, position, next, follow);

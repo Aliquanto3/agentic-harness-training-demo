@@ -482,6 +482,10 @@ session:
     distribution:
       none: "Générez d'abord un texte avec un modèle local."
       out_of_range: "La dernière génération n'a pas de token {index} : elle en compte {count} avec leurs candidats."
+    # Lot 6 of 2026-10-04: the OUTPUT's step, `POST /api/intentions/llm_step` (409).
+    step:
+      too_many: "Pas plus de {limit} tokens ajoutés à la suite : retirez-en un, ou changez le texte."
+      out_of_vocabulary: "L'identifiant {id} n'est pas dans le vocabulaire du modèle actif ({count} tokens) : changez le texte pour repartir de zéro."
     reading: "Lecture du prompt ({tokens} tokens)"
     sending: "Envoi du prompt à {provider} (≈ {tokens} tokens)"
     too_long: "Prompt trop long : {tokens} tokens pour {usable} utilisables (fenêtre de {window} moins {reserve} réservés à la réponse). Raccourcissez-le : l'appel n'est pas envoyé."

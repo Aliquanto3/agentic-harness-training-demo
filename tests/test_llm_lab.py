@@ -24,6 +24,7 @@ from wavestack.models.candidates import (
     TOP,
     candidates_from_logits,
     distribution,
+    dropped_by,
     top_from_logits,
 )
 from wavestack.models.engine import EngineMetadata, Sampling
@@ -1247,3 +1248,280 @@ def test_generation_started_carries_the_window_shares():
     started = next(e.payload for e in events if e.kind == "llm_generation_started")
     assert started["usable"] == session._window - started["reserve"]
     assert {"window", "usable", "reserve", "prompt_tokens"} <= set(started["figures_text"])
+
+
+# ---------- lot 6 of 2026-10-04: the model's loop in three stages ----------
+
+QWEN35_HEADER = {
+    "general.architecture": "qwen35",
+    "qwen35.block_count": 24,
+    "qwen35.embedding_length": 2048,
+    "qwen35.feed_forward_length": 6144,
+    "qwen35.attention.head_count": 8,
+    "qwen35.attention.head_count_kv": 2,
+    "qwen35.full_attention_interval": 4,
+    "qwen35.ssm.state_size": 128,
+}
+MOE_HEADER = {
+    "general.architecture": "qwen3moe",
+    "qwen3moe.feed_forward_length": 6144,
+    "qwen3moe.expert_feed_forward_length": 768,
+    "qwen3moe.expert_count": 128,
+    "qwen3moe.expert_used_count": 8,
+    "qwen3moe.attention.head_count_kv": 4,
+}
+
+
+def test_a_dense_header_is_dense_without_banner():
+    arch = llm_lab.architecture_from_header(
+        {
+            "general.architecture": "qwen3",
+            "qwen3.feed_forward_length": 3072,
+            "qwen3.attention.head_count_kv": 8,
+            "qwen3.expert_count": 0,
+        }
+    )
+    assert arch["family"] == "dense" and arch["name"] == "qwen3"
+    assert (arch["feed_forward_length"], arch["kv_head_count"]) == (3072, 8)
+    assert arch["attention_interval"] is None and arch["expert_count"] is None
+    assert arch["figures_text"]["feed_forward_length"] == "3 072"
+
+
+def test_a_hybrid_header_says_its_full_attention_interval():
+    arch = llm_lab.architecture_from_header(QWEN35_HEADER)
+    assert arch["family"] == "hybrid" and arch["attention_interval"] == 4
+    assert arch["figures_text"]["attention_interval"] == "4"
+    assert arch["kv_head_count"] == 2 and arch["feed_forward_length"] == 6144
+    # Without the interval key: a per-layer `head_count_kv` whose zeros are the recurrent
+    # layers, every fourth one attending.
+    per_layer = {
+        "general.architecture": "qwen3next",
+        "qwen3next.attention.head_count_kv": [0, 0, 0, 2] * 6,
+    }
+    arch = llm_lab.classify_header(per_layer)
+    assert arch["family"] == "hybrid" and arch["attention_interval"] == 4
+    irregular = {"general.architecture": "lfm2", "lfm2.attention.head_count_kv": [0, 8, 0, 0, 8]}
+    arch = llm_lab.classify_header(irregular)
+    assert arch["family"] == "hybrid" and arch["attention_interval"] is None
+    assert llm_lab.classify_header({"general.architecture": "mamba2"})["family"] == "hybrid"
+    for key in ("rwkv7.wkv.head_size", "rwkv7.shortconv.l_cache", "rwkv7.ssm.conv_kernel"):
+        family = llm_lab.classify_header({"general.architecture": "rwkv7x", key: 64})["family"]
+        assert family == "dense", key  # another architecture's keys: not its own
+        own = key.replace("rwkv7.", "rwkv7x.")
+        family = llm_lab.classify_header({"general.architecture": "rwkv7x", own: 64})["family"]
+        assert family == "hybrid", own
+
+
+def test_a_mixture_of_experts_and_a_hybrid_with_experts():
+    arch = llm_lab.architecture_from_header(MOE_HEADER)
+    assert arch["family"] == "moe"
+    assert (arch["expert_count"], arch["expert_used_count"]) == (128, 8)
+    assert arch["feed_forward_length"] == 768  # an expert's own width
+    assert arch["figures_text"]["expert_count"] == "128"
+    both = llm_lab.classify_header(
+        QWEN35_HEADER | {"qwen35.expert_count": 256, "qwen35.expert_used_count": 8}
+    )
+    assert both["family"] == "hybrid" and both["attention_interval"] == 4
+    assert (both["expert_count"], both["expert_used_count"]) == (256, 8)  # noted besides
+
+
+def test_an_unread_header_is_unknown_and_never_fails(tmp_path):
+    for meta in (None, {}, {"general.architecture": ""}, {"general.architecture": 3}):
+        arch = llm_lab.architecture_from_header(meta)
+        assert arch["family"] == "unknown" and arch["name"] is None
+    assert llm_lab.read_architecture(None)["family"] == "unknown"
+    assert llm_lab.read_architecture(tmp_path / "absent.gguf")["family"] == "unknown"
+    (tmp_path / "not.gguf").write_bytes(b"NOPE")
+    assert llm_lab.read_architecture(tmp_path / "not.gguf")["family"] == "unknown"
+
+
+def test_the_header_is_read_once_per_modification_time(tmp_path, monkeypatch):
+    import os
+
+    path = write_gguf(tmp_path / "qwen35.gguf", QWEN35_HEADER)
+    reads: list[str] = []
+    real = gguf_meta.try_read_metadata
+    monkeypatch.setattr(gguf_meta, "try_read_metadata", lambda p: reads.append(p) or real(p))
+    llm_lab.read_architecture.cache_clear()
+    try:
+        first = llm_lab.read_architecture(path)
+        again = llm_lab.read_architecture(path, lang="en")
+        assert first["family"] == again["family"] == "hybrid" and len(reads) == 1
+        first["figures_text"]["attention_interval"] = "x"  # the cache keeps its own copy
+        assert llm_lab.read_architecture(path)["figures_text"]["attention_interval"] == "4"
+        stat = path.stat()
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
+        assert llm_lab.read_architecture(path)["family"] == "hybrid" and len(reads) == 2
+    finally:
+        llm_lab.read_architecture.cache_clear()
+
+
+def _booted_at(engine: FakeEngine, path) -> object:  # noqa: ANN001
+    """`booted_session`, the active model's file at `path` (its header read by the screen)."""
+    from wavestack.session.app_session import AppSession
+
+    context = {"context": {"window": 4096, "near_limit_ratio": 0.8}}
+    session = AppSession(
+        config.Config(values=config._deep_merge(context, {})),
+        engine_factory=lambda p, n_ctx: engine,
+    )
+    session.boot(str(path)).result()
+    return session
+
+
+def test_the_tokenized_dimensions_carry_the_architecture(tmp_path):
+    llm_lab.read_architecture.cache_clear()
+    path = write_gguf(tmp_path / "qwen35.gguf", QWEN35_HEADER)
+    session = _booted_at(SpecialEngine(), path)
+    dims = _tokenized(session, "Le chat")["dimensions"]
+    assert dims["architecture"]["family"] == "hybrid"
+    assert dims["architecture"]["attention_interval"] == 4
+    assert dims["figures_text"]["max_id"] == "1 003"  # « entre 0 et 1 003 »
+    # No GGUF header to read (here a file that is not one): the architecture is unknown.
+    unknown = _tokenized(booted_session(SpecialEngine()), "Le chat")["dimensions"]
+    assert unknown["architecture"]["family"] == "unknown"
+    assert llm_lab.dimensions_payload(None, "x")["architecture"] is None  # the default
+
+
+def _step(session, prompt="Bonjour", continuation=(), sampling=SCREEN) -> tuple[str, list]:  # noqa: ANN001
+    mark = get_journal().last_seq()
+    request_id = session.llm_step(prompt, list(continuation), sampling)
+    session.join()
+    return request_id, get_journal().events_since(mark)
+
+
+def test_a_step_draws_one_token_with_its_candidates():
+    engine = FakeEngine(output="xyz", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    history = list(session._history)
+    request_id, events = _step(session)
+    assert request_id.startswith("llm") and request_id.endswith(".step")
+    lab = [e for e in events if e.context_id == "llm"]
+    assert all(e.step_id == request_id for e in lab)
+    tokens = [e.payload for e in lab if e.kind == "llm_token"]
+    assert len(tokens) == 1 and tokens[0]["text"] == "x" and tokens[0]["candidates"]
+    assert tokens[0]["request_id"] == request_id
+    ended = next(e.payload for e in lab if e.kind == "llm_generation_ended")
+    assert ended["request_id"] == request_id and ended["answer_tokens"] == 1
+    assert engine.samplings[-1] == SCREEN and engine.candidates[-1] == CANDIDATES
+    started = next(e.payload for e in lab if e.kind == "llm_generation_started")
+    assert engine.calls[-1] == list(started["rendered"].encode())  # the template's render
+    # `/distribution` index 0 draws the step's token again, with what leaves each one out.
+    assert session.lab_state()["distribution"] == {"tokens": 1}
+    again = session.llm_distribution(0, Sampling(1.0, 2, 1.0, 0.0))
+    assert again["token_text"] == "x"
+    assert again["dropped_by"][:3] == [None, None, "top-k"]
+    assert session.state == "idle" and session._history == history
+
+
+def test_a_step_reads_the_tokens_already_added_and_draws_again_at_the_same_place():
+    engine = FakeEngine(output="xyz", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    _, events = _step(session, "Bonjour", [65, 66])
+    started = next(e.payload for e in events if e.kind == "llm_generation_started")
+    assert started["rendered"].endswith("<|im_start|>assistant\nAB")
+    assert engine.calls[-1][-2:] == [65, 66]
+    assert started["prompt_tokens"] == len(engine.calls[-1])
+    first = list(engine.calls[-1])
+    _step(session, "Bonjour", [65, 66])  # « Tirer » again: the same text, the same tokens
+    assert engine.calls[-1] == first
+
+
+def test_a_step_is_refused_outside_idle_without_an_engine_in_process_or_beyond_bounds(
+    monkeypatch,
+):
+    session = booted_session(SpecialEngine())  # a vocabulary of 1 004 tokens
+    mark = get_journal().last_seq()
+    for continuation in ([1] * 65, [1004], [-1]):
+        with pytest.raises(SendRefused):
+            session.llm_step("Bonjour", continuation, SCREEN)
+    session.state, session.reason_text = "turn", "Un tour est en cours."
+    with pytest.raises(SendRefused):
+        session.llm_step("Bonjour", [], SCREEN)
+    session.state, session.reason_text = "idle", None
+    assert not [e for e in get_journal().events_since(mark) if e.context_id == "llm"]
+    request_id, _ = _step(session, "Bonjour", [1002] * 64)  # in the vocabulary, 64 of them
+    assert request_id.endswith(".step") and session.state == "idle"
+
+    server = FakeServer()
+    monkeypatch.setattr(servers, "default_transport", httpx.MockTransport(server))
+    served = _booted("llama_server")
+    with pytest.raises(SendRefused) as refused:
+        served.llm_step("Bonjour", [], SCREEN)
+    assert "llama-server" in refused.value.reason_text and served.state == "idle"
+    provider = Provider(sse(delta(content="ok"), delta("stop")))
+    with pytest.raises(SendRefused):
+        _cloud_session("groq", provider).llm_step("Bonjour", [], SCREEN)
+
+
+def test_step_route_answers_validates_and_refuses():
+    engine = SpecialEngine(output="ab", logits_script=LOGITS_SCRIPT)
+    session = booted_session(engine)
+    client = _web(session)
+    good = {"temperature": 0.2, "top_k": 5, "top_p": 0.9, "min_p": 0.05}
+
+    def post(body: dict):
+        return client.post("/api/intentions/llm_step", json=body, headers=ORIGIN)
+
+    answer = post({"prompt": "Bonjour", "continuation": [65], "sampling": good})
+    assert answer.status_code == 200 and answer.json()["request_id"].endswith(".step")
+    session.join()
+    drawn = client.post(
+        "/api/llm_lab/distribution", json={"index": 0, "sampling": good}, headers=ORIGIN
+    )
+    assert drawn.status_code == 200 and drawn.json()["token_text"] == "a"
+    assert len(drawn.json()["dropped_by"]) == len(drawn.json()["candidates"])
+    assert post({"prompt": "Bonjour", "sampling": good}).status_code == 200  # none added
+    session.join()
+    for bad in (
+        {"prompt": "", "sampling": good},
+        {"prompt": "Bonjour", "continuation": [1] * 1025, "sampling": good},
+        {"prompt": "Bonjour", "continuation": [-1], "sampling": good},
+        {"prompt": "Bonjour", "sampling": good | {"top_k": -1}},
+    ):
+        assert post(bad).status_code == 422, bad
+    too_many = post({"prompt": "Bonjour", "continuation": [1] * 65, "sampling": good})
+    assert too_many.status_code == 409 and "64" in too_many.json()["detail"]
+    outside = post({"prompt": "Bonjour", "continuation": [1004], "sampling": good})
+    assert outside.status_code == 409 and "1004" in outside.json()["detail"]
+    session.state, session.reason_text = "turn", "Un tour est en cours."
+    busy = post({"prompt": "Bonjour", "sampling": good})
+    assert busy.status_code == 409 and "Un tour est déjà en cours" in busy.json()["detail"]
+
+
+def test_dropped_by_names_the_first_setting_of_the_chain():
+    probs, tail = [0.5, 0.2, 0.1, 0.05, 0.05], 0.1
+    assert dropped_by(probs, tail, Sampling(1.0, 0, 1.0, 0.0)) == [None] * 5
+    assert dropped_by(probs, tail, Sampling(1.0, 3, 1.0, 0.0)) == [None] * 3 + ["top-k"] * 2
+    assert dropped_by(probs, tail, Sampling(1.0, 4, 0.75, 0.0)) == [
+        None,
+        None,
+        "top-p",
+        "top-p",
+        "top-k",
+    ]
+    assert dropped_by(probs, tail, Sampling(1.0, 0, 1.0, 0.3)) == [None, None] + ["min-p"] * 3
+    assert dropped_by([], tail, Sampling(1.0, 0, 1.0, 0.0)) == []
+    for sampling in ORACLE_SAMPLINGS:
+        kept = [r["kept"] for r in distribution(probs, tail, sampling)]
+        assert [why is None for why in dropped_by(probs, tail, sampling)] == kept, sampling
+
+
+@pytest.mark.parametrize("lang", ["fr", "en", "de"])
+def test_the_three_stages_texts_are_valid(lang):
+    stages = llm_lab.load_lab_content(lang).stages
+    assert stages.show_all_text and stages.input.title_text == "INPUT"
+    assert list(stages.transfo.steps.model_dump()) == [
+        "embed",
+        "attention",
+        "mlp",
+        "attention_2",
+        "mlp_2",
+        "skip",
+        "final",
+    ]
+    assert len(stages.transfo.example_tokens) == 5
+    assert "{intervalle}" in stages.transfo.banner_hybrid_text
+    assert "{actifs}" in stages.transfo.banner_moe_text
+    assert "{reglage}" in stages.output.dropped_text
+    assert "{n}" in stages.input.ids_count_text.one and "{max}" in stages.input.ids_count_text.other

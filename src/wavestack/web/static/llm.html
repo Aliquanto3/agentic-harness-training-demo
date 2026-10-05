@@ -63,60 +63,141 @@
       <p class="llm-busy" id="llm-busy" role="status" hidden></p>
     </header>
 
-    <section class="llm-section" id="sec-tokenization" aria-labelledby="sec-tokenization-title">
-      <h2 class="llm-section-title" id="sec-tokenization-title"><span class="llm-step" aria-hidden="true">1</span> <span data-text="sections.tokenization.title_text">Tokenisation et vectorisation</span></h2>
-      <p class="llm-section-intro" data-text="sections.tokenization.intro_text"></p>
-      <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="tokenization"></ul></aside>
-      <label class="llm-label" for="llm-prompt" data-text="tokenization.prompt_label_text">Texte à découper</label>
-      <textarea id="llm-prompt" class="llm-prompt" maxlength="2000" rows="3"></textarea>
-      <div class="llm-actions">
-        <button type="button" id="tokenize-button" class="llm-button-primary" data-text="tokenization.button_text">Découper en tokens</button>
-        <span class="llm-status" id="tokenize-status" role="status" aria-live="polite"></span>
-      </div>
-      <p class="llm-note" id="token-info"></p>
-      <p class="llm-counts" id="token-counts" hidden></p>
-      <ol class="token-chips" id="token-chips" aria-label="Tokens du texte" data-i18n-aria-label="llm.token_list"></ol>
-      <p class="llm-note" id="token-more" hidden></p>
-      <p class="llm-note" id="token-blanks" data-text="tokenization.blanks_text" hidden></p>
-      <figure class="embedding-diagram" id="embedding-diagram" hidden>
-        <figcaption class="embedding-title" data-text="vectorization.title_text">Du texte au vecteur</figcaption>
-        <ol class="embedding-steps" id="embedding-steps"></ol>
-        <p class="llm-note" id="embedding-sentence"></p>
-        <p class="llm-note embedding-source" id="embedding-source"></p>
-      </figure>
-    </section>
-
-    <section class="llm-section" id="sec-sampling" aria-labelledby="sec-sampling-title">
-      <h2 class="llm-section-title" id="sec-sampling-title"><span class="llm-step" aria-hidden="true">2</span> <span data-text="sections.sampling.title_text">Réglages d'échantillonnage</span></h2>
-      <p class="llm-section-intro" data-text="sections.sampling.intro_text"></p>
-      <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="sampling"></ul></aside>
-      <div class="sampling-controls" id="sampling-controls"></div>
-      <p class="llm-note" id="sampling-source"></p>
-      <div class="llm-actions">
-        <span class="llm-note" id="sampling-defaults"></span>
-        <button type="button" id="sampling-reset" class="llm-button-secondary" data-text="sampling.reset_text">Revenir aux valeurs du harnais</button>
-      </div>
-      <!-- Story 5 (2026-09-30): the live distribution, drawn again by the session at each setting. -->
-      <figure class="distribution" id="distribution" aria-labelledby="distribution-title">
-        <figcaption class="distribution-title" id="distribution-title" data-text="distribution.title_text">Ce que les réglages font aux candidats</figcaption>
-        <p class="llm-note" data-text="distribution.intro_text"></p>
-        <p class="distribution-empty" id="distribution-empty" role="status"></p>
-        <div class="distribution-body" id="distribution-body" hidden>
-          <p class="llm-counts" id="distribution-token"></p>
-          <div class="distribution-head" aria-hidden="true">
-            <span></span>
-            <span data-text="distribution.probability_text">Probabilité du modèle</span>
-            <span data-text="distribution.chance_text">Chance d'être tiré</span>
+    <!-- Lot 6 (2026-10-04): the model's loop in three stacked stages, each whole on the screen
+         (EXPERIENCE.md and DESIGN.md of lot 6), in place of sections 1 and 2. INPUT and OUTPUT
+         are real (read in the engine), the TRANSFORMATION is illustrative (its dimensions
+         read). The ids the tests and the E2E read are kept on the new elements. -->
+    <section class="llm-stage" id="stage-input" aria-labelledby="stage-input-title">
+      <header class="llm-stage-head">
+        <span class="llm-stage-num" aria-hidden="true">1</span>
+        <h2 class="llm-stage-title" id="stage-input-title"><span data-text="stages.input.title_text">INPUT</span> <small data-text="stages.input.subtitle_text"></small></h2>
+        <span class="llm-stage-tag" data-text="stages.input.tag_text"></span>
+        <div class="llm-stage-stepper" id="input-stepper"></div>
+      </header>
+      <div class="llm-input-top">
+        <div class="llm-input-field">
+          <label class="llm-label" for="llm-prompt" data-text="tokenization.prompt_label_text">Texte à découper</label>
+          <textarea id="llm-prompt" class="llm-prompt" maxlength="2000" rows="2"></textarea>
+          <div class="llm-actions">
+            <button type="button" id="tokenize-button" class="llm-button-primary" data-text="tokenization.button_text">Découper en tokens</button>
+            <span class="llm-status" id="tokenize-status" role="status" aria-live="polite"></span>
           </div>
-          <ol class="distribution-bars" id="distribution-bars" aria-label="Candidats du token choisi" data-i18n-aria-label="llm.distribution_list"></ol>
-          <p class="llm-note" id="distribution-kept" role="status"></p>
-          <p class="llm-note" id="distribution-tail"></p>
+          <p class="llm-note" id="token-info"></p>
         </div>
-      </figure>
+        <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="tokenization"></ul></aside>
+      </div>
+      <div class="llm-input" id="llm-input">
+        <div class="llm-input-rows" aria-hidden="true">
+          <span data-text="stages.input.rows.text_text">Texte</span><span></span>
+          <span data-text="stages.input.rows.tokens_text">Tokens</span><span></span>
+          <span data-text="stages.input.rows.ids_text">Identifiants</span>
+        </div>
+        <div class="llm-input-scroll" id="llm-input-scroll">
+          <p class="llm-note llm-input-empty" id="token-empty" data-text="tokenization.empty_text"></p>
+          <ol class="llm-input-cols" id="token-chips" aria-label="Tokens du texte" data-i18n-aria-label="llm.token_list"></ol>
+          <p class="llm-note" id="token-more" hidden></p>
+        </div>
+        <div class="llm-input-counts" id="token-counts" hidden></div>
+      </div>
+      <p class="llm-note" id="token-blanks" data-text="tokenization.blanks_text" hidden></p>
+      <p class="llm-stage-caption" id="input-caption" aria-live="polite"></p>
+    </section>
+    <p class="llm-stage-link" data-text="stages.input.link_text"></p>
+
+    <section class="llm-stage" id="stage-transfo" aria-labelledby="stage-transfo-title">
+      <header class="llm-stage-head">
+        <span class="llm-stage-num" aria-hidden="true">2</span>
+        <h2 class="llm-stage-title" id="stage-transfo-title"><span data-text="stages.transfo.title_text">TRANSFORMATION</span> <small data-text="stages.transfo.subtitle_text"></small></h2>
+        <span class="llm-stage-tag is-illustrative" data-text="stages.transfo.tag_text"></span>
+        <div class="llm-stage-stepper" id="transfo-stepper"></div>
+      </header>
+      <p class="llm-banner" id="transfo-banner" hidden></p>
+      <div class="llm-transfo" id="embedding-diagram">
+        <div class="llm-transfo-canvas">
+          <svg id="transfo-svg" viewBox="0 0 820 420" role="img" aria-labelledby="transfo-step-title"></svg>
+        </div>
+        <div class="llm-transfo-panel">
+          <p class="llm-transfo-example" id="transfo-example" hidden></p>
+          <h3 class="llm-transfo-step-title" id="transfo-step-title"></h3>
+          <p class="llm-transfo-step-text" id="transfo-step-text" aria-live="polite"></p>
+          <div class="llm-transfo-facts" id="transfo-facts"></div>
+          <p class="llm-label" data-text="stages.transfo.panel.stack_title_text"></p>
+          <div class="llm-layer-stack" id="transfo-stack" aria-hidden="true"></div>
+          <p class="llm-transfo-legend" id="transfo-stack-legend"></p>
+          <p class="llm-transfo-legend" id="transfo-unknown" hidden></p>
+          <p class="llm-transfo-legend" id="embedding-source"></p>
+        </div>
+      </div>
+      <p class="llm-stage-caption is-note" id="transfo-note"></p>
+    </section>
+    <p class="llm-stage-link" data-text="stages.transfo.link_text"></p>
+
+    <section class="llm-stage" id="stage-output" aria-labelledby="stage-output-title">
+      <header class="llm-stage-head">
+        <span class="llm-stage-num" aria-hidden="true">3</span>
+        <h2 class="llm-stage-title" id="stage-output-title"><span data-text="stages.output.title_text">OUTPUT</span> <small data-text="stages.output.subtitle_text"></small></h2>
+        <span class="llm-stage-tag" data-text="stages.output.tag_text"></span>
+        <div class="llm-stage-stepper" id="output-stepper"></div>
+      </header>
+      <!-- Story 5 (2026-09-30): the live distribution, drawn again by the session at each
+           setting; lot 6: its probabilities in the Logits, its chances in the Draw. -->
+      <div class="llm-output" id="distribution">
+        <section class="llm-output-part" id="part-logits" aria-labelledby="part-logits-title">
+          <div class="llm-output-logits">
+            <div class="llm-output-logits-main">
+              <h3 class="llm-output-title" id="part-logits-title"><span data-text="stages.output.logits_title_text">Logits</span> <span class="llm-output-sub" id="logits-caption"></span></h3>
+              <p class="distribution-empty" id="distribution-empty" role="status"></p>
+              <div class="llm-output-logits-body" id="logits-body" hidden>
+                <ol class="distribution-bars is-logits" id="logits-bars"></ol>
+              </div>
+            </div>
+            <div class="llm-output-side">
+              <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="sampling"></ul></aside>
+              <p class="llm-output-token" id="distribution-token"></p>
+            </div>
+          </div>
+        </section>
+        <p class="llm-output-arrow" data-text="stages.output.arrow_logits_text"></p>
+        <section class="llm-output-part" id="part-draw" aria-labelledby="part-draw-title">
+          <h3 class="llm-output-title" id="part-draw-title"><span data-text="stages.output.draw_title_text">Tirage</span> <span class="llm-output-sub" data-text="stages.output.draw_text"></span></h3>
+          <div class="llm-output-draw">
+            <div class="llm-output-knobs">
+              <div class="sampling-controls is-compact" id="sampling-controls"></div>
+              <div class="llm-actions">
+                <button type="button" id="sampling-reset" class="llm-button-secondary" data-text="sampling.reset_text">Revenir aux valeurs du harnais</button>
+                <span class="llm-note" id="sampling-defaults"></span>
+              </div>
+              <p class="llm-note" id="sampling-source"></p>
+            </div>
+            <div class="distribution-body" id="distribution-body" hidden>
+              <div class="distribution-head" aria-hidden="true">
+                <span></span>
+                <span data-text="distribution.probability_text">Probabilité du modèle</span>
+                <span data-text="distribution.chance_text">Chance d'être tiré</span>
+              </div>
+              <ol class="distribution-bars" id="distribution-bars" aria-label="Candidats du token choisi" data-i18n-aria-label="llm.distribution_list"></ol>
+              <p class="llm-note" id="distribution-kept" role="status"></p>
+            </div>
+          </div>
+        </section>
+        <p class="llm-output-arrow" data-text="stages.output.arrow_draw_text"></p>
+        <section class="llm-output-part" id="part-token" aria-labelledby="part-token-title">
+          <h3 class="llm-output-title" id="part-token-title" data-text="stages.output.token_title_text">Token tiré</h3>
+          <div class="llm-output-drawrow">
+            <button type="button" id="llm-step-button" class="llm-button-primary" data-text="stages.output.draw_button_text">Tirer le token suivant</button>
+            <span class="llm-output-drawn" id="llm-step-drawn"></span>
+            <button type="button" id="llm-step-append" class="llm-button-secondary" data-text="stages.output.append_text" disabled>Ajouter à la suite</button>
+            <button type="button" id="llm-step-undo" class="llm-button-secondary" data-text="stages.output.undo_text" disabled>Retirer le dernier</button>
+            <span class="llm-output-history" id="llm-step-history"></span>
+          </div>
+          <p class="llm-status" id="llm-step-status" role="status" aria-live="polite"></p>
+        </section>
+      </div>
+      <p class="llm-stage-caption" id="output-caption" aria-live="polite"></p>
     </section>
 
     <section class="llm-section" id="sec-loading" aria-labelledby="sec-loading-title">
-      <h2 class="llm-section-title" id="sec-loading-title"><span class="llm-step" aria-hidden="true">3</span> <span data-text="sections.loading.title_text">Chargement du modèle</span></h2>
+      <h2 class="llm-section-title" id="sec-loading-title"><span class="llm-step" aria-hidden="true">4</span> <span data-text="sections.loading.title_text">Chargement du modèle</span></h2>
       <p class="llm-section-intro" data-text="sections.loading.intro_text"></p>
       <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="loading"></ul></aside>
       <p class="llm-counts" id="loading-total" role="status"></p>
@@ -128,7 +209,7 @@
     </section>
 
     <section class="llm-section" id="sec-reading" aria-labelledby="sec-reading-title">
-      <h2 class="llm-section-title" id="sec-reading-title"><span class="llm-step" aria-hidden="true">4</span> <span data-text="sections.reading.title_text">Lecture du prompt</span></h2>
+      <h2 class="llm-section-title" id="sec-reading-title"><span class="llm-step" aria-hidden="true">5</span> <span data-text="sections.reading.title_text">Lecture du prompt</span></h2>
       <p class="llm-section-intro" data-text="sections.reading.intro_text"></p>
       <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="reading"></ul></aside>
       <p class="llm-note" id="reading-empty" data-text="reading.empty_text"></p>
@@ -156,7 +237,7 @@
     </section>
 
     <section class="llm-section" id="sec-generation" aria-labelledby="sec-generation-title">
-      <h2 class="llm-section-title" id="sec-generation-title"><span class="llm-step" aria-hidden="true">5</span> <span data-text="sections.generation.title_text">Génération</span></h2>
+      <h2 class="llm-section-title" id="sec-generation-title"><span class="llm-step" aria-hidden="true">6</span> <span data-text="sections.generation.title_text">Génération</span></h2>
       <p class="llm-section-intro" data-text="sections.generation.intro_text"></p>
       <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="generation"></ul></aside>
       <label class="reasoning-toggle" id="reasoning-toggle-box">
@@ -209,7 +290,7 @@
     </section>
 
     <section class="llm-section" id="sec-reasoning" aria-labelledby="sec-reasoning-title">
-      <h2 class="llm-section-title" id="sec-reasoning-title"><span class="llm-step" aria-hidden="true">6</span> <span data-text="sections.reasoning.title_text">Raisonnement</span></h2>
+      <h2 class="llm-section-title" id="sec-reasoning-title"><span class="llm-step" aria-hidden="true">7</span> <span data-text="sections.reasoning.title_text">Raisonnement</span></h2>
       <p class="llm-section-intro" data-text="sections.reasoning.intro_text"></p>
       <aside class="llm-questions"><h3 class="llm-questions-title" data-i18n="llm.questions_title">Les questions que vous vous posez</h3><ul class="llm-questions-list" data-questions="reasoning"></ul></aside>
       <p class="llm-note" id="reasoning-budget"></p>

@@ -49,8 +49,10 @@ from stack import (  # noqa: E402
 )
 
 from wavestack.models.candidates import distribution as live_distribution  # noqa: E402
+from wavestack.models.candidates import dropped_by as live_dropped_by  # noqa: E402
 from wavestack.models.engine import Sampling  # noqa: E402
 from wavestack.rag import index as rag_index  # noqa: E402
+from wavestack.session import llm_lab  # noqa: E402
 from wavestack.trace.envelope import Envelope  # noqa: E402
 
 SHOTS = Path(__file__).resolve().parent / "screenshots"
@@ -11683,6 +11685,685 @@ def _llm_live(r: Run, live: _LiveLab, errors: list[str]) -> None:
     r.check(not errors, "/llm, distribution simulée : aucune erreur JavaScript", str(errors)[:300])
 
 
+# ---------- lot 6 (2026-10-04): the model's loop in three stages, page side ----------
+
+# A tokenization of « Le chat dort sur le » by a hybrid model (Qwen3.5's header, simulated),
+# then the tokens the engine « draws »: their most probable candidates and the rest's mass.
+_LOOP_TEXT = "Le chat dort sur le"
+_LOOP_TOKENS = [(2304, "Le"), (9558, " chat"), (87461, " dort"), (1847, " sur"), (512, " le")]
+_LOOP_HEADER = {
+    "general.architecture": "qwen35",
+    "qwen35.block_count": 24,
+    "qwen35.embedding_length": 2048,
+    "qwen35.feed_forward_length": 6144,
+    "qwen35.attention.head_count": 8,
+    "qwen35.attention.head_count_kv": 2,
+    "qwen35.full_attention_interval": 4,
+    "qwen35.ssm.state_size": 128,
+}
+_LOOP_DIMS = {
+    "vocab_size": 248320,
+    "embedding_length": 2048,
+    "layer_count": 24,
+    "head_count": 8,
+    "context_length": 262144,
+}
+_LOOP_DRAWS = [
+    {
+        "id": 107233,
+        "text": " canapé",
+        "top": [
+            (" canapé", 0.38),
+            (" lit", 0.22),
+            (" tapis", 0.12),
+            (" toit", 0.07),
+            (" rebord", 0.05),
+            (" sol", 0.04),
+            (" fauteuil", 0.02),
+        ],
+        "tail": 0.10,
+    },
+    {
+        "id": 13,
+        "text": ".",
+        "top": [(".", 0.41), (" du", 0.19), (" en", 0.14), (",", 0.09), (" rouge", 0.04)],
+        "tail": 0.13,
+    },
+]
+_LOOP_SAMPLING = {"temperature": 0.7, "top_k": 0, "top_p": 1.0, "min_p": 0.0}
+_LOOP_VIEWPORTS = [(1600, 1000), (1366, 768)]
+
+
+def _loop_tokenized(header: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`llm_tokenized` as the session would write it for the hybrid model (its own functions:
+    the figures and the architecture's family are the session's, not the test's)."""
+    architecture = llm_lab.architecture_from_header(header or _LOOP_HEADER)
+    dimensions = llm_lab.dimensions_payload(
+        _LOOP_DIMS, "Lues dans le moteur (e2e).", architecture=architecture
+    )
+    return {
+        "request_id": _LIVE_ID,
+        "text": _LOOP_TEXT,
+        "char_count": len(_LOOP_TEXT),
+        "model_label": "Qwen3.5-2B (e2e)",
+        "hosting": "local",
+        "exact": True,
+        "tokenizer_text": "Découpage exact (e2e).",
+        "tokens": [{"id": i, "text": t, "special": False} for i, t in _LOOP_TOKENS],
+        "token_count": len(_LOOP_TOKENS),
+        "more": 0,
+        "dimensions": dimensions,
+        "dimensions_text": llm_lab.dimensions_fr(dimensions),
+        "figures_text": {"char_count": str(len(_LOOP_TEXT)), "token_count": "5", "more": "0"},
+    }
+
+
+class _LoopLab(_LiveLab):
+    """`_LiveLab`, with an engine in process that draws one token per step: `llm_tokenize` and
+    `llm_step` answered by the test (their events in the batches the test releases), and
+    `/api/llm_lab/distribution` the candidates of the last token drawn (the session's own
+    `candidates.distribution` and `dropped_by`)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.steps: list[dict[str, Any]] = []
+        self.draw = _LOOP_DRAWS[0]
+
+    def tokenize(self, route) -> None:  # noqa: ANN001
+        route.fulfill(json={"request_id": _LIVE_ID})
+
+    def step(self, route) -> None:  # noqa: ANN001
+        self.steps.append(route.request.post_data_json)
+        route.fulfill(json={"request_id": self.step_id})
+
+    @property
+    def step_id(self) -> str:
+        return f"llm{900 + len(self.steps)}.step"
+
+    def distribution(self, route) -> None:  # noqa: ANN001
+        asked = route.request.post_data_json
+        self.requests.append(asked)
+        if not self.kept or asked.get("index", 0) != 0:
+            route.fulfill(status=404, json={"detail": "Rien de gardé (e2e)."})
+            return
+        values = [p for _, p in self.draw["top"]]
+        sampling = Sampling(**asked["sampling"])
+        rows = live_distribution(values, self.draw["tail"], sampling)
+        route.fulfill(
+            json={
+                "index": 0,
+                "token_text": self.draw["text"],
+                "candidates": [
+                    {"text": text} | row
+                    for (text, _), row in zip(self.draw["top"], rows, strict=True)
+                ],
+                "tail": self.draw["tail"],
+                "sampling": asked["sampling"],
+                "kept_count": sum(1 for row in rows if row["kept"]),
+                "tokens": 1,
+                "dropped_by": live_dropped_by(values, self.draw["tail"], sampling),
+            }
+        )
+
+    def drawn(self, draw: dict[str, Any]) -> None:
+        """The step's three events: started, its one token (with its candidates), ended."""
+        rid = self.step_id
+        rows = live_distribution(
+            [p for _, p in draw["top"]], draw["tail"], Sampling(**_LOOP_SAMPLING)
+        )
+        started = {
+            "request_id": rid,
+            "prompt": _LOOP_TEXT,
+            "rendered": f"<|im_start|>user\n{_LOOP_TEXT}<|im_end|>\n<|im_start|>assistant\n",
+            "prompt_tokens": 14,
+            "exact": True,
+            "sampling": _LOOP_SAMPLING | {"source": "screen"},
+            "reserve": 512,
+            "usable": 3584,
+            "phase_label": "Lecture (e2e)",
+            "unit": "token",
+            "figures_text": {"prompt_tokens": "14", "reserve": "512", "window": "4 096"},
+        }
+        token = {
+            "request_id": rid,
+            "index": 0,
+            "token_id": draw["id"],
+            "text": draw["text"],
+            "channel": "text",
+            "elapsed_ms": 12,
+            "candidates": [
+                {"token_id": 3000 + i, "text": text, "chosen": i == 0} | row
+                for i, ((text, _), row) in enumerate(zip(draw["top"][:5], rows, strict=False))
+            ],
+            "parts": [{"channel": "text", "text": draw["text"]}],
+        }
+        ended = {
+            "request_id": rid,
+            "status": "limit",
+            "duration_ms": 15,
+            "answer_tokens": 1,
+            "figures_text": {"reasoning_tokens": "0", "answer_tokens": "1"},
+        }
+        self.draw = draw
+        self.kept = 1
+        self.add_batch(
+            ("llm_generation_started", started),
+            ("llm_token", token),
+            ("llm_generation_ended", ended),
+        )
+        self.release()
+
+
+def s_llm_loop(r: Run) -> None:
+    """Lot 6 of 2026-10-04: /llm's first three stages, without an engine in process
+    (`_LoopLab`): the INPUT step by step (text, tokens, ids, in aligned columns), the
+    TRANSFORMATION's 7 steps and its banner on a simulated hybrid header, the OUTPUT (a
+    setting's help, a simulated step drawn, the chances following a setting, « Ajouter à la
+    suite » then « Retirer le dernier »); each stage within the screen at 1600 × 1000 and
+    1366 × 768; no JavaScript error. On the fake cloud A, whose `/api/llm_lab` is rewritten;
+    back to `/` at the end."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    r.goto_app()
+    r.wait_idle()
+    if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+        _pick_model(r, A_LABEL)
+    live = _LoopLab()
+    routes = [
+        ("**/api/llm_lab", live.lab),
+        ("**/api/llm_lab/distribution", live.distribution),
+        ("**/api/stream", live.stream),
+        ("**/api/intentions/llm_tokenize", live.tokenize),
+        ("**/api/intentions/llm_step", live.step),
+    ]
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    for pattern, handler in routes:
+        page.route(pattern, handler)
+    try:
+        _llm_loop(r, live)
+    finally:
+        for pattern, _ in routes:
+            page.unroute(pattern)
+        page.remove_listener("pageerror", listener)
+        page.set_viewport_size({"width": 1600, "height": 1000})
+        r.goto_app()
+    r.check(not errors, "/llm, boucle simulée : aucune erreur JavaScript", str(errors)[:300])
+    _llm_loop_cloud(r)
+
+
+def _llm_loop_cloud(r: Run) -> None:
+    """The spec's « Cloud » row, on the fake cloud A as it is (no route): the INPUT's
+    estimate without a column, the TRANSFORMATION's dimensions « inconnue » and « Architecture
+    non lue », « Tirer le token suivant » greyed with the candidates' reason, a direct call
+    refused (409)."""
+    page = r.page
+    _goto_lab(r)
+    expect(page.locator("#llm-model")).to_contain_text("RÉSEAU", timeout=5000)
+    _lab_tokenize(r, "Bonjour tout le monde")
+    facts = page.inner_text("#transfo-facts")
+    unknown = page.inner_text("#transfo-unknown")
+    r.check(
+        "≈" in page.inner_text("#token-counts")
+        and page.locator("#token-chips .token-chip").count() == 0
+        and "inconnue" in facts
+        and page.locator("#transfo-unknown").is_visible()
+        and unknown.startswith("Architecture non lue"),
+        "cloud A : INPUT estimé sans colonne, TRANSFORMATION « inconnue », architecture non lue",
+        f"{facts.replace(chr(10), ' ')[:160]} · {unknown}",
+    )
+    button = page.locator("#llm-step-button")
+    status = page.inner_text("#llm-step-status")
+    refused = r.api(
+        "POST",
+        "/api/intentions/llm_step",
+        {"prompt": "Bonjour", "continuation": [], "sampling": _LAB_SAMPLING},
+    )
+    r.check(
+        button.is_disabled()
+        and "Faux fournisseur (e2e)" in (button.get_attribute("title") or "")
+        and "Faux fournisseur (e2e)" in status
+        and refused.status_code == 409,
+        "cloud A : « Tirer le token suivant » grisé avec la raison des candidats, appel direct 409",
+        f"{button.get_attribute('title')} · {status} · {refused.status_code}",
+    )
+    r.goto_app()
+
+
+def _llm_loop(r: Run, live: _LoopLab) -> None:
+    page = r.page
+    _goto_lab(r)
+    expect(page.locator("#llm-step-button")).to_be_visible(timeout=5000)
+    _llm_loop_input(r, live)
+    _llm_loop_transfo(r)
+    _llm_loop_output(r, live)
+    _llm_loop_heights(r)
+    _llm_loop_families(r, live)
+
+
+_INPUT_JS = """() => {
+  const box = document.getElementById('llm-input');
+  const cols = [...document.querySelectorAll('#token-chips .token-chip')];
+  return {
+    cut: box.classList.contains('is-cut'),
+    tokens: box.classList.contains('show-tokens'),
+    ids: box.classList.contains('show-ids'),
+    caption: document.getElementById('input-caption').textContent,
+    pieces: cols.map(c => c.querySelector('.llm-input-seg').textContent),
+    chips: cols.map(c => c.querySelector('.token-chip-text').textContent),
+    ids_: cols.map(c => c.querySelector('.token-chip-id').textContent),
+    produced: cols.map(c => c.classList.contains('is-produced')),
+    labels: cols.map(c => c.getAttribute('aria-label')),
+    idVisible: cols.length
+      ? getComputedStyle(cols[0].querySelector('.llm-input-id')).visibility
+      : '',
+  };
+}"""
+
+
+def _llm_loop_input(r: Run, live: _LoopLab) -> None:
+    """The INPUT, step by step: « Découper en tokens » opens step 1 (the text in one block),
+    ▶ cuts it into tokens, ▶ shows their ids; the session's tokens and ids, as received."""
+    page = r.page
+    page.fill("#llm-prompt", _LOOP_TEXT)
+    expect(page.locator("#tokenize-button")).to_be_enabled(timeout=10_000)
+    live.add_batch(("llm_tokenized", _loop_tokenized()))
+    page.click("#tokenize-button")
+    live.release()
+    expect(page.locator("#token-chips .token-chip")).to_have_count(5, timeout=10_000)
+    stepper = page.locator("#input-stepper")
+    first = page.evaluate(_INPUT_JS)
+    r.check(
+        not first["cut"]
+        and first["idVisible"] == "hidden"
+        and first["caption"].startswith("Texte.")
+        and "".join(first["pieces"]) == _LOOP_TEXT
+        and stepper.locator(".diagram-step-live").inner_text() == "Tout montrer",
+        "INPUT pas 1 : le texte d'un bloc, colonnes collées, ni token ni identifiant visibles",
+        str(first)[:300],
+    )
+    stepper.locator(".diagram-step-next").click()
+    second = page.evaluate(_INPUT_JS)
+    stepper.locator(".diagram-step-next").click()
+    third = page.evaluate(_INPUT_JS)
+    r.check(
+        second["cut"]
+        and second["tokens"]
+        and not second["ids"]
+        and second["caption"].startswith("Tokens.")
+        and second["chips"] == ["Le", "␣chat", "␣dort", "␣sur", "␣le"],
+        "INPUT pas 2 : le texte se découpe, une puce par token, blancs visibles (␣)",
+        str(second["chips"]),
+    )
+    counts = _plain(page.inner_text("#token-counts"))
+    r.check(
+        third["ids"]
+        and third["idVisible"] == "visible"
+        and third["caption"].startswith("Identifiants.")
+        and third["ids_"] == [str(i) for i, _ in _LOOP_TOKENS]
+        and third["labels"][1] == "« chat » → token ␣chat → identifiant 9558"
+        and counts.startswith("5 tokens")
+        and "5 nombres entre 0 et 248 319" in counts,
+        "INPUT pas 3 : les identifiants reçus sous chaque token, compteurs de la session",
+        f"{third['ids_']} · {counts!r} · {third['labels'][1]!r}",
+    )
+    r.shot_element("70-llm-boucle-input", "#stage-input")
+
+
+def _llm_loop_transfo(r: Run) -> None:
+    """The TRANSFORMATION: the banner of a hybrid (D4), its 7 steps with the GGUF's real
+    dimensions, the stack of layers (one in four in full attention), the note."""
+    page = r.page
+    banner = _plain(page.inner_text("#transfo-banner"))
+    r.check(
+        page.locator("#transfo-banner").is_visible()
+        and banner.startswith("⚠ Schéma simplifié, inexact pour cette architecture.")
+        and "est hybride : seule une couche sur 4 fait de l'attention complète" in banner,
+        "TRANSFORMATION : bandeau D4 d'un modèle hybride, l'intervalle lu dans l'en-tête",
+        banner[:200],
+    )
+    stepper = page.locator("#transfo-stepper")
+    titles, drawn = [], []
+    for step in range(7):
+        if step:
+            stepper.locator(".diagram-step-next").click()
+        titles.append(page.inner_text("#transfo-step-title"))
+        drawn.append(page.locator("#transfo-svg > *").count())
+        if step == 1:
+            legend = page.inner_text("#transfo-stack-legend")
+            stack = page.locator("#transfo-stack i")
+            rec = page.locator("#transfo-stack i.is-rec").count()
+            now = page.locator("#transfo-stack i.is-now").count()
+            attention = page.locator("#transfo-svg .llm-transfo-arc").count()
+    r.check(
+        len(set(titles)) == 7
+        and titles[0].startswith("Embeddings")
+        and titles[-1].startswith("Le vecteur du dernier token")
+        and all(drawn)
+        and stepper.locator(".diagram-step-next").is_disabled(),
+        "TRANSFORMATION : 7 pas, un dessin et un titre chacun, ▶ grisé au dernier",
+        str(titles),
+    )
+    r.check(
+        stack.count() == 24
+        and rec == 18
+        and now == 1
+        and attention == 5
+        and "plein : attention complète, tirets : récurrente" in legend,
+        "TRANSFORMATION : 24 couches, 1 sur 4 pleine (attention complète), la couche 1 en cours",
+        f"{stack.count()} couches, {rec} récurrentes · {legend}",
+    )
+    panel = _plain(page.inner_text("#embedding-diagram"))
+    note = page.inner_text("#transfo-note")
+    r.check(
+        "vecteurs de 2 048 nombres" in panel
+        and "248 320 × 2 048" in panel
+        and "24 couches" in panel
+        and "8 têtes d'attention, 2 K/V" in panel
+        and "2 048 → 6 144 → 2 048" in panel
+        and "24 couches traversées" in panel
+        and note.startswith(
+            "Le moteur n'expose ni les poids d'attention ni les états cachés : 5 tokens"
+        ),
+        "TRANSFORMATION : les vraies dimensions du GGUF au panneau, la note « illustratif »",
+        panel.replace("\n", " · ")[:300],
+    )
+    stepper.locator(".diagram-step-prev").click()
+    stepper.locator(".diagram-step-prev").click()
+    stepper.locator(".diagram-step-prev").click()
+    stepper.locator(".diagram-step-prev").click()  # the MLP of layer 1: 8 → 16 → 8
+    r.check(
+        page.locator("#transfo-svg .llm-transfo-neuron").count() == 32
+        and page.locator("#transfo-svg .llm-transfo-neuron.is-on").count() == 5,
+        "TRANSFORMATION, MLP : 8 → 16 → 8 neurones, cinq allumés",
+    )
+    r.shot_element("71-llm-boucle-transformation", "#stage-transfo")
+
+
+def _llm_loop_rows(r: Run, sampling: dict[str, float]) -> tuple[bool, str]:
+    """Whether the Draw's chart shows the step's candidates for `sampling` (polled)."""
+    draw = _LOOP_DRAWS[0]
+    want = live_distribution([p for _, p in draw["top"]], draw["tail"], Sampling(**sampling))[:6]
+
+    def same() -> bool:
+        got = _dist_rows(r)
+        return len(got) == len(want) and all(
+            g["dropped"] == (not w["kept"]) and abs(g["chanceWidth"] - w["p_sampled"] * 100) < 0.01
+            for g, w in zip(got, want, strict=True)
+        )
+
+    ok, _ = r.poll(same, 10)
+    got = _dist_rows(r)
+    return ok, str([(g["text"], g["chance"]) for g in got])
+
+
+def _llm_loop_output(r: Run, live: _LoopLab) -> None:
+    """The OUTPUT: a setting's help (title and popover), a step drawn by « the engine », its
+    Logits and Draw, the chances following a setting, then « Ajouter à la suite » (the token
+    in the INPUT, the continuation sent) and « Retirer le dernier »."""
+    page = r.page
+    for name, value in _LOOP_SAMPLING.items():
+        _set_live(r, name, value)
+    help_text = _content("fr", "llm_lab.yaml")["sampling"]["settings"]["temperature"]["help_text"]
+    name = page.locator(
+        '#sampling-controls .sampling-row[data-setting="temperature"] .sampling-row-name'
+    )
+    name.click()
+    popover = page.locator("#sampling-temperature-help")
+    opened = popover.evaluate("e => e.matches(':popover-open')")
+    shown = popover.inner_text() if opened else ""
+    page.keyboard.press("Escape")
+    closed = not popover.evaluate("e => e.matches(':popover-open')")
+    r.check(
+        " ".join(help_text.split()) == (name.get_attribute("title") or "")
+        and opened
+        and shown.startswith("Aplatit ou creuse")
+        and closed
+        and name.get_attribute("aria-describedby") == "sampling-temperature-help",
+        "OUTPUT : le nom d'un réglage porte son aide, au survol (title) et au clic, Échap la ferme",
+        f"{opened} · {shown[:60]!r} · fermé {closed}",
+    )
+    r.check(
+        page.locator("#distribution-body").is_hidden()
+        and "Tirez le token suivant" in page.inner_text("#distribution-empty"),
+        "OUTPUT avant le premier pas : graphiques masqués, quoi faire",
+    )
+
+    # A step: « Tirer le token suivant », the engine draws « ␣canapé ».
+    expect(page.locator("#llm-step-button")).to_be_enabled(timeout=5000)
+    page.click("#llm-step-button")
+    r.poll(lambda: len(live.steps) == 1, 5)
+    live.drawn(_LOOP_DRAWS[0])
+    expect(page.locator("#llm-step-drawn .llm-output-chip")).to_have_text("␣canapé", timeout=10_000)
+    ok, drawn = _llm_loop_rows(r, _LOOP_SAMPLING)
+    logits = page.locator("#logits-bars .dist-row:not(.is-tail) .dist-text").all_inner_texts()
+    sent = live.steps[0]
+    r.check(
+        ok
+        and sent["prompt"] == _LOOP_TEXT
+        and sent["continuation"] == []
+        and sent["sampling"]["temperature"] == 0.7
+        and logits == ["␣canapé", "␣lit", "␣tapis", "␣toit", "␣rebord", "␣sol"]
+        and page.locator("#logits-bars .dist-row.is-chosen").count() == 1
+        and page.inner_text("#distribution-token").startswith(
+            "Candidats du token tiré par le moteur"
+        )
+        and "après « dort sur le »" in page.inner_text("#logits-caption"),
+        "OUTPUT : le moteur tire « ␣canapé », Logits et Tirage montrent ses 6 premiers candidats",
+        f"{logits} · {drawn}",
+    )
+    _set_live(r, "temperature", 1.5, slider=True)
+    ok_hot, hot = _llm_loop_rows(r, _LOOP_SAMPLING | {"temperature": 1.5})
+    _set_live(r, "top_p", 0.6)
+    ok_p, cut = _llm_loop_rows(r, _LOOP_SAMPLING | {"temperature": 1.5, "top_p": 0.6})
+    dropped = page.locator(
+        "#distribution-bars .dist-row.is-dropped .dist-cell.is-chance .dist-value"
+    )
+    r.check(
+        ok_hot
+        and ok_p
+        and dropped.count() >= 1
+        and set(dropped.all_inner_texts()) == {"écarté (top-p)"},
+        "OUTPUT : la chance suit la température puis top-p, les écartés disent « écarté (top-p) »",
+        f"{hot} · {cut}",
+    )
+    r.check(
+        page.locator("#llm-step-drawn .llm-output-chip").count() == 0
+        and page.locator("#llm-step-append").is_disabled(),
+        "un réglage bougé efface le token tiré (tiré avec les réglages d'avant), « Ajouter » grisé",
+    )
+    page.click("#llm-step-button")
+    r.poll(lambda: len(live.steps) == 2, 5)
+    live.drawn(_LOOP_DRAWS[0])
+    expect(page.locator("#llm-step-drawn .llm-output-chip")).to_have_text("␣canapé", timeout=10_000)
+    expect(page.locator("#distribution-body")).to_be_visible(timeout=10_000)
+    r.shot_element("72-llm-boucle-output", "#stage-output")
+
+    # « Ajouter à la suite »: the token in the INPUT (a produced column), sent with the next.
+    page.click("#llm-step-append")
+    expect(page.locator("#token-chips .token-chip")).to_have_count(6, timeout=5000)
+    state = page.evaluate(_INPUT_JS)
+    r.poll(lambda: abs((page.locator("#stage-input").bounding_box() or {"y": 999})["y"]) < 60, 5)
+    top = page.locator("#stage-input").bounding_box()
+    r.check(
+        state["produced"] == [False] * 5 + [True]
+        and state["ids_"][-1] == "107233"
+        and state["ids"]
+        and page.locator("#llm-step-drawn .llm-output-chip").count() == 0
+        and page.locator("#distribution-body").is_hidden()
+        and top is not None
+        and abs(top["y"]) < 60,
+        "« Ajouter à la suite » : ␣canapé en puce « produit » au bout de l'INPUT, la page remonte",
+        f"{state['produced']} · {state['ids_'][-1:]} · {top}",
+    )
+    page.click("#llm-step-button")
+    r.poll(lambda: len(live.steps) == 3, 5)
+    live.drawn(_LOOP_DRAWS[1])
+    expect(page.locator("#llm-step-drawn .llm-output-chip")).to_have_text(".", timeout=10_000)
+    r.check(
+        live.steps[2]["continuation"] == [107233],
+        "pas suivant : le token ajouté part avec le texte (continuation)",
+        str(live.steps[2].get("continuation")),
+    )
+    page.click("#llm-step-undo")
+    expect(page.locator("#token-chips .token-chip")).to_have_count(5, timeout=5000)
+    r.check(
+        page.locator("#token-chips .token-chip.is-produced").count() == 0
+        and page.locator("#llm-step-undo").is_disabled(),
+        "« Retirer le dernier » : l'ajout quitte l'INPUT",
+    )
+    # A changed text erases what was added.
+    page.click("#llm-step-button")
+    r.poll(lambda: len(live.steps) == 4, 5)
+    live.drawn(_LOOP_DRAWS[0])
+    expect(page.locator("#llm-step-append")).to_be_enabled(timeout=10_000)
+    page.click("#llm-step-append")
+    expect(page.locator("#token-chips .token-chip.is-produced")).to_have_count(1, timeout=5000)
+    counts = _plain(page.inner_text("#token-counts"))
+    r.check(
+        counts.startswith("5 tokens") and "dont 1 ajouté par l'OUTPUT" in counts,
+        "compteurs de l'INPUT : ceux de la session, plus le token ajouté par l'OUTPUT",
+        counts,
+    )
+    page.fill("#llm-prompt", _LOOP_TEXT + " !")
+    draw = page.locator("#llm-step-button")
+    first = "Découpez d'abord ce texte en tokens (étape 1)."
+    r.check(
+        page.locator("#token-chips .token-chip.is-produced").count() == 0
+        and draw.is_disabled()
+        and draw.get_attribute("title") == first
+        and page.inner_text("#llm-step-status") == first,
+        "texte changé : les ajouts sont effacés, « Tirer » attend le découpage de ce texte",
+        f"{draw.get_attribute('title')!r}",
+    )
+    page.fill("#llm-prompt", _LOOP_TEXT)
+    expect(draw).to_be_enabled(timeout=5000)
+    for name, value in _LOOP_SAMPLING.items():
+        _set_live(r, name, value)
+    # A model load forgets the tokens added (another vocabulary).
+    page.click("#llm-step-button")
+    r.poll(lambda: len(live.steps) == 5, 5)
+    live.drawn(_LOOP_DRAWS[0])
+    expect(page.locator("#llm-step-append")).to_be_enabled(timeout=10_000)
+    page.click("#llm-step-append")
+    expect(page.locator("#token-chips .token-chip.is-produced")).to_have_count(1, timeout=5000)
+    model = {"id": "e2e", "label": "Autre modèle (e2e)", "hosting": "local", "kind": "file"}
+    live.add_batch(("model_load_started", {"model": model, "phase_label": "Chargement (e2e)"}))
+    live.release()
+    expect(page.locator("#token-chips .token-chip.is-produced")).to_have_count(0, timeout=10_000)
+    page.click("#llm-step-button")
+    r.poll(lambda: len(live.steps) == 6, 5)
+    r.check(
+        live.steps[5]["continuation"] == [],
+        "chargement d'un modèle : les ajouts sont effacés, le pas suivant n'en envoie aucun",
+        str(live.steps[5].get("continuation")),
+    )
+    live.drawn(_LOOP_DRAWS[0])
+    expect(page.locator("#distribution-body")).to_be_visible(timeout=10_000)
+
+
+_STAGE_HEIGHTS_JS = """() => ['stage-input', 'stage-transfo', 'stage-output'].map(id => {
+  const box = document.getElementById(id).getBoundingClientRect();
+  return [id, Math.round(box.height)];
+})"""
+
+
+def _llm_loop_heights(r: Run) -> None:
+    """Each stage whole on the screen (DESIGN.md of lot 6), the banner and the charts shown,
+    at the two target sizes; no horizontal scroll."""
+    page = r.page
+    for width, height in _LOOP_VIEWPORTS:
+        page.set_viewport_size({"width": width, "height": height})
+        time.sleep(0.6)  # the layout, the canvas's size
+        heights = page.evaluate(_STAGE_HEIGHTS_JS)
+        wide = page.evaluate("() => document.documentElement.scrollWidth > innerWidth + 1")
+        r.check(
+            all(h <= height for _, h in heights) and not wide,
+            f"chaque étape tient dans l'écran à {width} × {height}",
+            f"{heights} · défilement horizontal {wide}",
+        )
+        for _, selector in (("input", "#stage-input"), ("output", "#stage-output")):
+            page.locator(selector).scroll_into_view_if_needed()
+        number = 73 if width == 1600 else 74
+        r.shot(f"{number}-llm-boucle-{width}x{height}", full_page=True)
+
+
+_LOOP_MOE_HEADER = {
+    "general.architecture": "qwen3moe",
+    "qwen3moe.block_count": 48,
+    "qwen3moe.embedding_length": 2048,
+    "qwen3moe.feed_forward_length": 6144,
+    "qwen3moe.expert_feed_forward_length": 768,
+    "qwen3moe.expert_count": 128,
+    "qwen3moe.expert_used_count": 8,
+    "qwen3moe.attention.head_count": 32,
+    "qwen3moe.attention.head_count_kv": 4,
+}
+_LOOP_DENSE_HEADER = {
+    "general.architecture": "qwen3",
+    "qwen3.block_count": 28,
+    "qwen3.embedding_length": 1024,
+    "qwen3.feed_forward_length": 3072,
+    "qwen3.attention.head_count": 16,
+    "qwen3.attention.head_count_kv": 8,
+}
+
+
+def _llm_loop_retokenize(r: Run, live: _LoopLab, header: dict[str, Any]) -> str:
+    """A tokenization by a model of `header`: the banner's text once drawn again ('' hidden)."""
+    page = r.page
+    before = page.inner_text("#embedding-source")
+    payload = _loop_tokenized(header)
+    payload["dimensions"]["source_text"] = f"{before} ·"  # a change to wait for
+    live.add_batch(("llm_tokenized", payload))
+    live.release()
+    expect(page.locator("#embedding-source")).to_have_text(f"{before} ·", timeout=10_000)
+    banner = page.locator("#transfo-banner")
+    return _plain(banner.inner_text()) if banner.is_visible() else ""
+
+
+def _llm_loop_families(r: Run, live: _LoopLab) -> None:
+    """The TRANSFORMATION's banner (D4) for a mixture of experts (its router and experts at
+    the MLP step, numbered below its 128 experts), a hybrid with experts (both reasons) and a
+    dense model (no banner)."""
+    page = r.page
+    page.set_viewport_size({"width": 1600, "height": 1000})
+    stepper = page.locator("#transfo-stepper")
+    banner = _llm_loop_retokenize(r, live, _LOOP_MOE_HEADER)
+    stepper.locator(".diagram-step-live").click()
+    for _ in range(4):
+        stepper.locator(".diagram-step-prev").click()  # the MLP of layer 1
+    experts = page.locator("#transfo-svg .llm-transfo-expert")
+    labels = page.locator("#transfo-svg text").all_text_contents()
+    r.check(
+        "un routeur choisit 8 experts sur 128" in banner
+        and "une couche sur" not in banner
+        and experts.count() == 6
+        and page.locator("#transfo-svg .llm-transfo-expert.is-on").count() == 2
+        and "expert 117" in labels
+        and "expert 121" not in labels
+        and page.locator("#transfo-svg .llm-transfo-neuron").count() == 0,
+        "TRANSFORMATION, mélange d'experts : bandeau (8 sur 128), routeur et 6 experts au pas MLP",
+        f"{banner[:160]} · {[t for t in labels if t.startswith('expert')]}",
+    )
+    both = _llm_loop_retokenize(
+        r, live, _LOOP_HEADER | {"qwen35.expert_count": 256, "qwen35.expert_used_count": 8}
+    )
+    r.check(
+        "seule une couche sur 4 fait de l'attention complète" in both
+        and "un routeur choisit 8 experts sur 256" in both,
+        "TRANSFORMATION, hybride à experts : les deux raisons dans le bandeau",
+        both[:240],
+    )
+    dense = _llm_loop_retokenize(r, live, _LOOP_DENSE_HEADER)
+    r.check(
+        dense == "" and page.locator("#transfo-banner").is_hidden(),
+        "TRANSFORMATION, modèle dense : pas de bandeau",
+        dense[:160],
+    )
+
+
 # ---------- story 30: the RAG workshop ----------
 
 RAG_LAB_QUESTION = "Combien de jours de télétravail par semaine ?"
@@ -12271,6 +12952,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("context_window", s_context_window),
     ("llm_screen", s_llm_screen),
     ("llm_live", s_llm_live),  # restes du 2026-10-01: distribution and window, page side
+    ("llm_loop", s_llm_loop),  # lot 6 of 2026-10-04: the model's loop in three stages
     ("relaunch", s_relaunch),
 ]
 

@@ -288,109 +288,759 @@ body.llm-page {
   text-transform: uppercase;
 }
 
-/* ---------- embedding-diagram (DESIGN.md): text → tokens → ids → table row → vector → layers ---------- */
+/* ---------- lot 6 (2026-10-04): the model's loop, three stages (DESIGN.md of lot 6) ----------
+   llm-stage: a card each, whole on the screen at 1600 × 1000 and 1366 × 768, linked by a line
+   and its sentence. INPUT and OUTPUT real (a full tag), the TRANSFORMATION illustrative (a
+   dashed tag and canvas). The tokens of tokens.css only. */
 
-.embedding-diagram {
-  margin: var(--spacing-4) 0 0;
-  padding: var(--spacing-3) var(--spacing-4);
-  background: var(--color-surface);
+.llm-stage {
+  margin: var(--spacing-5) 0 0;
+  padding: var(--spacing-3) var(--spacing-5) var(--spacing-4);
+  background: var(--color-surface-raised);
   border: 1px solid var(--color-line);
-  border-radius: var(--rounded-md);
+  border-radius: var(--rounded-lg);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
+  scroll-margin-top: var(--spacing-3);
 }
 
-.embedding-diagram[hidden] {
+.llm-stage-link + .llm-stage {
+  margin-top: 0;
+}
+
+.llm-stage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2) var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+}
+
+.llm-stage-num {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--rounded-full);
+  background: var(--color-ink-fill);
+  color: var(--color-on-ink);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) / 1
+    var(--typography-number-font-family);
+}
+
+.llm-stage-title {
+  margin: 0;
+  font: var(--typography-pane-title-font-weight) 20px / var(--typography-pane-title-line-height)
+    var(--typography-pane-title-font-family);
+}
+
+.llm-stage-title small {
+  margin-left: var(--spacing-1);
+  color: var(--color-ink-soft);
+  font: var(--typography-body-font-weight) var(--typography-body-font-size) /
+    var(--typography-body-line-height) var(--typography-body-font-family);
+}
+
+.llm-stage-tag {
+  padding: 2px var(--spacing-3);
+  border-radius: var(--rounded-full);
+  background: var(--color-ink-fill);
+  color: var(--color-on-ink);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  text-transform: uppercase;
+}
+
+/* Illustrative: the dashes carry the meaning, not the colour alone. */
+.llm-stage-tag.is-illustrative {
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: var(--spacing-stroke-min) dashed var(--color-ink-soft);
+}
+
+.llm-stage-stepper {
+  margin-left: auto;
+}
+
+.llm-stage-caption {
+  margin: var(--spacing-3) 0 0;
+  padding: var(--spacing-2) var(--spacing-3);
+  max-width: none;
+  background: var(--color-surface);
+  border-left: 4px solid var(--color-primary);
+  border-radius: 0 var(--rounded-sm) var(--rounded-sm) 0;
+}
+
+.llm-stage-caption strong {
+  font-family: var(--typography-heading-font-family);
+  font-weight: var(--typography-heading-font-weight);
+}
+
+.llm-stage-caption.is-note {
+  border-left-style: dashed;
+  border-left-color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.llm-stage-caption:empty {
   display: none;
 }
 
-.embedding-title {
-  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
-    var(--typography-heading-line-height) var(--typography-heading-font-family);
-}
-
-.embedding-steps {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: var(--spacing-2);
-  margin: var(--spacing-3) 0;
-  padding: 0;
-  list-style: none;
-}
-
-.embedding-step {
+.llm-stage-link {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-1);
-  flex: 1 1 9rem;
-  max-width: 16rem;
-  padding: var(--spacing-2) var(--spacing-3);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-ink-soft);
-  border-radius: var(--rounded-sm);
-  position: relative;
-}
-
-/* The arrow between two steps. */
-.embedding-step + .embedding-step::before {
-  content: "→";
-  position: absolute;
-  left: calc(-1 * var(--spacing-2) - 0.25em);
-  top: 50%;
-  transform: translate(-25%, -50%);
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  margin: 0;
   color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
 }
 
-.embedding-step-name {
+.llm-stage-link::before {
+  content: "";
+  width: 2px;
+  height: 18px;
+  background: var(--color-ink-soft);
+}
+
+.llm-stage-link::after {
+  content: "▼";
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* ---------- 1. INPUT: one column per token, text → token → id read downwards ---------- */
+
+.llm-input-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 30rem);
+  gap: var(--spacing-3) var(--spacing-5);
+  align-items: start;
+}
+
+.llm-input-top .llm-label {
+  margin-top: 0;
+}
+
+.llm-input-top .llm-prompt {
+  min-height: 3em;
+}
+
+.llm-input-top .llm-actions {
+  margin: var(--spacing-2) 0 0;
+}
+
+.llm-input-top .llm-questions {
+  margin: 0;
+}
+
+.llm-input {
+  display: grid;
+  grid-template-columns: 8.5em minmax(0, 1fr) auto;
+  gap: 0 var(--spacing-5);
+  align-items: start;
+  margin-top: var(--spacing-3);
+}
+
+.llm-input-rows {
+  display: grid;
+  grid-template-rows: 34px 36px 36px 36px 30px;
   color: var(--color-ink-soft);
   font: var(--typography-label-font-weight) var(--typography-label-font-size) /
     var(--typography-label-line-height) var(--typography-label-font-family);
   text-transform: uppercase;
 }
 
-.embedding-step-value {
-  font: var(--typography-number-font-weight) var(--typography-number-lg-font-size) /
-    var(--typography-number-lg-line-height) var(--typography-number-font-family);
-  overflow-wrap: anywhere;
+.llm-input-rows span,
+.llm-input-count {
+  align-self: center;
+  transition: opacity 0.3s;
 }
 
-.embedding-step-value.is-text {
-  font: var(--typography-code-font-weight) var(--typography-code-font-size) /
-    var(--typography-code-line-height) var(--typography-code-font-family);
-  font-variant-ligatures: none;
-  font-feature-settings: "liga" 0, "calt" 0;
+.llm-input-rows span.is-dim,
+.llm-input-count.is-dim {
+  opacity: 0.3;
 }
 
-.embedding-step-caption {
-  color: var(--color-ink-soft);
-  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
-    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+/* A long text scrolls inside the INPUT: the card stays whole on the screen. */
+.llm-input-scroll {
+  min-width: 0;
+  max-height: 34vh;
+  overflow-y: auto;
 }
 
-.embedding-step.is-unknown .embedding-step-value {
+.llm-input-empty {
+  margin: var(--spacing-3) 0;
+}
+
+.llm-input-empty[hidden] {
+  display: none;
+}
+
+.llm-input-cols {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0;
+  row-gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  transition: column-gap 0.45s ease;
+}
+
+.llm-input.is-cut .llm-input-cols {
+  column-gap: 26px;
+}
+
+/* A column (`token-chip`, the class the tests read): its text, an arrow, the token, an arrow,
+   the id; the chip's look moves to the token. */
+.llm-input-cols .token-chip,
+.llm-input-cols .token-chip[data-parity="odd"],
+.llm-input-cols .token-chip.is-special {
+  display: grid;
+  grid-template-rows: 34px 36px 36px 36px 30px;
+  justify-items: center;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.llm-input-seg {
+  align-self: center;
+  padding: 0 1px;
+  border-bottom: 3px solid transparent;
+  font: var(--typography-chat-font-weight) 22px / 1.3 var(--typography-chat-font-family);
+  white-space: pre;
+  transition: border-color 0.3s;
+}
+
+.llm-input.is-cut .llm-input-seg {
+  border-bottom-color: var(--color-primary);
+}
+
+.llm-input-arrow {
+  position: relative;
+  align-self: center;
+  width: 2px;
+  height: 26px;
+  background: var(--color-ink-soft);
+}
+
+.llm-input-arrow::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  bottom: -2px;
+  border: 5px solid transparent;
+  border-top: 7px solid var(--color-ink-soft);
+  border-bottom: 0;
+}
+
+.llm-input-cols .token-chip-text {
+  align-self: center;
+  padding: 3px var(--spacing-2);
+  background: var(--color-primary-soft);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-code-font-weight) 15px / 1.3 var(--typography-code-font-family);
+}
+
+.llm-input-cols .token-chip[data-parity="odd"] .token-chip-text {
+  background: var(--color-accent-soft);
+}
+
+.llm-input-cols .token-chip.is-special .token-chip-text {
+  background: var(--color-surface-raised);
+  border: var(--spacing-stroke-min) dashed var(--color-discipline-harness);
+}
+
+/* A token the OUTPUT drew and the trainer added: dashed, its text in italics. */
+.llm-input-cols .token-chip.is-produced .token-chip-text {
+  background: var(--color-produced-soft);
+  border: var(--spacing-stroke-min) dashed var(--color-ink-soft);
+}
+
+.llm-input-cols .token-chip.is-produced .llm-input-seg {
   color: var(--color-ink-soft);
   font-style: italic;
 }
 
-/* The table's row the token picks: a strip of cells, one lit. */
-.embedding-row {
+.llm-input-id {
+  display: inline-flex;
+  align-items: baseline;
+  align-self: center;
+  gap: var(--spacing-1);
+}
+
+.llm-input-cols .token-chip-id {
+  color: var(--color-ink);
+  font: var(--typography-number-font-weight) 16px / 1.2 var(--typography-number-font-family);
+  font-variant-numeric: tabular-nums;
+}
+
+.llm-input:not(.show-tokens) .llm-input-cols .token-chip > :nth-child(n + 2),
+.llm-input:not(.show-ids) .llm-input-cols .token-chip > :nth-child(n + 4) {
+  visibility: hidden;
+}
+
+.llm-input-counts {
+  display: grid;
+  gap: 6px;
+  min-width: 12em;
+  text-align: right;
+}
+
+.llm-input-counts[hidden] {
+  display: none;
+}
+
+.llm-input-count,
+.llm-input-estimate {
+  margin: 0;
+  color: var(--color-ink-soft);
+}
+
+.llm-input-estimate {
+  max-width: 22rem;
+  text-align: left;
+}
+
+.llm-input-count b {
+  color: var(--color-ink);
+  font: var(--typography-number-lg-font-weight) var(--typography-number-lg-font-size) /
+    var(--typography-number-lg-line-height) var(--typography-number-lg-font-family);
+}
+
+/* ---------- 2. TRANSFORMATION: the canvas (SVG) and the panel ---------- */
+
+.llm-banner {
+  margin: 0 0 var(--spacing-2);
+  padding: 6px var(--spacing-3);
+  background: var(--color-warning-soft);
+  color: var(--color-ink);
+  border: var(--spacing-stroke-min) solid var(--color-warning);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.llm-banner[hidden] {
+  display: none;
+}
+
+.llm-transfo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: var(--spacing-5);
+  align-items: start;
+}
+
+.llm-transfo-canvas {
+  padding: 6px;
+  background: var(--color-discipline-neutral-soft);
+  border: var(--spacing-stroke-min) dashed var(--color-ink-soft);
+  border-radius: var(--rounded-md);
+}
+
+.llm-transfo-canvas svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 58vh;
+}
+
+.llm-transfo-panel .llm-label {
+  margin: var(--spacing-2) 0 0;
+}
+
+.llm-transfo-example {
+  margin: 0 0 var(--spacing-2);
+  padding: 2px var(--spacing-2);
+  border: 1px dashed var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.llm-transfo-example[hidden],
+.llm-transfo-legend[hidden] {
+  display: none;
+}
+
+.llm-transfo-step-title {
+  margin: 0 0 6px;
+  font: var(--typography-heading-font-weight) 17px / var(--typography-heading-line-height)
+    var(--typography-heading-font-family);
+}
+
+.llm-transfo-step-text {
+  margin: 0 0 var(--spacing-2);
+}
+
+.llm-transfo-facts {
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-surface);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.llm-transfo-facts p {
+  margin: 0 0 3px;
+  font-weight: 700;
+}
+
+.llm-transfo-facts .llm-transfo-facts-title {
+  color: var(--color-ink-soft);
+  font-weight: inherit;
+}
+
+/* The model's layers: a bar each, the one crossed now haloed; a hybrid's recurrent ones
+   dashed (shape and colour). */
+.llm-layer-stack {
   display: flex;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: var(--spacing-1) 0;
 }
 
-.embedding-row span {
-  flex: 1;
-  height: 0.6em;
-  background: var(--color-line);
-  border-radius: 2px;
+.llm-layer-stack i {
+  box-sizing: border-box;
+  width: 9px;
+  height: 22px;
+  background: var(--color-primary-soft);
+  border: 1px solid var(--color-primary);
+  border-radius: 3px;
 }
 
-.embedding-row span.is-picked {
+.llm-layer-stack i.is-rec {
+  background: var(--color-surface);
+  border: 1px dashed var(--color-ink-soft);
+}
+
+.llm-layer-stack i.is-done {
   background: var(--color-primary);
 }
 
-.embedding-source {
+.llm-layer-stack i.is-rec.is-done {
+  background: var(--color-muted);
+}
+
+.llm-layer-stack i.is-now {
+  box-shadow: 0 0 0 3px var(--color-state-active);
+}
+
+.llm-transfo-legend {
+  margin: 2px 0 0;
+  color: var(--color-ink-soft);
   font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
     var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.llm-transfo-legend:empty {
+  display: none;
+}
+
+#transfo-svg text {
+  fill: var(--color-ink);
+  font: 12px var(--typography-body-font-family);
+}
+
+#transfo-svg .t-soft {
+  fill: var(--color-ink-soft);
+}
+
+#transfo-svg .t-label {
+  fill: var(--color-ink-soft);
+  font: var(--typography-label-font-weight) 11px var(--typography-label-font-family);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+#transfo-svg .t-code {
+  font: 13px var(--typography-code-font-family);
+}
+
+#transfo-svg .t-num {
+  font: var(--typography-number-font-weight) 12px var(--typography-number-font-family);
+}
+
+.llm-transfo-chip {
+  fill: var(--color-primary-soft);
+  stroke: var(--color-line);
+}
+
+.llm-transfo-chip.is-odd {
+  fill: var(--color-accent-soft);
+}
+
+.llm-transfo-cell {
+  stroke: var(--color-line);
+  stroke-width: 1;
+  transition:
+    fill 0.5s ease,
+    fill-opacity 0.5s ease;
+}
+
+.llm-transfo-cell.is-positive {
+  fill: var(--color-primary);
+}
+
+.llm-transfo-cell.is-negative {
+  fill: var(--color-discipline-context);
+}
+
+.llm-transfo-frame {
+  fill: none;
+  stroke: var(--color-ink-soft);
+  stroke-width: 1.5;
+}
+
+.llm-transfo-frame.is-focus {
+  stroke: var(--color-state-active);
+  stroke-width: 4;
+}
+
+#transfo-svg .is-faded {
+  opacity: 0.3;
+}
+
+.llm-transfo-wire {
+  fill: none;
+  stroke: var(--color-ink-soft);
+  stroke-width: 1.5;
+}
+
+.llm-transfo-wire.is-dashed {
+  stroke-dasharray: 5 4;
+}
+
+.llm-transfo-wire.is-faint {
+  opacity: 0.35;
+}
+
+.llm-transfo-arc {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+.llm-transfo-neuron {
+  fill: var(--color-surface-raised);
+  stroke: var(--color-discipline-context);
+  stroke-width: 1.5;
+}
+
+.llm-transfo-neuron.is-on {
+  fill: var(--color-discipline-context);
+}
+
+.llm-transfo-synapse {
+  stroke: var(--color-discipline-context);
+  stroke-width: 0.6;
+  opacity: 0.35;
+}
+
+.llm-transfo-table {
+  fill: var(--color-surface-raised);
+  stroke: var(--color-ink-soft);
+}
+
+.llm-transfo-row {
+  fill: var(--color-primary);
+  opacity: 0.8;
+}
+
+.llm-transfo-expert {
+  fill: var(--color-surface-raised);
+  stroke: var(--color-discipline-context);
+  stroke-width: 1.5;
+}
+
+.llm-transfo-expert.is-on {
+  fill: var(--color-accent-soft);
+  stroke-width: 3;
+}
+
+.llm-transfo-layer {
+  fill: var(--color-surface-raised);
+  stroke: var(--color-ink-soft);
+}
+
+.llm-transfo-arrowhead {
+  fill: var(--color-ink-soft);
+}
+
+/* ---------- 3. OUTPUT: logits, the draw, the token drawn, read downwards ---------- */
+
+.llm-output-part {
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-md);
+}
+
+.llm-output-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-1) var(--spacing-3);
+  margin: 0 0 var(--spacing-1);
+  font: var(--typography-heading-font-weight) 15px / var(--typography-heading-line-height)
+    var(--typography-heading-font-family);
+}
+
+.llm-output-sub {
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.llm-output-arrow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  height: 24px;
+  margin: 0;
+  padding-left: 60px;
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.llm-output-arrow::before {
+  content: "▼";
+  font-size: 12px;
+}
+
+.llm-output-logits {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 26rem);
+  gap: var(--spacing-5);
+  align-items: start;
+}
+
+.llm-output-logits .llm-questions {
+  margin: 0;
+}
+
+.llm-output-side .llm-output-token {
+  margin: var(--spacing-2) 0 0;
+}
+
+.llm-output-token:empty {
+  display: none;
+}
+
+.llm-output-logits-body[hidden] {
+  display: none;
+}
+
+.llm-output-token {
+  margin: 0 0 var(--spacing-1);
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.llm-output-draw {
+  display: grid;
+  grid-template-columns: 390px minmax(0, 1fr);
+  gap: var(--spacing-4);
+  align-items: start;
+}
+
+.llm-output-knobs .llm-actions {
+  flex-wrap: nowrap;
+  margin: var(--spacing-2) 0 0;
+  gap: var(--spacing-2);
+}
+
+.llm-output-knobs .llm-actions .llm-button-secondary {
+  flex: none;
+}
+
+.llm-output-knobs .llm-actions .llm-note {
+  margin: 0;
+}
+
+.llm-output-knobs .llm-note {
+  margin: var(--spacing-1) 0 0;
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+.llm-output-drawrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2) var(--spacing-4);
+}
+
+.llm-output-chip {
+  display: inline-block;
+  padding: var(--spacing-1) var(--spacing-3);
+  background: var(--color-primary-soft);
+  color: var(--color-ink);
+  border: var(--spacing-stroke-min) solid var(--color-ink);
+  border-radius: var(--rounded-sm);
+  font: var(--typography-code-font-weight) 20px / 1.2 var(--typography-code-font-family);
+  white-space: pre;
+}
+
+.llm-output-history {
+  color: var(--color-ink-soft);
+  font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+#llm-step-status {
+  margin: var(--spacing-1) 0 0;
+}
+
+#llm-step-status:empty {
+  display: none;
+}
+
+/* Sous 900 px : une colonne partout, sans défilement horizontal. */
+@media (max-width: 900px) {
+  .llm-input-top,
+  .llm-input,
+  .llm-transfo,
+  .llm-output-logits,
+  .llm-output-draw {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .llm-input-rows {
+    display: none;
+  }
+
+  .llm-input-counts {
+    grid-auto-flow: column;
+    text-align: left;
+  }
+
+  .llm-stage-stepper {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .llm-input-cols,
+  .llm-input-seg,
+  .llm-input-rows span,
+  .llm-input-count,
+  .llm-transfo-cell {
+    transition: none;
+  }
 }
 
 /* ---------- sampling-controls (increment 2): a slider and a number per setting ---------- */
@@ -448,6 +1098,61 @@ body.llm-page {
 
 .sampling-row.is-unsupported {
   background: var(--color-discipline-neutral-soft);
+}
+
+/* Lot 6 (2026-10-04): the OUTPUT's compact rows, name | slider | value. */
+.sampling-controls.is-compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-1);
+  margin: 0;
+}
+
+.sampling-row.is-compact {
+  display: grid;
+  grid-template-columns: 8.2em minmax(0, 1fr) 4.8em;
+  align-items: center;
+  gap: 2px var(--spacing-2);
+  padding: 2px var(--spacing-1);
+  background: none;
+  border: 0;
+}
+
+.sampling-row.is-compact.is-unsupported {
+  background: var(--color-discipline-neutral-soft);
+}
+
+.sampling-row.is-compact input[type="number"] {
+  width: 100%;
+  margin: 0;
+}
+
+.sampling-row.is-compact .sampling-row-reason {
+  grid-column: 1 / -1;
+}
+
+.sampling-row-name {
+  justify-self: start;
+  margin: 0;
+  padding: 0;
+  background: none;
+  color: var(--color-ink);
+  border: 0;
+  border-bottom: 1px dotted var(--color-ink-soft);
+  font: var(--typography-heading-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-heading-line-height) var(--typography-heading-font-family);
+  cursor: help;
+}
+
+.sampling-row-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--rounded-full);
+  color: var(--color-primary);
+  font: var(--typography-number-font-weight) 11px / 1 var(--typography-number-font-family);
 }
 
 .sampling-row-reason {
@@ -779,23 +1484,10 @@ body.llm-page {
   margin-top: 2px;
 }
 
-/* ---------- story 5 (2026-09-30): distribution-bars (DESIGN.md), section 2 ----------
+/* ---------- story 5 (2026-09-30): distribution-bars (DESIGN.md), lot 6: in the OUTPUT ----------
    One hue (primary): the model probability as a soft bar, the chance of being drawn as a
    full one; the candidates discarded greyed, their value replaced by the word discarded.
    Labels beside each bar, no separate legend. */
-
-.distribution {
-  margin: var(--spacing-4) 0 0;
-  padding: var(--spacing-3) var(--spacing-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-line);
-  border-radius: var(--rounded-md);
-}
-
-.distribution-title {
-  font: var(--typography-heading-font-weight) var(--typography-body-font-size) /
-    var(--typography-heading-line-height) var(--typography-heading-font-family);
-}
 
 .distribution-empty {
   margin: var(--spacing-2) 0 0;
@@ -913,6 +1605,91 @@ body.llm-page {
 .token-chip.is-dist-chosen {
   outline: 2px solid var(--color-primary);
   outline-offset: 1px;
+}
+
+/* Lot 6 (2026-10-04): the OUTPUT's two charts, six words at most. Each word a chip; the
+   Logits' bar the model's probability; the Draw's the chance, the probability kept as a thin
+   ghost bar beside the word. */
+.llm-output .distribution-head,
+.llm-output .dist-row {
+  grid-template-columns: 9.5em minmax(5rem, 10rem) minmax(0, 1fr);
+  gap: 2px var(--spacing-3);
+}
+
+.llm-output .distribution-head {
+  margin-top: 0;
+}
+
+.llm-output .distribution-bars {
+  gap: 2px;
+  margin: 2px 0 var(--spacing-1);
+}
+
+.llm-output .dist-row {
+  padding: 0 var(--spacing-1);
+}
+
+.llm-output .distribution-bars.is-logits .dist-row {
+  grid-template-columns: 9.5em minmax(0, 1fr);
+}
+
+.llm-output .dist-text {
+  line-height: 1.25;
+  justify-self: start;
+  max-width: 100%;
+  padding: 0 6px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: var(--rounded-sm);
+}
+
+.llm-output .dist-row.is-tail .dist-text {
+  padding: 0;
+  background: none;
+  border: 0;
+  font-style: italic;
+}
+
+.llm-output .dist-row.is-chosen .dist-text {
+  outline: var(--spacing-stroke-min) solid var(--color-ink);
+}
+
+.llm-output .dist-cell {
+  grid-template-columns: minmax(0, 1fr) 7.5em;
+}
+
+.llm-output .dist-cell.is-model .dist-bar {
+  height: 14px;
+}
+
+#distribution-bars .dist-cell.is-model {
+  grid-template-columns: minmax(0, 1fr) 3.6em;
+}
+
+#distribution-bars .dist-cell.is-model .dist-bar {
+  height: 0.4em;
+}
+
+#distribution-bars .dist-cell.is-model .dist-value {
+  color: var(--color-ink-soft);
+  font-size: var(--typography-body-sm-font-size);
+}
+
+#distribution-bars .dist-cell.is-chance .dist-bar {
+  height: 14px;
+}
+
+#distribution-bars .dist-row.is-dropped .dist-cell.is-chance .dist-value {
+  color: var(--color-ink-soft);
+  font: italic var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /
+    var(--typography-body-sm-line-height) var(--typography-body-sm-font-family);
+}
+
+@media (max-width: 900px) {
+  .llm-output .distribution-head,
+  .llm-output .dist-row {
+    grid-template-columns: 7em minmax(4rem, 7rem) minmax(0, 1fr);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
