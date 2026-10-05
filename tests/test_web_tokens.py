@@ -600,16 +600,72 @@ def test_every_page_loads_the_tokens_and_the_theme_script_first():
         assert re.search(r"<select\b[^>]*\bdata-theme-picker\b", text), page.name
 
 
-# ---------- story 34: the projection mode's ramp (app.css), 9/7 of tokens.css ----------
+# ---------- story 34: the projection mode's ramp, 9/7 of tokens.css ----------
+# Lot 4 (AD-28): in pages.css, shared by every page that offers the mode (panes.js).
 
-APP_CSS = STATIC_DIR / "app.css"
+PAGES_CSS = STATIC_DIR / "pages.css"
 
 
 def _projection_block() -> dict[str, str]:
-    text = APP_CSS.read_text(encoding="utf-8")
+    text = PAGES_CSS.read_text(encoding="utf-8")
     match = re.search(r":root\.projection\s*\{(.*?)\}", text, re.S)
-    assert match, "app.css must redefine the ramp under :root.projection"
+    assert match, "pages.css must redefine the ramp under :root.projection"
     return {n: v.strip() for n, v in re.findall(r"(--[\w-]+)\s*:\s*([^;]+);", match.group(1))}
+
+
+def _shared_pane_classes() -> re.Pattern[str]:
+    """The `pane-*` classes pages.css styles (AD-28): no other sheet sets a rule on them."""
+    text = re.sub(r"/\*.*?\*/", "", PAGES_CSS.read_text(encoding="utf-8"), flags=re.S)
+    names = sorted(set(re.findall(r"\.(pane-[\w-]+)", text)), key=len, reverse=True)
+    return re.compile(r"\.(" + "|".join(names) + r")(?![\w-])")
+
+
+def _subject(selector: str) -> str:
+    """The compound a selector styles: its last one, the functional pseudo-classes left out
+    (`.top-bar:not(:has(.pane-chip)) > select` styles a `select`, not a chip)."""
+    bare = selector
+    while (simpler := re.sub(r":(?:not|has|is|where)\([^()]*\)", "", bare)) != bare:
+        bare = simpler
+    return re.split(r"\s*[>+~]\s*|\s+", bare.strip())[-1]
+
+
+def test_only_pages_css_writes_the_shared_rules():
+    """Lot 4 (AD-28): `diagram-*` rules, the `pane-*` rules of the panes (pages.css's own
+    classes) and the projection ramp live in pages.css only: a page adds its own classes beside
+    them, never redefines nor overrides one in its own sheet. A style inlined in an HTML page
+    counts too."""
+    panes = _shared_pane_classes()
+    offenders = []
+    for path in sorted(STATIC_DIR.rglob("*")):
+        if path.name == "pages.css" or path.suffix not in (".css", ".html"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".html":
+            text = "\n".join(re.findall(r"<style\b[^>]*>(.*?)</style>", text, re.S))
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+        for selector in re.findall(r"([^{}]+)\{", text):
+            shared = re.search(r"\.diagram-[\w-]", selector)
+            pane = any(panes.search(_subject(one)) for one in selector.split(",") if one.strip())
+            if shared or pane or re.search(r":root\.projection\s*$", selector.strip()):
+                offenders.append(f"{path.name}: {' '.join(selector.split())[:80]}")
+    assert not offenders, offenders
+
+
+def test_the_shared_rules_guard_catches_a_diagram_rule(tmp_path):
+    """The guard's pattern itself: a `.diagram-` selector, alone or compound, is one."""
+    for css in (".diagram-block { color: red; }", ".mcp .diagram-block.is-active, .x { }"):
+        selectors = re.findall(r"([^{}]+)\{", css)
+        assert any(re.search(r"\.diagram-[\w-]", s) for s in selectors), css
+    assert not re.search(r"\.diagram-[\w-]", ".mcp-diagram-x { }")
+    panes = _shared_pane_classes()
+    for selector in (
+        ".pane-chips > .pane-chip",
+        ".mcp .pane-title",
+        ".x .pane-text-action:disabled",
+    ):
+        assert panes.search(_subject(selector)), selector
+    for selector in (".pane-title-row", ".top-bar:not(:has(.pane-chip.is-linked)) > select"):
+        assert not panes.search(_subject(selector)), selector
 
 
 def test_projection_sizes_are_the_ramp_times_nine_sevenths():

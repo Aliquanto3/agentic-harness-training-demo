@@ -987,9 +987,12 @@ body.annex-page {
   z-index: 2;
 }
 
-/* A block in action: the green halo (DESIGN.md > arch-node-active). */
+/* A block in action: the green halo (DESIGN.md > arch-node-active), over an ink ring (lot 4,
+   AD-28: the halo alone is colour only). */
 .diagram-block.is-active {
-  box-shadow: 0 0 0 4px var(--color-state-active);
+  box-shadow:
+    0 0 0 var(--spacing-stroke-min) var(--color-ink),
+    0 0 0 calc(var(--spacing-stroke-min) + 4px) var(--color-state-active);
 }
 
 /* A wire at rest (DESIGN.md > arch-trunk): soft ink, dashed past the boundary. */
@@ -1013,10 +1016,11 @@ body.annex-page {
   stroke-linejoin: round;
 }
 
+/* Lot 4 (AD-28): the core of the path taken at `--spacing-stroke-path` (3 px). */
 .diagram-path-core {
   fill: none;
   stroke: var(--color-ink);
-  stroke-width: var(--spacing-stroke-min);
+  stroke-width: var(--spacing-stroke-path);
   stroke-linejoin: round;
 }
 
@@ -1088,16 +1092,31 @@ body.annex-page {
   cursor: pointer;
 }
 
-.diagram-stepper button:disabled {
+/* Lot 4 (AD-28): a bound in `aria-disabled`, never `disabled` (it keeps the focus). */
+.diagram-stepper button[aria-disabled="true"] {
   cursor: not-allowed;
   background: var(--color-surface);
   color: var(--color-ink-soft);
   border-color: var(--color-line);
 }
 
+/* Lot 4 (AD-28): pressed while it follows, in solid, its « ● » set by the module. */
 .diagram-stepper .diagram-step-live[aria-pressed="true"] {
-  background: var(--color-primary-soft);
-  color: var(--color-primary-deep);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+/* The stepper's own announcement (AD-28): polite, visually hidden. */
+.diagram-step-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .diagram-stepper button:focus-visible {
@@ -1130,9 +1149,441 @@ body.annex-page {
   white-space: pre-line;
 }
 
-/* Reduced motion: the moving flow becomes a steady dashed line. */
+/* Lot 4 (AD-28): the progressive discovery (`reveal()`). An element not shown yet keeps its
+   place, out of the accessibility tree; it fades in when it appears. */
+.diagram-unrevealed {
+  visibility: hidden !important;
+}
+
+.diagram-revealing {
+  animation: diagram-reveal 0.2s ease-out;
+}
+
+@keyframes diagram-reveal {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: the moving flow becomes a steady dashed line, nothing fades in. */
 @media (prefers-reduced-motion: reduce) {
-  .diagram-path-core.is-flow {
+  .diagram-path-core.is-flow,
+  .diagram-revealing {
     animation: none;
   }
+}
+
+/* ---------- lot 4 (2026-10-04, AD-28): the panes (static/panes.js) ----------
+   Out of app.css so that the workshops lay out their panes as the Atelier Harnais does: a pane
+   and its header (number, title, subtitle, ⛶ and « — »), the chips of the hidden panes, the
+   layout (a left pane, a right column of a top row over a bottom pane), the gutter handles,
+   the focus mode and the projection ramp. A page sizes its own panes (`--pane-{id}-width`,
+   `--pane-{id}-grow`, `--pane-{id}-height`, see app.css). */
+
+.pane-chips {
+  display: flex;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+
+.pane-chip {
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) / var(--typography-label-line-height)
+    var(--typography-label-font-family);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  border: 1px dashed var(--color-primary);
+  border-radius: var(--rounded-full);
+  padding: var(--spacing-1) var(--spacing-3);
+  min-height: var(--spacing-hit-target-min);
+  cursor: pointer;
+}
+
+/* The ink dot of a linked chip (a span: a generated `::before` put an ellipsis on the chip at
+   its own natural width). */
+.pane-chip-dot {
+  color: var(--color-ink);
+}
+
+.layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  gap: var(--spacing-gutter);
+  /* Minimums (EXPERIENCE.md > Masquage des volets): 240 px wide, 160 px high, as panes.js. */
+  --pane-min-width: 240px;
+  --pane-min-height: 160px;
+}
+
+.right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-gutter);
+  min-width: 0;
+}
+
+.top-row {
+  flex: 1;
+  display: flex;
+  gap: var(--spacing-gutter);
+  min-height: 0;
+}
+
+.top-row .pane {
+  flex: 1 1 0%;
+}
+
+/* ---------- gutter handles (DESIGN.md > pane-resize-handle), inserted by panes.js ----------
+   Zero footprint: the handle is exactly the gutter (its negative margins cancel its own size
+   and one of the two gaps around it), so spacing is unchanged. Invisible at rest; a primary
+   pill of 4 x 32 px on hover, keyboard focus and while dragging. No animation. */
+
+.pane-resize-handle {
+  position: relative;
+  z-index: 1; /* its widened hit area overlaps the panes' edges */
+  flex: 0 0 var(--spacing-gutter);
+  touch-action: none;
+  outline: none; /* the pill is the focus indicator */
+}
+
+.pane-resize-handle[hidden],
+body.focus-mode .pane-resize-handle {
+  display: none;
+}
+
+.pane-resize-handle[aria-orientation="vertical"] {
+  margin: 0 calc(-1 * var(--spacing-gutter));
+  cursor: col-resize;
+}
+
+.pane-resize-handle[aria-orientation="horizontal"] {
+  margin: calc(-1 * var(--spacing-gutter)) 0;
+  cursor: row-resize;
+}
+
+/* Hit area of hit-target-min (8 + 6 + 18 = 32 px): it reaches only 6 px into the pane on the
+   left, whose vertical scrollbar sits on that edge, and 18 px into the pane on the right: its
+   12 px padding plus 6 px of content (accepted trade-off). */
+.pane-resize-handle[aria-orientation="vertical"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 calc(var(--spacing-gutter) - var(--spacing-hit-target-min) + 6px) 0 -6px;
+}
+
+.pane-resize-handle[aria-orientation="horizontal"]::before {
+  content: "";
+  position: absolute;
+  inset: calc((var(--spacing-gutter) - var(--spacing-hit-target-min)) / 2) 0;
+}
+
+.pane-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--spacing-1);
+  height: var(--spacing-6);
+  transform: translate(-50%, -50%);
+  border-radius: var(--rounded-full);
+  background: var(--color-primary);
+  visibility: hidden;
+}
+
+.pane-resize-handle[aria-orientation="horizontal"]::after {
+  width: var(--spacing-6);
+  height: var(--spacing-1);
+}
+
+.pane-resize-handle:hover::after,
+.pane-resize-handle:focus-visible::after,
+.pane-resize-handle.is-dragging::after {
+  visibility: visible;
+}
+
+/* Windows high contrast: keep the pill (the handle's only focus indicator) visible. */
+@media (forced-colors: active) {
+  .pane-resize-handle::after {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+}
+
+/* Pane controls win over the handles' widened hit area (a bottom handle reaches 12 px into the
+   bottom of the top row and into the bottom pane's header). */
+.pane-header {
+  position: relative;
+  z-index: 2;
+}
+
+/* While dragging, the cursor stays put and no text gets selected on the way. */
+body.is-resizing-x,
+body.is-resizing-x * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.is-resizing-y,
+body.is-resizing-y * {
+  cursor: row-resize !important;
+  user-select: none;
+}
+
+.pane {
+  background: var(--color-surface-raised);
+  border-radius: var(--rounded-lg);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane.is-hidden {
+  display: none;
+}
+
+/* Story 34: the reading order, a numbered ink disc before the title (hidden from screen
+   readers: the pane's name does not change). */
+.pane-step {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 1.7em;
+  height: 1.7em;
+  border-radius: var(--rounded-full);
+  background: var(--color-ink-fill);
+  box-shadow: inset 0 0 0 var(--spacing-stroke-min) var(--color-ink-fill-edge); /* story 31 */
+  color: var(--color-on-ink);
+  font: var(--typography-number-font-weight) var(--typography-number-font-size) / 1
+    var(--typography-number-font-family);
+}
+
+.pane-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-pane-padding);
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-surface); /* story 33: the pane's band */
+}
+
+.pane-heading {
+  flex: 1 1 auto; /* never narrower than its title: the subtitle wraps instead */
+}
+
+.pane-title {
+  margin: 0;
+  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
+    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.pane-subtitle {
+  margin: 0;
+  font: var(--typography-pane-subtitle-font-weight) var(--typography-pane-subtitle-font-size) /
+    var(--typography-pane-subtitle-line-height) var(--typography-pane-subtitle-font-family);
+  color: var(--color-ink-soft);
+  width: 0; /* adds nothing to the heading's intrinsic width */
+  min-width: 100%;
+}
+
+.pane-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap; /* story 13: the Vue humain header holds an option and two actions */
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.pane-actions button {
+  min-width: var(--spacing-hit-target-min);
+  min-height: var(--spacing-hit-target-min);
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-soft);
+  cursor: pointer;
+}
+
+.pane-actions button:disabled,
+.pane-actions button[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-pane-padding);
+}
+
+/* ---------- focus mode: collapse every pane but the focused one ---------- */
+
+body.focus-mode .layout,
+body.focus-mode .right,
+body.focus-mode .top-row {
+  flex-direction: column;
+}
+
+/* Recette du 02/10: in a column, `.right` would keep its content's height (Orchestration
+   unfolded) and push the page past `100vh`, the bottom bar with it. Only when the focused
+   pane is in it: with Briques focused, `.right` (flex-basis 0) would shrink to nothing and
+   its collapsed headers would overflow the page instead. */
+body.focus-mode .right:has(> .pane.is-focused, > .top-row > .pane.is-focused) {
+  min-height: 0;
+}
+
+body.focus-mode .pane:not(.is-hidden) {
+  flex: 0 0 auto;
+}
+
+body.focus-mode .pane:not(.is-hidden) .pane-body {
+  flex: 0 0 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body.focus-mode .pane.is-focused {
+  flex: 1 1 auto !important;
+}
+
+body.focus-mode .pane.is-focused .pane-body {
+  flex: 1 1 auto;
+  padding: var(--spacing-pane-padding);
+  overflow: auto;
+}
+
+/* ---------- story 34: projection mode (DESIGN.md > projection-toggle, NFR-9) ----------
+   The type ramp × 9/7, rounded (body 14 → 18 px); tokens.css stays DESIGN.md's mirror, so the
+   ramp is redefined here, for every page that offers the mode (panes.js, AD-28). The
+   Atelier Harnais's top bar grows so its controls stay on one line. */
+
+:root.projection {
+  --typography-pane-title-font-size: 23px;
+  --typography-pane-subtitle-font-size: 17px;
+  --typography-heading-font-size: 23px;
+  --typography-chat-font-size: 21px;
+  --typography-body-font-size: 18px;
+  --typography-body-sm-font-size: 17px;
+  --typography-label-font-size: 15px;
+  --typography-number-font-size: 18px;
+  --typography-number-lg-font-size: 26px;
+  --typography-code-font-size: 17px;
+  --spacing-top-bar-height: 72px;
+  --spacing-architecture-band-height: 320px; /* the schema and its summary, in proportion */
+}
+
+/* ---------- the Atelier Harnais's own settings of the shared pane rules ----------
+   Lot 4 of 2026-10-04 (AD-28): every rule on a `pane-*` class lives here, scoped to the
+   atelier as it was in app.css (its text actions, the chips of its ink bar, its
+   Orchestration header, its bricks pane), in app.css's order. */
+
+/* Destructive: neutral and flat, not to draw the click by mistake (DESIGN.md > reset-button). */
+.pane-actions .pane-text-action {
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+}
+
+.top-bar > .pane-chips {
+  flex: 0 1000 auto; /* story 34: after the names, so that « · lié » stays readable */
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.pane-chips > .pane-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Story 34: the ellipsis only where the bar squeezes the chips: at its natural width, Chromium
+   rounds a chip a fraction of a pixel under its text and cut « · lié » into « · l… ». */
+@media (max-width: 1400px) {
+  .pane-chips > .pane-chip {
+    text-overflow: ellipsis;
+  }
+}
+
+/* Header: the working indicator gives way first when the pane is narrow. */
+.pane[data-pane="orch"] .pane-actions {
+  min-width: 0;
+  align-items: center;
+}
+
+.pane[data-pane="orch"] .pane-actions button {
+  flex: 0 0 auto;
+}
+
+.pane-body#bricks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.pane-actions .pane-text-action {
+  min-height: var(--spacing-hit-target-min);
+  border-radius: var(--rounded-md);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+  padding: 0 var(--spacing-3);
+  cursor: pointer;
+}
+
+.pane-actions .pane-text-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+:root.projection .top-bar > .pane-chips {
+  flex-shrink: 1;
+}
+
+.top-bar > .pane-chips {
+  display: contents;
+}
+
+.pane-chips > .pane-chip {
+  flex-shrink: 1000000;
+  text-overflow: ellipsis;
+}
+
+.pane-chips > .pane-chip.is-linked {
+  flex-shrink: 0;
+  min-width: max-content;
+  text-overflow: clip;
+}
+
+@media (max-width: 1100px) {
+  .pane-chips > .pane-chip.is-linked {
+    flex-shrink: 1;
+    min-width: 0;
+    text-overflow: ellipsis;
+  }
+}
+
+/* ---------- the MCP workshop's own settings of the shared pane rules ----------
+   Lot 4 of 2026-10-04 (AD-28): « Serveurs et commandes » is long beside a narrow pane, and in
+   projection mode its title pushed ⛶ and « — » out: on /mcp, the heading shrinks and the title
+   wraps, the pane's tools always in view. */
+.mcp-layout .pane-heading {
+  min-width: 0;
+}
+
+.mcp-layout .pane-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* The Architecture band's body: a tighter padding, so that its three lanes keep their hit
+   targets inside the 206 px band (the maquette's 6 px 10 px 8 px). */
+.mcp-layout .pane[data-pane="arch"] > .pane-body {
+  padding: var(--spacing-1) var(--spacing-3) var(--spacing-2);
 }

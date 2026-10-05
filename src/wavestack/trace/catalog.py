@@ -56,6 +56,9 @@ class OutboundRequestPayload(BaseModel):
     # Story 23: the headers sent (AD-15); empty for events traced before them.
     headers: list[OutboundHeader] = []
     body: str = ""
+    # Lot 4 of 2026-10-04 (AD-27): in the MCP workshop, the `seq` of the `mcp_lab_message`
+    # a POST carries (its captured text is the body sent); `None` otherwise.
+    message_seq: int | None = None
 
 
 class OutboundResponsePayload(BaseModel):
@@ -656,6 +659,7 @@ PrefixCause = Literal[
     "abandoned",
     "subagent",
     "llm",  # story 29: the « LLM nu » screen took the engine's cache
+    "mcp_lab",  # lot 4 of 2026-10-04: the MCP workshop's model took the engine's cache
 ]
 
 
@@ -1317,19 +1321,74 @@ class RagLabRunEndedPayload(BaseModel):
     comparison: RagLabComparison | None = None
 
 
-# ---------- corrections of 2026-09-30, story 6: the MCP workshop, context `mcp_lab` ----------
+# ---------- the MCP workshop, context `mcp_lab` (story 6 of 2026-09-30; lot 4, AD-27) ----------
+
+McpLabErrorKind = Literal[
+    "jsonrpc_error",
+    "unreachable",
+    "timeout",
+    "guard_blocked",
+    "lost",
+    "stopped",
+    "interrupted",
+    "provider",
+]
+
+
+class McpLabRpcError(BaseModel):
+    code: int
+    message: str
 
 
 class McpLabMessagePayload(BaseModel):
     """A JSON-RPC message as it passed the workshop's transport (captured, not rebuilt:
     `reconstructed` stays false). `elapsed_ms`: for a response, its round trip from its
-    request; for a request or a notification, the time since the exchange started."""
+    request (`round_trip`); for a request or a notification, the time since its step's
+    `exchange_started` (`since_start`). AD-27: what the page draws comes from the typed
+    fields, never from `jsonrpc`, which only the detail shows."""
 
     direction: Literal["to_server", "from_server"]
     method: str
     jsonrpc: str
     elapsed_ms: int
     reconstructed: bool = False
+    message_type: Literal["request", "notification", "response", "error"] = "request"
+    rpc_id: int | str | None = None
+    reply_to_seq: int | None = None
+    elapsed_kind: Literal["round_trip", "since_start"] = "since_start"
+    summary_text: str | None = None
+    error: McpLabRpcError | None = None
+    is_error: bool = False
+    unsolicited: bool = False
+
+
+class McpLabExchangeStartedPayload(BaseModel):
+    """AD-27: the opening of each exchange (`mcp{n}`) and of the tool a model asked for
+    (`mcp{n}.t1`). A field that does not concern its kind of exchange is `None`."""
+
+    exchange: Literal["connect", "call", "read", "prompt", "ask"]
+    server: str
+    transport: Literal["stdio", "streamable_http"]
+    launch_text: str | None = None
+    by: Literal["hand", "model", "app", "user"] | None = None
+    tool: str | None = None
+    uri: str | None = None
+    prompt: str | None = None
+    arguments: dict | None = None
+    question: str | None = None
+    of: str | None = None
+    doc_mode_requested: Literal["full", "lazy"] | None = None
+
+
+class _McpLabEnded(BaseModel):
+    """AD-27: what every `mcp_lab_*_ended` carries (the table of ends)."""
+
+    status: Literal["ok", "error", "cancelled", "limit"]
+    error_kind: McpLabErrorKind | None = None
+    error_text: str | None = None
+    connection: Literal["open", "closed"] = "closed"
+    failed_seq: int | None = None
+    duration_ms: int = 0
 
 
 class McpLabTool(BaseModel):
@@ -1347,28 +1406,169 @@ class McpLabTool(BaseModel):
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
 
 
-class McpLabConnectEndedPayload(BaseModel):
+class McpLabResource(BaseModel):
+    uri: str
+    name: str
+    title: str | None = None
+    mime_type: str | None = None
+    description: str | None = None
+
+
+class McpLabPromptArgument(BaseModel):
+    name: str
+    description: str | None = None
+    required: bool = False
+
+
+class McpLabPrompt(BaseModel):
+    name: str
+    title: str | None = None
+    description: str | None = None
+    arguments: list[McpLabPromptArgument] = []
+
+
+class McpLabListError(BaseModel):
+    method: Literal["tools/list", "resources/list", "prompts/list"]
+    error_kind: McpLabErrorKind
+    error_text: str
+
+
+class McpLabPrimitives(BaseModel):
+    tools: bool = False
+    resources: bool = False
+    prompts: bool = False
+
+
+class McpLabConnectEndedPayload(_McpLabEnded):
+    """The handshake's end: its primitives and lists (each `None` when not announced or
+    failed, then in `list_errors`), filled once `initialize` answered, whatever the
+    status; the tools' weights."""
+
     server: str
-    status: Literal["ok", "error"]
-    tools: list[McpLabTool] = []
+    primitives: McpLabPrimitives = McpLabPrimitives()
+    capabilities: dict = {}
+    server_info: dict | None = None
+    protocol_version: str | None = None
+    tools: list[McpLabTool] | None = None
+    resources: list[McpLabResource] | None = None
+    prompts: list[McpLabPrompt] | None = None
+    list_errors: list[McpLabListError] = []
     full_tokens: int | None = None
     lazy_tokens: int | None = None  # the lines, plus `load_tool_doc`'s definition
     load_tool_doc_tokens: int | None = None
     lazy_definition_text: str | None = None  # `load_tool_doc` with this server's lines
     estimated: bool = False  # no engine loaded: `_count_tokens`'s estimate
-    error_text: str | None = None
-    duration_ms: int = 0
 
 
-class McpLabCallEndedPayload(BaseModel):
+class McpLabCallEndedPayload(_McpLabEnded):
+    """A `tools/call`'s end; an `isError` result is a result (`status: ok`, `is_error`)."""
+
     server: str
     tool: str
-    status: Literal["ok", "error"]
+    arguments: dict = {}
+    by: Literal["hand", "model"] = "hand"
+    is_error: bool = False
     raw: str | None = None  # the JSON-RPC answer, as received
-    text: str | None = None  # what the harness would reinject (bounded)
+    text: str | None = None  # what the harness reinjects (bounded)
+    tokens: int | None = None  # the text alone
+    estimated: bool = False
     truncated: dict | None = None  # `{tokens, total_tokens, estimated}` when bounded
+
+
+class McpLabResourceContent(BaseModel):
+    uri: str
+    mime_type: str | None = None
+    text: str | None = None
+    blob_bytes: int | None = None
+
+
+class McpLabReadEndedPayload(_McpLabEnded):
+    server: str
+    uri: str
+    contents: list[McpLabResourceContent] = []
+    raw: str | None = None
+    text: str | None = None
+    tokens: int | None = None
+    estimated: bool = False
+    truncated: dict | None = None
+
+
+class McpLabPromptMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+
+
+class McpLabPromptEndedPayload(_McpLabEnded):
+    server: str
+    name: str
+    arguments: dict[str, str] = {}
+    description: str | None = None
+    messages: list[McpLabPromptMessage] = []
+    raw: str | None = None
+    text: str | None = None
+    tokens: int | None = None
+    estimated: bool = False
+
+
+class McpLabSend(BaseModel):
+    part: Literal["question", "resource", "prompt", "tools", "tool_doc", "tool_call", "tool_result"]
+    label_text: str
+    tokens: int
+
+
+class McpLabModelStartedPayload(BaseModel):
+    """AD-27: an `ask`'s call to the model, `mcp{n}.c{k}`: what leaves, and its weight."""
+
+    index: int
+    sends: list[McpLabSend]
+    sends_total_tokens: int
+    prompt_tokens: int  # the render's count (estimated for a cloud model)
+    estimated: bool = False
+    doc_mode: Literal["full", "lazy", "none"]
+    model: ActiveModel | None = None
+    phase_label: str
+
+
+class McpLabToolCall(BaseModel):
+    name: str
+    tool: str | None = None  # as the server names it; `None` for `load_tool_doc`
+    arguments_text: str  # as the model emitted it
+    arguments: dict | None = None  # `None` when it does not parse
+    tool_call_id: str | None = None
+
+
+class McpLabModelEndedPayload(BaseModel):
+    index: int
+    status: Literal["ok", "error", "cancelled"]
+    outcome: Literal["tool_call", "meta_call", "answer", "refused", "cut", "overflow"] | None = None
+    final: bool = False
+    direct: bool = False
+    tool_call: McpLabToolCall | None = None
+    answer_text: str | None = None
+    refusal_text: str | None = None
+    reasoning_cut: bool = False
+    duration_ms: int = 0
+    error_kind: McpLabErrorKind | None = None
     error_text: str | None = None
-    duration_ms: int
+
+
+class McpLabAskEndedPayload(_McpLabEnded):
+    server: str
+    outcome: (
+        Literal["no_tool", "answer", "refused", "second_tool", "cut", "max_calls", "overflow"]
+        | None
+    ) = None
+    calls: int = 0
+    model_ms: int = 0
+    share_text: str | None = None
+    final_step: str | None = None
+
+
+class McpLabClosedPayload(BaseModel):
+    """A closing outside any exchange (AD-27)."""
+
+    server: str
+    cause: Literal["language", "reset", "session_close", "lost"]
 
 
 # Maps each kind to its payload model, so `Envelope` can validate it.
@@ -1439,7 +1639,14 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "rag_lab_stage_progress": RagLabStageProgressPayload,
     "rag_lab_stage_ended": RagLabStageEndedPayload,
     "rag_lab_run_ended": RagLabRunEndedPayload,
+    "mcp_lab_exchange_started": McpLabExchangeStartedPayload,
     "mcp_lab_message": McpLabMessagePayload,
     "mcp_lab_connect_ended": McpLabConnectEndedPayload,
     "mcp_lab_call_ended": McpLabCallEndedPayload,
+    "mcp_lab_read_ended": McpLabReadEndedPayload,
+    "mcp_lab_prompt_ended": McpLabPromptEndedPayload,
+    "mcp_lab_model_started": McpLabModelStartedPayload,
+    "mcp_lab_model_ended": McpLabModelEndedPayload,
+    "mcp_lab_ask_ended": McpLabAskEndedPayload,
+    "mcp_lab_closed": McpLabClosedPayload,
 }

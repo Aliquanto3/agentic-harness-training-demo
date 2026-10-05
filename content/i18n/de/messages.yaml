@@ -111,6 +111,7 @@ session:
       abandoned: "Die vorige Runde wurde nicht abgeschlossen (gestoppt, mit Fehler, blockiert oder überschritten): Ihre Ausgabe steht im Cache der Engine, nicht im Verlauf."
       subagent: "Der Sub-Agent hat den Cache der Engine belegt{why}."
       llm: "Die LLM-Werkstatt hat den Cache der Engine belegt{why}."
+      mcp_lab: "Die MCP-Werkstatt hat den Cache der Engine belegt{why}."
     evicted:
       stateless: ": Diese Engine kann den Zustand des Hauptkontexts nicht sichern"
       failed: ": Das Sichern oder Wiederherstellen des Zustands des Hauptkontexts ist fehlgeschlagen"
@@ -531,9 +532,74 @@ session:
     not_connected: "Verbinden Sie sich zuerst mit {server}: Der Aufruf läuft über die Verbindung der MCP-Werkstatt."
     unknown_tool: "{server} hat kein Tool „{tool}“ aufgelistet."
     stopped: "Austausch gestoppt: Die Verbindung der MCP-Werkstatt ist geschlossen."
+    stopped_ask: "Senden an das Modell gestoppt: Das angeforderte Tool wurde nicht aufgerufen; die Verbindung bleibt offen."
     closed: "Die Verbindung der MCP-Werkstatt ist geschlossen: Verbinden Sie sich erneut mit dem Server."
-    is_error: "Der Server hat mit is_error geantwortet: Das Tool meldet einen Fehler, den der Harness unverändert an das Modell zurückgeben würde."
+    is_error: "Der Server hat mit isError geantwortet: Das Tool meldet einen Fehler, den der Harness unverändert an das Modell zurückgibt. Das Protokoll hat funktioniert, das Tool nicht."
     interrupted: Die MCP-Werkstatt wurde durch einen Fehler unterbrochen.
+    launch:
+      stdio: "startet den Server: {command}"
+      http: "öffnet eine HTTP-Sitzung mit {host}"
+    summary:
+      error: "Fehler {code}: {message}"
+      no_capabilities: "keine Fähigkeit"
+      capabilities: "Fähigkeiten: {names}"
+      tools:
+        one: "{n} Tool"
+        other: "{n} Tools"
+      resources:
+        one: "{n} Ressource"
+        other: "{n} Ressourcen"
+      prompts:
+        one: "{n} Prompt"
+        other: "{n} Prompts"
+      text_blocks:
+        one: "{n} Textblock"
+        other: "{n} Textblöcke"
+      other_blocks:
+        one: "{n} anderer Block"
+        other: "{n} andere Blöcke"
+      is_error: "isError · {blocks}"
+      text_content:
+        one: "{mime} · {n} Zeile"
+        other: "{mime} · {n} Zeilen"
+      blob_content: "{mime} · {n} Bytes"
+      contents:
+        one: "{n} Inhalt"
+        other: "{n} Inhalte"
+      messages:
+        one: "{n} Nachricht"
+        other: "{n} Nachrichten"
+    no_resources: "{server} kündigt keine Ressourcen an."
+    no_prompts: "{server} kündigt keine Prompts an."
+    unknown_resource: "{server} hat keine Ressource „{uri}“ aufgelistet."
+    unknown_prompt: "{server} hat keinen Prompt „{prompt}“ aufgelistet."
+    missing_argument: "Der Prompt „{prompt}“ verlangt das Argument „{argument}“."
+    blob_content: "[{mime}-Inhalt von {n} Bytes, nicht eingefügt]"
+    ask:
+      no_model: "Kein Modell geladen: Wählen Sie eines in der Diagnose."
+      no_tools: "Das aktive Modell ruft keine Tools auf: Wählen Sie in der Diagnose ein anderes."
+      cloud_no_tools: "Das aktive Modell ({model}) deklariert keine Tool-Aufrufe: Wählen Sie in der Diagnose ein anderes."
+      of_unknown: "Nichts zu senden: Lesen Sie zuerst eine Ressource oder holen Sie einen Prompt über diese Verbindung."
+      question_with_prompt: "Ein Prompt geht ohne Frage hinaus: Seine Nachrichten sind die Anfrage."
+      question_required: "Schreiben Sie zuerst eine Frage."
+    model_phase: "Senden an das Modell ({tokens} Tokens)"
+    model_phase_cloud: "Senden an {provider} (≈ {tokens} Tokens)"
+    overflow: "Nicht gesendet: Der Kontext umfasst {tokens} Tokens bei {usable} nutzbaren."
+    model_error: "Das Modell konnte nicht antworten."
+    provider_effect: "Die MCP-Werkstatt bricht dieses Senden ab; die Verbindung zum Server bleibt offen."
+    arguments_unparsed: "Die Argumente des Aufrufs sind kein gültiges JSON-Objekt."
+    sends:
+      question: "Frage"
+      resource: "Ressource {uri}"
+      prompt: "Prompt {name}"
+      tools:
+        one: "{n} Tool"
+        other: "{n} Tools"
+      lazy: "load_tool_doc und sein Katalog"
+      tool_doc: "Dokumentation von {tool}"
+      tool_call: "Aufruf: {tool}"
+      tool_result: "Tool-Ergebnis"
+    share: "davon {model} s Generierung"
   reading_context: "Lesen des Kontexts ({tokens} Tokens)"
 
 tools:

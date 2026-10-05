@@ -251,19 +251,19 @@
     <p class="thesis"><strong>Le harnais publie un journal ; l’écran n’en est qu’une lecture.</strong> Chaque décision ci-dessous découle de cette règle : ce que la salle voit est, par construction, ce que le harnais a réellement envoyé, décidé et exécuté.</p>
     <div class="meta">
       <span><b>Paradigme</b> moteur de tour à journal d’événements, ports et adaptateurs</span>
-      <span><b>25</b> décisions (AD-1 à AD-25)</span>
-      <span><b>Source</b> <code>ARCHITECTURE-SPINE.md</code>, 2026-09-24</span>
+      <span><b>28</b> décisions (AD-1 à AD-28)</span>
+      <span><b>Source</b> <code>ARCHITECTURE-SPINE.md</code>, 2026-10-05</span>
     </div>
   </header>
 
   <nav class="toc" aria-label="Sommaire">
     <a href="#schema">Où tourne quoi</a>
-    <a href="#tour">Un tour, événement par événement</a>
+    <a href="#tour">Un tour ou un échange MCP, événement par événement</a>
     <a href="#fenetre">Fenêtre de contexte</a>
     <a href="#budget">Budget de 4 Go</a>
     <a href="#decisions">Points tranchés du PRD</a>
     <a href="#cloud">Modèle cloud</a>
-    <a href="#ads">Les 25 décisions</a>
+    <a href="#ads">Les 28 décisions</a>
     <a href="#suite">Ce qui reste à mesurer</a>
   </nav>
 
@@ -400,7 +400,7 @@
   <!-- 2. Tour -->
   <section id="tour" aria-labelledby="h-tour">
     <div class="eyebrow">2 · Le journal en action</div>
-    <h2 id="h-tour">Un tour, événement par événement</h2>
+    <h2 id="h-tour">Un tour ou un échange MCP, événement par événement</h2>
     <p class="lead">Chaque étape du harnais émet des événements dans une enveloppe commune. Les volets de l’écran ne font que les lire. Choisissez un cas, puis parcourez ses étapes : à droite, les événements exacts que les volets recevraient.</p>
     <div class="seg-tabs" role="group" aria-label="Cas de démonstration" id="cases"></div>
     <div class="panel turn">
@@ -509,7 +509,7 @@
   <!-- 7. ADs -->
   <section id="ads" aria-labelledby="h-ads">
     <div class="eyebrow">7 · Le contrat</div>
-    <h2 id="h-ads">Les 25 décisions</h2>
+    <h2 id="h-ads">Les 28 décisions</h2>
     <p class="lead">Chaque décision fixe un point où deux stories construites séparément pourraient diverger. Dépliez une carte pour voir ce qu’elle lie et ce qu’elle empêche. Le texte qui fait foi est dans <code>ARCHITECTURE-SPINE.md</code>.</p>
     <div class="filters seg-tabs" id="filters" role="group" aria-label="Filtrer par thème"></div>
     <div class="ad-list" id="ad-list"></div>
@@ -594,6 +594,17 @@
         { who: 'Harnais', phase: 'Contrôle de la fenêtre', note: 'Le contexte dépasse la fenêtre utile : l’appel n’est pas envoyé. Pas de plantage ; une carte explique la cause et les pistes.', ev: [{ seq: 86, kind: 'context_rendered', call_id: 't5.main.c1', payload: { used: 4860, usable: 3584, overflow: true } }, { seq: 87, kind: 'context_overflow', payload: { heaviest: [{ kind: 'tool_catalog', brick: 'mcp', tokens: 2900 }] } }] },
         { who: 'Harnais', phase: 'Fin du tour, statut overflow', note: 'Le tour reste dans la trace, mais pas dans l’historique. Le formateur passe en lazy loading et rejoue.', ev: [{ seq: 88, kind: 'turn_ended', turn_id: 't5', payload: { status: 'overflow' } }] },
         { who: 'Utilisateur', phase: 'Rejeu en lazy loading', note: 'Le rejeu repart de l’historique d’avant t5, avec la configuration courante. Une ligne par outil MCP, plus load_tool_doc.', ev: [{ seq: 92, kind: 'turn_started', turn_id: 't6', payload: { replay_of: 't5' } }, { seq: 93, kind: 'context_rendered', call_id: 't6.main.c1', payload: { used: 2270, percent: 0.63 } }] }
+      ]
+    },
+    mcp: {
+      label: 'Atelier MCP · par le modèle',
+      steps: [
+        { who: 'Utilisateur', phase: 'Intention « mcp_lab_ask »', note: 'Contexte mcp_lab, hors tour. L’échange mcp7 s’ouvre par exchange_started : la page en tire le titre de phase et la flèche Utilisateur → Hôte, sans rien deviner (AD-27).', ev: [{ seq: 210, kind: 'mcp_lab_exchange_started', step_id: 'mcp7', payload: { exchange: 'ask', server: 'glossary', by: 'model', question: 'Que veut dire MCP ?', doc_mode_requested: 'full' } }] },
+        { who: 'Modèle', phase: 'Premier appel au modèle', note: 'Sous-pas mcp7.c1. La session dit ce qui part (sends) et compte le rendu. Les model_call_* réels partagent le pas. Pas de context_rendered : la jauge du tour n’est pas touchée.', ev: [{ seq: 211, kind: 'mcp_lab_model_started', step_id: 'mcp7.c1', payload: { index: 1, sends: [{ part: 'question', tokens: 14 }, { part: 'tools', tokens: 212 }], prompt_tokens: 241, estimated: false, doc_mode: 'full' } }, { seq: 212, kind: 'model_call_started', step_id: 'mcp7.c1' }, { seq: 219, kind: 'model_call_ended', step_id: 'mcp7.c1' }, { seq: 220, kind: 'mcp_lab_model_ended', step_id: 'mcp7.c1', payload: { outcome: 'tool_call', tool_call: { tool: 'define_term', arguments: { term: 'MCP' } }, duration_ms: 14200 } }] },
+        { who: 'Harnais', phase: 'Contrôle, puis tools/call', note: 'Le modèle ne parle jamais au serveur : l’hôte contrôle l’appel avec l’exécuteur de l’atelier (sans hooks), puis l’outil s’exécute sur son propre sous-pas mcp7.t1.', ev: [{ seq: 221, kind: 'mcp_lab_exchange_started', step_id: 'mcp7.t1', parent_step: 'mcp7', payload: { exchange: 'call', by: 'model', tool: 'define_term' } }, { seq: 222, kind: 'mcp_lab_message', step_id: 'mcp7.t1', payload: { direction: 'to_server', method: 'tools/call', message_type: 'request', elapsed_kind: 'since_start', elapsed_ms: 2 } }, { seq: 223, kind: 'mcp_lab_message', step_id: 'mcp7.t1', payload: { direction: 'from_server', method: 'tools/call', message_type: 'response', reply_to_seq: 222, elapsed_kind: 'round_trip', elapsed_ms: 31, summary_text: '1 bloc texte', is_error: false } }] },
+        { who: 'Harnais', phase: 'Fin de l’outil', note: 'Chaque fin dit son statut, la cause d’un échec et l’état de la connexion. Un résultat isError serait un résultat (status ok), réinjecté tel quel.', ev: [{ seq: 224, kind: 'mcp_lab_call_ended', step_id: 'mcp7.t1', payload: { status: 'ok', by: 'model', is_error: false, tokens: 64, estimated: false, connection: 'open', error_kind: null, duration_ms: 35 } }] },
+        { who: 'Modèle', phase: 'Second appel, résultat réinjecté', note: 'Le résultat entre comme message tool. La réponse finale clôt la phase.', ev: [{ seq: 225, kind: 'mcp_lab_model_started', step_id: 'mcp7.c2', payload: { index: 2, sends: [{ part: 'question', tokens: 14 }, { part: 'tools', tokens: 212 }, { part: 'tool_call', tokens: 22 }, { part: 'tool_result', tokens: 71 }] } }, { seq: 240, kind: 'mcp_lab_model_ended', step_id: 'mcp7.c2', payload: { outcome: 'answer', final: true, duration_ms: 9800 } }] },
+        { who: 'Harnais', phase: 'Fin de l’échange', note: 'Une seule fin par pas. La part de la génération est calculée par la session. Après un rechargement, last_session rejoue exactement ces événements.', ev: [{ seq: 241, kind: 'mcp_lab_ask_ended', step_id: 'mcp7', payload: { status: 'ok', outcome: 'answer', calls: 2, model_ms: 24000, share_text: '97 % de génération', connection: 'open' } }] }
       ]
     }
   };
@@ -763,7 +774,10 @@
     ['AD-22', 'contexte', 'Compression et RAG derrière des ports', 'Compression à une étape fixe, sur deux types de segment ; index livré avec son modèle.', 'FR-16 à FR-18, FR-31', 'Des segments compressés en double.'],
     ['AD-23', 'journal', 'Effets typés, appliqués par la session', 'Outils et hooks renvoient des effets ; la session écrit mémoire et audit.', 'FR-12, FR-24, H2', 'Plusieurs écrivains du même fichier.'],
     ['AD-24', 'journal', 'Modèle d’exécution et annulation', 'Un thread de travail, une boucle asyncio, un jeton d’annulation partout.', 'NFR-1, NFR-8', 'Une boucle bloquée ; un arrêt qui n’arrête rien.'],
-    ['AD-25', 'outils', 'Méta-outils et actions forcées', 'Mémoire, lazy loading, skills et délégation passent par l’exécuteur ; une action forcée est un appel d’outil.', 'FR-42, FR-21, FR-24', 'Des actions qui échappent aux hooks.']
+    ['AD-25', 'outils', 'Méta-outils et actions forcées', 'Mémoire, lazy loading, skills et délégation passent par l’exécuteur ; une action forcée est un appel d’outil.', 'FR-42, FR-21, FR-24', 'Des actions qui échappent aux hooks.'],
+    ['AD-26', 'contexte', 'L’API d’un modèle cloud : un traducteur et un adaptateur par API', 'Champ api par entrée, historique au format pivot Chat Completions, un traducteur dans context, un adaptateur dans models.', 'FR-43', 'Un second écrivain du corps envoyé ; un historique tenu en plusieurs formats.'],
+    ['AD-27', 'journal', 'Atelier MCP : le contrat d’événements du contexte mcp_lab', 'Chaque échange mcp{n} s’ouvre et se ferme par une paire ; sous-pas c{k} (modèle) et t1 (outil) ; messages typés ; fins qui disent la cause et l’état de la connexion ; tables des flèches et des chiffres ; last_session rejoue le direct.', 'CAP-6, FR-19 à FR-22, FR-43, lot 4', 'Une page qui lit le JSON ou compare des textes traduits ; un direct et une restitution qui divergent ; un appel de l’atelier qui touche la jauge du tour.'],
+    ['AD-28', 'exploit', 'Modules communs des ateliers : diagram.js et panes.js', 'Seule implémentation du schéma, du stepper et des volets ; une retouche vaut pour toutes les pages ; options describe, load, refresh, onLive.', 'Lot 4, lots 5 et 6, NFR-9', 'Un atelier qui réécrit son stepper ou ses volets ; une retouche d’accessibilité oubliée ailleurs.']
   ];
   const filtersEl = document.getElementById('filters'), listEl = document.getElementById('ad-list');
   let theme = 'all';

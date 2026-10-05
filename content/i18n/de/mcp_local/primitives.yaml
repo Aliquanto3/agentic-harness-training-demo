@@ -1,0 +1,17 @@
+# German translation of content/mcp_local/primitives.yaml (lot 4 of 2026-10-04, AD-27):
+# the local MCP server's resource and prompt.
+terms:
+  title: Begriffe des Glossars
+  description: Die Liste der Begriffe des Glossars des WaveStack-Demonstrators, einer pro Zeile.
+explain_term:
+  title: Einen Begriff erklären
+  description: >-
+    Bereitet eine Anfrage zur Erklärung eines Glossarbegriffs vor, die Definition bereits
+    eingefügt.
+  term: Der zu erklärende Begriff, ein Begriff des Glossars.
+  text: >-
+    Erkläre den Begriff „{term}“ in drei Sätzen einer Beraterin oder einem Berater, die
+    Agenten kennenlernen, ausgehend von dieser Definition: {definition}
+  unknown_text: >-
+    Erkläre den Begriff „{term}“ in drei Sätzen einer Beraterin oder einem Berater, die
+    Agenten kennenlernen. Er steht nicht im Glossar von WaveStack, dessen Begriffe sind: {known}.

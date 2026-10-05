@@ -18,6 +18,7 @@ import inspect
 import json
 import logging
 import math
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -28,7 +29,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
 
 from mcp.shared.exceptions import MCPError
-from mcp_types.jsonrpc import CONNECTION_CLOSED
 
 from wavestack import config
 from wavestack import memory as memory_file
@@ -330,8 +330,11 @@ _PREFIX_CAUSES = (
     "abandoned",
     "subagent",
     "llm",
+    "mcp_lab",  # lot 4 of 2026-10-04: the MCP workshop's model took the engine's cache
 )
 _LAB_FR = Message("session.state.llm_lab")
+# Lot 4 of 2026-10-04 (AD-27): the slots of `ask_resource_text`, filled in one pass.
+_RESOURCE_SLOT = re.compile(r"\{(uri|content|question)\}")
 RAG_LAB_CATALOG_TTL_S = 5.0  # story 30: the validation's catalog, read again after this
 _RAG_LAB_FR = Message("session.state.rag_lab")
 _MCP_LAB_FR = Message("session.state.mcp_lab")  # story 6 of 2026-09-30
@@ -614,6 +617,13 @@ class _Approval:
     decision: str | None = None  # approved | refused | cancelled
     disable_hook: bool = False
     answered: threading.Event = field(default_factory=threading.Event)
+
+
+class _ToolChoice(NamedTuple):
+    """What `_tool_definitions` reads of a turn's state: the MCP workshop's own (AD-27)."""
+
+    tools: tuple[str, ...]
+    loadable: tuple[str, ...]
 
 
 class SendRefused(Exception):
@@ -936,6 +946,12 @@ class AppSession:
         self._mcp_lab_conn: mcp_lab.LabConnection | None = None
         self._mcp_lab_tools: dict[str, Any] = {}
         self._mcp_lab_error_traced: str | None = None
+        # Lot 4 of 2026-10-04 (AD-27): the last handshake of the open connection, what the
+        # session kept of its reads and prompts (by step, for `ask` with `of`), and the server
+        # the journal says open (the last `connection`, `open_server`).
+        self._mcp_lab_handshake: mcp_lab.Handshake | None = None
+        self._mcp_lab_kept: dict[str, dict[str, Any]] = {}
+        self._mcp_lab_open: str | None = None
         self._load_content()
         self._registry = ToolRegistry(
             self._native_tools()
@@ -1685,7 +1701,8 @@ class AppSession:
             self._mcp_conns.clear()
         for conn in conns:  # AD-21: no local server outlives WaveStack
             conn.close(wait=not self._on_loop())
-        self._mcp_lab_drop(wait=not self._on_loop())  # story 6 of 2026-09-30: its own too
+        # Story 6 of 2026-09-30: its own too (lot 4: `mcp_lab_closed{session_close}`).
+        self._mcp_lab_drop(wait=not self._on_loop(), cause="session_close")
         self._executor.shutdown(wait=True, cancel_futures=True)
         self._release_embedder()  # story 15 (AD-8)
         self._release_reranker()  # story 16
@@ -4138,8 +4155,13 @@ class AppSession:
         )
         return messages
 
-    def _tool_definitions(self, state: TurnState) -> list[dict[str, Any]] | None:
-        """AD-4: the `tools` variable, one `tool_catalog` group per tool; `None` when off."""
+    def _tool_definitions(
+        self, state: Any, registry: ToolRegistry | None = None
+    ) -> list[dict[str, Any]] | None:
+        """AD-4: the `tools` variable, one `tool_catalog` group per tool; `None` when off.
+        `state`: what has `tools` and `loadable` (a `TurnState`). Lot 4 of 2026-10-04
+        (AD-27): `registry`, the MCP workshop's own, never the brick's."""
+        registry = registry or self._registry
         if not state.tools:
             return None
 
@@ -4155,21 +4177,26 @@ class AppSession:
 
         definitions = []
         for name in state.tools:
-            spec = self._registry.get(name)
+            spec = registry.get(name)
             if spec is None:  # a server closed since the turn started: nothing to describe
                 continue
-            definition = wrap(self._registry.definition(name), name, spec)
+            definition = wrap(registry.definition(name), name, spec)
             if name == LOAD_TOOL_DOC:
-                definition["function"]["description"] = self._doc_catalog(spec, state.loadable)
+                definition["function"]["description"] = self._doc_catalog(
+                    spec, state.loadable, registry
+                )
             definitions.append(definition)
         return definitions or None
 
-    def _doc_catalog(self, spec: ToolSpec, loadable: tuple[str, ...]) -> Joined:
+    def _doc_catalog(
+        self, spec: ToolSpec, loadable: tuple[str, ...], registry: ToolRegistry | None = None
+    ) -> Joined:
         """AD-25: `load_tool_doc`'s description, its intro then one line per loadable tool,
-        each line a `tool_catalog` segment of its own server's component."""
+        each line a `tool_catalog` segment of its own server's component. `registry`: the
+        MCP workshop's (AD-27), else the brick's."""
         lines = []
         for name in loadable:
-            tool = self._registry.get(name)
+            tool = (registry or self._registry).get(name)
             if tool is None:
                 continue
             text = mcp_lab.catalog_line(name, tool.description, DOC_LINE_MAX)
@@ -5859,7 +5886,8 @@ class AppSession:
             self._demo_memory_in(old_demo)
         self._journal().emit("language_changed", {"language": language})
         self._emit_state()  # `language` in the session's state
-        self._mcp_lab_drop(wait=False)  # story 6 of 2026-09-30: reconnected in the language
+        # Story 6 of 2026-09-30: reconnected in the language (`mcp_lab_closed{language}`).
+        self._mcp_lab_drop(wait=False, cause="language")
         for server_id in restart:  # the local server describes its tools in the language
             self._mcp_disconnect(server_id)
             self._mcp_connect(server_id)
@@ -6044,8 +6072,10 @@ class AppSession:
         self._reconfigure(scenario_id, apply, restore_memory=scenario.restore_memory)
 
     def reset(self) -> None:
-        """Class (b): back to the launch state: bare LLM, no turn, no scenario."""
+        """Class (b): back to the launch state: bare LLM, no turn, no scenario. Lot 4 of
+        2026-10-04 (AD-27): the MCP workshop's connection closed too, its series forgotten."""
         self._reconfigure(None, lambda: None)
+        self._mcp_lab_reset()
 
     def _reconfigure(
         self, scenario_id: str | None, apply: Callable[[], None], *, restore_memory: bool = False
@@ -7724,6 +7754,7 @@ class AppSession:
         sampling: Sampling | None = None,
         on_token: Callable[[Fragment, str, list[tuple[str, str]]], None] | None = None,
         candidates: int = 0,
+        registry: ToolRegistry | None = None,
     ) -> _ModelOutput:
         """One streamed call of at most `reserve` output tokens (AD-9); with tools on, its
         `<tool_call>` blocks are parsed, outside the reasoning (AD-6). `reasons`: the model
@@ -7731,7 +7762,10 @@ class AppSession:
         Story 29, the « LLM nu » screen: `sampling` is passed to the engine only when given
         (an engine with four arguments stays valid), and `on_token(fragment, channel)` is
         called for each fragment that carries a token, with the splitter's parts of its text;
-        the trace says which sampling."""
+        the trace says which sampling. Lot 4 of 2026-10-04 (AD-27): `registry`, the MCP
+        workshop's, whose schemas parse the calls; its calls' ids are not the turn's
+        (`_call_ids` untouched). Local engine only: the workshop's cloud calls go through
+        `run_call` directly."""
         assert self._engine is not None and self._caps is not None
         if isinstance(rendered, RenderedChat):
             return self._call_model_chat(rendered, cancel, reserve)
@@ -7742,7 +7776,16 @@ class AppSession:
         measure = self._local_meter.start(machine=active is not None and active.kind == "server")
         try:
             return self._call_model_local(
-                rendered, cancel, tools, reserve, reasons, sampling, on_token, candidates, measure
+                rendered,
+                cancel,
+                tools,
+                reserve,
+                reasons,
+                sampling,
+                on_token,
+                candidates,
+                measure,
+                registry,
             )
         finally:
             measure.stop()
@@ -7758,6 +7801,7 @@ class AppSession:
         on_token: Callable[[Fragment, str, list[tuple[str, str]]], None] | None,
         candidates: int,
         measure: Measure,
+        registry: ToolRegistry | None = None,
     ) -> _ModelOutput:
         """`_call_model` on a local engine, under its CodeCarbon `measure`."""
         assert self._engine is not None and self._caps is not None
@@ -7970,14 +8014,18 @@ class AppSession:
         )
         if tools and out.status == "completed":
             assert self._caps.tool_call_parser is not None  # the brick requires it (AD-6)
-            schemas = {name: spec.params for name in tools if (spec := self._registry.get(name))}
+            known = registry or self._registry
+            schemas = {name: spec.params for name in tools if (spec := known.get(name))}
             out.calls, out.malformed = parse_tool_calls(
                 out.answer,  # a `<tool_call>` inside the reasoning never counts (AD-6)
                 self._caps.tool_call_parser,
                 schemas,
             )
         if stop_reason != "length":
-            out.ids = [self._new_call_id(step_id, j) for j in range(len(out.calls))]
+            out.ids = [
+                tool_call_id(step_id, j) if registry is not None else self._new_call_id(step_id, j)
+                for j in range(len(out.calls))
+            ]
         end(stop_reason, out.calls)
 
         if stop_reason == "length":
@@ -8873,7 +8921,7 @@ class AppSession:
             finally:
                 try:
                     if touched:
-                        self._lab_restore(saved)
+                        self._lab_restore(saved, "llm")
                     ended["reasoning_tokens"] = counts["reasoning"]
                     ended["answer_tokens"] = counts["text"] + counts.get("tool_call", 0)
                     ended["duration_ms"] = _ms(time.monotonic() - started)
@@ -8944,9 +8992,10 @@ class AppSession:
             call.stop_reason, "error"
         )
 
-    def _lab_restore(self, saved: EngineSnapshot | None) -> None:
-        """The main context's engine state back after the screen's local call (AD-11's copy);
-        without it, the next turn's first call says the screen took the cache (`llm`)."""
+    def _lab_restore(self, saved: EngineSnapshot | None, cause: str) -> None:
+        """The main context's engine state back after a workshop's local call (AD-11's copy);
+        without it, the next turn's first call says which workshop took the cache (`cause`:
+        `llm`, or `mcp_lab` for the MCP workshop, lot 4 of 2026-10-04)."""
         if self._cloud is not None:
             return
         if self._restore_main_state(saved, 1) is not None:
@@ -8954,7 +9003,7 @@ class AppSession:
         if self._main_cache is None:  # no main context in the cache: nothing was evicted
             self._cache_evicted = None
             return
-        self._cache_cause = self._cache_cause or "llm"
+        self._cache_cause = self._cache_cause or cause
 
     # ---------- story 30: the RAG workshop (context `rag_lab`, no turn) ----------
 
@@ -9409,18 +9458,21 @@ class AppSession:
             soft=True,
         )
 
-    # ---------- corrections of 2026-09-30, story 6: the MCP workshop (context `mcp_lab`) ----
+    # ---------- the MCP workshop (context `mcp_lab`): story 6 of 2026-09-30, lot 4 of 2026-10-04 --
 
     @staticmethod
     def _mcp_lab_scope(step_id: str, server_id: str | None) -> dict[str, Any]:
         """The workshop's trace scope: context `mcp_lab`, no turn, brick `mcp`, the
-        workshop's own component (`mcp_lab.{server}`), which the schema does not draw."""
+        workshop's own component (`mcp_lab.{server}`), which the schema does not draw. AD-27:
+        a sub-step (`mcp{n}.c{k}`, `mcp{n}.t1`) has `parent_step = mcp{n}`; a call to the
+        model's `call_id` is its `step_id`."""
+        parent = step_id.split(".")[0] if mcp_lab.step_number(step_id) and "." in step_id else None
         return {
             "turn_id": None,
             "context_id": "mcp_lab",
-            "call_id": None,
+            "call_id": step_id if parent and ".c" in step_id else None,
             "step_id": step_id,
-            "parent_step": None,
+            "parent_step": parent,
             "brick": "mcp",
             "component": f"mcp_lab.{server_id}" if server_id else "mcp_lab",
             "edge": None,
@@ -9446,12 +9498,14 @@ class AppSession:
             detail = (str(exc).splitlines() or [type(exc).__name__])[0][:200]
             return None, self._t("session.detail", text=error_text, detail=detail)
 
-    def _mcp_lab_servers(self) -> list[dict[str, Any]]:
-        """The three servers of `content/mcp.yaml`, as section 1 draws them."""
+    def _mcp_lab_servers(self, texts: mcp_lab.McpLabContent | None = None) -> list[dict[str, Any]]:
+        """The three servers of `content/mcp.yaml`, as the page draws them, with their data
+        source (`content/mcp_lab.yaml`, AD-27)."""
         content = self._mcp_content
         servers = []
         for server_id, server in self._mcp_servers.items():
             text = content.servers.get(server_id) if content else None
+            source = texts.servers.get(server_id) if texts is not None else None
             servers.append(
                 {
                     "id": server_id,
@@ -9461,34 +9515,60 @@ class AppSession:
                     "command": mcp_lab.launch_command(server, self._language),
                     "network": server.network,
                     "sends_text": text.sends_text if text else None,
+                    "source_label_text": source.source_label_text if source else None,
+                    "source_action_text": source.source_action_text if source else None,
+                    "source_explain_text": source.source_explain_text if source else None,
                 }
             )
         return servers
 
+    def _mcp_lab_ask_info(self) -> dict[str, Any]:
+        """`GET /api/mcp_lab`'s `ask` (AD-27): whether a model is ready and whether it calls
+        tools, with the reasons; computed without the session's state."""
+        with self._lock:
+            engine, caps, cloud = self._engine, self._caps, self._cloud
+        ready = engine is not None and caps is not None
+        tools = ready and bool(caps.tool_call_parser)
+        if not ready:
+            reason: Any = Message("session.mcp_lab.ask.no_model")
+        elif cloud is not None:
+            reason = Message("session.mcp_lab.ask.cloud_no_tools", model=cloud.id)
+        else:
+            reason = Message("session.mcp_lab.ask.no_tools")
+        return {
+            "model_ready": ready,
+            "model_reason_text": None if ready else reason,
+            "tools": tools,
+            "tools_reason_text": None if tools else reason,
+            "model": self.active_model() if ready else None,
+        }
+
     def mcp_lab_state(self) -> dict[str, Any]:
-        """`GET /api/mcp_lab` (story 6, AD-1): what the page needs before the stream, from
+        """`GET /api/mcp_lab` (AD-1, AD-27): what the page needs before the stream, from
         `seq` on: the servers, the texts (or why not), the call presets, the server the
-        workshop's connection is open to, the last connection's envelopes and the state."""
+        journal says open (`open_server`, the last `connection`), the last connection's
+        envelopes, the state and the availability of the model (`ask`)."""
         journal = self._journal()
         tip = journal.last_seq()
         texts, error_text = self._mcp_lab_content()
         with self._lock:
             state, reason_text = self.state, self.reason_text
-            conn, first = self._mcp_lab_conn, self._mcp_lab_first
-            since = self._mcp_lab_since
+            first, since = self._mcp_lab_first, self._mcp_lab_since
+            open_server = self._mcp_lab_open
         # From the last connection on: an older `mcp{n}` of the same journal never comes back.
         events = [e for e in journal.all_events() if since < e.seq <= tip]
         presets = self._mcp_content.call_presets if self._mcp_content else {}
         return {
-            "servers": self._mcp_lab_servers(),
+            "servers": self._mcp_lab_servers(texts),
             "content": texts.model_dump() if texts is not None else None,
             "content_error_text": error_text,
             "call_presets": {
                 name: [p.model_dump() for p in entries] for name, entries in presets.items()
             },
-            "open_server": conn.server.id if conn is not None and conn.alive else None,
+            "open_server": open_server,
             "last_session": mcp_lab.last_session(events, first),
             "session_state": {"state": state, "reason_text": reason_text},
+            "ask": self._mcp_lab_ask_info(),
             "seq": tip,
         }
 
@@ -9503,11 +9583,131 @@ class AppSession:
         self.state, self.reason_text = "mcp_lab", _MCP_LAB_FR
         return f"mcp{self._mcp_labs}", cancel, previous
 
+    def _mcp_lab_connected(self, server_id: str) -> mcp_lab.LabConnection:
+        """Under the lock: `idle`, and the workshop's live connection to `server_id`, else
+        `SendRefused` with the reason (AD-27: every exchange but `connect` needs it)."""
+        if self.state != "idle":
+            raise SendRefused(self._refusal_reason())
+        conn = self._mcp_lab_conn
+        if conn is None or conn.server.id != server_id or not conn.alive:
+            raise SendRefused(
+                Message("session.mcp_lab.not_connected", server=self._mcp_label(server_id))
+            )
+        return conn
+
+    def _mcp_lab_emit(
+        self, kind: str, payload: dict[str, Any], step_id: str, server_id: str
+    ) -> int | None:
+        """A `mcp_lab_*` event, validated by its model (`PAYLOAD_MODELS`), its texts in the
+        session's language; returns its `seq`. Also called on the loop, by the capture."""
+        model = PAYLOAD_MODELS[kind]
+        with scoped(**self._mcp_lab_scope(step_id, server_id)):
+            payload = in_language(payload, self._language)
+            envelope = self._journal().emit(
+                kind, model.model_validate(payload).model_dump(mode="json")
+            )
+        return envelope.seq
+
+    def _mcp_lab_started(self, step_id: str, server_id: str, exchange: str, **fields: Any) -> None:
+        """`mcp_lab_exchange_started` (AD-27): a field the exchange does not concern is null."""
+        server = self._mcp_servers[server_id]
+        payload = {
+            "exchange": exchange,
+            "server": server_id,
+            "transport": mcp_lab.transport_of(server),
+        } | fields
+        self._mcp_lab_emit("mcp_lab_exchange_started", payload, step_id, server_id)
+
+    def _mcp_lab_failure(self, exc: BaseException, cancel: CancelToken, timeout: float) -> dict:
+        """The end of an exchange that failed (AD-27, the table of ends), without the state
+        of the connection, which the caller reads after closing it or not."""
+        if cancel.cancelled:
+            return {
+                "status": "cancelled",
+                "error_kind": "stopped",
+                "error_text": Message("session.mcp_lab.stopped"),
+            }
+        kind = mcp_lab.error_kind(exc)
+        leaf = exc
+        while isinstance(leaf, BaseExceptionGroup) and leaf.exceptions:
+            leaf = leaf.exceptions[0]
+        if kind == "jsonrpc_error" and isinstance(leaf, MCPError):
+            text: Any = Message("mcp.error.call_refused", cause=leaf.message)
+        elif kind == "lost":
+            text = Message("session.mcp_lab.closed")
+        else:
+            text = describe_error(exc, timeout)
+        return {"status": "error", "error_kind": kind, "error_text": text}
+
+    def _mcp_lab_finish(
+        self,
+        kind: str,
+        step_id: str,
+        server_id: str,
+        payload: dict[str, Any],
+        minimal: dict[str, Any],
+        started: float,
+        conn: mcp_lab.LabConnection | None,
+    ) -> dict[str, Any]:
+        """The exchange's `*_ended` (AD-27), emitted in a `finally`: `connection` (the
+        workshop's connection after it), `failed_seq` (a request left unanswered or in
+        error), `duration_ms`; a payload that does not validate gives the minimal one
+        (`interrupted`), after a `harness_error`. The server the journal says open follows."""
+        with self._lock:
+            alive = conn is not None and conn is self._mcp_lab_conn and conn.alive
+        connection = "open" if alive else "closed"
+        duration = _ms(time.monotonic() - started)
+        failed = None
+        if payload.get("status") != "ok" and conn is not None:
+            failed = conn.capture.failed_seq(step_id)
+        payload = payload | {"connection": connection, "duration_ms": duration}
+        payload.setdefault("failed_seq", failed)
+        try:
+            self._mcp_lab_emit(kind, payload, step_id, server_id)
+        except Exception as exc:  # noqa: BLE001 - AD-16: an end always comes
+            with scoped(**self._mcp_lab_scope(step_id, server_id)):
+                self._error(
+                    Message("session.mcp_lab.interrupted"),
+                    exc,
+                    Message("session.llm_lab.back_to_idle"),
+                )
+            payload = minimal | {
+                "status": "error",
+                "error_kind": "interrupted",
+                "connection": connection,
+                "failed_seq": failed,
+                "duration_ms": duration,
+            }
+            try:
+                self._mcp_lab_emit(kind, payload, step_id, server_id)
+            except Exception:  # noqa: BLE001, S110 - the worker never raises (AD-16)
+                pass
+        with self._lock:
+            if conn is None or conn is self._mcp_lab_conn or not alive:
+                self._mcp_lab_open = server_id if alive else None
+        return payload
+
+    def _mcp_lab_release(self, previous: str | None) -> None:
+        with self._lock:
+            self._cancel = None
+        self._set_state("idle", previous)
+
+    def _mcp_lab_launch(self, server: Any) -> Any:
+        """The deduced arrow Hôte → Client of a connection (AD-27): what the host does."""
+        if server.network:
+            host = server.url.split("//", 1)[-1].split("/", 1)[0]
+            return Message("session.mcp_lab.launch.http", host=host)
+        return Message(
+            "session.mcp_lab.launch.stdio", command=mcp_lab.launch_command(server, self._language)
+        )
+
+    # ----- the connection, its extended handshake -----
+
     def mcp_lab_connect(self, server_id: str) -> str:
-        """Intention `mcp_lab_connect` (story 6, class b): accepted in `idle` only, the
-        session in `mcp_lab` until the handshake ends; the workshop's own connection, never
-        the brick's (`_mcp_conns`, `_mcp_enabled` and `_mcp_lazy` untouched). `KeyError` for
-        an unknown server. Returns the exchange's id, `mcp{n}`."""
+        """Intention `mcp_lab_connect` (class b): accepted in `idle` only, the session in
+        `mcp_lab` until the handshake ends; the workshop's own connection, never the brick's
+        (`_mcp_conns`, `_mcp_enabled` and `_mcp_lazy` untouched). `KeyError` for an unknown
+        server. Returns the exchange's id, `mcp{n}`: a new series starts there."""
         if server_id not in self._mcp_servers:
             raise KeyError(server_id)
         texts, error_text = self._mcp_lab_content()
@@ -9526,103 +9726,153 @@ class AppSession:
         self, step_id: str, server_id: str, cancel: CancelToken, previous: str | None
     ) -> None:
         """On the worker: the previous connection closed, the new one opened on the loop, its
-        handshake captured message by message (`mcp_lab_message`), then the tools and their
-        weight (`mcp_lab_connect_ended`); back to `idle` with the reason it had."""
+        handshake captured message by message, then its lists and the tools' weight
+        (`mcp_lab_connect_ended`); back to `idle` with the reason it had."""
         server = self._mcp_servers[server_id]
         started = time.monotonic()
-        tools: list[Any] | None = None
-        error_text: Any = None
+        minimal: dict[str, Any] = {"server": server_id}
+        end: dict[str, Any] = minimal | {"status": "error", "error_kind": "interrupted"}
         conn: mcp_lab.LabConnection | None = None
         try:
             self._mcp_lab_drop(wait=True)
+            self._mcp_lab_started(
+                step_id, server_id, "connect", launch_text=self._mcp_lab_launch(server)
+            )
             loop = self._loop
             if loop is None:
-                error_text = Message("session.mcp.no_loop")
-            else:
+                end["error_text"] = Message("session.mcp.no_loop")
+                return
 
-                def emit(payload: dict[str, Any], step: str) -> None:
-                    self._mcp_lab_emit("mcp_lab_message", payload, step, server_id)
+            def emit(payload: dict[str, Any], step: str) -> int | None:
+                return self._mcp_lab_emit("mcp_lab_message", payload, step, server_id)
 
-                scope = TraceScope(**self._mcp_lab_scope(step_id, server_id), origin="brick")
-                conn = mcp_lab.LabConnection(
-                    server,
-                    loop,
-                    capture=mcp_lab.Capture(emit),
-                    scope=scope,
-                    connect_timeout=self.cfg.mcp_connect_timeout_s,
-                    call_timeout=self.cfg.mcp_call_timeout_s,
-                    language=self._language,
-                )
-                conn.begin(step_id)
-                with self._lock:
-                    self._mcp_lab_conn = conn
+            capture = mcp_lab.Capture(emit, step_id, lambda: self._language)
+            scope = TraceScope(**self._mcp_lab_scope(step_id, server_id), origin="brick")
+            conn = mcp_lab.LabConnection(
+                server,
+                loop,
+                capture=capture,
+                scope=scope,
+                connect_timeout=self.cfg.mcp_connect_timeout_s,
+                call_timeout=self.cfg.mcp_call_timeout_s,
+                language=self._language,
+                on_lost=self._mcp_lab_lost,
+            )
+            conn.begin(step_id)
+            with self._lock:
+                self._mcp_lab_conn = conn
+            try:
                 if cancel.cancelled:  # stopped before the connection was known
                     raise ConnectionError(step_id)
                 future = asyncio.run_coroutine_threadsafe(conn.start(), loop)
                 try:
-                    tools = future.result(self.cfg.mcp_connect_timeout_s + MCP_LAB_CLOSE_WAIT_S)
+                    handshake = future.result(self.cfg.mcp_connect_timeout_s + MCP_LAB_CLOSE_WAIT_S)
                 except BaseException:
                     future.cancel()
                     raise
-                if cancel.cancelled:  # stopped while `start` was on its way: closed below
+                if cancel.cancelled:  # stopped while `start` was on its way
                     raise ConnectionError(step_id)
-        except Exception as exc:  # noqa: BLE001 - AD-16: a state, said in section 2
-            tools = None
-            if cancel.cancelled:
-                error_text = Message("session.mcp_lab.stopped")
-            elif isinstance(exc, ConnectionError):  # the brick's text says to tick it again
-                error_text = Message("session.mcp_lab.closed")
-            elif error_text is None:
-                error_text = describe_error(exc, self.cfg.mcp_connect_timeout_s)
-        try:
-            if tools is None:
+            except Exception as exc:  # noqa: BLE001 - AD-16: a state, said in the Séquence
+                end = minimal | self._mcp_lab_failure(exc, cancel, self.cfg.mcp_connect_timeout_s)
+                if conn.handshake is not None:  # `initialize` answered: its fields stay
+                    end |= self._mcp_lab_handshake_fields(server, conn, conn.handshake, False)
                 self._mcp_lab_drop(conn, wait=True)
-                payload: dict[str, Any] = {
-                    "server": server_id,
-                    "status": "error",
-                    "error_text": error_text,
-                }
-            else:
-                assert conn is not None
-                with self._lock:
-                    self._mcp_lab_tools = {tool.name: tool for tool in tools}
-                payload = {"server": server_id, "status": "ok"} | self._mcp_lab_weights(
-                    server, conn, tools
-                )
-                if cancel.cancelled:  # « Arrêter » while the weights were counted
-                    self._mcp_lab_drop(conn, wait=True)
-                    payload = {
-                        "server": server_id,
-                        "status": "error",
-                        "error_text": Message("session.mcp_lab.stopped"),
-                    }
-            payload["duration_ms"] = _ms(time.monotonic() - started)
-            self._mcp_lab_emit("mcp_lab_connect_ended", payload, step_id, server_id)
-        except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
+                return
+            with self._lock:
+                self._mcp_lab_handshake = handshake
+                self._mcp_lab_tools = {tool.name: tool for tool in handshake.tools or []}
+            end = minimal | {"status": "ok", "error_kind": None}
+            end |= self._mcp_lab_handshake_fields(server, conn, handshake, True)
+            if cancel.cancelled:  # « Arrêter » while the weights were counted
+                self._mcp_lab_drop(conn, wait=True)
+                end |= self._mcp_lab_failure(ConnectionError(step_id), cancel, 0)
+        except Exception as exc:  # noqa: BLE001 - AD-16: the end still comes
             with scoped(**self._mcp_lab_scope(step_id, server_id)):
                 self._error(
                     Message("session.mcp_lab.interrupted"),
                     exc,
                     Message("session.llm_lab.back_to_idle"),
                 )
+            end = minimal | {"status": "error", "error_kind": "interrupted"}
+            self._mcp_lab_drop(conn, wait=True)
         finally:
-            with self._lock:
-                self._cancel = None
-            self._set_state("idle", previous)
+            try:
+                self._mcp_lab_finish(
+                    "mcp_lab_connect_ended", step_id, server_id, end, minimal, started, conn
+                )
+            finally:
+                if conn is not None:
+                    conn.capture.end()
+                self._mcp_lab_release(previous)
+
+    def _mcp_lab_handshake_fields(
+        self,
+        server: Any,
+        conn: mcp_lab.LabConnection,
+        handshake: mcp_lab.Handshake,
+        weigh: bool,
+    ) -> dict[str, Any]:
+        """`mcp_lab_connect_ended`'s fields from the handshake (AD-27), and, once it is
+        complete (`weigh`), the weight of the tools listed."""
+        fields: dict[str, Any] = {
+            "primitives": handshake.primitives,
+            "capabilities": handshake.capabilities,
+            "server_info": handshake.server_info,
+            "protocol_version": handshake.protocol_version,
+            "resources": None
+            if handshake.resources is None
+            else [
+                {
+                    "uri": str(r.uri),
+                    "name": r.name,
+                    "title": r.title,
+                    "mime_type": r.mime_type,
+                    "description": r.description,
+                }
+                for r in handshake.resources
+            ],
+            "prompts": None
+            if handshake.prompts is None
+            else [
+                {
+                    "name": p.name,
+                    "title": p.title,
+                    "description": p.description,
+                    "arguments": [
+                        {"name": a.name, "description": a.description, "required": bool(a.required)}
+                        for a in p.arguments or []
+                    ],
+                }
+                for p in handshake.prompts
+            ],
+            "list_errors": handshake.list_errors,
+            "tools": None,
+        }
+        if weigh and handshake.tools is not None:
+            fields |= self._mcp_lab_weights(server, conn, handshake.tools)
+        return fields
+
+    def _mcp_lab_registry(
+        self, server: Any, conn: mcp_lab.LabConnection, tools: list[Any]
+    ) -> tuple[ToolRegistry, list[ToolSpec], ToolSpec | None]:
+        """The workshop's own registry (AD-14, AD-27): the brick's `_mcp_spec` of each tool
+        listed, and `load_tool_doc`; nothing ever enters the brick's registry."""
+        specs = [self._mcp_spec(server, conn, tool) for tool in tools]
+        load_spec = self._load_tool_doc_spec() if self._mcp_content is not None else None
+        registry = ToolRegistry(
+            [*specs, *([load_spec] if load_spec else [])], language=lambda: self._language
+        )
+        return registry, specs, load_spec
 
     def _mcp_lab_weights(
         self, server: Any, conn: mcp_lab.LabConnection, tools: list[Any]
     ) -> dict[str, Any]:
-        """Story 6: what the server's documentation weighs in the context. Each tool's
-        definition as `_tool_definitions` renders it (its exposed name `{server}__{tool}`, its
-        schema, its description: the brick's `_mcp_spec`, the registry's `definition`), in
-        documentation complète; in lazy loading, its line of `load_tool_doc`'s catalog
-        (`_doc_catalog`) plus `load_tool_doc`'s own definition. Counted by the engine when one
-        is loaded, else estimated (`_count_tokens`). Nothing is registered in the brick's
-        registry: a registry of the workshop's own computes the definitions."""
-        specs = [self._mcp_spec(server, conn, tool) for tool in tools]
-        load_spec = self._load_tool_doc_spec() if self._mcp_content is not None else None
-        registry = ToolRegistry([*specs, *([load_spec] if load_spec else [])])
+        """What the server's documentation weighs in the context. Each tool's definition as
+        `_tool_definitions` renders it (its exposed name `{server}__{tool}`, its schema, its
+        description), in documentation complète; in lazy loading, its line of
+        `load_tool_doc`'s catalog plus `load_tool_doc`'s own definition. Counted by the
+        engine when one is loaded, else estimated (`_count_tokens`)."""
+        registry, specs, load_spec = self._mcp_lab_registry(server, conn, tools)
         estimated = False
 
         def count(text: str) -> int:
@@ -9666,80 +9916,396 @@ class AppSession:
         figures["estimated"] = estimated
         return figures
 
+    # ----- a tool called by hand, a resource read, a prompt got -----
+
     def mcp_lab_call(self, server_id: str, tool: str, args: dict[str, Any]) -> str:
-        """Intention `mcp_lab_call` (story 6, class b): a tool of the server the workshop is
-        connected to, called through the workshop's connection; accepted in `idle` only, the
-        session in `mcp_lab` until the answer. `KeyError` for an unknown server; `SendRefused`
-        without a connection to it or for a tool it did not list. Returns `mcp{n}`."""
+        """Intention `mcp_lab_call` (class b): a tool of the server the workshop is connected
+        to, called by hand through the workshop's connection; accepted in `idle` only, the
+        session in `mcp_lab` until the answer. `KeyError` for an unknown server;
+        `SendRefused` without a connection to it or for a tool it did not list."""
+        if server_id not in self._mcp_servers:
+            raise KeyError(server_id)
+        with self._lock:
+            conn = self._mcp_lab_connected(server_id)
+            if tool not in self._mcp_lab_tools:
+                raise SendRefused(
+                    Message(
+                        "session.mcp_lab.unknown_tool",
+                        server=self._mcp_label(server_id),
+                        tool=tool,
+                    )
+                )
+            step_id, cancel, previous = self._mcp_lab_begin()
+        self._emit_state()
+        self._executor.submit(
+            self._run_mcp_lab_simple,
+            step_id,
+            conn,
+            "call",
+            {"tool": tool, "arguments": dict(args)},
+            cancel,
+            previous,
+        )
+        return step_id
+
+    def mcp_lab_read(self, server_id: str, uri: str) -> str:
+        """Intention `mcp_lab_read` (class b, AD-27): a resource the server listed, read
+        through the workshop's connection; the server must announce resources."""
         if server_id not in self._mcp_servers:
             raise KeyError(server_id)
         label = self._mcp_label(server_id)
         with self._lock:
-            if self.state != "idle":
-                raise SendRefused(self._refusal_reason())
-            conn = self._mcp_lab_conn
-            if conn is None or conn.server.id != server_id or not conn.alive:
-                raise SendRefused(Message("session.mcp_lab.not_connected", server=label))
-            if tool not in self._mcp_lab_tools:
-                raise SendRefused(Message("session.mcp_lab.unknown_tool", server=label, tool=tool))
+            conn = self._mcp_lab_connected(server_id)
+            handshake = self._mcp_lab_handshake
+            if handshake is None or not handshake.primitives["resources"]:
+                raise SendRefused(Message("session.mcp_lab.no_resources", server=label))
+            if uri not in {str(r.uri) for r in handshake.resources or []}:
+                raise SendRefused(
+                    Message("session.mcp_lab.unknown_resource", server=label, uri=uri)
+                )
             step_id, cancel, previous = self._mcp_lab_begin()
         self._emit_state()
         self._executor.submit(
-            self._run_mcp_lab_call, step_id, conn, tool, dict(args), cancel, previous
+            self._run_mcp_lab_simple, step_id, conn, "read", {"uri": uri}, cancel, previous
         )
         return step_id
 
-    def _run_mcp_lab_call(
+    def mcp_lab_prompt(self, server_id: str, prompt: str, arguments: dict[str, str]) -> str:
+        """Intention `mcp_lab_prompt` (class b, AD-27): a prompt the server listed, its
+        required arguments given (strings); the server must announce prompts."""
+        if server_id not in self._mcp_servers:
+            raise KeyError(server_id)
+        label = self._mcp_label(server_id)
+        arguments = {str(k): str(v) for k, v in arguments.items()}
+        with self._lock:
+            conn = self._mcp_lab_connected(server_id)
+            handshake = self._mcp_lab_handshake
+            if handshake is None or not handshake.primitives["prompts"]:
+                raise SendRefused(Message("session.mcp_lab.no_prompts", server=label))
+            listed = next((p for p in handshake.prompts or [] if p.name == prompt), None)
+            if listed is None:
+                raise SendRefused(
+                    Message("session.mcp_lab.unknown_prompt", server=label, prompt=prompt)
+                )
+            for argument in listed.arguments or []:
+                if argument.required and not arguments.get(argument.name, "").strip():
+                    raise SendRefused(
+                        Message(
+                            "session.mcp_lab.missing_argument",
+                            prompt=prompt,
+                            argument=argument.name,
+                        )
+                    )
+            step_id, cancel, previous = self._mcp_lab_begin()
+        self._emit_state()
+        self._executor.submit(
+            self._run_mcp_lab_simple,
+            step_id,
+            conn,
+            "prompt",
+            {"prompt": prompt, "arguments": arguments},
+            cancel,
+            previous,
+        )
+        return step_id
+
+    def _run_mcp_lab_simple(
+        self,
+        step_id: str,
+        conn: mcp_lab.LabConnection,
+        exchange: str,
+        fields: dict[str, Any],
+        cancel: CancelToken,
+        previous: str | None,
+    ) -> None:
+        """On the worker: a call by hand, a read or a prompt, its messages captured, its end
+        emitted in a `finally`; back to `idle` with the reason it had."""
+        server_id = conn.server.id
+        started = time.monotonic()
+        kind, minimal = {
+            "call": ("mcp_lab_call_ended", {"server": server_id, "tool": fields.get("tool", "")}),
+            "read": ("mcp_lab_read_ended", {"server": server_id, "uri": fields.get("uri", "")}),
+            "prompt": (
+                "mcp_lab_prompt_ended",
+                {"server": server_id, "name": fields.get("prompt", "")},
+            ),
+        }[exchange]
+        end: dict[str, Any] = minimal | {"status": "error", "error_kind": "interrupted"}
+        try:
+            by = {"call": "hand", "read": "app", "prompt": "user"}[exchange]
+            self._mcp_lab_started(step_id, server_id, exchange, by=by, **fields)
+            conn.begin(step_id)
+            if exchange == "call":
+                end = self._mcp_lab_tool_call(
+                    step_id, conn, fields["tool"], fields["arguments"], cancel, "hand"
+                )
+            elif exchange == "read":
+                end = self._mcp_lab_read_resource(step_id, conn, fields["uri"], cancel)
+            else:
+                end = self._mcp_lab_get_prompt(
+                    step_id, conn, fields["prompt"], fields["arguments"], cancel
+                )
+        except Exception as exc:  # noqa: BLE001 - AD-16: the end still comes
+            with scoped(**self._mcp_lab_scope(step_id, server_id)):
+                self._error(
+                    Message("session.mcp_lab.interrupted"),
+                    exc,
+                    Message("session.llm_lab.back_to_idle"),
+                )
+            self._mcp_lab_drop(conn, wait=True)
+        finally:
+            try:
+                self._mcp_lab_finish(kind, step_id, server_id, end, minimal, started, conn)
+            finally:
+                conn.capture.end()
+                self._mcp_lab_release(previous)
+
+    def _mcp_lab_after(
+        self, conn: mcp_lab.LabConnection, payload: dict[str, Any], cancel: CancelToken
+    ) -> None:
+        """AD-27: a request that failed otherwise than by a JSON-RPC error answer (stopped,
+        unreachable, delay, guard, lost) leaves the connection closed. « Arrêter » pressed
+        while the request was under way closes it too: an answer that came anyway is
+        reported stopped, as the connection it leaves (`payload` updated in place)."""
+        if payload["status"] == "ok" and cancel.cancelled:
+            payload |= self._mcp_lab_failure(ConnectionError("stopped"), cancel, 0)
+        if payload["status"] != "ok" and payload.get("error_kind") != "jsonrpc_error":
+            self._mcp_lab_drop(conn, wait=True)
+        elif cancel.cancelled or not conn.alive:
+            self._mcp_lab_drop(conn, wait=True)
+
+    def _mcp_lab_tool_call(
         self,
         step_id: str,
         conn: mcp_lab.LabConnection,
         tool: str,
-        args: dict[str, Any],
+        arguments: dict[str, Any],
+        cancel: CancelToken,
+        by: str,
+    ) -> dict[str, Any]:
+        """`tools/call` through the workshop's connection (by hand, or the tool the model
+        asked for, `mcp{n}.t1`): the raw answer and the text the harness reinjects
+        (`result_text`, then `_bound_result`), an `isError` result being a result."""
+        server_id = conn.server.id
+        payload: dict[str, Any] = {"server": server_id, "tool": tool, "arguments": arguments}
+        payload["by"] = by
+        try:
+            result = conn.call_result(tool, arguments)
+        except Exception as exc:  # noqa: BLE001 - AD-16: said in the Séquence
+            payload |= self._mcp_lab_failure(exc, cancel, self.cfg.mcp_call_timeout_s)
+            payload["raw"] = conn.capture.received("tools/call", step_id)
+        else:
+            payload["raw"] = conn.capture.received("tools/call", step_id)
+            text = result_text(result, self._language)
+            if result.is_error:  # reinjected as the brick does (`executor.run_tool`)
+                detail = text or self._t("mcp.error.no_detail")
+                shown, truncated = self._t("tools.error", text=detail), None
+            else:
+                shown, truncated = self._bound_result(text)
+            tokens, estimated = self._count_tokens(shown)
+            payload |= {
+                "status": "ok",
+                "error_kind": None,
+                "is_error": bool(result.is_error),
+                "error_text": Message("session.mcp_lab.is_error") if result.is_error else None,
+                "text": shown,
+                "tokens": tokens,
+                "estimated": estimated,
+                "truncated": truncated,
+            }
+        self._mcp_lab_after(conn, payload, cancel)
+        return payload
+
+    def _mcp_lab_read_resource(
+        self, step_id: str, conn: mcp_lab.LabConnection, uri: str, cancel: CancelToken
+    ) -> dict[str, Any]:
+        """`resources/read`: its contents, a text one as is, any other only by its size; the
+        text kept for the connection (`ask` with `of`), bounded like a tool's result."""
+        payload: dict[str, Any] = {"server": conn.server.id, "uri": uri}
+        try:
+            result = conn.read_result(uri)
+        except Exception as exc:  # noqa: BLE001 - AD-16
+            payload |= self._mcp_lab_failure(exc, cancel, self.cfg.mcp_call_timeout_s)
+            payload["raw"] = conn.capture.received("resources/read", step_id)
+        else:
+            contents, texts = [], []
+            for content in result.contents:
+                mime = getattr(content, "mime_type", None)
+                text = getattr(content, "text", None)
+                if isinstance(text, str):
+                    contents.append({"uri": str(content.uri), "mime_type": mime, "text": text})
+                    texts.append(text)
+                    continue
+                size = len(getattr(content, "blob", "") or "") * 3 // 4
+                contents.append({"uri": str(content.uri), "mime_type": mime, "blob_bytes": size})
+                texts.append(
+                    self._t("session.mcp_lab.blob_content", mime=mime or "?", n=self._n(size))
+                )
+            shown, truncated = self._bound_result("\n\n".join(texts))
+            tokens, estimated = self._count_tokens(shown)
+            payload |= {
+                "status": "ok",
+                "error_kind": None,
+                "raw": conn.capture.received("resources/read", step_id),
+                "contents": contents,
+                "text": shown,
+                "tokens": tokens,
+                "estimated": estimated,
+                "truncated": truncated,
+            }
+            with self._lock:
+                if conn is self._mcp_lab_conn:
+                    self._mcp_lab_kept[step_id] = {"kind": "resource", "uri": uri, "text": shown}
+        self._mcp_lab_after(conn, payload, cancel)
+        return payload
+
+    def _mcp_lab_get_prompt(
+        self,
+        step_id: str,
+        conn: mcp_lab.LabConnection,
+        prompt: str,
+        arguments: dict[str, str],
+        cancel: CancelToken,
+    ) -> dict[str, Any]:
+        """`prompts/get`: its messages, text only (any other block only named), each bounded
+        like a tool's result, kept for the connection (`ask` with `of`)."""
+        payload: dict[str, Any] = {"server": conn.server.id, "name": prompt}
+        payload["arguments"] = arguments
+        try:
+            result = conn.prompt_result(prompt, arguments)
+        except Exception as exc:  # noqa: BLE001 - AD-16
+            payload |= self._mcp_lab_failure(exc, cancel, self.cfg.mcp_call_timeout_s)
+            payload["raw"] = conn.capture.received("prompts/get", step_id)
+        else:
+            messages = []
+            for message in result.messages:
+                content = message.content
+                text = getattr(content, "text", None)
+                if not isinstance(text, str):
+                    text = self._t("mcp.block_not_shown", type=getattr(content, "type", "?"))
+                bounded, _ = self._bound_result(text)
+                messages.append({"role": message.role, "text": bounded})
+            shown = "\n\n".join(m["text"] for m in messages)
+            tokens, estimated = self._count_tokens(shown)
+            payload |= {
+                "status": "ok",
+                "error_kind": None,
+                "raw": conn.capture.received("prompts/get", step_id),
+                "description": result.description,
+                "messages": messages,
+                "text": shown,
+                "tokens": tokens,
+                "estimated": estimated,
+            }
+            with self._lock:
+                if conn is self._mcp_lab_conn:
+                    self._mcp_lab_kept[step_id] = {
+                        "kind": "prompt",
+                        "prompt": prompt,
+                        "arguments": arguments,
+                        "messages": messages,
+                    }
+        self._mcp_lab_after(conn, payload, cancel)
+        return payload
+
+    # ----- an exchange sent to the model (`ask`) -----
+
+    def mcp_lab_ask(
+        self,
+        server_id: str,
+        question: str | None = None,
+        of: str | None = None,
+        doc_mode: str = "full",
+    ) -> str:
+        """Intention `mcp_lab_ask` (class b, AD-27): « Par le modèle » (a question and the
+        tools: the model chooses) or « Envoyer au modèle » (`of`: a resource read or a prompt
+        got on this connection, the content the session kept, never one from the page).
+        Without `of`, the model must be ready and call tools; with it, ready suffices, and
+        the tools leave only when it calls them. A question is required without `of` or with
+        a resource, absent with a prompt."""
+        if server_id not in self._mcp_servers:
+            raise KeyError(server_id)
+        question = (question or "").strip() or None
+        doc_mode = "lazy" if doc_mode == "lazy" else "full"
+        info = self._mcp_lab_ask_info()
+        with self._memory_lock, self._lock:
+            conn = self._mcp_lab_connected(server_id)
+            kept = None
+            if of is not None:
+                kept = self._mcp_lab_kept.get(of)
+                if kept is None:
+                    raise SendRefused(Message("session.mcp_lab.ask.of_unknown"))
+            if not info["model_ready"]:
+                raise SendRefused(info["model_reason_text"])
+            if kept is None and not info["tools"]:
+                raise SendRefused(info["tools_reason_text"])
+            if kept is not None and kept["kind"] == "prompt" and question is not None:
+                raise SendRefused(Message("session.mcp_lab.ask.question_with_prompt"))
+            if (kept is None or kept["kind"] == "resource") and question is None:
+                raise SendRefused(Message("session.mcp_lab.ask.question_required"))
+            sent_mode = doc_mode if info["tools"] else "none"
+            step_id, cancel, previous = self._mcp_lab_begin()
+        self._emit_state()
+        self._executor.submit(
+            self._run_mcp_lab_ask,
+            step_id,
+            conn,
+            question,
+            of,
+            dict(kept) if kept is not None else None,
+            doc_mode,
+            sent_mode,
+            cancel,
+            previous,
+        )
+        return step_id
+
+    def _run_mcp_lab_ask(
+        self,
+        step_id: str,
+        conn: mcp_lab.LabConnection,
+        question: str | None,
+        of: str | None,
+        kept: dict[str, Any] | None,
+        requested: str,
+        doc_mode: str,
         cancel: CancelToken,
         previous: str | None,
     ) -> None:
-        """On the worker: `tools/call` captured both ways, then its raw answer and the text
-        the harness would reinject (`result_text`, then `_bound_result`), or why not: an
-        `is_error` answer, a JSON-RPC error, an unreachable server, a delay exceeded."""
+        """On the worker: the calls to the model of an `ask` (`mcp{n}.c{k}`), rendered by the
+        harness without a system prompt (AD-4, AD-5), and the first MCP tool the model asks
+        for (`mcp{n}.t1`); no hook, no effect, no new attempt (AD-27). The main context's
+        engine state is saved around a local call (`mcp_lab`)."""
         server_id = conn.server.id
         started = time.monotonic()
-        payload: dict[str, Any] = {"server": server_id, "tool": tool, "status": "error"}
+        minimal: dict[str, Any] = {"server": server_id}
+        end: dict[str, Any] = minimal | {"status": "error", "error_kind": "interrupted"}
+        by = "model" if kept is None else ("app" if kept["kind"] == "resource" else "user")
+        saved, touched = None, False
         try:
+            self._mcp_lab_started(
+                step_id,
+                server_id,
+                "ask",
+                by=by,
+                question=question,
+                of=of,
+                uri=kept.get("uri") if kept else None,
+                prompt=kept.get("prompt") if kept else None,
+                arguments=kept.get("arguments") if kept else None,
+                doc_mode_requested=requested,
+            )
             conn.begin(step_id)
-            lost = False
-            try:
-                result = conn.call_result(tool, args)
-            except MCPError as exc:
-                payload["raw"] = conn.capture.received("tools/call")
-                if cancel.cancelled:
-                    payload["error_text"] = Message("session.mcp_lab.stopped")
-                elif exc.code == CONNECTION_CLOSED:  # the server is gone: so is the connection
-                    payload["error_text"] = Message("session.mcp_lab.closed")
-                    lost = True
-                else:  # a JSON-RPC error answer (invalid arguments): the server is there
-                    payload["error_text"] = Message("mcp.error.call_refused", cause=exc.message)
-            except Exception as exc:  # noqa: BLE001 - AD-16: said in section 4
-                if cancel.cancelled:
-                    payload["error_text"] = Message("session.mcp_lab.stopped")
-                elif isinstance(exc, ConnectionError):
-                    payload["error_text"] = Message("session.mcp_lab.closed")
-                else:
-                    payload["error_text"] = describe_error(exc, self.cfg.mcp_call_timeout_s)
-            else:
-                payload["raw"] = conn.capture.received("tools/call")
-                text = result_text(result, self._language)
-                if result.is_error:  # reinjected as the brick does (`executor.run_tool`)
-                    detail = text or self._t("mcp.error.no_detail")
-                    payload["text"] = self._t("tools.error", text=detail)
-                    payload["error_text"] = Message("session.mcp_lab.is_error")
-                else:
-                    payload["text"], payload["truncated"] = self._bound_result(text)
-                    payload["status"] = "ok"
-            if cancel.cancelled or lost or not conn.alive:  # stopped, or the server is gone
-                self._mcp_lab_drop(conn, wait=True)
-            payload["duration_ms"] = _ms(time.monotonic() - started)
-            self._mcp_lab_emit("mcp_lab_call_ended", payload, step_id, server_id)
-        except Exception as exc:  # noqa: BLE001 - AD-16: the state still comes back
+
+            def save() -> None:
+                nonlocal saved, touched
+                if not touched:
+                    saved, touched = self._save_main_state(), True
+
+            end = minimal | self._mcp_lab_ask_loop(
+                step_id, conn, question, kept, doc_mode, cancel, save
+            )
+        except Exception as exc:  # noqa: BLE001 - AD-16: the end still comes
             with scoped(**self._mcp_lab_scope(step_id, server_id)):
                 self._error(
                     Message("session.mcp_lab.interrupted"),
@@ -9747,36 +10313,635 @@ class AppSession:
                     Message("session.llm_lab.back_to_idle"),
                 )
         finally:
-            with self._lock:
-                self._cancel = None
-            self._set_state("idle", previous)
+            try:
+                try:
+                    if touched:
+                        self._lab_restore(saved, "mcp_lab")
+                except Exception as exc:  # noqa: BLE001 - AD-16: the end still comes
+                    with scoped(**self._mcp_lab_scope(step_id, server_id)):
+                        self._error(
+                            Message("session.mcp_lab.interrupted"),
+                            exc,
+                            Message("session.llm_lab.back_to_idle"),
+                        )
+                self._mcp_lab_finish(
+                    "mcp_lab_ask_ended", step_id, server_id, end, minimal, started, conn
+                )
+            finally:
+                conn.capture.end()
+                self._mcp_lab_release(previous)
 
-    def _mcp_lab_emit(
-        self, kind: str, payload: dict[str, Any], step_id: str, server_id: str
+    def _mcp_lab_ask_loop(
+        self,
+        step_id: str,
+        conn: mcp_lab.LabConnection,
+        question: str | None,
+        kept: dict[str, Any] | None,
+        doc_mode: str,
+        cancel: CancelToken,
+        save: Callable[[], None],
+    ) -> dict[str, Any]:
+        """The calls to the model, until an answer or an end of AD-27's table; returns the
+        fields of `mcp_lab_ask_ended`."""
+        server = conn.server
+        with self._lock:
+            engine, caps, cloud, window = self._engine, self._caps, self._cloud, self._window
+            handshake = self._mcp_lab_handshake
+        assert engine is not None and caps is not None
+        texts, _ = self._mcp_lab_content()
+        tools = (handshake.tools if handshake is not None else None) or []
+        registry, specs, load_spec = self._mcp_lab_registry(server, conn, tools)
+        names = [ToolRegistry.exposed_name(spec) for spec in specs]
+        if doc_mode == "lazy" and load_spec is None:
+            doc_mode = "full"
+        lazy = doc_mode == "lazy"
+        loaded: list[str] = []
+        executor = ToolExecutor(registry, lambda: self._language)
+        reasons = bool(caps.reasoning_always)
+        reserve = output_reserve(reasons)
+        usable = window - reserve
+        model = self.active_model()
+
+        def count(text: str) -> int:
+            return self._count_tokens(text)[0]
+
+        # The first message(s), and what they send (AD-27: each part labelled here).
+        base: list[dict[str, Any]] = []
+        sends: list[dict[str, Any]] = []
+        if kept is None:
+            assert question is not None
+            base.append({"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, question)]})
+            sends.append(self._mcp_lab_send("question", count(question)))
+        elif kept["kind"] == "resource":
+            assert question is not None and texts is not None
+            # One pass over the template: a brace in the resource or the URI stays as it is.
+            values = {"uri": kept["uri"], "content": kept["text"], "question": question}
+            text = _RESOURCE_SLOT.sub(lambda m: values[m.group(1)], texts.ask_resource_text)
+            values["question"] = ""
+            envelope = _RESOURCE_SLOT.sub(lambda m: values[m.group(1)], texts.ask_resource_text)
+            base.append({"role": "user", "content": [Part(SegmentKind.USER_MESSAGE, text)]})
+            sends.append(self._mcp_lab_send("resource", count(envelope), uri=kept["uri"]))
+            sends.append(self._mcp_lab_send("question", count(question)))
+        else:
+            for message in kept["messages"]:
+                kind = (
+                    SegmentKind.USER_MESSAGE if message["role"] == "user" else SegmentKind.HISTORY
+                )
+                base.append({"role": message["role"], "content": [Part(kind, message["text"])]})
+            total = sum(count(m["text"]) for m in kept["messages"])
+            sends.append(self._mcp_lab_send("prompt", total, name=kept["prompt"]))
+        steps: list[dict[str, Any]] = []
+        tool_done = False
+        calls = model_ms = 0
+        final_step: str | None = None
+        k = 0
+        while True:
+            k += 1
+            call_step = f"{step_id}.c{k}"
+            if doc_mode == "none":
+                offered: tuple[str, ...] = ()
+            elif lazy:
+                offered = (LOAD_TOOL_DOC, *loaded) if cloud is not None else (LOAD_TOOL_DOC,)
+            else:
+                offered = tuple(names)
+            loadable = tuple(n for n in names if n not in loaded) if lazy else ()
+            choice = _ToolChoice(offered, loadable)
+            definitions = self._tool_definitions(choice, registry)
+            parts = list(sends)
+            if offered:
+                tools_text = json.dumps(
+                    [self._plain(d) for d in definitions or []], ensure_ascii=False
+                )
+                parts.append(
+                    self._mcp_lab_send("tools", count(tools_text), n=len(names), lazy=lazy)
+                )
+            for step in steps:
+                parts.extend(step.get("sends", []))
+            if calls >= self.cfg.tool_max_calls:  # AD-10's bound, `load_tool_doc` included
+                return {
+                    "status": "limit",
+                    "error_kind": None,
+                    "outcome": "max_calls",
+                    "calls": calls,
+                    "model_ms": model_ms,
+                    "share_text": self._mcp_lab_share(model_ms),
+                    "final_step": final_step,
+                }
+            messages_steps = [s for s in steps if s.get("role")]
+            if cloud is None:
+                meta = engine.metadata()
+                template_vars: dict[str, Any] = {}
+                if caps.reasoning_variable:
+                    template_vars[caps.reasoning_variable] = reasons
+                rendered: RenderedContext | RenderedChat = render_context(
+                    engine,
+                    caps.chat_template or "",
+                    base + self._step_messages(messages_steps, history=False, group="mcp_lab"),
+                    call_id=call_step,
+                    special_tokens=meta.special_tokens,
+                    tools=definitions,
+                    bos_token=meta.bos_token,
+                    eos_token=meta.eos_token,
+                    add_generation_prompt=True,
+                    **template_vars,
+                    lang=self._language,
+                )
+                prompt_tokens, estimated = len(rendered.ids), False
+                phase = self._t("session.mcp_lab.model_phase", tokens=self._n(prompt_tokens))
+            else:
+                content = self._cloud_content or self._localized(load_cloud_content)
+                rendered = render_chat_body(
+                    base
+                    + self._step_messages(
+                        messages_steps,
+                        history=False,
+                        group="mcp_lab",
+                        chat=True,
+                        cloud_id=cloud.id,
+                    ),
+                    definitions,
+                    call_id=call_step,
+                    fields=chat_fields(cloud, reserve, reasoning=reasons),
+                    markers=self.cfg.cloud_markers,
+                    estimate=lambda t: config.estimate_tokens(t, self.cfg.chars_per_token),
+                    provider_label_text=content.provider_segment_text,
+                    lang=self._language,
+                    api=cloud.api,
+                )
+                prompt_tokens, estimated = rendered.raw_total, True
+                phase = self._t(
+                    "session.mcp_lab.model_phase_cloud",
+                    provider=cloud.provider,
+                    tokens=self._n(prompt_tokens),
+                )
+            started_payload = {
+                "index": k,
+                "sends": parts,
+                "sends_total_tokens": sum(p["tokens"] for p in parts),
+                "prompt_tokens": prompt_tokens,
+                "estimated": estimated,
+                "doc_mode": doc_mode,
+                "model": model,
+                "phase_label": phase,
+            }
+            self._mcp_lab_emit("mcp_lab_model_started", started_payload, call_step, server.id)
+            final_step = call_step
+            ended: dict[str, Any] = {"index": k, "status": "error", "final": True}
+            if prompt_tokens > usable:  # AD-9: nothing leaves
+                ended |= {
+                    "outcome": "overflow",
+                    "error_text": Message(
+                        "session.mcp_lab.overflow",
+                        tokens=self._n(prompt_tokens),
+                        usable=self._n(usable),
+                    ),
+                }
+                self._mcp_lab_emit("mcp_lab_model_ended", ended, call_step, server.id)
+                return {
+                    "status": "error",
+                    "error_kind": None,
+                    "error_text": ended["error_text"],
+                    "outcome": "overflow",
+                    "calls": calls,
+                    "model_ms": model_ms,
+                    "share_text": self._mcp_lab_share(model_ms),
+                    "final_step": final_step,
+                }
+            calls += 1
+            try:
+                out, failure = self._mcp_lab_model_call(
+                    call_step,
+                    server.id,
+                    rendered,
+                    cancel,
+                    reserve,
+                    reasons,
+                    registry,
+                    tuple(registry.names) if offered else (),
+                    prompt_tokens,
+                    save,
+                )
+            except Exception:  # AD-27: one pair per step, the end said before the error
+                ended |= {"error_kind": "interrupted"}
+                self._mcp_lab_emit("mcp_lab_model_ended", ended, call_step, server.id)
+                raise
+            mark_ms = out.get("duration_ms", 0)
+            model_ms += mark_ms
+            ended |= {"duration_ms": mark_ms, "reasoning_cut": out.get("reasoning_cut", False)}
+            if failure is not None:  # cancelled, an error of the model or the provider
+                ended |= failure
+                self._mcp_lab_emit("mcp_lab_model_ended", ended, call_step, server.id)
+                status = ended["status"]
+                return {
+                    "status": status,
+                    "error_kind": "stopped" if status == "cancelled" else ended.get("error_kind"),
+                    "error_text": ended.get("error_text"),
+                    "outcome": None,
+                    "calls": calls,
+                    "model_ms": model_ms,
+                    "share_text": self._mcp_lab_share(model_ms),
+                    "final_step": final_step,
+                }
+            result = self._mcp_lab_outcome(
+                out, executor, names, loaded, offered, loadable, tool_done, kept is None
+            )
+            ended |= {"status": "ok"} | result["ended"]
+            self._mcp_lab_emit("mcp_lab_model_ended", ended, call_step, server.id)
+            if result["ask"] is not None:  # the exchange ends here
+                return result["ask"] | {
+                    "calls": calls,
+                    "model_ms": model_ms,
+                    "share_text": self._mcp_lab_share(model_ms),
+                    "final_step": final_step,
+                }
+            call, call_ref, arguments_text = out["calls"][0], out["ids"][0], out["arguments"][0]
+            assistant = {
+                "role": "assistant",
+                "content": out.get("text", ""),
+                "tool_calls": [
+                    {
+                        "name": call.name,
+                        "arguments": call.arguments,
+                        "arguments_json": arguments_text,
+                        "id": call_ref,
+                    }
+                ],
+                "sends": [
+                    self._mcp_lab_send(
+                        "tool_call", count(f"{call.name} {arguments_text}"), tool=call.name
+                    )
+                ],
+            }
+            if call.name == LOAD_TOOL_DOC:
+                target = call.arguments["tool"]
+                loaded.append(target)
+                definition = json.dumps(registry.definition(target), ensure_ascii=False)
+                reply = {
+                    "role": "tool",
+                    "content": definition,
+                    "id": call_ref,
+                    "kind": SegmentKind.TOOL_CATALOG,
+                    "brick": "mcp",
+                    "component": server.component,
+                    "sends": [self._mcp_lab_send("tool_doc", count(definition), tool=target)],
+                }
+                steps += [assistant, reply]
+                continue
+            # The first MCP tool the model asked for: `mcp{n}.t1`, through the connection.
+            spec = registry.get(call.name)
+            assert spec is not None
+            tool_step = f"{step_id}.t1"
+            if cancel.cancelled:  # « Arrêter » before the tool left: `t1` never opens
+                return {
+                    "status": "cancelled",
+                    "error_kind": "stopped",
+                    "error_text": Message("session.mcp_lab.stopped_ask"),
+                    "outcome": None,
+                    "calls": calls,
+                    "model_ms": model_ms,
+                    "share_text": self._mcp_lab_share(model_ms),
+                    "final_step": final_step,
+                }
+            called = self._mcp_lab_model_tool(tool_step, conn, spec.name, call.arguments, cancel)
+            if called["status"] != "ok":
+                return {
+                    "status": "cancelled" if called["status"] == "cancelled" else "error",
+                    "error_kind": called.get("error_kind"),
+                    "error_text": called.get("error_text"),
+                    "outcome": None,
+                    "calls": calls,
+                    "model_ms": model_ms,
+                    "share_text": self._mcp_lab_share(model_ms),
+                    "final_step": final_step,
+                }
+            tool_done = True
+            reply = {
+                "role": "tool",
+                "content": called["text"],
+                "id": call_ref,
+                "brick": "mcp",
+                "component": server.component,
+                "sends": [self._mcp_lab_send("tool_result", called.get("tokens") or 0)],
+            }
+            steps += [assistant, reply]
+
+    @staticmethod
+    def _plain(value: Any) -> Any:
+        """A definition with its `Part`s as their texts (what the tools part weighs)."""
+        if isinstance(value, Part):
+            return value.text
+        if isinstance(value, Joined):
+            return value.sep.join(part.text for part in value.parts)
+        if isinstance(value, dict):
+            return {k: AppSession._plain(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [AppSession._plain(v) for v in value]
+        return value
+
+    def _mcp_lab_send(self, part: str, tokens: int, **kw: Any) -> dict[str, Any]:
+        """One part of what leaves for the model (AD-27), its label in the session's
+        language."""
+        key = "session.mcp_lab.sends"
+        if part == "tools":
+            label: Any = (
+                Message(f"{key}.lazy")
+                if kw.get("lazy")
+                else Message(f"{key}.tools", count=kw["n"], n=self._n(kw["n"]))
+            )
+        elif part == "resource":
+            label = Message(f"{key}.resource", uri=kw["uri"])
+        elif part == "prompt":
+            label = Message(f"{key}.prompt", name=kw["name"])
+        elif part in ("tool_doc", "tool_call"):
+            label = Message(f"{key}.{part}", tool=kw["tool"])
+        else:
+            label = Message(f"{key}.{part}")
+        return {"part": part, "label_text": label, "tokens": tokens}
+
+    def _mcp_lab_share(self, model_ms: int) -> str:
+        return self._t(
+            "session.mcp_lab.share",
+            model=self._decimal(f"{model_ms / 1000:.1f}"),
+        )
+
+    def _mcp_lab_model_call(
+        self,
+        call_step: str,
+        server_id: str,
+        rendered: RenderedContext | RenderedChat,
+        cancel: CancelToken,
+        reserve: int,
+        reasons: bool,
+        registry: ToolRegistry,
+        tools: tuple[str, ...],
+        prompt_tokens: int,
+        save: Callable[[], None],
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """One call to the model on `mcp{n}.c{k}`: local through `_call_model`, cloud through
+        `run_call` directly (never `_call_model_chat`: no gauge, no ratio, no turn cost).
+        Returns what it produced and, when it failed or was stopped, the failure's fields of
+        `mcp_lab_model_ended`."""
+        journal = self._journal()
+        mark = journal.last_seq()
+        produced: dict[str, Any] = {"calls": [], "ids": [], "arguments": []}
+        failure: dict[str, Any] | None = None
+        scope = self._mcp_lab_scope(call_step, server_id)
+        with scoped(**scope, origin="model"):
+            if isinstance(rendered, RenderedContext):
+                save()
+                out = self._call_model(
+                    rendered, cancel, tools, reserve, reasons=reasons, registry=registry
+                )
+                if out.status == "cancelled":
+                    failure = {"status": "cancelled", "error_kind": "stopped"}
+                elif out.status == "error":
+                    failure = {
+                        "status": "error",
+                        "error_kind": "interrupted",
+                        "error_text": out.message_text or Message("session.mcp_lab.model_error"),
+                    }
+                produced |= {
+                    "status": out.status,
+                    "text": out.answer or out.text,
+                    "malformed": out.malformed,
+                    "calls": out.calls,
+                    "ids": out.ids,
+                    "arguments": [json.dumps(c.arguments, ensure_ascii=False) for c in out.calls],
+                }
+            else:
+                cloud = self._cloud
+                assert cloud is not None
+                try:
+                    call = run_call(
+                        self._engine,
+                        ChatBody(rendered.body.encode("utf-8")),
+                        cancel,
+                        phase_label=self._t(
+                            "session.mcp_lab.model_phase_cloud",
+                            provider=cloud.provider,
+                            tokens=self._n(prompt_tokens),
+                        ),
+                        estimated_prompt=prompt_tokens,
+                        chars_per_token=self.cfg.chars_per_token,
+                        call_id=lambda index: tool_call_id(call_step, index),
+                        sampling_trace=self._sampling_trace(None),
+                        lang=self._language,
+                        eur_per_usd=self.cfg.eur_per_usd,
+                        max_session_usd=self.cfg.max_session_usd,
+                    )
+                except ProviderError as error:
+                    journal.emit(
+                        "harness_error",
+                        error.payload(
+                            Message("session.mcp_lab.provider_effect"), lang=self._language
+                        ),
+                    )
+                    failure = {
+                        "status": "error",
+                        "error_kind": "provider",
+                        "error_text": error.message_text,
+                    }
+                else:
+                    status = {"stop": "completed", "cancelled": "cancelled", "length": "limit"}
+                    produced["status"] = status.get(call.stop_reason, "error")
+                    if produced["status"] == "cancelled":
+                        failure = {"status": "cancelled", "error_kind": "stopped"}
+                    elif produced["status"] == "error":
+                        failure = {
+                            "status": "error",
+                            "error_kind": "interrupted",
+                            "error_text": Message("session.mcp_lab.model_error"),
+                        }
+                    produced["text"] = call.text
+                    if call.malformed is not None:  # `(reinjected, detail_text)`
+                        produced["malformed"] = Malformed(*call.malformed)
+                    elif produced["status"] == "completed":
+                        produced["calls"] = [
+                            ToolCall(c["name"], c["parsed"], f"{c['name']} {c['arguments']}")
+                            if isinstance(c.get("parsed"), dict)
+                            else ToolCall(c["name"], None, f"{c['name']} {c['arguments']}")
+                            for c in call.calls
+                        ]
+                        produced["ids"] = [c["id"] for c in call.calls]
+                        produced["arguments"] = [c["arguments"] for c in call.calls]
+        events = [e for e in journal.events_since(mark) if e.step_id == call_step]
+        ended = next((e for e in reversed(events) if e.kind == "model_call_ended"), None)
+        produced["duration_ms"] = int(ended.payload.get("duration_ms") or 0) if ended else 0
+        produced["reasoning_cut"] = any(e.kind == "reasoning_cut" for e in events)
+        return produced, failure
+
+    def _mcp_lab_outcome(
+        self,
+        out: dict[str, Any],
+        executor: ToolExecutor,
+        names: list[str],
+        loaded: list[str],
+        offered: tuple[str, ...],
+        loadable: tuple[str, ...],
+        tool_done: bool,
+        asked: bool,
+    ) -> dict[str, Any]:
+        """What a call produced (AD-27): `ended`, the fields of `mcp_lab_model_ended`; `ask`,
+        those of `mcp_lab_ask_ended` when the exchange ends here, else `None` (a tool asked
+        for, to run). No new attempt: a malformed output, an unknown tool or invalid
+        arguments are `refused` and end the exchange."""
+        answer = out.get("text") or ""
+        if out.get("status") == "limit":
+            ended = {"outcome": "cut", "final": True, "answer_text": answer or None}
+            ask = {"status": "limit", "error_kind": None, "outcome": "cut"}
+            return {"ended": ended, "ask": ask}
+        malformed = out.get("malformed")
+        if malformed is not None:
+            why = render(malformed.detail_text, self._language)
+            ended = {"outcome": "refused", "final": True, "refusal_text": why}
+            return {
+                "ended": ended,
+                "ask": {"status": "ok", "error_kind": None, "outcome": "refused"},
+            }
+        calls = out.get("calls") or []
+        if not calls:  # `direct`: an answer without a tool to a question (`no_tool`)
+            direct = asked and not tool_done
+            ended = {"outcome": "answer", "final": True, "direct": direct, "answer_text": answer}
+            outcome = "no_tool" if direct else "answer"
+            return {"ended": ended, "ask": {"status": "ok", "error_kind": None, "outcome": outcome}}
+        call, ref, arguments_text = calls[0], out["ids"][0], out["arguments"][0]
+        lazy_doc = call.name == LOAD_TOOL_DOC
+        spec = executor.registry.get(call.name)
+        made = {
+            "name": call.name,
+            "tool": None if lazy_doc or spec is None else spec.name,
+            "arguments_text": arguments_text,
+            "arguments": call.arguments if isinstance(call.arguments, dict) else None,
+            "tool_call_id": ref,
+        }
+        why = None
+        if call.arguments is None:
+            why = self._t("session.mcp_lab.arguments_unparsed")
+        else:
+            enabled = [n for n in offered if n != LOAD_TOOL_DOC] + loaded
+            if LOAD_TOOL_DOC in offered:
+                enabled.append(LOAD_TOOL_DOC)
+            why = executor.check(call, enabled, loadable)
+            if why is None and lazy_doc:
+                target = call.arguments.get("tool")
+                if target not in names or target in loaded:
+                    available = ", ".join(n for n in names if n not in loaded)
+                    why = self._t(
+                        "mcp.doc.unknown",
+                        tool=target,
+                        loadable=available or self._t("tools.check.none"),
+                    )
+        if why is not None:
+            ended = {
+                "outcome": "refused",
+                "final": True,
+                "tool_call": made,
+                "refusal_text": why,
+                "answer_text": answer or None,
+            }
+            return {
+                "ended": ended,
+                "ask": {"status": "ok", "error_kind": None, "outcome": "refused"},
+            }
+        if lazy_doc:
+            return {
+                "ended": {"outcome": "meta_call", "final": False, "tool_call": made},
+                "ask": None,
+            }
+        if tool_done:  # a second MCP tool: shown, then the workshop stops
+            ended = {"outcome": "tool_call", "final": True, "tool_call": made}
+            ask = {"status": "limit", "error_kind": None, "outcome": "second_tool"}
+            return {"ended": ended, "ask": ask}
+        return {"ended": {"outcome": "tool_call", "final": False, "tool_call": made}, "ask": None}
+
+    def _mcp_lab_model_tool(
+        self,
+        tool_step: str,
+        conn: mcp_lab.LabConnection,
+        tool: str,
+        arguments: dict[str, Any],
+        cancel: CancelToken,
+    ) -> dict[str, Any]:
+        """`mcp{n}.t1` (AD-27): its opening (`call`, `by: model`), its `tools/call` captured,
+        its end; the capture back on the exchange afterwards."""
+        server_id = conn.server.id
+        parent = tool_step.split(".")[0]
+        started = time.monotonic()
+        minimal = {"server": server_id, "tool": tool}
+        end: dict[str, Any] = minimal | {"status": "error", "error_kind": "interrupted"}
+        try:
+            self._mcp_lab_started(
+                tool_step, server_id, "call", by="model", tool=tool, arguments=arguments
+            )
+            conn.begin(tool_step)
+            end = self._mcp_lab_tool_call(tool_step, conn, tool, arguments, cancel, "model")
+        finally:
+            end = self._mcp_lab_finish(
+                "mcp_lab_call_ended", tool_step, server_id, end, minimal, started, conn
+            )
+            conn.begin(parent)
+        return end
+
+    # ----- closings -----
+
+    def _mcp_lab_drop(
+        self, conn: Any = None, *, wait: bool = True, cause: str | None = None
     ) -> None:
-        """A `mcp_lab_*` event, validated by its model (`PAYLOAD_MODELS`), its texts in the
-        session's language. Also called on the loop, by the capture of the messages."""
-        model = PAYLOAD_MODELS[kind]
-        with scoped(**self._mcp_lab_scope(step_id, server_id)):
-            payload = in_language(payload, self._language)
-            self._journal().emit(kind, model.model_validate(payload).model_dump(mode="json"))
-
-    def _mcp_lab_drop(self, conn: Any = None, *, wait: bool = True) -> None:
         """Close the workshop's connection (`conn`: that one, the open one or not): at the
-        next connection, at « Arrêter », at a change of language and at the session's close.
-        The local server's process ends with it (AD-21). `wait` never on the loop's thread."""
+        next connection, at « Arrêter » during a request, after a failed request, at a
+        change of language, at the reset and at the session's close. The local server's
+        process ends with it (AD-21); what the session kept of it dies with it. `cause`: a
+        closing outside any exchange, said by `mcp_lab_closed` when the journal says the
+        connection open (AD-27). `wait` never on the loop's thread."""
         with self._lock:
             if conn is not None and conn is not self._mcp_lab_conn:
-                closing = conn
+                closing, said = conn, None
             else:
                 closing, self._mcp_lab_conn = self._mcp_lab_conn, None
                 self._mcp_lab_tools = {}
+                self._mcp_lab_handshake = None
+                self._mcp_lab_kept = {}
+                said = self._mcp_lab_open if cause is not None else None
+                if cause is not None:
+                    self._mcp_lab_open = None
+            first = self._mcp_lab_first
         if closing is not None:
             closing.close(wait=wait)
+        if said is not None and first:
+            try:
+                self._mcp_lab_emit(
+                    "mcp_lab_closed", {"server": said, "cause": cause}, f"mcp{first}", said
+                )
+            except Exception:  # noqa: BLE001, S110 - a closing never fails
+                pass
+
+    def _mcp_lab_lost(self, conn: mcp_lab.LabConnection) -> None:
+        """On the loop: the connection ended without being closed (the server gone). Said on
+        the worker, after any exchange under way, which reports it itself."""
+        try:
+            self._executor.submit(self._mcp_lab_on_lost, conn)
+        except RuntimeError:  # the session is closing
+            pass
+
+    def _mcp_lab_on_lost(self, conn: mcp_lab.LabConnection) -> None:
+        with self._lock:
+            current = conn is self._mcp_lab_conn
+        if current:
+            self._mcp_lab_drop(conn, wait=False, cause="lost")
+
+    def _mcp_lab_reset(self) -> None:
+        """The reset (AD-27): the workshop's connection closed (`reset`), and its series
+        forgotten: `first` and `since` back to zero."""
+        self._mcp_lab_drop(wait=not self._on_loop(), cause="reset")
+        with self._lock:
+            self._mcp_lab_first = 0
+            self._mcp_lab_since = 0
 
     def _mcp_lab_stop(self) -> bool:
-        """`stop` (class c) in `mcp_lab`: the exchange's token armed and the connection
-        closed at once (the token alone cannot interrupt an await on the loop)."""
+        """`stop` (class c) in `mcp_lab`: the exchange's token armed; the connection closed
+        at once only during an MCP request (a handshake or an operation waiting for its
+        answer: the token alone cannot interrupt an await on the loop). During a generation
+        of an `ask`, the connection stays open (AD-27)."""
         with self._lock:
             if self.state != "mcp_lab":
                 return False
@@ -9784,6 +10949,6 @@ class AppSession:
                 return True  # connection it leaves open stays so
             self._cancel.cancel()
             conn = self._mcp_lab_conn
-        if conn is not None:
+        if conn is not None and conn.requesting:
             conn.close(wait=False)
         return True

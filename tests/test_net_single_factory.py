@@ -61,6 +61,10 @@ EXEMPTIONS = {
         "given the transport built by `_transport`: `streamable_http_client` with the "
         "factory's `create_async_client`, or a local stdio server"
     ),
+    ("mcp/lab.py", "_serve", "mcp.Client"): (
+        "lot 4 of 2026-10-04, the MCP workshop's own `_serve`: the same transports, the "
+        "factory's `create_async_client` for a public server"
+    ),
 }
 
 

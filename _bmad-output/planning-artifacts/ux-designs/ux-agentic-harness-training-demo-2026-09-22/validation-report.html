@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<!--
+  UX Design Validation Report — skeleton template.
+
+  This file is a starter the synthesis pass fills in directly. There is no
+  substitution engine. The LLM:
+    1. Reads {doc_workspace}/review-rubric.md and every review-{slug}.md from
+       additional reviewers.
+    2. Copies this skeleton.
+    3. Replaces the placeholder content (everything between TEMPLATE markers)
+       with the consolidated review, preserving the structure and CSS.
+    4. Writes the result to {doc_workspace}/validation-report.html.
+    5. Writes a markdown twin to {doc_workspace}/validation-report.md.
+
+  Visual rules the LLM must preserve:
+    - The container width, the color tokens, the typography.
+    - One dimension = one collapsible <section class="dimension">.
+    - Verdict pill uses the verdict-* class matching its judgment.
+    - Severity badge uses the badge-sev-* class matching its level.
+    - Each extra reviewer (accessibility, adversarial, etc.) gets its own
+      collapsible section below the rubric dimensions.
+    - The footer always shows the artifact paths and timestamp.
+-->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>UX Design Validation: WaveStack · Atelier MCP (lot 4)</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div class="container">
+<header class="report-header"><div class="title"><h1>WaveStack · Atelier MCP (lot 4) — rapport de validation UX</h1><div class="subtitle">_bmad-output\planning-artifacts\ux-designs\ux-agentic-harness-training-demo-2026-09-22</div></div></header>
+<div class="synthesis"><p>Les ajouts du lot 4 (« Atelier MCP en séquence ») sont un contrat adéquat après correctifs. La rubrique les jugeait adéquats avec deux points hauts : l&#x27;ordre des colonnes, qui démentait le temps fort « le modèle ne parle jamais au serveur », et le contrat d&#x27;événements des nouveautés, qui n&#x27;était pas engagé. Le premier est corrigé par décision d&#x27;Anaël (SLM à gauche de l&#x27;hôte). Le second est écrit en « Données attendues par la page » et renvoyé à bmad-architecture comme question bloquante avant le build.</p><p>La revue d&#x27;accessibilité déplace le centre de gravité : neuf points hauts, tous corrigés dans les spines. Ils portent sur la flèche courante, les noms et annonces, le focus, le mode projection désormais étendu à /mcp, les tailles et les cibles. Plusieurs retouches touchent le module commun du lot 2 : elles valent aussi pour l&#x27;Atelier Harnais et sont listées comme telles. La revue structure et prose a surtout harmonisé les termes (qui choisit, temps fort, origines des flèches) et rendu les références explicites.</p></div>
+<div class="dimension-summary"><div class="dim-card"><div class="dim-name">1. Couverture des parcours</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adéquat</div></div><div class="dim-card"><div class="dim-name">2. Complétude des jetons</div><div class="dim-verdict" style="color: var(--verdict-strong)">fort</div></div><div class="dim-card"><div class="dim-name">3. Couverture des composants</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adéquat</div></div><div class="dim-card"><div class="dim-name">4. Couverture des états</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adéquat</div></div><div class="dim-card"><div class="dim-name">5. Couverture des références visuelles</div><div class="dim-verdict" style="color: var(--verdict-strong)">fort</div></div><div class="dim-card"><div class="dim-name">6. Surcharge et sur-spécification</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adéquat</div></div><div class="dim-card"><div class="dim-name">7. Discipline d&#x27;héritage</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adéquat</div></div><div class="dim-card"><div class="dim-name">8. Adéquation de forme</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adéquat</div></div></div>
+<section class="dimension"><details><summary><h2>1. Couverture des parcours</h2><span class="verdict-pill verdict-adequate">adéquat</span></summary><div class="dim-body"><div class="dim-judgment"><p>Les trois vues du plan ont chacune une surface et un parcours ; Flow MCP-1 a désormais une ligne d&#x27;échec ; Flow MCP-2 suit le code (refus immédiat, ConnectError) ; les flows sont renvoyés depuis Key Flows.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">Ordre des colonnes contraire au temps fort</h3><span class="finding-location">EXPERIENCE, Volet Séquence</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : Utilisateur · SLM · Hôte · Client · Serveur · Source (décision d&#x27;Anaël du 2026-10-05) ; maquette alignée.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Flow MCP-2 : « après 10 s » et ConnectError incohérents avec le code</h3><span class="finding-location">EXPERIENCE, Flow MCP-2</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : refus immédiat ; délai dépassé décrit à part avec le délai de wavestack.toml.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Persistance du ✖ non écrite</h3><span class="finding-location">EXPERIENCE, Volet Architecture</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : dernier échec par serveur gardé par la page jusqu&#x27;à une nouvelle tentative [ASSUMPTION].</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Aides longues : pas de table clé → emplacement</h3><span class="finding-location">EXPERIENCE, Textes et aides</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : table ajoutée ; écart au plan sur methods.* justifié.</div></article></div></details></section>
+<section class="dimension"><details><summary><h2>2. Complétude des jetons</h2><span class="verdict-pill verdict-strong">fort</span></summary><div class="dim-body"><div class="dim-judgment"><p>Toutes les références résolues, aucune couleur nouvelle ; filets alignés sur 4 px ; classes du lot 2 désignées comme telles ; variante is-dotted nommée.</p></div></div><div class="findings-list"></div></details></section>
+<section class="dimension"><details><summary><h2>3. Couverture des composants</h2><span class="verdict-pill verdict-adequate">adéquat</span></summary><div class="dim-body"><div class="dim-judgment"><p>Les composants mcp-* sont nommés dans EXPERIENCE ; mcp-mode-switch et mcp-primitive-tabs ajoutés ; l&#x27;ancienne puce mcp-screen est marquée remplacée.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Composants mcp-* absents d&#x27;EXPERIENCE</h3><span class="finding-location">EXPERIENCE, section lot 4</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : identifiants cités à leur comportement.</div></article></div></details></section>
+<section class="dimension"><details><summary><h2>4. Couverture des états</h2><span class="verdict-pill verdict-adequate">adéquat</span></summary><div class="dim-body"><div class="dim-judgment"><p>États « Arrêté », « Délai dépassé », méthode sans explication, retour à l&#x27;Atelier Harnais, et états du volet « Ce que le modèle voit » ajoutés.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">« Arrêter » contredit la story 6</h3><span class="finding-location">EXPERIENCE, Volet Serveurs et commandes</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : actif en mcp_lab seulement.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">État « arrêté » absent</h3><span class="finding-location">EXPERIENCE, États</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé ; en mode « par le modèle », la génération seule s&#x27;arrête [ASSUMPTION].</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Lazy loading contre « second appel d&#x27;outil »</h3><span class="finding-location">EXPERIENCE, États</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : load_tool_doc ne compte pas.</div></article></div></details></section>
+<section class="dimension"><details><summary><h2>5. Couverture des références visuelles</h2><span class="verdict-pill verdict-strong">fort</span></summary><div class="dim-body"><div class="dim-judgment"><p>La maquette est liée depuis les deux spines, la primauté des spines est dite dans les deux.</p></div></div><div class="findings-list"></div></details></section>
+<section class="dimension"><details><summary><h2>6. Surcharge et sur-spécification</h2><span class="verdict-pill verdict-adequate">adéquat</span></summary><div class="dim-body"><div class="dim-judgment"><p>Chiffres d&#x27;exemple signalés comme tels ; « Ce que le build doit ajouter » devenu « Données attendues par la page », sans liste de tests.</p></div></div><div class="findings-list"></div></details></section>
+<section class="dimension"><details><summary><h2>7. Discipline d&#x27;héritage</h2><span class="verdict-pill verdict-adequate">adéquat</span></summary><div class="dim-body"><div class="dim-judgment"><p>Termes « client MCP » et « isError » fixés, clés à reformuler listées, libellé du mode unifié (« Par le modèle »).</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">Contrat d&#x27;événements non engagé</h3><span class="finding-location">EXPERIENCE, Données attendues par la page</span></header><div class="finding-fix"><strong>Suite :</strong> Reporté à bmad-architecture : faits attendus listés, question ouverte bloquante avant le build.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Effet sur le cache de l&#x27;Atelier Harnais</h3><span class="finding-location">EXPERIENCE, États</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : cause « Atelier MCP » de « Préfixe non réutilisé ».</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Dérive harnais / hôte / client MCP</h3><span class="finding-location">EXPERIENCE, Voix et Données attendues</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : clés ui.yaml et mcp_lab.yaml à reformuler listées.</div></article></div></details></section>
+<section class="dimension"><details><summary><h2>8. Adéquation de forme</h2><span class="verdict-pill verdict-adequate">adéquat</span></summary><div class="dim-body"><div class="dim-judgment"><p>Section inventée justifiée ; les quatre contradictions avec les règles de couleur existantes sont levées.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Halo vert sur le serveur connecté au repos</h3><span class="finding-location">DESIGN, Serveurs et commandes</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : bordure primary ; halo seulement quand la flèche courante le touche.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Antenne verte hors du direct</h3><span class="finding-location">EXPERIENCE, Volet Architecture</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : en direct seulement, pendant une génération.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Fond d&#x27;encre sur ce que le modèle lit</h3><span class="finding-location">DESIGN, mcp-model-chip</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : contour d&#x27;encre pour ce qu&#x27;il lit, fond d&#x27;encre pour ce qu&#x27;il produit.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Analogie du restaurant dans le désordre</h3><span class="finding-location">EXPERIENCE, Phases</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : capacités, initialized, puis la carte.</div></article></div></details></section>
+<section class="reviewer-section"><details><summary><h2>Revue d&#x27;accessibilité</h2><span class="reviewer-source">review-accessibilite.md</span></summary><div class="dim-body"><div class="dim-judgment"><p>0 critique, 9 hauts, 12 moyens, 5 bas. Tous traités dans les spines ; certains passent par le module commun du lot 2.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">A11Y-01 Flèche courante invisible en clair</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : repère ▶, anneau d&#x27;encre sous le halo (retouche lot 2), aria-current, annonce nommée.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">A11Y-02 Nom des flèches incomplet</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : gabarit ordonné dans ui.yaml, fragments masqués plutôt qu&#x27;aria-label.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">A11Y-03 Aucune annonce</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : région status par page, alert pour les échecs.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">A11Y-04 Focus perdu, défilement imposé</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : ajout incrémental, phase focalisée jamais repliée, défilement suspendu et puce « ↓ n nouveaux messages ».</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">A11Y-05 « Pourquoi… ? » hors clavier</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : bouton distinct dans un titre de niveau 3.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">A11Y-06 Pas de mode projection sur /mcp</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : mode projection étendu à /mcp (décision d&#x27;Anaël), mise en page sur la rampe.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">A11Y-07 Textes sous 12 px</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : aucun texte sous label.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">A11Y-08 Cibles sous 32 px</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : hit-target-min pour toute commande.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">A11Y-09 Architecture seulement visuelle</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : groupes nommés, nom accessible des serveurs et clients.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">A11Y-10 à A11Y-21 (contraste des estompés, tablist, radiogroup, stepper, lignes de vie, traits, mouvement, bulles, structure de liste, tabindex itinérant, aria-disabled, ellipses)</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigés dans EXPERIENCE (Accessibilité, Langues) et DESIGN (mcp-arch-client sans opacité, mcp-lifeline en muted, motifs de tirets distincts).</div></article><article class="finding"><header><span class="badge badge-sev-low">low</span><h3 class="finding-title">A11Y-22 à A11Y-26 (fieldset, aria-expanded, lang=en, émojis, noms des boutons de volet)</h3><span class="finding-location">review-accessibilite.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigés dans EXPERIENCE.</div></article></div></details></section>
+<section class="reviewer-section"><details><summary><h2>Revue structure et prose</h2><span class="reviewer-source">review-structure-prose.md</span></summary><div class="dim-body"><div class="dim-judgment"><p>11 constats de structure, 14 corrections de prose et 3 mineures. Contenu tenu pour acquis ; organisation et expression seulement.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Deux puces mcp-screen contradictoires</h3><span class="finding-location">review-structure-prose.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : ancienne puce marquée « remplacée au lot 4 ».</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Badges contraires à la Voix</h3><span class="finding-location">review-structure-prose.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : « choisi par le modèle / choisie par l&#x27;application / choisi par l&#x27;utilisateur » partout.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">« Ce que le build doit ajouter » hors sujet</h3><span class="finding-location">review-structure-prose.md</span></header><div class="finding-fix"><strong>Suite :</strong> Partiel : devenu « Données attendues par la page », contrat de données gardé dans la spine, tests retirés.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Références introuvables (plan, vues, D2, D5)</h3><span class="finding-location">review-structure-prose.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : lien vers le plan, vues nommées.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">12 étapes noyées dans une phrase</h3><span class="finding-location">review-structure-prose.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigé : liste numérotée.</div></article><article class="finding"><header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Climax, « aujourd&#x27;hui », « spines », « en retrait », « client » ambigu, « supposée », « puce blanche »</h3><span class="finding-location">review-structure-prose.md</span></header><div class="finding-fix"><strong>Suite :</strong> Corrigés.</div></article><article class="finding"><header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Promouvoir chaque mcp-* en puce de premier niveau</h3><span class="finding-location">review-structure-prose.md</span></header><div class="finding-fix"><strong>Suite :</strong> Non retenu : regroupement par volet gardé, identifiants listés en tête de puce.</div></article></div></details></section>
+<div class="mechanical"><h3>Notes mécaniques</h3><ul><li>Le contrat d&#x27;événements reste la seule question bloquante avant bmad-build (bmad-architecture).</li><li>Retouches du module commun du lot 2 (halo, stepper, explain) : à construire une fois, elles changent aussi l&#x27;Atelier Harnais.</li><li>Lows de la rubrique non repris un par un : cas limites de contenu et d&#x27;architecture ajoutés ; renvois Voice and Tone et Accessibility Floor non ajoutés (la section lot 4 est autonome).</li><li>test_web_tokens.py vert après les ajouts (aucune couleur nouvelle).</li></ul></div>
+<footer class="report-footer"><div class="meta"><span>Rubrique : review-rubric.md</span><span>Généré : 2026-10-05</span></div></footer>
+  </div>
+</body>
+</html>

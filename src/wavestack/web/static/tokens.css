@@ -126,6 +126,7 @@
   --spacing-brick-panel-width: 280px;
   --spacing-architecture-band-height: 250px;
   --spacing-stroke-min: 2px;
+  --spacing-stroke-path: 3px;
   --spacing-hit-target-min: 32px;
   --spacing-relief-offset: 4px;
   --spacing-relief-offset-pressed: 1px;

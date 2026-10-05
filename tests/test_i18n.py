@@ -30,7 +30,13 @@ from wavestack.context.segments import load_labels
 from wavestack.hooks import date_fr, date_text, load_hooks_content
 from wavestack.mcp import lab as mcp_lab
 from wavestack.mcp.connection import McpConnection
-from wavestack.mcp.servers import LOCAL, McpServer, load_local_tools, load_mcp_content
+from wavestack.mcp.servers import (
+    LOCAL,
+    McpServer,
+    load_local_primitives,
+    load_local_tools,
+    load_mcp_content,
+)
 from wavestack.models.catalog import load_publishers
 from wavestack.rag import lab as rag_lab
 from wavestack.rag.corpus import load_rag_content
@@ -70,6 +76,7 @@ LLM_DEFAULTS = (
     "mcp.yaml",
     "mcp_local/glossary.yaml",
     "mcp_local/tools.yaml",
+    "mcp_local/primitives.yaml",  # lot 4 of 2026-10-04: its resource and prompt
     "rag.yaml",
     "cloud.yaml",  # languages (3/5): the cloud test's prompt and tool
 )
@@ -221,6 +228,12 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
     elif rel == "mcp_local/tools.yaml":
         fr, tr = load_local_tools("fr"), load_local_tools(lang)
         assert tr.list_terms != fr.list_terms and tr.define_term != fr.define_term
+    elif rel == "mcp_local/primitives.yaml":  # lot 4 of 2026-10-04 (AD-27)
+        fr, tr = load_local_primitives("fr"), load_local_primitives(lang)
+        assert tr.terms.title != fr.terms.title and tr.explain_term.text != fr.explain_term.text
+        for key in ("text", "unknown_text"):
+            ours, theirs = getattr(fr.explain_term, key), getattr(tr.explain_term, key)
+            assert set(_PLACEHOLDER.findall(theirs)) == set(_PLACEHOLDER.findall(ours)), key
     elif rel == "ui.yaml":  # languages (2/5): its parity key by key is in test_ui_texts
         fr, tr = load_ui_texts("fr"), load_ui_texts(lang)
         assert tr["common"]["language"] != fr["common"]["language"]
@@ -259,6 +272,14 @@ def test_translated_file_mirrors_the_french_one(lang, rel):
             fr.transports.keys(),
             fr.methods.keys(),
         )
+        # Lot 4 of 2026-10-04 (AD-27): the same lifelines, phases, servers and pieces.
+        for name in ("columns", "phases", "primitives", "servers", "restaurant"):
+            assert getattr(tr, name).keys() == getattr(fr, name).keys(), name
+        assert set(_PLACEHOLDER.findall(tr.ask_resource_text)) == {
+            "{uri}",
+            "{content}",
+            "{question}",
+        }
     elif rel.startswith("corpus/"):  # languages (4/5): the same sections, about as long
         fr_text = french.read_text(encoding="utf-8")
         tr_text = translated.read_text(encoding="utf-8")

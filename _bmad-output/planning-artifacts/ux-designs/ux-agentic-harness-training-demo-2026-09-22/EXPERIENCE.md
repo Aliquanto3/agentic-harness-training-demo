@@ -33,7 +33,7 @@ Tout ce qui suit est indépendant de la découpe en 4 ou 5 volets.
 | Barre basse de l'atelier | Permanente, sous les volets | Programme et scénario, jauge de contexte, fenêtre de contexte (« Fenêtre ▾ », story 26), puces des volets masqués et menu « Volets ▾ », modèle, réinitialisation | FR-38, FR-41, FR-4, FR-32, FR-39 |
 | Écran LLM nu (story 29) | Lien « LLM nu » de la barre commune, sur chaque page | Page `/llm` : ce qui se passe dans le modèle actif, sans aucune brique ni la conversation de l'atelier. Tokenisation et vectorisation (tokens et identifiants, schéma texte → vecteur avec les dimensions réelles) ; réglages d'échantillonnage, chargement du modèle (étapes, durées, mémoire), lecture du prompt, génération token par token, raisonnement et probabilités des tokens candidats | FR-8, FR-9, FR-30, FR-32, FR-43 |
 | Atelier RAG (story 30) | Lien « Atelier RAG » de la barre commune, sur chaque page | Page `/rag` : l'architecture d'une chaîne RAG, dessinée en cartes (`rag-chain` : découpage, embedding, base vectorielle, recherche, reranking, construction du contexte, génération) et exécutée sur une question, étape par étape (`rag-stage-card` : entrée, sortie, chiffres, extraits avec rang, rang d'avant, document et score, durée, mémoire de WaveStack). Un bac à sable : la brique RAG de l'atelier ne change pas ; la génération est dessinée, jamais exécutée | FR-16, FR-17, FR-18 |
-| Atelier MCP (story 6 du 2026-09-30) | Lien « Atelier MCP » de la barre commune, sur chaque page ; lien « Voir le protocole dans l'atelier MCP → » de la carte MCP | Page `/mcp` : le protocole entre le harnais et un serveur, en cinq sections dans l'ordre d'un échange réel : les serveurs (transport, adresse ou commande, ce qui sort du poste, « Se connecter »), la poignée de main (chaque message JSON-RPC avec son sens et sa durée, et la requête HTTP sortante d'un serveur public), la documentation des outils et son poids (complète et lazy loading), l'appel (un champ par paramètre, préréglages, requête et réponse brutes, texte réinjecté, erreurs) et ce que le modèle voit (le bloc « outils »). Un bac à sable : l'atelier ouvre ses propres connexions, la brique MCP ne change pas, rien n'est généré | CAP-6 |
+| Atelier MCP (story 6 du 2026-09-30) | Lien « Atelier MCP » de la barre commune, sur chaque page ; lien « Voir le protocole dans l'atelier MCP → » de la carte MCP | Page `/mcp` : le protocole entre le harnais et un serveur, en cinq sections dans l'ordre d'un échange réel : les serveurs (transport, adresse ou commande, ce qui sort du poste, « Se connecter »), la poignée de main (chaque message JSON-RPC avec son sens et sa durée, et la requête HTTP sortante d'un serveur public), la documentation des outils et son poids (complète et lazy loading), l'appel (un champ par paramètre, préréglages, requête et réponse brutes, texte réinjecté, erreurs) et ce que le modèle voit (le bloc « outils »). Un bac à sable : l'atelier ouvre ses propres connexions, la brique MCP ne change pas, rien n'est généré. **Lot 4 du 2026-10-04 : refondu en quatre volets (serveurs et commandes, séquence, ce que le modèle voit, architecture), avec ressources, prompts et un appel par le vrai modèle au choix ; voir [Atelier MCP en séquence](#atelier-mcp-en-séquence-lot-4-du-2026-10-04).** | CAP-6 |
 | Panneau des briques | Volet masquable (colonne gauche) | Activer, désactiver, expliquer chaque brique ; forcer une action | FR-5, FR-6, FR-9, FR-13, FR-18, FR-21, FR-23, FR-27, FR-42 |
 | Tiroir d'édition | Carte « Prompt système » ou « Mémoire globale » → « Modifier » | Modifier le prompt système ; consulter, modifier, effacer la mémoire globale | FR-11, FR-12 |
 | Vue humain | Volet masquable | Converser comme dans un chatbot ; prompts suggérés ; rejeu ; raisonnement affiché ou masqué | FR-1, FR-7, FR-9, FR-10, FR-38 |
@@ -154,7 +154,7 @@ Comportement. Les specs visuelles sont dans `DESIGN.md`, section Components ; le
 | Atelier RAG (`rag-screen`) | Page `/rag` | Story 30. Page à part, atteinte par le lien « Atelier RAG » de la barre commune (dans le même onglet) ; en tête, la barre commune, « Atelier RAG » courant. Trois sections : la chaîne, la question (« Lancer la chaîne », « Arrêter »), ce que fait chaque étape. Tout vient de `GET /api/rag_lab` et des événements `rag_lab_*` (AD-1) ; la question est mémorisée par le navigateur. Après un rechargement, la dernière exécution se réaffiche (`last_run`). « Lancer » est désactivé hors `idle`, avec la raison dans un bandeau. |
 | Chaîne RAG (`rag-chain`) | Atelier RAG, section 1 | Story 30. Une carte par étape, numérotée, reliées par « → », sur une ligne à 1 600 px : nom de l'étape, option (le libellé du modèle déclaré pour l'embedding et le reranking), réglages, explication en 2 à 3 phrases, et une note quand une exécution rencontrerait un obstacle (modèle absent, index de la brique périmé). La génération est dessinée mais jamais exécutée. Une liste d'options par carte qui en a plusieurs (les indisponibles désactivées, leur raison en infobulle et en texte sous la carte, « ⊘ ») et des champs numériques bornés pour les réglages ; « Comparer avec une autre configuration » ouvre une chaîne B sous la A ; « Revenir à la chaîne livrée » oublie les chaînes éditées, que le navigateur garde sinon (`wavestack.ragLab`). Une chaîne refusée par la session : la raison du 409, qui nomme l'étape, s'affiche près de « Lancer ». FAISS et LanceDB (extra `rag-alt`) : grisés sans l'extra, la raison donnant la commande d'installation. Incrément 4 : chaque carte du segment de récupération (recherche, recherche lexicale BM25, fusion, reranking) porte « ◀ » (« Déplacer avant »), « ▶ » (« Déplacer après »), désactivés au bord du segment, et « Retirer » ; sous la chaîne, « Ajouter un composant » (liste des étapes absentes, insérées avant le contexte). Jamais de glisser-déposer. À chaque modification, la session valide la chaîne (`POST /api/rag_lab/validate`, lecture seule) : la raison s'affiche sur la carte fautive (« Deux recherches demandent une fusion après elles… ») et « Lancer » est désactivé avec la même raison en infobulle. Le focus reste sur le bouton qui vient d'agir. |
 | Carte d'étape (`rag-stage-card`) | Atelier RAG, section 3 | Story 30. Une carte par étape exécutée, créée « en attente » au démarrage, « en cours » (avec la progression d'un embedding ou d'un reranking), puis « terminée · N ms », « en erreur », « sautée », « arrêtée » ou « non exécutée » (la génération). Elle montre l'entrée et la sortie en phrases, les chiffres, le tableau des extraits (rang, rang d'avant marqué ↑ ou ↓, document, score) et, en pied, la durée et la mémoire de WaveStack. « Emprunté à la brique RAG » quand le modèle est celui de la brique, prêté sans être fermé. Deux chaînes : deux colonnes (A, B), puis la comparaison (`rag-comparison`) : la synthèse de la session, et quatre listes (en commun, seulement dans A, seulement dans B, écarts de rang). Sous le document d'un extrait, son rang (et son score) dans chaque liste d'avant : les deux recherches pour la fusion, qui montre son score RRF à quatre décimales. |
-| Atelier MCP (`mcp-screen`) | Page `/mcp` | Story 6 du 2026-09-30. Page à part, en tête la barre commune, « Atelier MCP » courant. Tout vient de `GET /api/mcp_lab` et des événements du contexte `mcp_lab` (AD-1) ; après un rechargement, la dernière connexion et ses appels se réaffichent (`last_session`). Section 1 : une carte par serveur (nom, transport et son explication, adresse ou commande de lancement, ce qui sort du poste), « Se connecter », « Connexion ouverte » sur le serveur connecté ; « Arrêter » sous les cartes, actif en `mcp_lab` seulement. Section 2 : la synthèse (« Glossaire WaveStack : connexion ouverte en N ms · 2 outils listés », ou l'erreur et sa raison), puis chaque message JSON-RPC dans l'ordre, son sens (« Harnais → serveur », « Serveur → harnais »), sa méthode et ce qu'elle fait, sa durée (aller-retour pour une réponse), « capturé sur le transport », le JSON indenté ; pour un serveur public, la requête HTTP sortante (méthode, adresse, en-têtes repliés, corps). Section 3 : chaque outil (nom vu par le modèle `{serveur}__{outil}`, description servie par le serveur, non traduite pour un serveur public, schéma replié) et le tableau des poids : tokens de chaque outil en documentation complète et de sa ligne en lazy loading, la définition de `load_tool_doc`, les totaux, « compté par le modèle chargé » ou « estimé ». Section 4 : l'outil, un préréglage, un champ par paramètre (texte, nombre, case à cocher, sinon valeur JSON), « Appeler » ; la synthèse, la requête `tools/call`, la réponse brute, le texte réinjecté (et sa troncature). Un argument invalide (`is_error`), un serveur injoignable ou un délai dépassé : statut en erreur, la raison dite. Section 5 : le bloc « outils » en documentation complète et en lazy loading, avec son poids. Boutons désactivés hors `idle`, la raison dans un bandeau. |
+| Atelier MCP (`mcp-screen`) | Page `/mcp` | Story 6 du 2026-09-30. Page à part, en tête la barre commune, « Atelier MCP » courant. Tout vient de `GET /api/mcp_lab` et des événements du contexte `mcp_lab` (AD-1) ; après un rechargement, la dernière connexion et ses appels se réaffichent (`last_session`). Section 1 : une carte par serveur (nom, transport et son explication, adresse ou commande de lancement, ce qui sort du poste), « Se connecter », « Connexion ouverte » sur le serveur connecté ; « Arrêter » sous les cartes, actif en `mcp_lab` seulement. Section 2 : la synthèse (« Glossaire WaveStack : connexion ouverte en N ms · 2 outils listés », ou l'erreur et sa raison), puis chaque message JSON-RPC dans l'ordre, son sens (« Harnais → serveur », « Serveur → harnais »), sa méthode et ce qu'elle fait, sa durée (aller-retour pour une réponse), « capturé sur le transport », le JSON indenté ; pour un serveur public, la requête HTTP sortante (méthode, adresse, en-têtes repliés, corps). Section 3 : chaque outil (nom vu par le modèle `{serveur}__{outil}`, description servie par le serveur, non traduite pour un serveur public, schéma replié) et le tableau des poids : tokens de chaque outil en documentation complète et de sa ligne en lazy loading, la définition de `load_tool_doc`, les totaux, « compté par le modèle chargé » ou « estimé ». Section 4 : l'outil, un préréglage, un champ par paramètre (texte, nombre, case à cocher, sinon valeur JSON), « Appeler » ; la synthèse, la requête `tools/call`, la réponse brute, le texte réinjecté (et sa troncature). Un argument invalide (`is_error`), un serveur injoignable ou un délai dépassé : statut en erreur, la raison dite. Section 5 : le bloc « outils » en documentation complète et en lazy loading, avec son poids. Boutons désactivés hors `idle`, la raison dans un bandeau. **Lot 4 du 2026-10-04 : les cinq sections laissent place aux quatre volets de [Atelier MCP en séquence](#atelier-mcp-en-séquence-lot-4-du-2026-10-04) ; ce qui est dit ici des messages, des poids et de l'appel reste vrai, à sa nouvelle place.** |
 | Bouton Réinitialiser (`reset-button`) | Barre de l'atelier | Un clic, sans confirmation (FR-39 : « en un geste ») : LLM nu, conversation vide, mémoire globale de démonstration restaurée. Placé à l'extrémité droite, à l'écart des autres commandes, pour limiter le clic accidentel `[ASSUMPTION]`. Ne touche pas la configuration des volets. Confirmation par un message discret : « WaveStack réinitialisé : LLM nu. » |
 | Détail de la jauge (`context-gauge-detail`) | Abandonné (décision D1 d'Anaël du 2026-10-01 : la jauge empilée et son survol suffisent) ; ne pas construire | Grille de la fenêtre de contexte et légende par segment, pour l'appel sélectionné. Clic sur une cellule ou une ligne de légende : sélection synchronisée. « Fermer » revient à l'étape en cours. |
 | Carte de brique (`brick-card`) | Panneau des briques | En tête du panneau, la légende des quatre disciplines (story 33). Puis deux groupes, selon le groupe que la session déclare pour chaque brique (AD-12) : « Ce que le modèle lit » (Raisonnement en tête, story 22, puis prompt système, mémoire courte, mémoire globale, RAG) et « Ce que le harnais fait » (outils, MCP, skills, hooks, sous-agent, compression) ; le schéma suit le même ordre. Chaque carte porte la couleur de sa discipline (sa catégorie) : allumée, trait gauche, fond doux et interrupteur de cette couleur ; éteinte, grisée (fond et trait neutres, texte encre douce). Une puce « 🌐 RÉSEAU » s'affiche quand une option activée sort du poste. Sous les puces, une ligne d'état dit ce que la brique pèse ou fait, calculée à partir de valeurs reçues seulement (AD-1) et mise à jour sur place à chaque rendu, sans reconstruire la carte (une explication ouverte et le focus restent) : « Indisponible » (voulue ou non), « Éteinte », « Imposé par ce modèle » (Raisonnement, avec 🔒 à côté de l'interrupteur verrouillé), « Réserve de sortie : n tokens » (Raisonnement), « n entrées · n tokens » (mémoire globale), « n déclarés · c contacté(s) » (outils et MCP avec une option réseau activée ; c compte leurs nœuds réseau déjà contactés), « n déclarés · n tokens » (sans option réseau), « Gain : n tokens » ou « Aucun gain pour l'instant » (compression), sinon « n tokens dans le contexte » (« ≈ » si estimé). Avant le premier tour, elle lit l'aperçu du contexte ; sans aperçu, « En attente du modèle ». Elle n'est pas annoncée en direct (pas d'`aria-live`), pour éviter une annonce à chaque tour. Interrupteur (`brick-toggle`) : effet au tour suivant (FR-5), indiqué par « Prend effet au prochain tour » tant qu'aucun tour n'a eu lieu depuis le changement. Explication dépliable (FR-6). Sous-options dépliables : outils individuels (FR-13), reranking (FR-18), serveurs MCP et mode documentation complète / lazy loading (FR-21), skills (FR-23), hooks (FR-27). Carte Outils et carte MCP (story 23) : une ligne « Peuvent sortir du poste » (`brick-outbound`), visible options repliées, que la session construit depuis `content/bricks/*.yaml` : « Peuvent sortir du poste » : les outils réseau déclarés (activés ou non) et les serveurs MCP publics, puis où lire ce qu'ils envoient (adresse, en-têtes, corps : volet Orchestration, bloc « 🌐 Données sortantes » de leur étape, ou de la connexion) et le clic sur leur nœud 🌐 du schéma qui y mène. Brique éteinte ou indisponible (story 22) : ses sous-options (outils, serveurs, lazy loading, skills, hooks, reranking) gardent leur état coché mais sont grisées et désactivées ; la raison s'affiche au survol de la ligne et est lue par le lecteur d'écran : « Activez la brique {nom} pour régler cette option. », ou la raison de la brique si elle est indisponible. Le résumé replié dit « · brique éteinte » à la place du mode (« Serveurs : 1 activé sur 3 · brique éteinte »), pour qu'un lazy loading coché ne semble pas agir. Brique rallumée : les sous-options redeviennent réglables, état retrouvé. Les boutons Forcer ne changent pas. Indisponible : interrupteur désactivé, raison visible en permanence. Vue liée (story 34) : le survol de la carte, ou le focus de son interrupteur, éclaire ses nœuds, ses segments et ses étapes ; un clic sur la carte hors de ses contrôles la sélectionne ; au clavier, la carte prend elle-même le focus et `Entrée` ou `Espace` la sélectionnent (FR-4). Le nom est dans l'étiquette de l'interrupteur : un clic sur le nom bascule toujours la brique. |
@@ -250,7 +250,7 @@ Comportement. Les specs visuelles sont dans `DESIGN.md`, section Components ; le
 | Un seul volet visible | Tous volets | Son bouton « — » et sa case dans « Volets ▾ » sont désactivés, avec l'infobulle « Au moins un volet reste visible. » |
 | Écran LLM nu en génération (`llm_lab`, story 29) | Barre de l'atelier, Vue humain, écran LLM nu | La session est dans l'état `llm_lab` (« écran LLM nu ») : l'atelier refuse envoi, rejeu, changement de modèle et les autres intentions de classe (b), avec la raison « L'écran « LLM nu » génère une réponse : attendez sa fin ou arrêtez-la. » ; « Arrêter » de l'écran l'interrompt. La conversation, la jauge et les volets de l'atelier n'en reçoivent rien ; le tour suivant lit le même contexte (état du moteur restauré, sinon `prefix_not_reused` le dit, cause « llm »). Story 5 du 2026-09-30 : une comparaison A/B garde cet état de la première génération à la fin de la seconde. |
 | Atelier RAG en exécution (`rag_lab`, story 30) | Barre de l'atelier, Vue humain, Atelier RAG | La session est dans l'état `rag_lab` : l'atelier refuse envoi, rejeu, changement de modèle et les autres intentions de classe (b), avec la raison « Atelier RAG : exécution en cours ; attendez sa fin ou arrêtez-la. » ; « Arrêter » de la page l'interrompt entre deux étapes, deux passages ou deux candidats. La brique RAG garde ses modèles : l'atelier les emprunte sans les fermer. |
-| Atelier MCP en échange (`mcp_lab`, story 6 du 2026-09-30) | Barre de l'atelier, Vue humain, Atelier MCP | La session est dans l'état `mcp_lab` pendant une connexion ou un appel de l'Atelier MCP : l'atelier refuse les intentions de classe (b) avec la raison « Atelier MCP : échange en cours ; attendez sa fin ou arrêtez-le. » ; « Arrêter » de la page ferme la connexion de l'Atelier MCP. La brique MCP garde ses connexions et ses réglages. |
+| Atelier MCP en échange (`mcp_lab`, story 6 du 2026-09-30) | Barre de l'atelier, Vue humain, Atelier MCP | La session est dans l'état `mcp_lab` pendant une connexion ou un appel de l'Atelier MCP : l'atelier refuse les intentions de classe (b) avec la raison « Atelier MCP : échange en cours ; attendez sa fin ou arrêtez-le. » ; « Arrêter » de la page ferme la connexion de l'Atelier MCP. La brique MCP garde ses connexions et ses réglages. Lot 4 du 2026-10-04 : l'état vaut aussi pour la lecture d'une ressource, l'obtention d'un prompt et le mode « Par le modèle » ; dans ce dernier cas, le modèle actif est occupé et « Arrêter » interrompt la génération. |
 | Réinitialisation | Tous volets | Retour à l'état « LLM nu » et « Aucun tour » ; la configuration des volets et le mode projection ne changent pas ; message « WaveStack réinitialisé : LLM nu. » (FR-39). |
 
 ## Interaction Primitives
@@ -340,6 +340,312 @@ Comment l'interface soutient le formateur devant la salle (UJ-1, UJ-4). Aucune f
 - **Finir** : réinitialiser en un geste pour la session suivante (FR-39).
 - **Dernier recours** : la vidéo d'une session précédente, hors de WaveStack (PRD §4.13).
 
+## Atelier MCP en séquence (lot 4 du 2026-10-04)
+
+Refonte de la page `/mcp` ([plan de corrections du 2026-10-04](../../../implementation-artifacts/plan-corrections-2026-10-04.md), lot 4, décision D5 « inspiration MCP »). Elle remplace les cinq sections de la story 6 du 2026-09-30, sans rien retirer de ce qu'elles montraient : messages capturés, poids des outils, appel, bloc « outils ». Maquette : [`.working/maquette-atelier-mcp-sequence.html`](.working/maquette-atelier-mcp-sequence.html) (quinze scénarios, dont six ajoutés le 2026-10-05 pour les états d'AD-27, cadre 1 280 × 650, bascule du thème sombre). Ces spécifications l'emportent sur la maquette en cas d'écart. Visuel : DESIGN.md, Components, « Atelier MCP en séquence ». Les chiffres cités dans cette section (durées, tokens, nombres d'outils) sont des exemples, jamais des valeurs attendues.
+
+**Ce que la page enseigne**, dans l'ordre :
+1. Ce que MCP change : avant, une intégration écrite à la main pour chaque API ; avec MCP, un même protocole pour tous les serveurs (vue « Avant MCP | Avec MCP » de l'Architecture).
+2. Où tourne chaque pièce : l'hôte contient un client MCP par serveur ; le serveur est un programme à part, sur le poste (stdio) ou hors du poste (Streamable HTTP) ; la source de données est derrière le serveur.
+3. La poignée de main : on demande ce que sert la maison avant de commander.
+4. Qui choisit quoi : un outil est **choisi par le modèle**, une ressource **choisie par l'application**, un prompt **choisi par l'utilisateur**.
+5. **Le modèle ne parle jamais au serveur.** Il demande un outil à l'hôte, qui passe par le client. C'est le temps fort de la page (Flow MCP-1).
+
+**Sources.** Captures du cours Anthropic « MCP clients » : diagrammes de séquence des outils (ListTools → CallTool) et des ressources, diapositives sur le transport et les messages, résumé et flux en 12 étapes de la leçon. Diapositive Wavestone « Focus MCP » : avant / après MCP et analogie du restaurant. Messages capturés par l'application (`Capture.record`, `mcp/lab.py`). Spécification MCP : `initialize`, capacités, `notifications/initialized`, `*/list`, `tools/call`, `resources/read`, `prompts/get`. Module de schéma commun du lot 2 (`static/diagram.js`).
+
+Les trois vues du plan de corrections deviennent : vue 1 (architecture) = volet Architecture ; vue 2 (poignée de main) et vue 3 (un appel) = phases du volet Séquence.
+
+### Découpe en quatre volets
+
+Organisation reprise de l'Atelier Harnais : plusieurs vues visibles à la fois, masquables et redimensionnables (décision d'Anaël du 2026-10-04).
+
+```
+┌──────────────────────── Barre commune (MCP courant) ─────────────────────────┐
+│ Atelier MCP  Le protocole entre l'hôte et un serveur…          [+ volet masqué] │
+├──────────────┬──────────────────────────────────────┬────────────────────────┤
+│ Serveurs et  │ 1 Séquence        ◀ n / N ▶ Suivre   │ 2 Ce que le modèle voit │
+│ commandes    │ Util. SLM Hôte Client Serveur Source │ Complète | Lazy loading │
+│ ○ Glossaire  │  ┆    ┆   ┆ ─initialize─▶ ┆         │ Bloc « outils »         │
+│ ○ data.gouv  │  ┆    ┆   ┆ ◀─capacités── ┆         │ Résultat réinjecté      │
+│ ○ MS Learn   │ ── Appel d'outil · par le modèle ──  │ Ressource / prompt      │
+│ 🔧 📄 💬      │  ┆    ┆ ◀─┆ ─tools/call─▶ ┆ ─▶ src   │                         │
+│ formulaire   ├──────────────────────────────────────┴────────────────────────┤
+│              │ 3 Architecture : Poste [Hôte ⊃ 3 clients] ─stdio─ Glossaire ┆ RÉSEAU │
+└──────────────┴───────────────────────────────────────────────────────────────┘
+```
+
+| Volet | Numéro | Sous-titre | Rôle |
+|---|---|---|---|
+| Serveurs et commandes | — | Choisissez un serveur, puis ce que vous lui demandez | Ce que fait l'utilisateur : choisir un serveur, se connecter, puis demander un outil, une ressource ou un prompt. Pendant du panneau des briques |
+| Séquence | 1 | Qui parle à qui, dans l'ordre | Vues 2 et 3 du plan de corrections : la poignée de main, puis chaque échange, en diagramme de séquence |
+| Ce que le modèle voit | 2 | Ce qui entre dans son contexte, et son poids | Le bloc « outils » et son poids, ce qui est réinjecté ou entrerait dans le contexte. Pendant de Contexte LLM |
+| Architecture | 3 | Où tourne chaque pièce, et par quel transport | Vue 1 du plan de corrections, allumée en même temps que la flèche courante. Pendant du schéma d'architecture |
+
+- **Grille** : « Serveurs et commandes » occupe toute la hauteur à gauche ; Séquence au centre et « Ce que le modèle voit » à droite ; l'Architecture en bande basse, sous les deux. Dimensions : DESIGN.md, `mcp-panes`.
+- **Barre WaveStack** : toujours tout en haut de la page, en permanence, y compris quand la page défile (décision d'Anaël du 2026-10-05).
+- **Masquer, focus, redimensionner** : comme l'Atelier Harnais (« — », ⛶, gouttières glissables entre les volets, à la souris ou aux flèches du clavier, double-clic pour revenir à la taille par défaut, puces « + Nom du volet »), avec le même plancher d'accessibilité (« Masquer le volet {nom} », « Mode focus du volet {nom} », « Réafficher le volet {nom} »). La Séquence ne se masque pas : c'est le volet central. Tailles et volets masqués sont mémorisés par le navigateur pour cette page, à part de l'atelier (`wavestack.mcp.panes`). La mécanique des volets est celle de l'atelier, extraite dans le module commun `static/panes.js` (AD-28, décision d'Anaël du 2026-10-05).
+- **Mode projection** : proposé aussi sur `/mcp`, dans le menu « Affichage ▾ », avec la même mémorisation que l'atelier (décision d'Anaël du 2026-10-05). Toute la page se dimensionne sur la rampe typographique : aucune hauteur de ligne ni taille de texte en pixels fixes.
+- **En-tête de page** : `h1` « Atelier MCP » (décision D2 du plan de corrections : nom court dans la barre, complet en titre) et une phrase d'introduction sur la même ligne.
+- **Repli** : si 1 280 × 650 ne suffit pas en projection, le formateur masque « Ce que le modèle voit » ou l'Architecture, ou met la Séquence en focus. La page ne bascule pas d'elle-même en défilement `[ASSUMPTION]` ; budget vertical : voir les questions ouvertes du lot 4.
+
+### Volet Serveurs et commandes
+
+- **Serveurs** : un groupe « Serveur » (`fieldset`) d'une carte par serveur de la brique MCP (Glossaire WaveStack, data.gouv.fr, Microsoft Learn), choix unique ; nom, étiquette `Local` ou `🌐 RÉSEAU`, transport. Un bouton « ⓘ » à côté du nom, hors du libellé du choix, déplie l'adresse ou la commande de lancement et ce qui sort du poste. Le serveur connecté porte « connecté » ; un échec porte « injoignable » et sa raison sous les cartes.
+- **Boutons** : « Se connecter » (« Reconnecter » une fois connecté), « Appeler », « Lire », « Obtenir le prompt » et « Envoyer au modèle » sont indisponibles hors `idle` ; « Arrêter » n'est actif qu'en `mcp_lab`, comme à la story 6. La raison est dans un bandeau. Un bouton indisponible garde le focus (`aria-disabled`, pas `disabled`).
+- **Onglets des primitives**, une fois connecté : « 🔧 Outils n », « 📄 Ressources n », « 💬 Prompts n », comptes tirés des listes reçues. Les capacités sont lues dans la réponse à `initialize`, jamais écrites en dur. Un onglet dont le serveur n'annonce pas la capacité reste lisible, barré, précédé de « ⊘ », avec « Ce serveur n'annonce pas de ressources » (ou de prompts) écrit sous les onglets. Une capacité annoncée dont la liste est vide donne un onglet actif et « Aucune ressource » (ou « Aucun prompt ») dans son panneau. Une capacité annoncée dont la liste a échoué donne un onglet actif et « La liste des ressources a échoué : {raison} » (ou des prompts, ou des outils) dans son panneau ; la connexion reste ouverte (`list_errors`, AD-27).
+- **Qui choisit** : en tête de chaque onglet, un badge. Outils : « Choisi par le modèle » (`trigger-badge-model`). Ressources : « Choisie par l'application » (`mcp-chooser-badge-app`). Prompts : « Choisi par l'utilisateur » (`trigger-badge-user`).
+- **Outils** : un sélecteur `mcp-mode-switch` « À la main | Par le modèle », « À la main » par défaut (décision d'Anaël du 2026-10-04).
+  - *À la main* : « Vous jouez le modèle : vous choisissez l'outil et ses arguments. » Outil, préréglage, un champ par paramètre (texte, nombre, case à cocher, sinon JSON), « Appeler ». C'est l'appel de la story 6.
+  - *Par le modèle* : « Le modèle actif reçoit votre question et les outils, puis choisit lui-même. Lent sur CPU : 10 à 40 s. » Champ « Question », « Envoyer au modèle », puis le modèle actif et sa capacité d'appel d'outils. Segment indisponible, avec sa raison rattachée : le modèle actif n'appelle pas d'outils (« Le modèle actif n'appelle pas d'outils : choisissez-en un autre dans le diagnostic »), aucun modèle n'est chargé, ou la session n'est pas `idle`.
+- **Ressources** : la liste des ressources (URI en `code`, titre, type), choix unique, « Lire ». Note : « Vous jouez l'application : c'est elle qui choisit une ressource. » Une fois la ressource lue, un champ « Question » et « Envoyer au modèle » l'envoient au modèle actif avec la question (décision d'Anaël du 2026-10-05).
+- **Prompts** : prompt, un champ par argument (requis marqués), « Obtenir le prompt ». Une fois le prompt obtenu, « Envoyer au modèle » envoie ses messages au modèle actif, comme si l'utilisateur les avait tapés (décision d'Anaël du 2026-10-05).
+- **Envoyer au modèle**, pour une ressource ou un prompt : il suffit qu'un modèle soit chargé, la connexion ouverte et la session `idle` ; le mode « Par le modèle » des outils exige en plus un modèle qui appelle des outils (AD-27). Le bloc « outils » du serveur part avec la demande si le modèle appelle des outils, comme le ferait un hôte ; sinon la ressource ou le prompt part seul, et « Ce que le modèle voit » le dit. Un modèle cloud est permis (décision d'Anaël du 2026-10-05) : l'avertissement cloud a déjà été confirmé au choix du modèle, et la ligne « {modèle} · 🌐 RÉSEAU · {fournisseur} » le rappelle sous le bouton.
+
+### Volet Séquence
+
+Dans l'ordre : découverte progressive, colonnes, flèches, phases et leurs lignes, encart déplié, stepper, restitution.
+
+**Découverte progressive** (décision d'Anaël du 2026-10-05 : réduire la charge au démarrage, faire apparaître les éléments un à un). Une colonne (en-tête et ligne de vie), une flèche et une phase restent invisibles tant qu'elles ne sont pas intervenues dans une étape déjà montrée : à l'étape n, sont visibles les flèches des étapes 1 à n, les phases qui les contiennent et les colonnes qu'elles relient. Un fantôme ou une note apparaît avec l'étape qui le précède ; un fantôme montre aussi ses deux colonnes, une note aucune. Revenir en arrière avec ◀ masque de nouveau ce qui suit l'étape montrée ; en direct, tout ce qui est arrivé est visible. Les colonnes gardent leur place : celles qui ne sont pas encore apparues laissent leur emplacement vide, pour qu'aucune flèche ne se déplace. Une apparition se fait en fondu court.
+
+**Colonnes** (`mcp-lifeline-head`, lignes de vie `mcp-lifeline`), dans cet ordre : Utilisateur (« vous ») · SLM local (nom du modèle) · Hôte WaveStack (« le harnais ») · Client MCP (« un par serveur ») · Serveur MCP (nom du serveur) · Source de données (`glossary.yaml`, « API data.gouv.fr », « Docs Microsoft »). Le SLM est à gauche de l'hôte, pour que ses flèches ne croisent jamais la partie MCP (décision d'Anaël du 2026-10-05, à la place de l'ordre du cours). Les flèches Utilisateur ↔ Hôte passent au-dessus de la ligne de vie du SLM, interrompue à leur passage. Les en-têtes restent visibles au défilement ; leur explication s'ouvre au clic (bulle `explain()` du lot 2). Le serveur public porte « 🌐 RÉSEAU » et les tirets du réseau ; le SLM est sur fond d'encre ; un modèle cloud porte « Modèle · 🌐 RÉSEAU · {fournisseur} » à la place de « SLM local ». Ses flèches avec l'hôte passent alors en tirets, avec 🌐, et l'encart d'une flèche Hôte → modèle montre les données sortantes (`outbound-payload`), comme l'Orchestration de l'atelier.
+
+**Cinq sortes de flèches** (`mcp-arrow`). Jamais la couleur seule : chacune a un trait et un libellé propres. Une légende trop longue passe sur deux lignes et la ligne grandit ; jamais d'ellipse.
+
+| Sorte | Entre | Trait | Libellé | Origine affichée |
+|---|---|---|---|---|
+| JSON-RPC | Client ↔ Serveur | plein, encre ; tirets et 🌐 sur un serveur public | puce de méthode `mcp-method-chip` (`initialize`, `tools/list`…), durée, résumé de la réponse (« 2 outils », « 1 bloc texte ») | « capturé sur le transport » (`mcp_lab_message`) |
+| Appel dans l'hôte | Utilisateur ↔ Hôte, Hôte ↔ Client | plein, encre douce, sans puce | phrase en italique (« exécute define_term(term = « MCP ») ») | « dans l'hôte · déduit » |
+| Échange avec le modèle | SLM ↔ Hôte | plein, encre | puce `mcp-model-chip` : contour d'encre pour ce que le modèle lit (« question + 2 outils », « résultat d'outil »), fond d'encre pour ce qu'il produit (« appel : define_term », « réponse finale ») ; tokens ou durée | « événement du modèle » |
+| Dans le serveur | Serveur ↔ Source | pointillé gris | « lit glossary.yaml », étiquette « non capturé » | « dans le serveur · non capturé » |
+| Fantôme | toute paire | tirets courts gris, pointe ouverte | libellé grisé et étiquette (« sauté : pas de modèle », « c'est vous qui l'avez fait », « non exécuté ici », « si l'hôte l'ajoute ») | « non exécuté ici » |
+
+Une notification porte une pointe ouverte et « sans réponse ». Une réponse donne son aller-retour (« aller-retour 1 352 ms »), une requête son instant depuis le début de l'échange (« à 1 363 ms »). Une erreur porte un trait rouge épais, ✖ en bout de flèche et sa raison (« isError : terme inconnu », « Service injoignable (ConnectError) »). Dans tout texte d'interface, le drapeau d'erreur d'outil s'écrit `isError`, comme dans le protocole.
+
+**Phases** (`mcp-phase-header`). Une phase par échange. Son en-tête est un titre de niveau 3 qui contient le bouton de repli (titre, synthèse), suivi d'un bouton distinct « Pourquoi… ? ».
+
+| Phase | Titre | Synthèse (exemple) | « Pourquoi… ? » |
+|---|---|---|---|
+| Poignée de main | « Poignée de main · {serveur} » | « ouverte en 1 371 ms · 2 outils, 1 ressource, 1 prompt » ou « échec : {raison} » | Le restaurant : « Bonjour, je suis le serveur de salle de WaveStack » (`initialize`) ; « Bonjour, voici ce que nous servons : des plats à la carte, ce que nous posons sur la table, des formules » (capacités : outils, ressources, prompts) ; « Bien reçu » (`notifications/initialized`) ; « La carte, s'il vous plaît » (`tools/list`, `resources/list`, `prompts/list`). Ensuite seulement, on commande. |
+| Appel d'outil | « Appel d'outil · à la main » ou « · par le modèle » | outil, durée, part de la génération | Un outil est choisi par le modèle. Le modèle ne parle jamais au serveur : il demande, l'hôte exécute par le client. |
+| Lecture de ressource | « Lecture de ressource · {uri} » | durée | Une ressource est choisie par l'application, pour donner du contexte, comme un fichier joint avec @. |
+| Prompt | « Prompt · {nom} » | durée | Un prompt est choisi par l'utilisateur : un modèle de demande que le serveur prépare, comme une commande /. |
+| Envoi au modèle | « Envoi au modèle · {uri} » ou « · {prompt} » | durée, part de la génération | Ce que l'application ou l'utilisateur a choisi entre dans le contexte ; le modèle répond, ou demande un outil. |
+
+Quand une phase commence, les précédentes se replient, sauf celle qui contient le focus ; un clic sur son en-tête rouvre une phase `[ASSUMPTION]`. Les phases restent affichées jusqu'à la connexion suivante, qui ouvre une nouvelle série, comme à la story 6. Les lignes s'ajoutent une à une : la liste n'est jamais reconstruite pendant une session.
+
+**Lignes de chaque phase.** « [capturé] » marque les messages JSON-RPC.
+
+- *Poignée de main* :
+  1. Hôte → Client : « lance le serveur : python -m … » en stdio, « ouvre une session HTTP avec … » sinon ;
+  2. `initialize`, requête [capturé] ;
+  3. `initialize`, réponse : « capacités : tools · resources · prompts » [capturé] ;
+  4. `notifications/initialized` [capturé] ;
+  5. `tools/list`, requête et réponse, si le serveur annonce les outils [capturé] ;
+  6. `resources/list` puis `prompts/list`, requête et réponse, seulement si le serveur les annonce [capturé] ; sinon une note « pas de resources/list ni de prompts/list : le serveur ne les annonce pas ». Une liste en échec porte la flèche rouge et sa raison, et la poignée de main continue ;
+  7. Client → Hôte : « 2 outils · 1 ressource · 1 prompt ».
+- *Appel d'outil, par le modèle* : les 12 étapes du cours.
+  1. Utilisateur → Hôte : la question ;
+  2. Hôte → SLM : question + outils, tokens ;
+  3. SLM → Hôte : appel d'outil, durée de génération ;
+  4. Hôte → Client : « exécute {outil}(…) » ;
+  5. Client → Serveur : `tools/call`, requête [capturé] ;
+  6. Serveur → Source : « lit glossary.yaml » (non capturé) ;
+  7. Source → Serveur : la donnée (non capturé) ;
+  8. Serveur → Client : `tools/call`, réponse [capturé] ;
+  9. Client → Hôte : texte du résultat, tokens ;
+  10. Hôte → SLM : résultat d'outil ;
+  11. SLM → Hôte : réponse finale, durée ;
+  12. Hôte → Utilisateur : début de la réponse.
+
+  En lazy loading, un aller-retour `load_tool_doc` s'insère entre les étapes 3 et 4, entre le SLM et l'hôte seulement, sans aucun message MCP : la documentation est déjà dans l'hôte.
+- *Appel d'outil, à la main* : les mêmes lignes, sauf que l'étape 1 devient « formulaire : define_term(term = « MCP ») » avec l'étiquette « à la place du modèle ». Les étapes 2, 3, 10, 11 et 12 sont des fantômes ; la dernière renvoie à l'Atelier Harnais (« voir l'Atelier Harnais »), où le vrai modèle fait ce parcours.
+- *Lecture de ressource* : Utilisateur → Hôte (« choisit glossary://terms », étiquette « joue l'application ») ; Hôte → Client ; `resources/read` [capturé] ; Serveur ↔ Source (non capturé) ; Client → Hôte (« contenu · 64 tokens ») ; Hôte → SLM en fantôme (« contenu dans le contexte », « si l'hôte l'ajoute »).
+- *Prompt* : Utilisateur → Hôte (« choisit le prompt explain_term(term = « hook ») ») ; Hôte → Client ; `prompts/get` [capturé] ; Serveur ↔ Source (non capturé) ; Client → Hôte (« 1 message · 52 tokens ») ; Hôte → SLM en fantôme (« message de l'utilisateur », « pas encore envoyé »).
+- *Envoi au modèle* (ressource ou prompt) : une nouvelle phase, qui reprend les étapes de l'appel par le modèle. Étape 1 : la question (ressource) ou « envoie le prompt explain_term » (prompt). Étape 2 : la puce dit ce qui part, « question + ressource + 2 outils » ou « prompt + 2 outils », avec les tokens. Étape 3 : réponse finale, qui clôt la phase (étapes 11 et 12), ou appel d'outil, qui déroule les étapes 4 à 12. Le fantôme de la phase précédente reste un fantôme : il disait ce qui se passerait, la nouvelle phase le montre.
+
+**Déplier un message** (`mcp-message-detail` ; décision d'Anaël du 2026-10-04 : sous la flèche). Un clic sur une flèche, ou Entrée, déplie sous elle un encart et pousse les suivantes. L'encart contient :
+- le sens (« Client MCP → Serveur MCP »), la légende entière et l'origine ;
+- l'explication de la méthode (`methods.*`) ;
+- pour un serveur public, la requête HTTP sortante (`outbound-payload` : « 🌐 RÉSEAU · Données sortantes », en-têtes repliés, corps) ;
+- le JSON indenté, défilant au-delà d'une hauteur fixe.
+
+Plusieurs encarts peuvent rester ouverts ; un second clic replie. Les fantômes sans explication et les notes sont du texte, pas des boutons.
+
+**Stepper du lot 2** (`createStepper`), dans l'en-tête du volet : ◀, « n / N », ▶, « Suivre le direct ». Une étape par flèche : les fantômes et les notes sont exclus, les flèches « non capturé » comprises. En direct, la dernière flèche arrivée est la courante. ◀ ou ▶ quittent le direct ; lancer un nouvel échange (Se connecter, Appeler, Lire, Obtenir le prompt, Envoyer au modèle) y revient `[ASSUMPTION]`. La flèche courante :
+- porte le repère « ▶ » dans la marge de sa ligne, le fond vert doux et, sur sa puce ou son libellé, l'anneau d'encre et le halo vert (`diagram-block.is-active`) ;
+- allume dans la Séquence les en-têtes de ses deux colonnes ;
+- allume dans l'Architecture ses deux blocs et le fil parcouru (`diagram-path`) ;
+- rouvre sa phase si elle était repliée. La Séquence défile pour la garder visible, sauf si l'utilisateur a fait défiler la liste ou si le focus y est : le défilement automatique est alors suspendu jusqu'à « Suivre le direct », et une puce « ↓ {n} nouveaux messages » ramène à la flèche courante. Elle ne déplie pas son encart.
+
+**Restitution** : après un rechargement, la dernière connexion et ses échanges se reconstruisent (`last_session`), toutes les phases repliées sauf la dernière, en direct.
+
+### Volet Ce que le modèle voit
+
+- **Bloc « outils »** (`mcp-context-block`) : un sélecteur `mcp-mode-switch` « Documentation complète | Lazy loading » ; en mode « par le modèle », c'est le mode envoyé au modèle. Puis le total en tokens (« compté par le modèle chargé » ou « estimé »), un tableau outil par outil (nom vu par le modèle `{serveur}__{outil}`, tokens ; en lazy loading, la ligne du catalogue et la définition de `load_tool_doc`), et « Voir le JSON envoyé au modèle », qui déplie le bloc. Badge « choisi par le modèle ». Sous le bloc : « Ressources et prompts n'y entrent pas : ils attendent un choix de l'application ou de l'utilisateur. »
+- **Après un échange**, un bloc par élément ajouté au contexte, avec le filet de son segment de contexte :
+  - *Envoyé au modèle* (mode « par le modèle », envoi d'une ressource ou d'un prompt) : tokens envoyés à chaque appel au modèle, ce qu'ils contiennent (question, ressource, prompt, outils), durée ; avec un modèle cloud, « 🌐 RÉSEAU · parti chez {fournisseur} ». Une ligne rappelle que l'atelier n'envoie pas de prompt système. Sans bloc « outils » (modèle qui n'appelle pas d'outils) : « Aucun outil envoyé : le modèle actif n'appelle pas d'outils. » Un raisonnement coupé par son budget porte « Raisonnement coupé par son budget » ;
+  - *Résultat réinjecté* : le texte, ses tokens, sa troncature au plafond des résultats d'outils ; étiquette `isError` s'il y a lieu. En mode à la main : « Ce que le harnais remettrait au modèle » ;
+  - *Contenu de la ressource* : badge « choisie par l'application », « Entrerait dans le contexte si l'hôte l'ajoutait. Le modèle ne l'a pas demandé. » ; après l'envoi, « Envoyé au modèle avec votre question. » ;
+  - *Messages du prompt* : badge « choisi par l'utilisateur », « Entreraient dans la conversation comme un message de l'utilisateur. » ; après l'envoi, « Envoyés au modèle comme votre message. »
+- **Suit le stepper** (décision d'Anaël du 2026-10-05), comme la Séquence et l'Architecture : un bloc n'apparaît qu'avec la flèche qui le produit, et disparaît si l'on revient avant elle. Le bloc « outils », son sélecteur et sa note avec la réponse à `tools/list` ; « Envoyé au modèle » avec la première flèche Hôte → modèle ; « Résultat réinjecté » avec la flèche Client → Hôte du résultat ; « Contenu de la ressource » et « Messages du prompt » avec la flèche Client → Hôte de leur contenu ; « Non envoyé au modèle » avec la flèche refusée. Avant la réponse à `tools/list`, le volet dit « Liste des outils en cours… ».
+- **États** : avant toute connexion, « Connectez-vous à un serveur : sa documentation d'outils et son poids s'afficheront ici. » ; pendant la poignée de main, « Liste des outils en cours… » ; pendant le comptage, le total dit « calcul… » ; après un échec de connexion, le volet se vide et dit « La connexion à {serveur} a échoué : aucun outil listé. »
+
+### Volet Architecture
+
+Vue 1 du plan de corrections, dans le langage du schéma de l'Atelier Harnais : une zone « 🖥️ Poste de travail » et une zone « 🌐 RÉSEAU · hors du poste », séparées par la frontière du poste.
+
+**Découverte progressive**, au même rythme que la Séquence (décision d'Anaël du 2026-10-05) : un bloc (utilisateur, robot, cadre de l'hôte, client, serveur, source) et un fil n'apparaissent qu'une fois intervenus dans une étape déjà montrée, fantômes exclus ; le cadre de l'hôte apparaît avec son premier client. La zone « Poste de travail » est toujours là ; la zone Réseau et la frontière apparaissent avec le premier élément hors du poste. Avant toute étape, la zone Poste dit « Les pièces apparaîtront ici, une à une, quand elles interviendront. » Les blocs gardent leur place.
+
+- **Poste** : Utilisateur ; le robot du modèle ; le cadre « Hôte · WaveStack », qui contient **un client MCP par serveur** (`mcp-arch-client` ; trois clients, un seul connecté : 1 client = 1 serveur) ; le serveur Glossaire et sa source `glossary.yaml`.
+- **Réseau** : les serveurs data.gouv.fr et Microsoft Learn, et leurs sources, en pointillé et marquées « côté serveur, invisible du poste ».
+- **Fils** : client → serveur nommé par son transport (« stdio » trait plein, « HTTP » en tirets à travers la frontière) ; serveur → source en pointillé ; utilisateur → hôte et SLM → hôte. Le SLM n'a de fil qu'avec l'hôte : la règle « le modèle ne parle jamais au serveur », rendue visible.
+- **Après la poignée de main**, sous le nom du serveur connecté, sur une seconde ligne qui apparaît avec la dernière flèche de la poignée de main : « 🔧 2 · 📄 1 · 💬 1 ». Les clients et serveurs jamais intervenus ne sont pas affichés ; un serveur en échec reste affiché avec son ✖ (voir « Échec de connexion »).
+- **Robot** : antenne verte et clignotante seulement en direct, pendant toute génération d'un envoi au modèle (mode « par le modèle », ressource ou prompt) ; hors du direct, une flèche du SLM courante lui donne le halo de sélection, sans clignotement.
+- **Échec de connexion** : le fil client → serveur porte le trait rouge et le marqueur ✖ du lot 2. Le dernier échec de chaque serveur reste marqué, sur son fil et sa carte, jusqu'à une nouvelle tentative sur ce serveur ; la page le garde, il ne survit pas à un rechargement `[ASSUMPTION]`, sauf l'échec de la dernière tentative, qui revient avec `last_session`.
+- **Cas limites** : modèle cloud, le robot passe en zone Réseau et son fil avec l'hôte franchit la frontière en tirets, comme dans l'Atelier Harnais ; serveur public indisponible au démarrage, `arch-node-unavailable` ; requête bloquée par la garde réseau, ✖ et la raison de la garde.
+- **Clic sur un bloc** : son explication (`explain()`), avec l'analogie du restaurant, ajustée à la spécification (le serveur MCP est hors de l'hôte ; décision d'Anaël du 2026-10-05 : la version la plus précise) :
+
+  | Pièce | Au restaurant | Ce que l'analogie fait comprendre |
+  |---|---|---|
+  | Hôte | la salle du restaurant | elle reçoit, installe, sert ; elle ne cuisine pas |
+  | Client MCP | un serveur de salle par cuisine | il porte les commandes et rapporte les plats ; un serveur par cuisine (1 client = 1 serveur) |
+  | Serveur MCP en stdio | la cuisine de l'arrière-boutique | même bâtiment (le poste), mais une pièce à part (un autre processus) |
+  | Serveur MCP en HTTP | un traiteur extérieur | la commande sort dans la rue (le réseau) |
+  | Source de données | le garde-manger de la cuisine | la salle n'y entre jamais |
+  | Modèle | le convive | il lit la carte et commande ; il ne va jamais en cuisine |
+  | Outil | un plat à la carte | choisi par le convive |
+  | Ressource | ce que la maison pose sur la table, pain ou carafe | choisi par la salle, sans que le convive le demande |
+  | Prompt | la formule du jour | choisie par celui qui invite (l'utilisateur) |
+
+  La diapositive Wavestone met la cuisine dans le restaurant : c'est juste pour stdio (même bâtiment), pas pour un serveur HTTP.
+- **Avant MCP | Avec MCP** (décision d'Anaël du 2026-10-05) : un sélecteur `mcp-mode-switch` dans l'en-tête du volet, « Avec MCP » par défaut ; le mode focus (⛶) en fait une vue plein volet, sans fenêtre modale.
+  - *Avant MCP* : un schéma de principe, marqué « Schéma de principe : rien n'est capturé ». L'hôte contient trois intégrations écrites à la main, chacune reliée directement à sa source par un connecteur de forme différente (●, ◆, ▲) : « Code pour l'API data.gouv.fr (REST, son format) », « Code pour l'API Microsoft (un autre format, une autre authentification) », « Code pour lire glossary.yaml ». Pas de client ni de serveur MCP. Deux légendes : « Une intégration à écrire et à maintenir par outil » ; « Une API qui change casse son intégration, jusqu'à ce que le code suive. »
+  - *Avec MCP* : le schéma réel de ce volet. Les trois connecteurs ont la même forme (🔌) et la légende dit : « Un seul protocole : le même client pour tous les serveurs ; chaque serveur suit l'évolution de son API. »
+  - La bascule ne touche ni la Séquence ni le stepper ; en « Avant MCP », rien ne s'allume dans le volet. Le choix est mémorisé avec la disposition des volets.
+
+### Textes et aides
+
+Les légendes visibles restent courtes : nom de méthode et résumé sur la flèche, transport sur le fil. Les aides longues passent dans un clic. Le plan de corrections plaçait `methods.*` en légende courte : faute de largeur sur une flèche, elles ouvrent l'encart et servent de description accessible.
+
+| Clé de `content/mcp_lab.yaml` | Emplacement |
+|---|---|
+| `intro_text` | introduction de l'en-tête de page, raccourcie à une phrase |
+| `servers_help_text` | « ⓘ » des cartes de serveur |
+| `transports.*.label_text` | carte de serveur et fil de l'Architecture |
+| `transports.*.explain_text` | clic sur le fil ou sur le serveur dans l'Architecture |
+| `handshake_help_text` | « Pourquoi une poignée de main ? » |
+| `methods.*` | première ligne de l'encart déplié ; description accessible de la flèche |
+| `tools_help_text` | bloc « outils » de « Ce que le modèle voit », derrière « ⓘ » |
+| `call_help_text` | onglet Outils, sous le sélecteur de mode |
+| `reinjected_help_text` | bloc « Résultat réinjecté » |
+| `context_help_text` | « Voir le JSON envoyé au modèle » |
+| `*_empty_text` | état vide du volet concerné |
+| `busy_text` | bandeau de raison |
+
+Les titres des cinq sections disparaissent. Nouveaux textes : colonnes (nom, sous-titre, explication), phases (titre, « Pourquoi… ? »), primitives (qui choisit, explication), étiquettes d'origine et de fantôme, mode « par le modèle », analogie du restaurant (une ligne par pièce), vue « Avant MCP » (intégrations, légendes).
+
+### Voix
+
+- **Termes stables** : hôte, client MCP, serveur MCP, source de données, outil, ressource, prompt, poignée de main, capacités. Méthodes, URI et JSON ne se traduisent jamais. Dans les libellés, « harnais » cède la place à « client MCP » quand il s'agit des messages : « Client MCP → serveur », « Le client se présente… ».
+- **Qui choisit**, toujours dans les mêmes mots : « choisi par le modèle », « choisie par l'application », « choisi par l'utilisateur ».
+- **Honnêteté de la trace** : chaque flèche dit son origine (« capturé sur le transport », « dans l'hôte · déduit », « dans le serveur · non capturé », « événement du modèle », « non exécuté ici »). Le mode à la main dit « à la place du modèle », jamais « le modèle a choisi ».
+- **Échecs** : la raison du serveur ou du transport, puis la sortie : « Le glossaire, local, reste disponible. »
+
+### États
+
+| État | Volets | Comportement |
+|---|---|---|
+| Avant connexion | tous | Séquence : « Connectez-vous à un serveur : la poignée de main s'affichera ici, message par message. » Aucune colonne ni ligne de vie ; Architecture vide, sauf la zone « Poste de travail » et sa phrase d'attente. |
+| Poignée de main en cours | Séquence, Architecture, Ce que le modèle voit | Les flèches arrivent une à une, en direct ; commandes indisponibles (`mcp_lab`) ; « Liste des outils en cours… » à droite. |
+| Connecté | tous | Onglets des primitives actifs selon les capacités ; bloc « outils » et poids. |
+| Échange en cours | Séquence, Serveurs et commandes | Nouvelle phase, flèches en direct. Pendant une génération (mode « par le modèle », envoi d'une ressource ou d'un prompt), l'antenne du robot clignote et la flèche Hôte → SLM attend sa réponse avec un chronomètre. |
+| Arrêté | Séquence, Serveurs et commandes, Architecture | Pendant une poignée de main ou un appel, « Arrêter » ferme la connexion de l'atelier (story 6) : la dernière requête reste sans réponse, marquée « arrêté », la synthèse de phase dit « arrêtée par l'utilisateur », les clients reviennent à l'état non connecté. Pendant une génération du mode « par le modèle », « Arrêter » n'interrompt que la génération et la connexion reste ouverte. |
+| `isError` | Séquence, Ce que le modèle voit | La réponse est un résultat normal marqué `isError` : flèche rouge et ✖, texte réinjecté tel quel, avec l'étiquette. L'explication rappelle que le protocole a fonctionné, l'outil non. |
+| Serveur injoignable | Serveurs et commandes, Séquence, Architecture, Ce que le modèle voit | Refus immédiat : « Service injoignable (ConnectError) : le poste n'a pas accès à {hôte}. » Requête marquée ✖, carte « injoignable », fil rouge ✖, volet de droite vidé. |
+| Délai dépassé | mêmes volets | « Le serveur n'a pas répondu dans le délai ({délai} s). », avec le délai de connexion ou d'appel de `wavestack.toml` ; même marquage. |
+| Erreur JSON-RPC (méthode inconnue, arguments refusés) | Séquence | Réponse `error` du serveur, flèche rouge, code et message dans l'encart. |
+| Méthode capturée sans explication (`ping`, `notifications/*/list_changed`, `logging/*`) | Séquence | Flèche normale ; l'encart montre le JSON sans explication. |
+| Modèle sans appel d'outils | Serveurs et commandes | « Par le modèle » indisponible, la raison dite. |
+| Le modèle répond sans outil | Séquence | SLM → Hôte « réponse directe, aucun outil » ; pas de `tools/call` ; note : « Le modèle n'a pas jugé utile d'appeler un outil. » |
+| Le modèle demande un outil inconnu ou des arguments invalides | Séquence | SLM → Hôte en rouge, raison du harnais ; rien n'est envoyé au serveur. |
+| Second appel d'outil | Séquence | `load_tool_doc` ne compte pas. Un second appel d'outil MCP est montré, puis l'atelier s'arrête : « L'Atelier MCP s'arrête au premier outil ; la boucle complète est dans l'Atelier Harnais. » |
+| Sortie coupée | Séquence | SLM → Hôte en rouge, « réponse coupée à la réserve de sortie » ; la phase se clôt (`outcome: cut`). |
+| Borne d'appels atteinte | Séquence | Après des `load_tool_doc` répétés : « L'atelier s'arrête après {n} appels au modèle (`tools.max_calls`). » (`outcome: max_calls`) |
+| Fenêtre dépassée | Séquence, Ce que le modèle voit | Flèche Hôte → SLM en rouge, « non envoyé : le contexte dépasse la fenêtre utile » ; aucun appel ne part (`outcome: overflow`). |
+| Liste en échec | Serveurs et commandes, Séquence | Flèche rouge de la liste et sa raison ; onglet actif avec « La liste … a échoué : {raison} » ; la connexion reste ouverte. |
+| Connexion fermée hors échange | Serveurs et commandes, Architecture | Changement de langue, réinitialisation ou perte du serveur (`mcp_lab_closed`) : clients à l'état non connecté, « Connexion fermée : {cause} ». |
+| Capacité non annoncée | Serveurs et commandes, Séquence | Onglet barré « ⊘ » et sa raison ; note dans la poignée de main. |
+| Rechargement de la page | tous | Dernière session reconstruite, en direct. |
+| Vue « Avant MCP » | Architecture | Schéma de principe à la place du schéma réel ; rien ne s'y allume ; la Séquence continue en direct. |
+| Modèle cloud | Séquence, Ce que le modèle voit, Architecture | Colonne et robot en réseau, flèches Hôte ↔ modèle en tirets, données sortantes dans l'encart ; une clé refusée ou un quota dépassé donne la flèche rouge et la raison du fournisseur. |
+| Retour à l'Atelier Harnais après le mode « par le modèle » | Orchestration de l'atelier | Comme après l'Atelier LLM : le tour suivant relit le même contexte, état du moteur restauré, sinon la ligne « Cache non réutilisé » le dit (renommée au lot 1), cause « Atelier MCP » (nouvelle cause, `prefix_causes`). |
+
+### Accessibilité
+
+Le plancher de l'application (Accessibility Floor) s'applique ; s'y ajoutent :
+
+- **Structure de la Séquence** : par phase, un titre de niveau 3 (bouton de repli à `aria-expanded` et `aria-controls`, puis bouton « Pourquoi… ? » à `aria-expanded`), suivi d'une liste ordonnée des seules flèches. Lignes de vie et traits sont décoratifs (`aria-hidden`).
+- **Nom d'une flèche**, dans cet ordre, gabarit de `ui.yaml` dans les trois langues : « {de} vers {vers} : {méthode ou libellé} {résumé}[, réseau, sort du poste][, requête | réponse | notification sans réponse][, {origine}][, erreur : {raison}][, fantôme : {étiquette}][, aller-retour {n} ms | à {n} ms] ». Le texte visible est complété de fragments masqués visuellement, pas écrasé par un `aria-label`. Le chronomètre en cours n'entre jamais dans le nom.
+- **Clavier dans la Séquence** : la liste des flèches est un seul arrêt de tabulation (tabindex itinérant) : ↑ et ↓ d'une flèche à l'autre, Début et Fin, Entrée ou Espace pour déplier. À l'entrée dans la liste, le focus va à la flèche courante. Le JSON défilant d'un encart est une région nommée et focalisable (« JSON du message tools/call »).
+- **Flèche courante** : `aria-current="step"`. Hors du direct, l'annonce donne la position et le nom : « Étape 4 sur 12 : Client MCP vers Serveur MCP, tools/call ».
+- **Annonces** : une région `status` par page, masquée visuellement, dit la synthèse de chaque phase terminée et le nouveau total du bloc « outils » au changement de mode ; les échecs (injoignable, délai dépassé, `isError`, erreur JSON-RPC, outil refusé par le harnais) passent une fois dans une région `alert`. Pas d'annonce flèche par flèche ; la fin d'un appel « par le modèle » s'annonce une fois, avec sa durée.
+- **Focus** : une phase qui contient le focus ne se replie pas d'elle-même ; une commande qui devient indisponible garde le focus (`aria-disabled`).
+- **Onglets des primitives** : `tablist` nommé « Primitives du serveur », tabindex itinérant, ← et →, Début et Fin, activation automatique, `tabpanel` relié. Un onglet indisponible reste focalisable (`aria-disabled`), et sa raison écrite lui est reliée (`aria-describedby`).
+- **Sélecteurs segmentés** : `radiogroup` nommé (« Qui choisit l'outil », « Documentation des outils envoyée »), segments en `radio`, flèches pour naviguer ; segment indisponible en `aria-disabled` avec sa raison reliée.
+- **Avant MCP** : le schéma de principe a son équivalent texte, une liste des trois intégrations et des deux légendes ; le sélecteur annonce la vue choisie.
+- **Architecture** : chaque zone est un groupe nommé (« Poste de travail », « Réseau, hors du poste »), le cadre de l'hôte aussi (« Hôte WaveStack »). Chaque serveur dit, dans son nom, son lieu, son transport, son état et ses primitives : « Serveur MCP Glossaire WaveStack, sur le poste, stdio, connecté, 2 outils, 1 ressource, 1 prompt ». Chaque client dit « connecté » ou « non connecté ».
+- **Bulles d'explication** : elles se ferment quand le focus quitte le bloc sans entrer dans la bulle, et restent juste après leur bloc dans le DOM.
+- **Langue et pictogrammes** : `lang="en"` sur les puces de méthode et le JSON. Les émojis porteurs de sens (🌐, 🔧, 📄, 💬, 🔌) sont `aria-hidden`, remplacés par un texte masqué (« réseau », « outils », « ressources », « prompts », « serveur »).
+- **Tout ce qui déplie** (« ⓘ », « Voir le JSON », « Pourquoi… ? », flèches) porte `aria-expanded` et `aria-controls`.
+- **Découverte progressive** : un élément pas encore apparu est hors de l'arbre d'accessibilité ; la liste ordonnée de la Séquence ne contient que les flèches apparues. Avec `prefers-reduced-motion`, pas de fondu.
+- **Mouvement** : le fil réseau ne bouge que pendant un échange en cours, et au plus 5 s après la dernière arrivée ; ensuite, tirets fixes. Avec `prefers-reduced-motion` : défilement instantané, aucune transition (chevron, apparition, estompage), antenne et fil fixes.
+- **Jamais la couleur seule** : réseau = tirets + 🌐 + « RÉSEAU » ; fantôme = tirets courts, pointe ouverte, étiquette ; non capturé = pointillé + étiquette ; erreur = ✖ + texte ; flèche courante = « ▶ » + anneau d'encre + halo ; non connecté = bordure en tirets + texte.
+- **Retouches du module commun du lot 2** (AD-28), valables pour l'Atelier Harnais aussi : anneau d'encre sous le halo de `diagram-block.is-active` et cœur du fil parcouru à 3 px (jeton `--spacing-stroke-path`) ; « Suivre le direct » pressé en fond plein, précédé de « ● » ; ◀ et ▶ en `aria-disabled`, pour garder le focus ; la position du stepper et le nom de la flèche courante (« Étape 4 sur 12 : … ») écrits dans un nœud `status` réservé au stepper, toujours poli, hors du direct seulement ; fermeture de `explain()` à la sortie du focus, sauf vers la bulle ; `reveal()` pour la découverte progressive (masquage hors de l'arbre d'accessibilité, fondu à l'apparition).
+
+### Langues
+
+Textes pédagogiques dans `content/mcp_lab.yaml` et ses surcouches `en` et `de` ; libellés d'interface dans `ui.yaml`, section `mcp`. En allemand, un en-tête de colonne et une légende de flèche passent sur deux lignes, jamais tronqués ; les puces de méthode ne changent pas de largeur. Les descriptions servies par un serveur public restent dans leur langue, comme à la story 6.
+
+### Données attendues par la page
+
+Décisions produit, et faits que la page reçoit de la session (AD-1 : la page met en forme, elle ne calcule rien). Le contrat d'événements est fixé par AD-27 de la spine d'architecture (contexte `mcp_lab`) ; il l'emporte sur cette section en cas d'écart.
+
+- **Glossaire** : une ressource `glossary://terms` (`text/plain`, la liste des termes) et un prompt `explain_term(term)`, qui renvoie un message utilisateur avec la définition insérée ; textes dans les trois langues.
+- **Ouverture d'un échange** : `mcp_lab_exchange_started` (sorte d'échange, qui a choisi, question, URI, prompt, arguments) donne le titre de phase et la première flèche.
+- **Messages capturés** : `mcp_lab_message` dit la sorte du message, la requête à laquelle il répond, son résumé (« 2 outils »), son erreur ou `isError` ; la page ne lit le JSON que pour l'afficher dans l'encart.
+- **Poignée de main** : `mcp_lab_connect_ended` porte les primitives annoncées, les listes d'outils, de ressources et de prompts (demandées seulement si elles sont annoncées) et les listes en échec.
+- **Fins d'échange** : connexion, appel, lecture, prompt et envoi ont chacun leur fin, avec statut, cause d'un échec et état de la connexion après l'échange ; c'est elle qui décide « arrêté », « injoignable », « délai dépassé », « erreur JSON-RPC » ou `isError`.
+- **Mode « par le modèle » et envoi d'une ressource ou d'un prompt** : chaque appel au modèle a son début (ce qui part et ses tokens) et sa fin (appel d'outil, réponse, refus du harnais, sortie coupée, durée) ; l'outil demandé par le modèle a sa propre fin ; la synthèse de phase, part de la génération comprise, vient de la session. Avec un modèle cloud, la requête sortante de chaque appel (`outbound_request` dans le contexte `mcp_lab`).
+- **Disponibilité** : `GET /api/mcp_lab` dit si un modèle est prêt et s'il appelle des outils, avec les raisons ; la page les combine avec l'état de la session et de la connexion.
+- **Restitution** : `last_session` contient exactement les événements que la page affiche en direct.
+- **Contenu** : `METHODS` passe à huit méthodes (`resources/list`, `resources/read`, `prompts/list` et `prompts/get` en plus) ; `McpLabContent` gagne les textes de la section « Textes et aides », le gabarit qui réunit une ressource et sa question, et le libellé de la source de chaque serveur ; les libellés `mcp.to_server`, `mcp.from_server`, `methods.*` et `transports.*.explain_text` sont reformulés selon la Voix ; le message `session.mcp_lab.is_error` passe à `isError`.
+
+### Flow MCP-1 — Le menu avant la commande (Anaël, module MCP, douze consultants en salle)
+
+1. Avant la séance, Anaël ouvre l'onglet MCP, active le mode projection, masque « Ce que le modèle voit » pour donner de la largeur à la Séquence, et choisit le Glossaire WaveStack.
+2. Il ouvre l'Architecture sur « Avant MCP » : trois intégrations écrites à la main, trois connecteurs de formes différentes. « Et si l'API de data.gouv.fr change ? » Il bascule sur « Avec MCP » : le schéma est encore vide, les pièces apparaîtront au fil des messages.
+3. « Se connecter ». Les flèches tombent une à une, et avec elles leurs colonnes et leurs blocs : l'hôte et son client d'abord, puis le serveur ; `initialize`, les capacités, `notifications/initialized`, puis les trois listes. Il clique sur l'hôte : « la salle du restaurant » ; puis sur le client MCP : « un serveur de salle par cuisine », un client par serveur. Il ouvre « Pourquoi une poignée de main ? » : on demande ce que sert la maison, puis la carte, avant de commander.
+4. Il réaffiche « Ce que le modèle voit » : le poids des outils en tokens. Il bascule en lazy loading ; le total baisse. Une consultante demande où sont la ressource et le prompt : « ils n'y entrent pas, quelqu'un d'autre choisit ».
+5. Onglet Outils, « Par le modèle ». Il tape « Que veut dire MCP ? » et « Envoyer au modèle ». L'antenne du robot clignote ; la salle attend une quinzaine de secondes.
+6. **Temps fort :** la flèche « appel : define_term » part du SLM vers l'hôte, juste à côté. Puis l'hôte passe au client, le client au serveur, le serveur à `glossary.yaml`. Anaël remonte avec ◀ : la colonne du SLM, collée à celle de l'hôte, ne touche jamais la partie MCP. « Le modèle ne parle jamais au serveur MCP : il demande, le harnais exécute. »
+7. Il déplie `tools/call` : le JSON exact et sa durée. Il déplie « résultat d'outil » : les tokens réinjectés, visibles aussi à droite.
+8. Pour finir, l'onglet Prompts : `explain_term(term = « hook »)`. La phase montre l'utilisateur à l'origine de la flèche. Il conclut sur la règle : le modèle choisit l'outil, l'application la ressource, l'utilisateur le prompt.
+
+Échec : le modèle répond sans outil (état « Le modèle répond sans outil ») ou la génération est trop lente pour la salle ; Anaël repasse « À la main » et joue le modèle.
+
+### Flow MCP-2 — Le serveur public qui ne répond pas (Karim, consultant SOC, seul sur son poste)
+
+1. Karim choisit data.gouv.fr et se connecte. `initialize` part en tirets, 🌐 ; il déplie la flèche : la requête POST, ses en-têtes, le corps.
+2. La requête échoue aussitôt, sans réseau : ✖ sur la flèche et sur le fil HTTP de l'Architecture, « Service injoignable (ConnectError) ». La carte dit « injoignable » ; dessous : « Le glossaire, local, reste disponible. »
+3. Il passe au Glossaire. La poignée de main réussit, cette fois en stdio, et les trois onglets s'activent : les capacités de `initialize` décident de ce que le client demande ensuite.
+4. **Temps fort :** dans l'Architecture, le ✖ rouge reste sur le fil HTTP de data.gouv.fr, au-delà de la frontière du poste ; le fil stdio du glossaire, lui, ne la franchit pas. Karim tient sa réponse de SOC : avec un serveur public, chaque message JSON-RPC sort du poste en POST, arguments compris ; avec un serveur local, rien ne sort.
+5. Il appelle `define_term` à la main avec « xyz » : flèche rouge, « isError : terme inconnu ». Il lit l'encart : le protocole a fonctionné, l'outil non ; le texte d'erreur serait réinjecté au modèle, qui pourrait corriger son appel.
+
+### Questions ouvertes du lot 4
+
+- ~~**Contrat d'événements**~~ : réglé le 2026-10-05 par AD-27 de la spine d'architecture (contexte `mcp_lab`, `last_session`) et AD-28 (modules communs).
+- **Budget vertical** à 1 280 × 650 en mode projection : environ six flèches visibles. À mesurer au build.
+
 ## Inspiration & Anti-patterns
 
 - **Repris de la commande `/context` de Claude Code** (FR-41, addendum) : une vue de la fenêtre de contexte ventilée par source, avec l'espace libre et la part de chaque source. Adapté en deux niveaux : une barre empilée compacte, toujours visible dans la barre de l'atelier, et une grille détaillée à la `/context` au clic, dans Contexte LLM, avec légende et tokens par segment.
@@ -352,6 +658,8 @@ Comment l'interface soutient le formateur devant la salle (UJ-1, UJ-4). Aucune f
 - **Rejeté : le code couleur seul pour le local / réseau.** Un participant daltonien, ou un vidéoprojecteur délavé, doit lire la même chose.
 
 ## Key Flows
+
+> Atelier MCP : flows MCP-1 et MCP-2 dans [Atelier MCP en séquence](#atelier-mcp-en-séquence-lot-4-du-2026-10-04).
 
 > Parcours RAG, sous-agent, compression et Caveman en attente de la mise à jour du PRD (voir [`prd-change-requests.md`](prd-change-requests.md)).
 
@@ -415,6 +723,8 @@ Validé par Anaël le 2026-10-04.
 6. Le lendemain, Anaël projette la même page : du fond de la salle, la zone jaune à tirets « ☁️ Modèles cloud » se distingue des cartes blanches locales ; il déplie claude-haiku-4-5 pour montrer « Où partent les données » avant de cliquer « Choisir ce modèle… », qui ouvre l'avertissement cloud (Flow 4).
 
 ## Questions ouvertes
+
+Atelier MCP : questions du lot 4 dans [Atelier MCP en séquence](#atelier-mcp-en-séquence-lot-4-du-2026-10-04).
 
 Les deux points suivants font l'objet de demandes de changement au PRD, détaillées dans [`prd-change-requests.md`](prd-change-requests.md).
 

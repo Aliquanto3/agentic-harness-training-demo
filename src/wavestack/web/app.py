@@ -12,7 +12,7 @@ import json
 import logging
 import subprocess
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -22,7 +22,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 from wavestack import config
 from wavestack.messages import in_language, msg, render
@@ -242,11 +249,40 @@ class McpLabConnectIntention(BaseModel):
 
 class McpLabCallIntention(BaseModel):
     """Story 6 (2026-09-30): a tool of the server the workshop is connected to, as the server
-    names it, and its arguments (the page builds them from the tool's schema)."""
+    names it, and its arguments (the page builds them from the tool's schema). Lot 4 of
+    2026-10-04 (AD-27): `arguments`, one name everywhere; `args` still accepted."""
 
     server: str
     tool: str = Field(min_length=1)
-    args: dict[str, Any] = {}
+    arguments: dict[str, Any] = Field(
+        default={}, validation_alias=AliasChoices("arguments", "args")
+    )
+
+
+class McpLabReadIntention(BaseModel):
+    """Lot 4 of 2026-10-04 (AD-27): a resource the server listed, by its URI."""
+
+    server: str
+    uri: str = Field(min_length=1)
+
+
+class McpLabPromptIntention(BaseModel):
+    """Lot 4 of 2026-10-04 (AD-27): a prompt the server listed, its arguments as strings."""
+
+    server: str
+    prompt: str = Field(min_length=1)
+    arguments: dict[str, str] = {}
+
+
+class McpLabAskIntention(BaseModel):
+    """Lot 4 of 2026-10-04 (AD-27): « Par le modèle » (a question) or « Envoyer au modèle »
+    (`of`: the step of a read or a prompt of the current connection, whose content the
+    session kept; never a content from the page)."""
+
+    server: str
+    question: str | None = Field(default=None, max_length=4000)
+    of: str | None = None
+    doc_mode: Literal["full", "lazy"] = "full"
 
 
 class SystemPromptIntention(BaseModel):
@@ -528,15 +564,46 @@ def create_app(
     def mcp_lab_call(intention: McpLabCallIntention) -> dict[str, str]:
         """Story 6, class (b): a call through the workshop's connection, accepted in `idle`
         only; without a connection to the server, or for a tool it did not list: 409."""
+        return _mcp_lab_intention(
+            lambda: app_session.mcp_lab_call(intention.server, intention.tool, intention.arguments)
+        )
+
+    def _mcp_lab_intention(start: Callable[[], str]) -> dict[str, str]:
+        """Lot 4 of 2026-10-04 (AD-27): class (b), the session in `mcp_lab` until the end;
+        an unknown server: 404; busy, not connected or a precondition missing: 409 with the
+        reason, nothing emitted."""
         try:
-            step_id = app_session.mcp_lab_call(intention.server, intention.tool, intention.args)
-            return {"step_id": step_id}
+            return {"step_id": start()}
         except KeyError:
             raise HTTPException(status_code=404, detail=t("web.unknown.mcp_server")) from None
         except SendRefused as refused:
             raise HTTPException(
                 status_code=409, detail=render(refused.reason_text, app_session.language)
             ) from None
+
+    @app.post("/api/intentions/mcp_lab_read")
+    def mcp_lab_read(intention: McpLabReadIntention) -> dict[str, str]:
+        """A resource read through the workshop's connection (`resources/read`)."""
+        return _mcp_lab_intention(lambda: app_session.mcp_lab_read(intention.server, intention.uri))
+
+    @app.post("/api/intentions/mcp_lab_prompt")
+    def mcp_lab_prompt(intention: McpLabPromptIntention) -> dict[str, str]:
+        """A prompt got through the workshop's connection (`prompts/get`)."""
+        return _mcp_lab_intention(
+            lambda: app_session.mcp_lab_prompt(
+                intention.server, intention.prompt, intention.arguments
+            )
+        )
+
+    @app.post("/api/intentions/mcp_lab_ask")
+    def mcp_lab_ask(intention: McpLabAskIntention) -> dict[str, str]:
+        """An exchange with the model (« Par le modèle », « Envoyer au modèle »); « Arrêter »
+        during a generation keeps the connection open."""
+        return _mcp_lab_intention(
+            lambda: app_session.mcp_lab_ask(
+                intention.server, intention.question, intention.of, intention.doc_mode
+            )
+        )
 
     @app.get("/api/state")
     def api_state() -> dict[str, object]:
@@ -554,11 +621,12 @@ def create_app(
         # Whole envelopes: the front shows whichever of the two is the most recent (`seq`).
         preview = _latest(events, "context_preview")
         # The gauge stays on the main context: a sub-agent's is never its source (story 19),
-        # nor the « LLM nu » screen's (story 29, which emits no context event anyway).
+        # nor the « LLM nu » screen's (story 29, which emits no context event anyway), nor the
+        # MCP workshop's (lot 4 of 2026-10-04, AD-27).
         main = [
             e
             for e in events
-            if not (e.context_id or "").startswith("sub") and e.context_id != "llm"
+            if not (e.context_id or "").startswith("sub") and e.context_id not in ("llm", "mcp_lab")
         ]
         rendered = _latest(main, "context_rendered")
         reconciled = _latest(main, "context_reconciled")  # chat mode (AD-4)

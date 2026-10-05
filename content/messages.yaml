@@ -112,6 +112,7 @@ session:
       abandoned: "Le tour précédent n'a pas abouti (arrêté, en erreur, bloqué ou dépassé) : sa sortie est dans le cache du moteur, pas dans l'historique."
       subagent: "Le sous-agent a occupé le cache du moteur{why}."
       llm: "L'Atelier LLM a occupé le cache du moteur{why}."
+      mcp_lab: "L'Atelier MCP a occupé le cache du moteur{why}."
     evicted:
       stateless: " : ce moteur ne sait pas sauvegarder l'état du contexte principal"
       failed: " : la sauvegarde ou la restauration de l'état du contexte principal a échoué"
@@ -533,9 +534,77 @@ session:
     not_connected: "Connectez-vous d'abord à {server} : l'appel passe par la connexion de l'atelier MCP."
     unknown_tool: "{server} n'a pas listé d'outil « {tool} »."
     stopped: "Échange arrêté : la connexion de l'atelier MCP est fermée."
+    stopped_ask: "Envoi au modèle arrêté : l'outil demandé n'a pas été appelé ; la connexion reste ouverte."
     closed: "La connexion de l'atelier MCP est fermée : reconnectez-vous au serveur."
-    is_error: "Le serveur a répondu avec is_error : l'outil signale une erreur, que le harnais réinjecterait telle quelle au modèle."
+    is_error: "Le serveur a répondu avec isError : l'outil signale une erreur, que le harnais réinjecte telle quelle au modèle. Le protocole a fonctionné, l'outil non."
     interrupted: L'atelier MCP s'est interrompu sur une erreur.
+    # Lot 4 of 2026-10-04 (AD-27): the deduced arrow Hôte → Client of a connection.
+    launch:
+      stdio: "lance le serveur : {command}"
+      http: "ouvre une session HTTP avec {host}"
+    # What an arrow says of a captured message (`mcp_lab_message.summary_text`).
+    summary:
+      error: "erreur {code} : {message}"
+      no_capabilities: "aucune capacité"
+      capabilities: "capacités : {names}"
+      tools:
+        one: "{n} outil"
+        other: "{n} outils"
+      resources:
+        one: "{n} ressource"
+        other: "{n} ressources"
+      prompts:
+        one: "{n} prompt"
+        other: "{n} prompts"
+      text_blocks:
+        one: "{n} bloc texte"
+        other: "{n} blocs texte"
+      other_blocks:
+        one: "{n} autre bloc"
+        other: "{n} autres blocs"
+      is_error: "isError · {blocks}"
+      text_content:
+        one: "{mime} · {n} ligne"
+        other: "{mime} · {n} lignes"
+      blob_content: "{mime} · {n} octets"
+      contents:
+        one: "{n} contenu"
+        other: "{n} contenus"
+      messages:
+        one: "{n} message"
+        other: "{n} messages"
+    no_resources: "{server} n'annonce pas de ressources."
+    no_prompts: "{server} n'annonce pas de prompts."
+    unknown_resource: "{server} n'a pas listé de ressource « {uri} »."
+    unknown_prompt: "{server} n'a pas listé de prompt « {prompt} »."
+    missing_argument: "Le prompt « {prompt} » demande l'argument « {argument} »."
+    blob_content: "[contenu {mime} de {n} octets, non inclus]"
+    ask:
+      no_model: "Aucun modèle n'est chargé : choisissez-en un dans le diagnostic."
+      no_tools: "Le modèle actif n'appelle pas d'outils : choisissez-en un autre dans le diagnostic."
+      cloud_no_tools: "Le modèle actif ({model}) ne déclare pas l'appel d'outils : choisissez-en un autre dans le diagnostic."
+      of_unknown: "Rien à envoyer : lisez d'abord une ressource ou obtenez un prompt sur cette connexion."
+      question_with_prompt: "Un prompt part sans question : ses messages tiennent lieu de demande."
+      question_required: "Écrivez d'abord une question."
+    model_phase: "Envoi au modèle ({tokens} tokens)"
+    model_phase_cloud: "Envoi à {provider} (≈ {tokens} tokens)"
+    overflow: "Non envoyé : le contexte compte {tokens} tokens pour {usable} utilisables."
+    model_error: "Le modèle n'a pas pu répondre."
+    provider_effect: "L'Atelier MCP arrête cet envoi ; la connexion au serveur reste ouverte."
+    arguments_unparsed: "Les arguments de l'appel ne sont pas un objet JSON valide."
+    # What leaves for the model, part by part (`mcp_lab_model_started.sends`).
+    sends:
+      question: "question"
+      resource: "ressource {uri}"
+      prompt: "prompt {name}"
+      tools:
+        one: "{n} outil"
+        other: "{n} outils"
+      lazy: "load_tool_doc et son catalogue"
+      tool_doc: "documentation de {tool}"
+      tool_call: "appel : {tool}"
+      tool_result: "résultat d'outil"
+    share: "dont {model} s de génération"
   reading_context: "Lecture du contexte ({tokens} tokens)"
 
 tools:

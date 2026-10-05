@@ -142,13 +142,6 @@ body {
   box-shadow: none;
 }
 
-/* Destructive: neutral and flat, not to draw the click by mistake (DESIGN.md > reset-button). */
-.pane-actions .pane-text-action {
-  background: var(--color-surface-raised);
-  color: var(--color-ink);
-  border: 1px solid var(--color-line);
-}
-
 /* Story 22 (DESIGN.md > button-danger): an erasing button, flat, danger border and ink text
    (white on the danger red would not reach 4.5:1); confirmed, it fills with the danger red. */
 .drawer-actions button.danger {
@@ -195,30 +188,6 @@ body {
 .top-bar > .model-picker,
 .top-bar > .reset-button {
   border-color: var(--color-on-ink-soft);
-}
-
-.pane-chips {
-  display: flex;
-  gap: var(--spacing-2);
-  flex-wrap: wrap;
-}
-
-.pane-chip {
-  font: var(--typography-label-font-weight) var(--typography-label-font-size) / var(--typography-label-line-height)
-    var(--typography-label-font-family);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  border: 1px dashed var(--color-primary);
-  border-radius: var(--rounded-full);
-  padding: var(--spacing-1) var(--spacing-3);
-  min-height: var(--spacing-hit-target-min);
-  cursor: pointer;
-}
-
-/* The ink dot of a linked chip (a span: a generated `::before` put an ellipsis on the chip at
-   its own natural width). */
-.pane-chip-dot {
-  color: var(--color-ink);
 }
 
 .pane-menu {
@@ -276,24 +245,18 @@ body {
   color: var(--color-ink);
 }
 
-/* ---------- layout ---------- */
+/* ---------- layout: the Atelier Harnais's panes (the mechanics are pages.css's, AD-28) ----------
+   Pane sizes (story 8f): the tokens until the user drags a handle; panes.js then sets these
+   inline on #layout (and removes them on double-click). Bricks and schema in px; the top-row
+   columns as flex-grow weights, so hiding one shares its place pro rata and showing it back
+   returns its share. Minimums (EXPERIENCE.md > Masquage des volets): pages.css. */
 
 .layout {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-  gap: var(--spacing-gutter);
-  /* Pane sizes (story 8f): the tokens until the user drags a handle; app.js then sets these
-     inline on #layout (and removes them on double-click). Bricks and schema in px; the top-row
-     columns as flex-grow weights, so hiding one shares its place pro rata and showing it back
-     returns its share. Minimums (EXPERIENCE.md > Masquage des volets): 240 px wide, 160 px high. */
   --pane-bricks-width: var(--spacing-brick-panel-width);
   --pane-schema-height: var(--spacing-architecture-band-height);
   --pane-human-grow: 1;
   --pane-ctx-grow: 1;
   --pane-orch-grow: 1;
-  --pane-min-width: 240px;
-  --pane-min-height: 160px;
 }
 
 .layout > .pane[data-pane="bricks"] {
@@ -304,25 +267,6 @@ body {
       var(--pane-bricks-width),
       calc(100% - var(--pane-min-width) - var(--spacing-gutter))
     );
-}
-
-.right {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-gutter);
-  min-width: 0;
-}
-
-.top-row {
-  flex: 1;
-  display: flex;
-  gap: var(--spacing-gutter);
-  min-height: 0;
-}
-
-.top-row .pane {
-  flex: 1 1 0%;
 }
 
 .top-row .pane[data-pane="human"] {
@@ -347,193 +291,11 @@ body {
     );
 }
 
-/* ---------- gutter handles (DESIGN.md > pane-resize-handle), inserted by app.js ----------
-   Zero footprint: the handle is exactly the gutter (its negative margins cancel its own size
-   and one of the two gaps around it), so spacing is unchanged. Invisible at rest; a primary
-   pill of 4 x 32 px on hover, keyboard focus and while dragging. No animation. */
-
-.pane-resize-handle {
-  position: relative;
-  z-index: 1; /* its widened hit area overlaps the panes' edges */
-  flex: 0 0 var(--spacing-gutter);
-  touch-action: none;
-  outline: none; /* the pill is the focus indicator */
-}
-
-.pane-resize-handle[hidden],
-body.focus-mode .pane-resize-handle {
-  display: none;
-}
-
-.pane-resize-handle[aria-orientation="vertical"] {
-  margin: 0 calc(-1 * var(--spacing-gutter));
-  cursor: col-resize;
-}
-
-.pane-resize-handle[aria-orientation="horizontal"] {
-  margin: calc(-1 * var(--spacing-gutter)) 0;
-  cursor: row-resize;
-}
-
-/* Hit area of hit-target-min (8 + 6 + 18 = 32 px): it reaches only 6 px into the pane on the
-   left, whose vertical scrollbar sits on that edge, and 18 px into the pane on the right: its
-   12 px padding plus 6 px of content (accepted trade-off). */
-.pane-resize-handle[aria-orientation="vertical"]::before {
-  content: "";
-  position: absolute;
-  inset: 0 calc(var(--spacing-gutter) - var(--spacing-hit-target-min) + 6px) 0 -6px;
-}
-
-.pane-resize-handle[aria-orientation="horizontal"]::before {
-  content: "";
-  position: absolute;
-  inset: calc((var(--spacing-gutter) - var(--spacing-hit-target-min)) / 2) 0;
-}
-
-.pane-resize-handle::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: var(--spacing-1);
-  height: var(--spacing-6);
-  transform: translate(-50%, -50%);
-  border-radius: var(--rounded-full);
-  background: var(--color-primary);
-  visibility: hidden;
-}
-
-.pane-resize-handle[aria-orientation="horizontal"]::after {
-  width: var(--spacing-6);
-  height: var(--spacing-1);
-}
-
-.pane-resize-handle:hover::after,
-.pane-resize-handle:focus-visible::after,
-.pane-resize-handle.is-dragging::after {
-  visibility: visible;
-}
-
-/* Windows high contrast: keep the pill (the handle's only focus indicator) visible. */
-@media (forced-colors: active) {
-  .pane-resize-handle::after {
-    forced-color-adjust: none;
-    background: Highlight;
-  }
-}
-
-/* Pane controls win over the handles' widened hit area (the schema handle reaches 12 px into
-   the bottom of the top row, where the event-log head sits, and into the schema's header). */
-.pane-header,
+/* The event log's head wins over the schema handle's widened hit area, as a pane's header
+   (pages.css): the handle reaches 12 px into the bottom of the top row. */
 .event-log-head {
   position: relative;
   z-index: 2;
-}
-
-/* While dragging, the cursor stays put and no text gets selected on the way. */
-body.is-resizing-x,
-body.is-resizing-x * {
-  cursor: col-resize !important;
-  user-select: none;
-}
-
-body.is-resizing-y,
-body.is-resizing-y * {
-  cursor: row-resize !important;
-  user-select: none;
-}
-
-.pane {
-  background: var(--color-surface-raised);
-  border-radius: var(--rounded-lg);
-  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.pane.is-hidden {
-  display: none;
-}
-
-/* Story 34: the reading order, a numbered ink disc before the title (hidden from screen
-   readers: the pane's name does not change). */
-.pane-step {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 1.7em;
-  height: 1.7em;
-  border-radius: var(--rounded-full);
-  background: var(--color-ink-fill);
-  box-shadow: inset 0 0 0 var(--spacing-stroke-min) var(--color-ink-fill-edge); /* story 31 */
-  color: var(--color-on-ink);
-  font: var(--typography-number-font-weight) var(--typography-number-font-size) / 1
-    var(--typography-number-font-family);
-}
-
-.pane-header {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-2) var(--spacing-pane-padding);
-  border-bottom: 1px solid var(--color-line);
-  background: var(--color-surface); /* story 33: the pane's band */
-}
-
-.pane-heading {
-  flex: 1 1 auto; /* never narrower than its title: the subtitle wraps instead */
-}
-
-.pane-title {
-  margin: 0;
-  font: var(--typography-pane-title-font-weight) var(--typography-pane-title-font-size) /
-    var(--typography-pane-title-line-height) var(--typography-pane-title-font-family);
-  color: var(--color-ink);
-  white-space: nowrap;
-}
-
-.pane-subtitle {
-  margin: 0;
-  font: var(--typography-pane-subtitle-font-weight) var(--typography-pane-subtitle-font-size) /
-    var(--typography-pane-subtitle-line-height) var(--typography-pane-subtitle-font-family);
-  color: var(--color-ink-soft);
-  width: 0; /* adds nothing to the heading's intrinsic width */
-  min-width: 100%;
-}
-
-.pane-actions {
-  margin-left: auto;
-  display: flex;
-  flex-wrap: wrap; /* story 13: the Vue humain header holds an option and two actions */
-  justify-content: flex-end;
-  align-items: center;
-  gap: var(--spacing-1);
-}
-
-.pane-actions button {
-  min-width: var(--spacing-hit-target-min);
-  min-height: var(--spacing-hit-target-min);
-  border: 1px solid var(--color-line);
-  border-radius: var(--rounded-sm);
-  background: var(--color-surface-raised);
-  color: var(--color-ink-soft);
-  cursor: pointer;
-}
-
-.pane-actions button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.pane-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: var(--spacing-pane-padding);
 }
 
 .empty-note {
@@ -595,28 +357,6 @@ body.is-resizing-y * {
 
 /* The chips of hidden panes and the gauge's figures give way too (whole text in their
    tooltip). */
-.top-bar > .pane-chips {
-  flex: 0 1000 auto; /* story 34: after the names, so that « · lié » stays readable */
-  min-width: 0;
-  flex-wrap: nowrap;
-  overflow: hidden;
-}
-
-.pane-chips > .pane-chip {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-/* Story 34: the ellipsis only where the bar squeezes the chips: at its natural width, Chromium
-   rounds a chip a fraction of a pixel under its text and cut « · lié » into « · l… ». */
-@media (max-width: 1400px) {
-  .pane-chips > .pane-chip {
-    text-overflow: ellipsis;
-  }
-}
-
 /* The bar, then the legend of the disciplines under it; the legend wraps rather than be cut. */
 .gauge-stack {
   flex: 0 0 auto;
@@ -1626,16 +1366,6 @@ body.is-resizing-y * {
   container-type: inline-size; /* the step lines adapt to the rail's width */
 }
 
-/* Header: the working indicator gives way first when the pane is narrow. */
-.pane[data-pane="orch"] .pane-actions {
-  min-width: 0;
-  align-items: center;
-}
-
-.pane[data-pane="orch"] .pane-actions button {
-  flex: 0 0 auto;
-}
-
 .orch-working {
   display: inline-flex;
   align-items: center;
@@ -2246,43 +1976,9 @@ body.is-resizing-y * {
   }
 }
 
-/* ---------- focus mode: collapse every pane but the focused one ---------- */
+/* ---------- focus mode (pages.css): Orchestration scrolls its rail and its event log on
+   their own ---------- */
 
-body.focus-mode .layout,
-body.focus-mode .right,
-body.focus-mode .top-row {
-  flex-direction: column;
-}
-
-/* Recette du 02/10: in a column, `.right` would keep its content's height (Orchestration
-   unfolded) and push the page past `100vh`, the bottom bar with it. Only when the focused
-   pane is in it: with Briques focused, `.right` (flex-basis 0) would shrink to nothing and
-   its collapsed headers would overflow the page instead. */
-body.focus-mode .right:has(> .pane.is-focused, > .top-row > .pane.is-focused) {
-  min-height: 0;
-}
-
-body.focus-mode .pane:not(.is-hidden) {
-  flex: 0 0 auto;
-}
-
-body.focus-mode .pane:not(.is-hidden) .pane-body {
-  flex: 0 0 0;
-  padding: 0;
-  overflow: hidden;
-}
-
-body.focus-mode .pane.is-focused {
-  flex: 1 1 auto !important;
-}
-
-body.focus-mode .pane.is-focused .pane-body {
-  flex: 1 1 auto;
-  padding: var(--spacing-pane-padding);
-  overflow: auto;
-}
-
-/* Orchestration scrolls its rail and its event log on their own. */
 body.focus-mode .pane.is-focused .pane-body-orch {
   padding: 0;
   overflow: hidden;
@@ -2293,12 +1989,6 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 
 .pane[data-pane="bricks"] {
   position: relative; /* the edit drawer slides over this pane only */
-}
-
-.pane-body#bricks {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
 }
 
 .brick-card {
@@ -2808,7 +2498,6 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .brick-edit,
-.pane-actions .pane-text-action,
 .drawer-actions button {
   min-height: var(--spacing-hit-target-min);
   border-radius: var(--rounded-md);
@@ -2823,7 +2512,6 @@ body.focus-mode .pane.is-focused .pane-body-orch {
 }
 
 .brick-edit:disabled,
-.pane-actions .pane-text-action:disabled,
 .drawer-actions button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -4633,34 +4321,11 @@ body .arch .arch-robots .robot.is-selection-linked {
   color: var(--color-ink);
 }
 
-/* ---------- story 34: projection mode (DESIGN.md > projection-toggle, NFR-9) ----------
-   The type ramp × 9/7, rounded (body 14 → 18 px); tokens.css stays DESIGN.md's mirror, so the
-   ramp is redefined here. The top bar grows so its controls stay on one line. */
-
-:root.projection {
-  --typography-pane-title-font-size: 23px;
-  --typography-pane-subtitle-font-size: 17px;
-  --typography-heading-font-size: 23px;
-  --typography-chat-font-size: 21px;
-  --typography-body-font-size: 18px;
-  --typography-body-sm-font-size: 17px;
-  --typography-label-font-size: 15px;
-  --typography-number-font-size: 18px;
-  --typography-number-lg-font-size: 26px;
-  --typography-code-font-size: 17px;
-  --spacing-top-bar-height: 72px;
-  --spacing-architecture-band-height: 320px; /* the schema and its summary, in proportion */
-}
-
 /* In projection mode the chips outrank the gauge's figures: at 1280 px, « · lié » stays whole
    and the figures (whole in their tooltip) give way first, down to the bar and its legend. */
 :root.projection .top-bar > .gauge {
   flex-shrink: 1000000;
   min-width: calc(300px + var(--spacing-3));
-}
-
-:root.projection .top-bar > .pane-chips {
-  flex-shrink: 1;
 }
 
 :root.projection .top-bar > .scenario-picker,
@@ -4745,21 +4410,6 @@ body .arch .arch-robots .robot.is-selection-linked {
 :root.projection .top-bar > .gauge {
   flex-shrink: 1;
   min-width: calc(300px + var(--spacing-3));
-}
-
-.top-bar > .pane-chips {
-  display: contents;
-}
-
-.pane-chips > .pane-chip {
-  flex-shrink: 1000000;
-  text-overflow: ellipsis;
-}
-
-.pane-chips > .pane-chip.is-linked {
-  flex-shrink: 0;
-  min-width: max-content;
-  text-overflow: clip;
 }
 
 /* FinOps: the session's API spend, after the gauge: a compact block of three lines (lot 1 of
@@ -4854,12 +4504,6 @@ body .arch .arch-robots .robot.is-selection-linked {
   :root.projection .top-bar {
     gap: var(--spacing-1);
     padding: 0 var(--spacing-2);
-  }
-
-  .pane-chips > .pane-chip.is-linked {
-    flex-shrink: 1;
-    min-width: 0;
-    text-overflow: ellipsis;
   }
 }
 

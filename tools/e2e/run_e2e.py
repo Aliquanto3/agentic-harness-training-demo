@@ -1171,30 +1171,58 @@ _DIAGRAM_SETUP_JS = """async () => {
     return [d.wire('M0,0 H10', 'diagram-wire')];
   });
   const shown = [];
+  const lives = [];
   const steps = document.createElement('div');
   steps.style.cssText = 'position: absolute; left: 8px; bottom: 8px;';
   host.appendChild(steps);
-  const stepper = d.createStepper(steps, { onShow: (frame) => shown.push(frame) });
+  // Lot 4 (AD-28): `describe` names a step, `onLive` hears the live mode change.
+  const stepper = d.createStepper(steps, {
+    onShow: (frame) => shown.push(frame),
+    describe: (frame, index) => `nom ${frame} (${index})`,
+    onLive: (live) => lives.push(live),
+  });
   const popover = d.explain(said, 'Le bloc A expliqué.');
   const none = d.explain(mute, '');
   d.light(host, said);
   layer.schedule();
   hiddenLayer.schedule();
-  window.__e2eDiagram = { d, host, said, mute, layer, hidden, draws, stepper, shown,
-    popover, none };
+  // Lot 4 (AD-28): a block hidden by `reveal()` (progressive discovery), a path's core.
+  const late = d.block('e2e-late', 'C');
+  host.appendChild(late);
+  d.reveal(late, false);
+  const core = d.svgEl('svg');
+  core.appendChild(d.wire('M0,0 H10', 'diagram-path-core'));
+  host.appendChild(core);
+  window.__e2eDiagram = { d, host, said, mute, layer, hidden, draws, stepper, shown, lives,
+    popover, none, late, core };
 }"""
 
-# The stepper's state: index, live mode, the position's text, its bounds, the frames shown.
+# The stepper's state: index, live mode, the position's text, its bounds (lot 4: in
+# `aria-disabled`, never `disabled`), the frames shown, the status node, the live dot.
 _DIAGRAM_STEPPER_JS = """() => {
-  const { stepper, shown } = window.__e2eDiagram;
+  const { stepper, shown, lives } = window.__e2eDiagram;
   const bar = stepper.element;
   const pos = bar.querySelector('.diagram-step-position');
+  const prev = bar.querySelector('.diagram-step-prev');
+  const next = bar.querySelector('.diagram-step-next');
+  const live = bar.querySelector('.diagram-step-live');
+  const status = bar.querySelector('.diagram-step-status');
+  const dot = live.querySelector('.diagram-step-live-dot');
   return {
-    index: stepper.index, live: stepper.live, shown: [...shown],
+    index: stepper.index, live: stepper.live, shown: [...shown], lives: [...lives],
     position: pos.hidden ? null : pos.textContent,
-    prev: bar.querySelector('.diagram-step-prev').disabled,
-    next: bar.querySelector('.diagram-step-next').disabled,
-    pressed: bar.querySelector('.diagram-step-live').getAttribute('aria-pressed'),
+    positionLive: pos.getAttribute('aria-live'),
+    prev: prev.getAttribute('aria-disabled') === 'true',
+    next: next.getAttribute('aria-disabled') === 'true',
+    nativeDisabled: prev.disabled || next.disabled,
+    pressed: live.getAttribute('aria-pressed'),
+    dot: dot && !dot.hidden ? dot.textContent : null,
+    dotHidden: dot?.getAttribute('aria-hidden'),
+    liveBackground: getComputedStyle(live).backgroundColor,
+    status: status?.textContent ?? null,
+    statusRole: status?.getAttribute('role'),
+    statusPolite: status?.getAttribute('aria-live'),
+    statusWidth: status ? status.getBoundingClientRect().width : null,
   };
 }"""
 
@@ -1220,8 +1248,13 @@ def _diagram_module_checks(r: Run) -> None:
     ui = _ui_catalogue("fr")
     state = page.evaluate(_DIAGRAM_STEPPER_JS)
     r.check(
-        state["prev"] and state["next"] and state["position"] is None and state["live"],
-        "lot 2 : pas à pas vide : ◀ ▶ désactivés, position masquée, en direct",
+        state["prev"]
+        and state["next"]
+        and not state["nativeDisabled"]
+        and state["position"] is None
+        and state["live"],
+        "lot 2 : pas à pas vide : ◀ ▶ indisponibles (lot 4 : aria-disabled, jamais disabled), "
+        "position masquée, en direct",
         str(state),
     )
     page.wait_for_function("() => window.__e2eDiagram.draws.shown > 0", timeout=5000)
@@ -1283,6 +1316,33 @@ def _diagram_module_checks(r: Run) -> None:
         "lot 2 : en direct, chaque push affiche la dernière étape (« 3 / 3 »), ▶ désactivé",
         str(state),
     )
+    r.check(
+        state["status"] == ""
+        and state["statusRole"] == "status"
+        and state["statusPolite"] == "polite"
+        and (state["statusWidth"] or 0) <= 1
+        and state["positionLive"] is None
+        and state["dot"] == "● "
+        and state["dotHidden"] == "true"
+        and state["liveBackground"] != "rgba(0, 0, 0, 0)",
+        "lot 4 : en direct, le nœud status du pas à pas (poli, masqué) se tait, la position "
+        "n'est plus une région vivante ; « Suivre le direct » pressé : fond plein et « ● » "
+        "en aria-hidden",
+        str(state),
+    )
+    # A bound's button keeps the focus and does nothing (forced: Playwright waits for an
+    # `aria-disabled` button to be enabled).
+    bound = page.locator("#e2e-diagram .diagram-step-next")
+    bound.click(force=True)
+    after = page.evaluate(_DIAGRAM_STEPPER_JS)
+    focused = page.evaluate(
+        "() => document.activeElement?.classList.contains('diagram-step-next') ?? false"
+    )
+    r.check(
+        after["index"] == 2 and after["live"] and after["shown"] == state["shown"] and focused,
+        "lot 4 : un clic sur ▶ à la borne est sans effet et le bouton garde le focus",
+        f"{after} · focus {focused}",
+    )
     bar = page.locator("#e2e-diagram .diagram-stepper")
     bar.locator(".diagram-step-prev").click()
     page.evaluate("() => window.__e2eDiagram.stepper.push('quatre')")
@@ -1296,6 +1356,22 @@ def _diagram_module_checks(r: Run) -> None:
         and not state["next"],
         "lot 2 : ◀ quitte le direct (étape n-1), un push suivant ne déplace pas la vue",
         str(state),
+    )
+    # Said when ◀ was pressed (3 steps then), not again at each push out of live mode.
+    announce = (
+        ui["common.diagram.announce"]
+        .replace("{n}", "2")
+        .replace("{total}", "3")
+        .replace("{name}", "nom deux (1)")
+    )
+    r.check(
+        state["status"] == announce
+        and state["lives"] == [False]
+        and state["dot"] is None
+        and state["pressed"] == "false",
+        "lot 4 : hors du direct, le nœud status dit « Étape 2 sur 3 : {nom} » (describe) au "
+        "clic, onLive reçoit false, « ● » retiré",
+        f"{state['status']!r} · attendu {announce!r} · {state['lives']}",
     )
     bar.locator(".diagram-step-prev").click()
     state = page.evaluate(_DIAGRAM_STEPPER_JS)
@@ -1325,6 +1401,36 @@ def _diagram_module_checks(r: Run) -> None:
         and state["pressed"] == "true",
         "lot 2 : « Suivre le direct » revient à la dernière étape et la suit",
         str(state),
+    )
+    r.check(
+        state["lives"] == [False, True] and state["status"] == "",
+        "lot 4 : « Suivre le direct » : onLive reçoit true, le nœud status se tait",
+        str(state),
+    )
+
+    # Lot 4: load() puts a whole series back, live, a single onShow on its last frame;
+    # refresh() draws the current step again without touching the live mode.
+    page.evaluate(
+        "() => { const { stepper, shown } = window.__e2eDiagram; stepper.show(0);"
+        " shown.length = 0; stepper.load(['a', 'b', 'c']); }"
+    )
+    loaded = page.evaluate(_DIAGRAM_STEPPER_JS)
+    page.evaluate(
+        "() => { const { stepper, shown } = window.__e2eDiagram; stepper.show(1);"
+        " shown.length = 0; stepper.refresh(); }"
+    )
+    refreshed = page.evaluate(_DIAGRAM_STEPPER_JS)
+    r.check(
+        loaded["shown"] == ["c"]
+        and loaded["index"] == 2
+        and loaded["live"]
+        and loaded["position"] == position(3, 3)
+        and refreshed["shown"] == ["b"]
+        and not refreshed["live"]
+        and refreshed["index"] == 1,
+        "lot 4 : load() restitue en un bloc, en direct, un seul onShow sur la dernière trame ; "
+        "refresh() redessine l'étape courante sans toucher au direct",
+        f"{loaded} · {refreshed}",
     )
     page.evaluate("() => window.__e2eDiagram.stepper.clear()")
     state = page.evaluate(_DIAGRAM_STEPPER_JS)
@@ -1380,6 +1486,71 @@ def _diagram_module_checks(r: Run) -> None:
         and mute["popovers"] == 1,
         "lot 2 : Échap ou un clic ailleurs ferme l'explication ; un bloc sans texte n'en a pas",
         f"Échap {closed_by_escape} · rouvert {reopened} · clic ailleurs {closed_by_click} · {mute}",
+    )
+    _diagram_module_lot4(r)
+
+
+def _diagram_module_lot4(r: Run) -> None:
+    """Lot 4 (AD-28): the explanation kept open by a click in it, closed when the focus leaves
+    for anything else; the ink ring under the halo; the path's core at 3 px; `reveal()`: a
+    hidden element keeps its place out of the accessibility tree, then fades in."""
+    page = r.page
+
+    def opened() -> bool:
+        return page.evaluate("() => window.__e2eDiagram.popover.matches(':popover-open')")
+
+    said = page.locator("#e2e-diagram .e2e-said")
+    said.click()
+    shown, _ = r.poll(opened, 3)
+    page.locator("#e2e-diagram .diagram-explain").click()
+    time.sleep(0.2)
+    kept = opened()
+    focusable = page.evaluate("() => window.__e2eDiagram.popover.tabIndex === -1")
+    page.locator("#e2e-diagram .e2e-mute").focus()
+    closed, _ = r.poll(lambda: not opened(), 3)
+    r.check(
+        shown and kept and focusable and closed,
+        "lot 4 : la bulle d'explication est focalisable, un clic dedans la garde ouverte, le "
+        "focus parti ailleurs la ferme",
+        f"ouverte {shown} · gardée {kept} · tabindex -1 {focusable} · fermée {closed}",
+    )
+    looks = page.evaluate(
+        """() => { const { said, core } = window.__e2eDiagram;
+        return { halo: getComputedStyle(said).boxShadow,
+          core: getComputedStyle(core.querySelector('.diagram-path-core')).strokeWidth }; }"""
+    )
+    r.check(
+        looks["halo"].count("rgb") >= 2 and looks["core"] == "3px",
+        "lot 4 : le bloc allumé porte l'anneau d'encre sous le halo ; le cœur du fil parcouru "
+        "fait 3 px (--spacing-stroke-path)",
+        str(looks),
+    )
+    hidden = page.evaluate(
+        """() => { const { late } = window.__e2eDiagram; const box = late.getBoundingClientRect();
+        return { cls: late.classList.contains('diagram-unrevealed'),
+          visibility: getComputedStyle(late).visibility, width: box.width }; }"""
+    )
+    page.evaluate("() => window.__e2eDiagram.d.reveal(window.__e2eDiagram.late, true)")
+    revealed = page.evaluate(
+        """() => { const { late } = window.__e2eDiagram;
+        return { cls: late.classList.contains('diagram-unrevealed'),
+          visibility: getComputedStyle(late).visibility,
+          fading: late.classList.contains('diagram-revealing')
+            || getComputedStyle(late).animationName !== 'none' }; }"""
+    )
+    page.evaluate("() => window.__e2eDiagram.d.reveal([window.__e2eDiagram.late], false)")
+    again = page.evaluate("() => getComputedStyle(window.__e2eDiagram.late).visibility")
+    r.check(
+        hidden["cls"]
+        and hidden["visibility"] == "hidden"
+        and hidden["width"] > 0
+        and not revealed["cls"]
+        and revealed["visibility"] == "visible"
+        and revealed["fading"]
+        and again == "hidden",
+        "lot 4 : reveal() : un élément pas encore apparu garde sa place, invisible (hors de "
+        "l'arbre d'accessibilité), puis apparaît en fondu ; masqué de nouveau en revenant",
+        f"{hidden} · {revealed} · {again}",
     )
 
 
@@ -6863,10 +7034,13 @@ def _compression_step(r: Run):
 
 
 def s_mcp_lab(r: Run) -> None:
-    """Story 6 of 2026-09-30: the MCP workshop (`/mcp`). The link of the shared bar and of the
-    MCP card, the three servers, a connection to the local glossary (its JSON-RPC messages with
-    direction and duration, its two tools and their weight), a valid call then an unknown term
-    (`is_error`), the brick left as it was. Captures 61 and 62. Back to `/`."""
+    """Story 6 of 2026-09-30, then lot 4 of 2026-10-04 (« Atelier MCP en séquence », AD-27,
+    AD-28): the four panes, the glossary's handshake drawn arrow by arrow (five captured
+    methods, the tabs 🔧 2 · 📄 1 · 💬 1), the stepper ◀ ▶ and the progressive discovery
+    (the columns keep their place), a call by hand and `isError`, a resource then sent to the
+    model, a prompt then sent to the model, « Par le modèle » on the fake cloud model (the
+    host between the model and the server, the main gauge untouched), the reload rebuilding
+    the same arrows, the panes hidden and focused. Captures 61 to 63. Back to `/`."""
     page = r.page
     page.set_viewport_size({"width": 1600, "height": 1000})
     errors: list[str] = []
@@ -6881,12 +7055,60 @@ def s_mcp_lab(r: Run) -> None:
         r.goto_app()
 
 
+def _goto_mcp(r: Run) -> None:
+    r.page.goto(f"{r.stack.app_url}/mcp")
+    expect(r.page.locator("body[data-mcp-ready]")).to_be_attached(timeout=15_000)
+
+
+def _mcp_rows(r: Run, kind: str | None = None) -> list[dict[str, str | None]]:
+    """The arrows of the Séquence, in order: their kind, method, ends, and whether shown."""
+    selector = "#mcp-seq li.mcp-row" + (f'[data-kind="{kind}"]' if kind else "")
+    return r.page.locator(selector).evaluate_all(
+        """items => items.map(i => ({key: i.dataset.key, kind: i.dataset.kind,
+            method: i.dataset.method ?? null, from: i.dataset.from, to: i.dataset.to,
+            error: i.classList.contains('is-error'),
+            shown: !i.classList.contains('mcp-ahead')
+              && !i.classList.contains('diagram-unrevealed')}))"""
+    )
+
+
+def _mcp_click(r: Run, selector: str) -> None:
+    """A command, once the page made it available (`aria-disabled`, never `disabled`)."""
+    button = r.page.locator(selector)
+    expect(button).to_have_attribute("aria-disabled", "false", timeout=20_000)
+    button.click()
+
+
+def _mcp_connect(r: Run, server: str, timeout: float = 60) -> dict[str, Any]:
+    page = r.page
+    page.locator(f'#mcp-servers input[value="{server}"]').check()
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-connect")
+    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=timeout)["payload"]
+    expect(page.locator("#mcp-busy")).to_be_hidden(timeout=15_000)
+    return ended
+
+
+def _mcp_heads_x(r: Run) -> list[float]:
+    return r.page.locator("#mcp-heads .mcp-head").evaluate_all(
+        "heads => heads.map(h => Math.round(h.getBoundingClientRect().left))"
+    )
+
+
+def _mcp_revealed_heads(r: Run) -> list[str]:
+    return r.page.locator("#mcp-heads .mcp-head:not(.diagram-unrevealed)").evaluate_all(
+        "heads => heads.map(h => h.dataset.col)"
+    )
+
+
 def _mcp_lab(r: Run, errors: list[str]) -> None:
     page = r.page
     r.goto_app()
     r.wait_idle()
+    if (r.state().get("active_model") or {}).get("ref") != MODEL_ENTRY_ID:
+        _pick_model(r, A_LABEL)
     brick_before = r.bricks()["mcp"]
-    # (1) The links: the shared bar's, whole, and the MCP card's.
+    # (1) The links, the page and its four panes.
     link = page.locator('.site-nav a[href="/mcp"]')
     r.check(
         link.is_visible() and link.inner_text() == "MCP",
@@ -6899,126 +7121,276 @@ def _mcp_lab(r: Run, errors: list[str]) -> None:
         page.locator('a.brick-workshop-link[href="/mcp"]').count() == 1,
         "la carte de la brique MCP renvoie à l'atelier MCP",
     )
-
-    # (2) The page: the shared bar, the three servers.
     link.click()
     page.wait_for_url("**/mcp")
     expect(page.locator("body[data-mcp-ready]")).to_be_attached(timeout=10_000)
+    panes = page.locator("#layout .pane").evaluate_all("ps => ps.map(p => p.dataset.pane)")
     r.check(
         page.locator("nav.site-nav a[aria-current=page]").inner_text() == "MCP"
         and page.title() == "WaveStack — Atelier MCP"
-        and page.locator("h1").inner_text().startswith("Atelier MCP")
+        and page.locator("h1").inner_text() == "Atelier MCP"
+        and panes == ["servers", "seq", "model", "arch"]
         and not _site_nav_problems(r),
-        "/mcp : barre commune entière, « MCP » courant, titre « Atelier MCP »",
-        str(_site_nav_problems(r)),
+        "/mcp : barre commune, « MCP » courant, titre « Atelier MCP », quatre volets",
+        f"{panes} {_site_nav_problems(r)}",
     )
-    servers = page.locator("#mcp-servers .mcp-server")
-    ids = [servers.nth(i).get_attribute("data-server") for i in range(servers.count())]
-    r.check(ids == ["local", "datagouv", "mslearn"], "/mcp : les trois serveurs", str(ids))
-    command = servers.nth(0).inner_text()
+    servers = page.locator("#mcp-servers .mcp-server").evaluate_all(
+        "items => items.map(i => i.dataset.server)"
+    )
+    r.check(servers == ["local", "datagouv", "mslearn"], "/mcp : les trois serveurs", str(servers))
     r.check(
-        "stdio" in command and "wavestack.mcp.local_server" in command,
-        "le glossaire : transport stdio et commande de lancement",
-        command[:200],
+        page.locator("#mcp-seq-empty").is_visible()
+        and not _mcp_revealed_heads(r)
+        and page.locator("#mcp-arch-empty").is_visible(),
+        "avant connexion : la Séquence invite à se connecter, aucune colonne, Architecture vide",
     )
 
-    # (3) The handshake with the local glossary: its messages, its tools, their weight.
+    # (2) The glossary's handshake: five methods captured, the lists, the tabs.
+    ended = _mcp_connect(r, "local")
+    r.check(ended["status"] == "ok", "poignée de main avec le glossaire local", str(ended)[:200])
+    expect(page.locator('#mcp-seq li.mcp-row[data-key$=":lists"]')).to_be_attached(timeout=10_000)
+    rpc = _mcp_rows(r, "rpc")
+    methods = [row["method"] for row in rpc]
+    r.check(
+        methods
+        == [
+            "initialize",
+            "initialize",
+            "notifications/initialized",
+            "tools/list",
+            "tools/list",
+            "resources/list",
+            "resources/list",
+            "prompts/list",
+            "prompts/list",
+        ]
+        and [(row["from"], row["to"]) for row in rpc[:2]]
+        == [("client", "server"), ("server", "client")],
+        "poignée de main : initialize, notifications/initialized, tools/list, resources/list, "
+        "prompts/list, capturés, client ↔ serveur",
+        str(methods),
+    )
+    kinds = [row["kind"] for row in _mcp_rows(r)]
+    r.check(
+        kinds[0] == "host" and kinds[-1] == "host",
+        "flèches déduites : Hôte → Client « lance le serveur », Client → Hôte "
+        "« 🔧 2 · 📄 1 · 💬 1 »",
+        str(kinds),
+    )
+    tabs = [page.locator(f"#mcp-tab-{k}").inner_text() for k in ("tools", "resources", "prompts")]
+    r.check(
+        tabs[0].endswith("Outils 2")
+        and tabs[1].endswith("Ressources 1")
+        and tabs[2].endswith("Prompts 1"),
+        "onglets des primitives : 🔧 Outils 2 · 📄 Ressources 1 · 💬 Prompts 1",
+        str(tabs),
+    )
+    full = page.locator("#mcp-model-body .mcp-total-number").inner_text()
+    page.locator('#mcp-doc-mode [data-value="lazy"]').click()
+    lazy = page.locator("#mcp-model-body .mcp-total-number").inner_text()
+    page.locator('#mcp-doc-mode [data-value="full"]').click()
+    r.check(
+        full != lazy and full != "—",
+        "ce que le modèle voit : le bloc « outils », son total en documentation complète puis "
+        "en lazy loading",
+        f"{full} / {lazy}",
+    )
+
+    # (3) The stepper: back to the first step, the columns appear one by one, in place.
+    steps = page.locator("#mcp-stepper .diagram-step-position").inner_text()
+    last_x = _mcp_heads_x(r)
+    prev = page.locator("#mcp-stepper .diagram-step-prev")
+    for _ in range(40):
+        if prev.get_attribute("aria-disabled") == "true":
+            break
+        prev.click()
+    first_heads = _mcp_revealed_heads(r)
+    first_rows = [row["key"] for row in _mcp_rows(r) if row["shown"]]
+    first_x = _mcp_heads_x(r)
+    page.locator("#mcp-stepper .diagram-step-next").click()
+    page.locator("#mcp-stepper .diagram-step-next").click()
+    third_heads = _mcp_revealed_heads(r)
+    status = page.locator("#mcp-stepper .diagram-step-status").inner_text()
+    r.check(
+        first_heads == ["host", "client"]
+        and len(first_rows) == 1
+        and "server" in third_heads
+        and first_x == last_x
+        and status.startswith("Étape 3 sur"),
+        "stepper : à l'étape 1, l'hôte et le client seuls ; le serveur apparaît ensuite ; les "
+        "colonnes ne bougent pas ; l'étape annoncée",
+        f"{steps} · {first_heads} → {third_heads} · {status}",
+    )
+    page.locator("#mcp-stepper .diagram-step-live").click()
+    r.shot("61-atelier-mcp-poignee-de-main")
+
+    # (4) A call by hand, then an unknown term: `isError`, a result, a red arrow.
+    page.locator("#mcp-tab-tools").click()
+    page.locator("#mcp-call-tool").select_option("define_term")
+    page.locator('#mcp-call-fields input[name="term"]').fill("harnais")
     seq = r.ev.mark()
-    page.locator('button[data-connect="local"]').click()
-    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
-    r.check(ended["status"] == "ok", "connexion de l'atelier au glossaire local", str(ended)[:300])
-    expect(page.locator('#mcp-connect-summary[data-status="ok"]')).to_be_visible(timeout=10_000)
-    messages = page.locator("#mcp-messages .mcp-message")
-    shape = [
-        (
-            messages.nth(i).get_attribute("data-direction"),
-            messages.nth(i).get_attribute("data-method"),
-        )
-        for i in range(messages.count())
-    ]
-    r.check(
-        shape[:2] == [("to_server", "initialize"), ("from_server", "initialize")]
-        and ("to_server", "tools/list") in shape
-        and ("from_server", "tools/list") in shape,
-        "poignée de main : initialize, sa réponse, tools/list et sa réponse, avec leur sens",
-        str(shape),
+    _mcp_click(r, "#mcp-call-run")
+    call = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
+    expect(page.locator("#mcp-model-body .mcp-context-block.is-result")).to_be_visible(
+        timeout=10_000
     )
-    timings = [messages.nth(i).locator(".mcp-timing").inner_text() for i in range(messages.count())]
+    ghosts = len([row for row in _mcp_rows(r, "ghost")])
     r.check(
-        timings and all(re.search(r"\d+ ms", t) for t in timings),
-        "chaque message porte sa durée en ms",
-        str(timings),
+        call["status"] == "ok" and not call["is_error"] and ghosts == 5,
+        "appel à la main : tools/call capturé, résultat réinjecté, cinq fantômes (pas de modèle)",
+        f"{call['status']} · {ghosts}",
     )
-    tools = page.locator("#mcp-tools .mcp-tool")
-    names = [tools.nth(i).get_attribute("data-tool") for i in range(tools.count())]
-    total = page.locator("#mcp-weight-rows .mcp-total")
-    full = int(total.get_attribute("data-full") or 0)
-    lazy = int(total.get_attribute("data-lazy") or 0)
+    page.locator('#mcp-call-fields input[name="term"]').fill("xyz")
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-call-run")
+    unknown = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
+    expect(page.locator("#mcp-seq li.mcp-row.is-error")).not_to_have_count(0, timeout=10_000)
     r.check(
-        names == ["local__list_terms", "local__define_term"] and full > 0 and lazy > 0,
-        "deux outils, leur poids en documentation complète et en lazy loading",
-        f"{names} · {full} · {lazy}",
+        unknown["status"] == "ok"
+        and unknown["is_error"] is True
+        and unknown["connection"] == "open",
+        "terme inconnu : isError, un résultat (statut ok), flèche rouge, connexion ouverte",
+        str(unknown)[:200],
+    )
+    r.shot("62-atelier-mcp-appel")
+
+    # (5) A resource read, then sent to the model with a question.
+    page.locator("#mcp-tab-resources").click()
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-read")
+    read = r.ev.wait("mcp_lab_read_ended", seq, timeout=30)["payload"]
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-read-send")
+    asked = r.ev.wait("mcp_lab_ask_ended", seq, timeout=60)["payload"]
+    sent = [e["payload"] for e in r.ev.since(seq, "mcp_lab_model_started")]
+    r.check(
+        read["status"] == "ok"
+        and asked["status"] == "ok"
+        and sent
+        and [s["part"] for s in sent[0]["sends"]][:2] == ["resource", "question"],
+        "ressource lue puis envoyée au modèle avec la question",
+        f"{read['status']} · {asked.get('outcome')} · {sent[0]['sends'] if sent else None}"[:300],
+    )
+
+    # (6) A prompt got, then sent to the model as the user's message.
+    page.locator("#mcp-tab-prompts").click()
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-prompt-get")
+    got = r.ev.wait("mcp_lab_prompt_ended", seq, timeout=30)["payload"]
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-prompt-send")
+    asked = r.ev.wait("mcp_lab_ask_ended", seq, timeout=60)["payload"]
+    sent = [e["payload"] for e in r.ev.since(seq, "mcp_lab_model_started")]
+    r.check(
+        got["status"] == "ok"
+        and "hook" in got["messages"][0]["text"]
+        and asked["status"] == "ok"
+        and sent
+        and sent[0]["sends"][0]["part"] == "prompt",
+        "prompt explain_term(term = « hook ») obtenu, puis envoyé au modèle",
+        f"{got['status']} · {asked.get('outcome')}",
+    )
+
+    # (7) « Par le modèle » on the fake cloud model: the host between the model and the server.
+    gauge_before = {
+        k: r.state().get(k) for k in ("context_rendered", "context_reconciled", "context_preview")
+    }
+    page.locator("#mcp-tab-tools").click()
+    page.locator('#mcp-call-mode [data-value="model"]').click()
+    page.locator("#mcp-ask-question").fill("Que veut dire MCP ?")
+    seq = r.ev.mark()
+    _mcp_click(r, "#mcp-ask-send")
+    asked = r.ev.wait("mcp_lab_ask_ended", seq, timeout=90)["payload"]
+    expect(page.locator("#mcp-busy")).to_be_hidden(timeout=15_000)
+    events = r.ev.since(seq)
+    tool = [e for e in events if e["kind"] == "mcp_lab_call_ended" and e["step_id"].endswith(".t1")]
+    model_rows = [row for row in _mcp_rows(r) if "model" in (row["from"], row["to"])]
+    gauge_after = {
+        k: r.state().get(k) for k in ("context_rendered", "context_reconciled", "context_preview")
+    }
+    r.check(
+        asked["status"] == "ok"
+        and asked["outcome"] == "answer"
+        and asked["calls"] == 2
+        and tool
+        and tool[0]["payload"]["by"] == "model",
+        "par le modèle : appel au modèle, tools/call par l'hôte (mcp{n}.t1), réponse finale",
+        str(asked)[:200],
     )
     r.check(
-        page.locator('#mcp-context [data-mode="full"]').count() == 1
-        and page.locator('#mcp-context [data-mode="lazy"]').count() == 1,
-        "ce que le modèle voit : le bloc « outils » dans les deux modes",
+        model_rows and all({row["from"], row["to"]} <= {"model", "host"} for row in model_rows),
+        "le modèle ne parle qu'à l'hôte : aucune flèche entre le modèle et le client ou le serveur",
+        str([(row["from"], row["to"]) for row in model_rows]),
+    )
+    r.check(
+        gauge_after == gauge_before,
+        "la jauge de l'atelier principal ne bouge pas (contexte mcp_lab écarté)",
     )
     light = _contrast_sweep(r, ["main", "nav.site-nav"])
     _pick_theme(page, "dark")
     dark = _contrast_sweep(r, ["main", "nav.site-nav"])
     _pick_theme(page, "system")
     r.check(not light and not dark, "/mcp : contrastes AA en clair et en sombre", str(light + dark))
-    r.shot("61-atelier-mcp-poignee-de-main", full_page=True)
+    r.shot("63-atelier-mcp-par-le-modele")
 
-    # (4) A valid call, then an unknown term: `is_error`, said, never a 500.
-    page.locator("#mcp-call-tool").select_option("local__define_term")
-    page.locator('#mcp-call-fields input[name="term"]').fill("harnais")
-    seq = r.ev.mark()
-    page.locator("#mcp-call-run").click()
-    call = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
-    expect(page.locator('#mcp-call-summary[data-status="ok"]')).to_be_visible(timeout=10_000)
-    reinjected = page.locator(".mcp-call-text pre").inner_text()
+    # (8) The reload: the same arrows, the phases folded but the last, live.
+    before = [(row["key"], row["kind"], row["error"]) for row in _mcp_rows(r)]
+    phases = page.locator("#mcp-seq .mcp-phase").count()
+    _goto_mcp(r)
+    expect(page.locator("#mcp-seq .mcp-phase")).to_have_count(phases, timeout=10_000)
+    after = [(row["key"], row["kind"], row["error"]) for row in _mcp_rows(r)]
+    folded = page.locator('#mcp-seq .mcp-phase-toggle[aria-expanded="false"]').count()
     r.check(
-        call["status"] == "ok"
-        and "harnais" in reinjected.lower()
-        and page.locator(".mcp-call-request pre").count() == 1
-        and page.locator(".mcp-call-raw pre").count() == 1,
-        "appel valide : requête tools/call, réponse brute, texte réinjecté",
-        reinjected[:200],
+        after == before
+        and folded == phases - 1
+        and page.locator("#mcp-stepper .diagram-step-live").get_attribute("aria-pressed") == "true",
+        "page rechargée : last_session rejoué, mêmes flèches, phases repliées sauf la dernière, "
+        "en direct",
+        f"{len(before)} / {len(after)} flèches · {folded} repliées sur {phases}",
     )
-    r.shot("62-atelier-mcp-appel", full_page=True)
-    page.locator('#mcp-call-fields input[name="term"]').fill("zzz")
-    seq = r.ev.mark()
-    page.locator("#mcp-call-run").click()
-    unknown = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
-    expect(page.locator('#mcp-call-summary[data-status="error"]')).to_be_visible(timeout=10_000)
+
+    # (9) The panes: « Ce que le modèle voit » hidden, its chip, shown again; Séquence focused.
+    page.locator('.pane[data-pane="model"] [data-action="hide"]').click()
+    chip = page.locator("#mcp-pane-chips .pane-chip")
+    hidden_ok = page.locator('.pane[data-pane="model"]').is_hidden() and chip.count() == 1
+    chip.first.click()
+    page.locator('.pane[data-pane="seq"] [data-action="focus"]').click()
+    focused = page.locator('.pane[data-pane="seq"].is-focused').count() == 1
+    page.locator('.pane[data-pane="seq"] [data-action="focus"]').click()
     r.check(
-        unknown["status"] == "error" and "is_error" in (unknown.get("error_text") or ""),
-        "terme inconnu : réponse is_error montrée, statut erreur",
-        str(unknown)[:300],
+        hidden_ok
+        and page.locator('.pane[data-pane="model"]').is_visible()
+        and focused
+        and page.locator('.pane[data-pane="seq"] [data-action="hide"]').count() == 0,
+        "volets : « — » masque, la puce « + Ce que le modèle voit » réaffiche, ⛶ met la "
+        "Séquence en focus, la Séquence ne se masque pas",
     )
+    page.locator('#mcp-arch-switch [data-view="before"]').click()
+    before_view = (
+        page.locator("#mcp-arch-before").is_visible() and page.locator("#mcp-arch").is_hidden()
+    )
+    page.locator('#mcp-arch-switch [data-view="after"]').click()
+    r.check(before_view, "Architecture : la vue « Avant MCP », puis « Avec MCP »")
     r.check(not errors, "/mcp : aucune erreur JavaScript", str(errors)[:300])
 
-    # (5) The brick, untouched by the workshop.
+    # (10) The brick, untouched by the workshop.
     r.goto_app()
-    after = r.bricks()["mcp"]
+    after_brick = r.bricks()["mcp"]
     r.check(
-        (after.get("wanted"), after.get("options"))
+        (after_brick.get("wanted"), after_brick.get("options"))
         == (brick_before.get("wanted"), brick_before.get("options")),
         "la brique MCP de l'atelier est inchangée",
     )
 
 
 def s_mcp_lab_page(r: Run) -> None:
-    """Restes du 2026-10-01 (story 6, IA3, IA4, BH16): what `/mcp` does on its own side.
-    The state unreachable (`page.route`), then back; « Occupé » during a real turn of the
-    workshop; « Arrêter » pressed during the glossary's handshake; a preset, a call, the
-    page reloaded (`last_session` replayed); data.gouv.fr cut by the stack (its outbound
-    request shown); then a `last_session` served by `page.route` (a public server, a tool
-    with an object, an integer and a boolean parameter, a bounded call): the fields, an
-    invalid JSON said without a request, the arguments sent, the bound's note, « servi non
-    traduit ». Back to `/`."""
+    """Restes du 2026-10-01 (story 6), then lot 4 of 2026-10-04: what `/mcp` does on its own
+    side. The state unreachable (`page.route`), then back; « Occupé » during a real turn of
+    the workshop; « Arrêter » pressed during the glossary's handshake; data.gouv.fr cut by the
+    stack (its outbound request in the detail, the failure kept on its card); then a
+    `last_session` served by `page.route` (a public server: ⊘ on its resources and prompts, a
+    tool with an object, an integer and a boolean parameter, a bounded call): the fields, an
+    invalid JSON said without a request, the arguments sent. Back to `/`."""
     page = r.page
     page.set_viewport_size({"width": 1600, "height": 1000})
     errors: list[str] = []
@@ -7033,71 +7405,61 @@ def s_mcp_lab_page(r: Run) -> None:
         r.goto_app()
 
 
-def _goto_mcp(r: Run) -> None:
-    r.page.goto(f"{r.stack.app_url}/mcp")
-    expect(r.page.locator("body[data-mcp-ready]")).to_be_attached(timeout=15_000)
-
-
-def _mcp_messages(r: Run) -> list[tuple[str | None, str | None]]:
-    return r.page.locator("#mcp-messages .mcp-message").evaluate_all(
-        "items => items.map(i => [i.dataset.direction, i.dataset.method ?? null])"
-    )
-
-
-def _mcp_busy_checks(r: Run, busy, connect) -> None:  # noqa: ANN001
-    """A turn of the workshop running: « Occupé », « Se connecter » disabled, a direct call
-    refused, « Arrêter » of the MCP workshop greyed (it stops the workshop's exchanges)."""
+def _mcp_busy_checks(r: Run) -> None:
+    """A turn of the workshop running: « Occupé », « Se connecter » unavailable (focus kept),
+    a direct connection refused, « Arrêter » of the MCP workshop unavailable."""
     page = r.page
+    busy = page.locator("#mcp-busy")
     expect(busy).to_be_visible(timeout=10_000)
     refused = r.api("POST", "/api/intentions/mcp_lab_connect", {"server": "local"})
+    connect = page.locator("#mcp-connect")
     r.check(
         "Un tour est en cours" in busy.inner_text()
-        and connect.is_disabled()
+        and connect.get_attribute("aria-disabled") == "true"
         and "Un tour est en cours" in (connect.get_attribute("title") or "")
-        and page.locator("#mcp-stop").is_disabled()
+        and page.locator("#mcp-stop").get_attribute("aria-disabled") == "true"
         and refused.status_code == 409,
         "tour de l'atelier en cours : bandeau « Occupé » avec la raison, « Se connecter » "
-        "désactivé, appel direct 409, « Arrêter » de l'atelier MCP grisé",
+        "indisponible (aria-disabled), connexion directe 409, « Arrêter » indisponible",
         f"{busy.inner_text()} · {refused.status_code}",
     )
 
 
-def _mcp_stop_during_handshake(r: Run, connect) -> bool:  # noqa: ANN001
-    """« Connecter » then « Arrêter » as soon as it is enabled, at most three times (the
+def _mcp_stop_during_handshake(r: Run) -> bool:
+    """« Se connecter » then « Arrêter » as soon as it is available, at most three times (the
     handshake can win the race); whether the stop was seen, checked either way."""
     page = r.page
-    stopped, attempts, missed = None, 0, []
+    stopped, attempts = None, 0
+    page.locator('#mcp-servers input[value="local"]').check()
     while stopped is None and attempts < 3:
         attempts += 1
         seq = r.ev.mark()
-        connect.click()
+        _mcp_click(r, "#mcp-connect")
+        stop = page.locator("#mcp-stop")
         try:
-            page.locator("#mcp-stop").click(timeout=5000)
-        except Exception as exc:  # noqa: BLE001 - the handshake ended first: greyed again
-            missed.append(type(exc).__name__)
+            expect(stop).to_have_attribute("aria-disabled", "false", timeout=5000)
+            stop.click()
+        except Exception:  # noqa: BLE001 - the handshake ended first
+            pass
         ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
-        if ended["status"] == "error":
+        if ended["status"] != "ok":
             stopped = ended
+        expect(page.locator("#mcp-busy")).to_be_hidden(timeout=15_000)
     if stopped is None:
-        r.check(
-            False,
-            "« Arrêter » pressé pendant la poignée de main",
-            f"la poignée de main a gagné la course {attempts} fois ({missed})",
-        )
+        r.check(False, "« Arrêter » pressé pendant la poignée de main", f"{attempts} essai(s)")
         return False
-    summary = page.locator("#mcp-connect-summary")
-    expect(summary).to_have_attribute("data-status", "error", timeout=10_000)
-    expect(page.locator("#mcp-stop")).to_be_disabled(timeout=10_000)
     state = r.api("GET", "/api/mcp_lab").json()
+    meta = page.locator("#mcp-seq .mcp-phase").last.locator(".mcp-phase-meta")
+    expect(meta).to_contain_text("arrêtée", timeout=10_000)
     r.check(
-        "Échange arrêté" in (stopped.get("error_text") or "")
-        and "Échange arrêté" in summary.inner_text()
+        stopped["status"] == "cancelled"
+        and stopped["error_kind"] == "stopped"
         and state["open_server"] is None
         and state["session_state"]["state"] == "idle"
-        and page.locator(".mcp-badge-open").count() == 0,
-        "« Arrêter » pressé pendant la poignée de main : connexion arrêtée et dite, aucune "
+        and page.locator(".mcp-badge-state.is-open").count() == 0,
+        "« Arrêter » pendant la poignée de main : phase « arrêtée par l'utilisateur », aucune "
         "connexion ouverte, session en idle",
-        f"{attempts} essai(s) · {summary.inner_text()[:160]}",
+        f"{attempts} essai(s) · {meta.inner_text()[:120]}",
     )
     return True
 
@@ -7124,99 +7486,46 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
         said,
     )
 
-    # (2) A real turn of the workshop: « Occupé », « Se connecter » disabled, a direct call
-    # refused, « Arrêter » of the MCP workshop greyed (it stops the workshop's exchanges).
+    # (2) A real turn of the workshop: « Occupé », the commands unavailable.
     seq = r.ev.mark()
     r.api("POST", "/api/intentions/send", {"message": "Explique le harnais [lent] [long]"})
     r.ev.wait("model_first_token", seq, timeout=20)
-    busy = page.locator("#mcp-busy")
-    connect = page.locator('button[data-connect="local"]')
     try:
-        _mcp_busy_checks(r, busy, connect)
+        _mcp_busy_checks(r)
     finally:  # the turn never outlives this step, even when a check raised
         r.api("POST", "/api/intentions/stop")
         r.ev.wait("turn_ended", seq, timeout=30)
-    expect(busy).to_be_hidden(timeout=10_000)
-    expect(connect).to_be_enabled(timeout=10_000)
+    expect(page.locator("#mcp-busy")).to_be_hidden(timeout=10_000)
+    expect(page.locator("#mcp-connect")).to_have_attribute("aria-disabled", "false", timeout=10_000)
 
-    # (3) « Arrêter » pressed during the handshake (the glossary's process starting): the
-    # handshake may win the race on a fast workstation, then the gesture is played again.
-    if not _mcp_stop_during_handshake(r, connect):
+    # (3) « Arrêter » pressed during the handshake.
+    if not _mcp_stop_during_handshake(r):
         return
 
-    # (4) The glossary: a preset, a call; the page reloaded replays `last_session`.
-    summary = page.locator("#mcp-connect-summary")
-    seq = r.ev.mark()
-    connect.click()
-    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=60)["payload"]
-    expect(summary).to_have_attribute("data-status", "ok", timeout=10_000)
-    page.locator("#mcp-call-tool").select_option("local__define_term")
-    presets = page.locator("#mcp-call-preset option").all_inner_texts()
-    page.locator("#mcp-call-preset").select_option("0")
-    term = page.locator('#mcp-call-fields input[name="term"]').input_value()
-    r.check(
-        ended["status"] == "ok" and presets == ["Aucun", "MCP"] and term == "MCP",
-        "préréglage « MCP » de define_term : le champ term rempli",
-        f"{presets} · {term!r}",
-    )
-    seq = r.ev.mark()
-    page.locator("#mcp-call-run").click()
-    call = r.ev.wait("mcp_lab_call_ended", seq, timeout=30)["payload"]
-    expect(page.locator("#mcp-call-summary")).to_have_attribute("data-status", "ok", timeout=10_000)
-    shown = {
-        "messages": _mcp_messages(r),
-        "summary": page.inner_text("#mcp-connect-summary"),
-        "tools": page.locator("#mcp-tools .mcp-tool").count(),
-        "call": page.inner_text("#mcp-call-summary"),
-        "reinjected": page.inner_text(".mcp-call-text pre"),
-    }
-    r.check(
-        call["status"] == "ok"
-        and "Model Context Protocol" in shown["reinjected"]
-        and page.locator(".mcp-served").count() == 0,
-        "appel avec le préréglage : texte réinjecté ; glossaire local, pas de note « servi non "
-        "traduit »",
-        shown["reinjected"][:120],
-    )
-    _goto_mcp(r)
-    expect(page.locator("#mcp-call-summary")).to_have_attribute("data-status", "ok", timeout=10_000)
-    replayed = {
-        "messages": _mcp_messages(r),
-        "summary": page.inner_text("#mcp-connect-summary"),
-        "tools": page.locator("#mcp-tools .mcp-tool").count(),
-        "call": page.inner_text("#mcp-call-summary"),
-        "reinjected": page.inner_text(".mcp-call-text pre"),
-    }
-    r.check(
-        replayed == shown
-        and page.locator('.mcp-server[data-server="local"] .mcp-badge-open').count() == 1,
-        "page rechargée : last_session rejoué, mêmes messages, mêmes outils, même appel, "
-        "connexion ouverte au glossaire",
-        str({k: (shown[k] == replayed[k]) for k in shown}),
-    )
-
-    # (5) data.gouv.fr, the network cut by the stack: the request leaves through the guard,
-    # shown, and fails; the page stays readable.
-    seq = r.ev.mark()
-    page.locator('button[data-connect="datagouv"]').click()
-    ended = r.ev.wait("mcp_lab_connect_ended", seq, timeout=90)["payload"]
-    expect(summary).to_have_attribute("data-status", "error", timeout=10_000)
-    outbound = page.locator("#mcp-messages .mcp-outbound")
-    first = outbound.first.inner_text() if outbound.count() else ""
+    # (4) data.gouv.fr, the network cut by the stack: the request leaves through the guard,
+    # shown in its detail, and fails; the failure stays on its card.
+    ended = _mcp_connect(r, "datagouv", timeout=90)
+    initialize = page.locator('#mcp-seq li.mcp-row[data-method="initialize"]').last
+    expect(initialize).to_have_class(re.compile(r"\bis-error\b"), timeout=10_000)
+    initialize.locator("button.mcp-arrow").click()
+    detail = initialize.locator(".mcp-message-detail")
+    outbound = detail.locator(".mcp-outbound")
+    card = page.locator('#mcp-servers .mcp-server[data-server="datagouv"]')
     r.check(
         ended["status"] == "error"
-        and "connexion impossible" in summary.inner_text()
-        and outbound.count() >= 1
-        and "POST https://mcp.data.gouv.fr/mcp" in first
-        and page.locator("#mcp-call-form").is_hidden()
-        and page.locator("#mcp-tools-empty").is_visible(),
-        "data.gouv.fr hors réseau : requête sortante POST affichée, connexion en erreur "
-        "dite, ni outil ni appel proposés",
-        f"{summary.inner_text()[:160]} · {first[:120]!r}",
+        and ended["connection"] == "closed"
+        and outbound.count() == 1
+        and "POST https://mcp.data.gouv.fr/mcp" in outbound.inner_text()
+        and card.locator(".mcp-badge-state.is-failed").count() == 1
+        and "reste disponible" in page.locator("#mcp-server-note").inner_text()
+        and page.locator("#mcp-tab-tools").count() == 0,
+        "data.gouv.fr hors réseau : requête sortante POST dans l'encart, initialize en rouge, "
+        "carte « injoignable », le glossaire reste disponible, aucun onglet",
+        f"{ended.get('error_kind')} · {page.locator('#mcp-server-note').inner_text()[:120]}",
     )
-    r.shot("66-atelier-mcp-serveur-public-hors-reseau", full_page=True)
+    r.shot("66-atelier-mcp-serveur-public-hors-reseau")
 
-    # (6) A public server's tools, served by `page.route` (no network here).
+    # (5) A public server's tools, served by `page.route` (no network here).
     calls: list[dict[str, Any]] = []
 
     def state(route) -> None:  # noqa: ANN001
@@ -7233,13 +7542,17 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
     page.route("**/api/mcp_lab", state)
     page.route("**/api/intentions/mcp_lab_call", intercepted)
     _goto_mcp(r)
-    served = page.locator('.mcp-tool[data-tool="datagouv__search_datasets"] .mcp-served')
+    expect(page.locator("#mcp-tab-tools")).to_be_visible(timeout=10_000)
     kinds = page.locator("#mcp-call-fields [data-kind]").evaluate_all(
         "fields => fields.map(f => [f.name, f.dataset.kind, f.type ?? f.tagName])"
     )
+    unavailable = [
+        page.locator(f"#mcp-tab-{k}").get_attribute("aria-disabled")
+        for k in ("resources", "prompts")
+    ]
     r.check(
-        served.count() == 1
-        and "non traduite" in served.inner_text()
+        unavailable == ["true", "true"]
+        and "⊘" in page.locator("#mcp-tab-resources").inner_text()
         and kinds
         == [
             ["query", "text", "text"],
@@ -7247,18 +7560,16 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
             ["filters", "json", "textarea"],
             ["strict", "boolean", "checkbox"],
         ],
-        "serveur public : « servi non traduit » ; un champ par paramètre : texte, nombre, "
+        "serveur public : ressources et prompts « ⊘ » ; un champ par paramètre : texte, nombre, "
         "JSON, case",
-        str(kinds),
+        f"{unavailable} {kinds}",
     )
-    note = _plain(page.inner_text(".mcp-call-text"))
-    outbound = page.locator(".mcp-call-outbound .mcp-outbound")
+    result = page.locator("#mcp-model-body .mcp-context-block.is-result")
     r.check(
-        "Borné : 512 tokens gardés sur 2 048." in note
-        and outbound.count() == 1
-        and "POST https://mcp.data.gouv.fr/mcp" in outbound.inner_text(),
-        "appel tronqué : la note « Borné » sous le texte réinjecté, sa requête sortante",
-        note[-160:],
+        result.count() == 1
+        and "Borné : 512 tokens gardés sur 2 048." in _plain(result.inner_text()),
+        "appel borné rejoué : la note « Borné » sous le résultat réinjecté",
+        _plain(result.inner_text())[-160:] if result.count() else "absent",
     )
     page.locator("#mcp-call-preset").select_option("0")
     query = page.locator('#mcp-call-fields input[name="query"]').input_value()
@@ -7266,7 +7577,7 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
     page.locator('#mcp-call-fields textarea[name="filters"]').fill("{oops")
     page.locator('#mcp-call-fields input[name="strict"]').check()
     page.locator("#mcp-call-run").click()
-    status = page.locator("#mcp-call-status")
+    status = page.locator("#mcp-command-status")
     expect(status).to_have_text("Valeur JSON invalide pour filters.", timeout=5000)
     r.check(
         query == "cybersécurité" and not calls,
@@ -7282,7 +7593,7 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
             {
                 "server": "datagouv",
                 "tool": "search_datasets",
-                "args": {
+                "arguments": {
                     "query": "cybersécurité",
                     "page_size": 20,
                     "filters": {"organization": "anssi"},
@@ -7295,6 +7606,49 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
     )
     page.unroute("**/api/mcp_lab")
     page.unroute("**/api/intentions/mcp_lab_call")
+
+    # (6) « Liste en échec » and « Fenêtre dépassée », served: the glossary's prompts/list left
+    # unanswered (its timeout in `list_errors`), then an ask whose context exceeds the window.
+    def failures(route) -> None:  # noqa: ANN001
+        response = route.fetch()
+        body = response.json()
+        body["last_session"] = _mcp_fake_failures(body["seq"])
+        body["open_server"] = "local"
+        route.fulfill(response=response, json=body)
+
+    page.route("**/api/mcp_lab", failures)
+    _goto_mcp(r)
+    listed = page.locator('#mcp-seq li.mcp-row[data-method="prompts/list"]')
+    expect(listed).to_have_count(1, timeout=10_000)
+    page.locator("#mcp-tab-prompts").click()
+    panel = page.locator("#mcp-panel-prompts")
+    model = page.locator('#mcp-seq li.mcp-row[data-kind="model"]')
+    r.check(
+        "is-error" in (listed.get_attribute("class") or "")
+        and "is-unanswered" in (listed.get_attribute("class") or "")
+        and "La liste des prompts a échoué" in (panel.text_content() or "")
+        and model.count() == 1
+        and "is-error" in (model.get_attribute("class") or "")
+        and "non envoyé" in (model.text_content() or ""),
+        "liste en échec : requête prompts/list en rouge, sans réponse, l'onglet le dit ; fenêtre "
+        "dépassée : la flèche Hôte → modèle « non envoyé » en rouge",
+        f"{listed.get_attribute('class')} · {(panel.text_content() or '')[:80]} · "
+        f"{(model.text_content() or '')[:80] if model.count() else 'absent'}",
+    )
+    page.unroute("**/api/mcp_lab")
+
+    # (7) The reset (`harness_reset`): the series drawn live goes, as a reload would show it.
+    _goto_mcp(r)
+    rows = page.locator("#mcp-seq li.mcp-row")
+    had = rows.count()
+    r.poll(lambda: r.api("GET", "/api/mcp_lab").json()["session_state"]["state"] == "idle", 15)
+    reset = r.api("POST", "/api/intentions/reset")
+    expect(rows).to_have_count(0, timeout=10_000)
+    r.check(
+        had > 0 and reset.status_code == 200 and rows.count() == 0,
+        "réinitialisation : la série affichée en direct disparaît (harness_reset)",
+        f"{had} flèche(s) avant · {reset.status_code}",
+    )
     r.check(not errors, "/mcp : aucune erreur JavaScript", str(errors)[:300])
 
 
@@ -7311,8 +7665,8 @@ _DATAGOUV_SCHEMA = {
 
 
 def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
-    """A `last_session` with a public server's connection and a bounded call, validated by
-    the journal's `Envelope` (its payload models)."""
+    """A `last_session` with a public server's connection and a bounded call (AD-27),
+    validated by the journal's `Envelope` (its payload models)."""
     definition = json.dumps(
         {
             "type": "function",
@@ -7332,46 +7686,46 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
         "inputSchema": _DATAGOUV_SCHEMA,
     }
     listed = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"tools": [served]}})
+    first = seq - 11
+    message = lambda direction, method, text, kind, ms, reply=None: {  # noqa: E731
+        "direction": direction,
+        "method": method,
+        "jsonrpc": text,
+        "elapsed_ms": ms,
+        "elapsed_kind": "round_trip" if kind == "response" else "since_start",
+        "message_type": kind,
+        "reply_to_seq": reply,
+    }
     events = [
         (
             "mcp90",
-            "mcp_lab_message",
+            "mcp_lab_exchange_started",
             {
-                "direction": "to_server",
-                "method": "initialize",
-                "jsonrpc": rpc("initialize", 0),
-                "elapsed_ms": 0,
+                "exchange": "connect",
+                "server": "datagouv",
+                "transport": "streamable_http",
+                "launch_text": "ouvre une session HTTP avec mcp.data.gouv.fr",
             },
         ),
         (
             "mcp90",
             "mcp_lab_message",
-            {
-                "direction": "from_server",
-                "method": "initialize",
-                "jsonrpc": answer(0),
-                "elapsed_ms": 40,
-            },
+            message("to_server", "initialize", rpc("initialize", 0), "request", 0),
         ),
         (
             "mcp90",
             "mcp_lab_message",
-            {
-                "direction": "to_server",
-                "method": "tools/list",
-                "jsonrpc": rpc("tools/list", 1),
-                "elapsed_ms": 45,
-            },
+            message("from_server", "initialize", answer(0), "response", 40, first + 2),
         ),
         (
             "mcp90",
             "mcp_lab_message",
-            {
-                "direction": "from_server",
-                "method": "tools/list",
-                "jsonrpc": listed,
-                "elapsed_ms": 30,
-            },
+            message("to_server", "tools/list", rpc("tools/list", 1), "request", 45),
+        ),
+        (
+            "mcp90",
+            "mcp_lab_message",
+            message("from_server", "tools/list", listed, "response", 30, first + 4),
         ),
         (
             "mcp90",
@@ -7379,6 +7733,8 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
             {
                 "server": "datagouv",
                 "status": "ok",
+                "connection": "open",
+                "primitives": {"tools": True, "resources": False, "prompts": False},
                 "tools": [
                     {
                         "name": "datagouv__search_datasets",
@@ -7400,13 +7756,20 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
         ),
         (
             "mcp91",
-            "mcp_lab_message",
+            "mcp_lab_exchange_started",
             {
-                "direction": "to_server",
-                "method": "tools/call",
-                "jsonrpc": rpc("tools/call", 2),
-                "elapsed_ms": 0,
+                "exchange": "call",
+                "server": "datagouv",
+                "transport": "streamable_http",
+                "by": "hand",
+                "tool": "search_datasets",
+                "arguments": {"query": "cybersécurité"},
             },
+        ),
+        (
+            "mcp91",
+            "mcp_lab_message",
+            message("to_server", "tools/call", rpc("tools/call", 2), "request", 0),
         ),
         (
             "mcp91",
@@ -7416,7 +7779,13 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
                 "method": "POST",
                 "url": "https://mcp.data.gouv.fr/mcp",
                 "body": rpc("tools/call", 2),
+                "message_seq": first + 8,
             },
+        ),
+        (
+            "mcp91",
+            "mcp_lab_message",
+            message("from_server", "tools/call", answer(2), "response", 110, first + 8),
         ),
         (
             "mcp91",
@@ -7424,9 +7793,13 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
             {
                 "server": "datagouv",
                 "tool": "search_datasets",
+                "arguments": {"query": "cybersécurité"},
+                "by": "hand",
                 "status": "ok",
+                "connection": "open",
                 "raw": answer(2),
                 "text": "Jeux de données (e2e) : " + "cybersécurité " * 40,
+                "tokens": 512,
                 "truncated": {"tokens": 512, "total_tokens": 2048, "estimated": False},
                 "duration_ms": 120,
             },
@@ -7435,7 +7808,7 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
     envelopes = []
     for offset, (step, kind, payload) in enumerate(events, start=1):
         envelope = Envelope(
-            seq=seq - len(events) + offset,
+            seq=first + offset,
             ts=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
             session_epoch=0,
             context_id="mcp_lab",
@@ -7445,6 +7818,198 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
             trigger="user",
             brick="mcp",
             component="mcp_lab.datagouv",
+            payload=payload,
+        )
+        envelopes.append(json.loads(envelope.model_dump_json()))
+    return envelopes
+
+
+def _mcp_fake_failures(seq: int) -> list[dict[str, Any]]:
+    """A `last_session` of the glossary (AD-27): its prompts/list left unanswered (the timeout
+    in `list_errors`, the connection open), then an ask refused before any call, its context
+    over the usable window (`model_started`, then `model_ended{overflow}`, no model call)."""
+    rpc = lambda method, n: json.dumps({"jsonrpc": "2.0", "id": n, "method": method})  # noqa: E731
+    answer = lambda n, result: json.dumps({"jsonrpc": "2.0", "id": n, "result": result})  # noqa: E731
+    first = seq - 14
+    message = lambda direction, method, text, kind, ms, reply=None: {  # noqa: E731
+        "direction": direction,
+        "method": method,
+        "jsonrpc": text,
+        "elapsed_ms": ms,
+        "elapsed_kind": "round_trip" if kind == "response" else "since_start",
+        "message_type": kind,
+        "reply_to_seq": reply,
+    }
+    tool = {
+        "name": "local__define_term",
+        "tool": "define_term",
+        "description": "Donne la définition d'une notion (e2e).",
+        "schema": {"type": "object", "properties": {"term": {"type": "string"}}},
+        "definition_text": json.dumps(
+            {"type": "function", "function": {"name": "local__define_term"}}
+        ),
+        "doc_tokens": 98,
+        "line_text": "- local__define_term : Donne la définition d'une notion",
+        "line_tokens": 14,
+    }
+    caps = {"capabilities": {"tools": {}, "resources": {}, "prompts": {}}}
+    too_long = "Non envoyé : le contexte compte 5 000 tokens pour 3 584 utilisables."
+    events = [
+        (
+            "mcp95",
+            "mcp_lab_exchange_started",
+            {
+                "exchange": "connect",
+                "server": "local",
+                "transport": "stdio",
+                "launch_text": "lance le serveur : python -m wavestack.mcp.local_server fr",
+            },
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message("to_server", "initialize", rpc("initialize", 0), "request", 0),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message("from_server", "initialize", answer(0, caps), "response", 40, first + 2),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message(
+                "to_server",
+                "notifications/initialized",
+                json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+                "notification",
+                41,
+            ),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message("to_server", "tools/list", rpc("tools/list", 1), "request", 42),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message(
+                "from_server", "tools/list", answer(1, {"tools": []}), "response", 3, first + 5
+            ),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message("to_server", "resources/list", rpc("resources/list", 2), "request", 46),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message(
+                "from_server",
+                "resources/list",
+                answer(2, {"resources": []}),
+                "response",
+                3,
+                first + 7,
+            ),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_message",
+            message("to_server", "prompts/list", rpc("prompts/list", 3), "request", 50),
+        ),
+        (
+            "mcp95",
+            "mcp_lab_connect_ended",
+            {
+                "server": "local",
+                "status": "ok",
+                "connection": "open",
+                "primitives": {"tools": True, "resources": True, "prompts": True},
+                "tools": [tool],
+                "resources": [
+                    {"uri": "glossary://terms", "name": "terms", "mime_type": "text/plain"}
+                ],
+                "prompts": None,
+                "list_errors": [
+                    {
+                        "method": "prompts/list",
+                        "error_kind": "timeout",
+                        "error_text": "Le serveur n'a pas répondu dans le délai (10 s).",
+                    }
+                ],
+                "full_tokens": 98,
+                "duration_ms": 10_080,
+            },
+        ),
+        (
+            "mcp96",
+            "mcp_lab_exchange_started",
+            {
+                "exchange": "ask",
+                "server": "local",
+                "transport": "stdio",
+                "by": "model",
+                "question": "Que veut dire MCP ?",
+                "doc_mode_requested": "full",
+            },
+        ),
+        (
+            "mcp96.c1",
+            "mcp_lab_model_started",
+            {
+                "index": 1,
+                "sends": [
+                    {"part": "question", "label_text": "question", "tokens": 6},
+                    {"part": "tools", "label_text": "1 outil", "tokens": 98},
+                ],
+                "sends_total_tokens": 104,
+                "prompt_tokens": 5000,
+                "doc_mode": "full",
+                "phase_label": "Envoi au modèle (5 000 tokens)",
+            },
+        ),
+        (
+            "mcp96.c1",
+            "mcp_lab_model_ended",
+            {
+                "index": 1,
+                "status": "error",
+                "outcome": "overflow",
+                "final": True,
+                "error_text": too_long,
+            },
+        ),
+        (
+            "mcp96",
+            "mcp_lab_ask_ended",
+            {
+                "server": "local",
+                "status": "error",
+                "outcome": "overflow",
+                "error_text": too_long,
+                "connection": "open",
+                "duration_ms": 12,
+            },
+        ),
+    ]
+    envelopes = []
+    for offset, (step, kind, payload) in enumerate(events, start=1):
+        envelope = Envelope(
+            seq=first + offset,
+            ts=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+            session_epoch=0,
+            context_id="mcp_lab",
+            step_id=step,
+            parent_step="mcp96" if "." in step else None,
+            call_id=step if ".c" in step else None,
+            kind=kind,
+            actor="harness",
+            trigger="user",
+            brick="mcp",
+            component="mcp_lab.local",
             payload=payload,
         )
         envelopes.append(json.loads(envelope.model_dump_json()))
