@@ -3,6 +3,8 @@ name = "wavestack"
 version = "0.1.0"
 description = "Démonstrateur pédagogique d'un harnais agentique, brique par brique, en local sur CPU."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = "==3.13.*"
 dependencies = [
     "fastapi>=0.141,<0.142",
