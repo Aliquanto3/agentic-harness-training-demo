@@ -12101,6 +12101,93 @@ def _distribution_unavailable(r: Run, name: str, where: str) -> None:
         " lecture 404",
         f"{page.inner_text('#distribution-note')} · {read.status_code}",
     )
+    _example_draw(r, where)
+
+
+def _example_draw(r: Run, where: str) -> None:
+    """Correction F of 2026-10-05: no model can draw, « Tirer le token suivant » draws in the
+    example (`/api/llm_lab/example_draw`, by the session): one of its kept candidates, its chip
+    marked « exemple », its row marked in both charts and never named, « Ajouter » and
+    « Retirer » hidden, the history filled, no event of the screen; a setting moved erases
+    the chip and its marks."""
+    page = r.page
+    button = page.locator("#llm-step-button")
+    expect(button).to_be_enabled(timeout=5000)
+    seq = r.ev.mark()
+    page.click("#llm-step-button")
+    chip = page.locator("#llm-step-drawn .llm-output-chip.is-example")
+    expect(chip).to_have_count(1, timeout=5000)
+    chosen = page.locator("#distribution-bars .dist-row.is-chosen")
+    expect(chosen).to_have_count(1, timeout=5000)
+    drawn = chip.inner_text()
+    mention = page.inner_text("#llm-step-drawn .llm-output-chip-mention")
+    label = chip.get_attribute("aria-label") or ""
+    marked = page.locator("#logits-bars .dist-row.is-chosen .dist-text").all_inner_texts()
+    history = page.inner_text("#llm-step-history")
+    time.sleep(0.3)  # an event of the screen, if any, has had time to come
+    screen = [e["kind"] for e in r.ev.since(seq) if e.get("context_id") == "llm"]
+    r.check(
+        chosen.locator(".dist-text").inner_text() == drawn
+        and "is-dropped" not in (chosen.get_attribute("class") or "")
+        and marked == [drawn]
+        and mention.strip().lower() == "exemple"
+        and label.endswith("tiré dans l'exemple")
+        and page.inner_text("#distribution-token") == ""
+        and page.locator("#llm-step-append").is_hidden()
+        and page.locator("#llm-step-undo").is_hidden()
+        and history == f"derniers tirages : {drawn}"
+        and button.is_enabled()
+        and page.inner_text("#llm-step-status") == ""
+        and not screen,
+        f"{where} : « Tirer » tire dans l'exemple (puce « exemple », ligne gardée marquée dans"
+        " les deux graphiques, « Ajouter »/« Retirer » masqués, historique), aucun événement",
+        f"{drawn!r} · {mention!r} · {label!r} · {marked} · {history!r} · {screen}",
+    )
+    field = page.locator("#sampling-temperature")
+    field.fill("0.3")
+    field.dispatch_event("change")
+    expect(page.locator("#llm-step-drawn .llm-output-chip")).to_have_count(0, timeout=5000)
+    expect(page.locator("#distribution-bars .dist-row.is-chosen")).to_have_count(0, timeout=5000)
+    r.check(
+        page.locator("#logits-bars .dist-row.is-chosen").count() == 0
+        and page.inner_text("#llm-step-history") == f"derniers tirages : {drawn}",
+        f"{where} : un réglage bougé efface la puce d'exemple et ses marques, l'historique reste",
+        page.inner_text("#llm-step-history"),
+    )
+    # « Revenir aux valeurs du harnais » moves every setting: the chip and its marks go too.
+    page.click("#llm-step-button")
+    expect(page.locator("#llm-step-drawn .llm-output-chip.is-example")).to_have_count(
+        1, timeout=5000
+    )
+    expect(page.locator("#distribution-bars .dist-row.is-chosen")).to_have_count(1, timeout=5000)
+    page.click("#sampling-reset")
+    expect(page.locator("#llm-step-drawn .llm-output-chip")).to_have_count(0, timeout=5000)
+    expect(page.locator("#distribution-bars .dist-row.is-chosen")).to_have_count(0, timeout=5000)
+    r.check(
+        page.locator("#logits-bars .dist-row.is-chosen").count() == 0,
+        f"{where} : « Revenir aux valeurs du harnais » efface la puce d'exemple et ses marques",
+    )
+    _set_lab_sampling(r)
+
+    # The screen's texts unreadable (404 with the reason): the error under « Tirer », no chip.
+    def unreadable(route) -> None:  # noqa: ANN001
+        route.fulfill(status=404, json={"detail": "Contenu illisible (e2e)."})
+
+    page.route("**/api/llm_lab/example_draw", unreadable)
+    try:
+        page.click("#llm-step-button")
+        status = page.locator("#llm-step-status")
+        expect(status).to_have_text("Contenu illisible (e2e).", timeout=5000)
+        r.check(
+            "is-error" in (status.get_attribute("class") or "")
+            and page.locator("#llm-step-drawn .llm-output-chip").count() == 0
+            and button.is_enabled(),
+            f"{where} : tirage d'exemple refusé (404), sa raison en erreur sous « Tirer »",
+            page.inner_text("#llm-step-status"),
+        )
+    finally:
+        page.unroute("**/api/llm_lab/example_draw", unreadable)
+    _set_lab_sampling(r)
 
 
 def _lab_questions_and_window(r: Run) -> None:
@@ -13313,18 +13400,101 @@ def _llm_loop_cloud(r: Run) -> None:
         "/api/intentions/llm_step",
         {"prompt": "Bonjour", "continuation": [], "sampling": _LAB_SAMPLING},
     )
+    # Correction F of 2026-10-05: « Tirer » draws in the example (no reason, the note under
+    # the Draw describes it); the model's own step stays refused.
     r.check(
-        button.is_disabled()
-        and "Faux fournisseur (e2e)" in (button.get_attribute("title") or "")
+        button.is_enabled()
+        and not (button.get_attribute("title") or "")
+        and button.get_attribute("aria-describedby") == "distribution-note"
         and "Faux fournisseur (e2e)" in status
         and page.inner_text("#llm-step-status") == ""
         and refused.status_code == 409
-        and page.locator("#llm-step-raw").is_hidden(),
-        "cloud A : « Tirer le token suivant » grisé avec la raison des candidats (dite une fois,"
-        " avec l'exemple), appel direct 409, pas de phrase « sans gabarit »",
+        and page.locator("#llm-step-raw").is_hidden()
+        and page.locator("#llm-step-append").is_hidden()
+        and page.locator("#llm-step-undo").is_hidden(),
+        "cloud A : « Tirer le token suivant » actif (il tire dans l'exemple), la raison des"
+        " candidats dite une fois avec l'exemple, appel direct à llm_step 409, ni phrase"
+        " « sans gabarit » ni « Ajouter »/« Retirer »",
         f"{button.get_attribute('title')} · {status} · {refused.status_code}",
     )
+    _example_draw(r, "cloud A, boucle")
+    _example_draw_mode_switch(r)
     r.goto_app()
+
+
+class _SwitchLab(_LiveLab):
+    """Correction F of 2026-10-05: `/api/llm_lab` passed through (the fake cloud A: the
+    candidates unavailable, the example) until `switched`, then rewritten as `_LiveLab` does
+    (an engine in process); `/api/stream` served by `_LiveLab` (empty until released)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.switched = False
+        self.active_model: dict[str, Any] | None = None
+
+    def lab(self, route) -> None:  # noqa: ANN001
+        if self.switched:
+            super().lab(route)
+            return
+        response = route.fetch()
+        body = response.json()
+        self.next_seq = self.next_seq or body["seq"] + 1000
+        self.active_model = body["active_model"]
+        route.fulfill(response=response, json=body)
+
+
+def _example_draw_mode_switch(r: Run) -> None:
+    """Correction F of 2026-10-05: on one open `/llm` page, a token drawn in the example while
+    the candidates are unavailable, then the candidates available (`model_load_ended`, then
+    `refresh()` reads `/api/llm_lab` again, no navigation): the example's chip, its history
+    and its marked rows go, « Ajouter » and « Retirer » come back."""
+    page = r.page
+    live = _SwitchLab()
+    routes = [("**/api/llm_lab", live.lab), ("**/api/stream", live.stream)]
+    errors: list[str] = []
+    listener = lambda e: errors.append(str(e))  # noqa: E731
+    page.on("pageerror", listener)
+    for pattern, handler in routes:
+        page.route(pattern, handler)
+    try:
+        _goto_lab(r)
+        expect(page.locator("#llm-step-button")).to_be_enabled(timeout=5000)
+        page.click("#llm-step-button")
+        expect(page.locator("#llm-step-drawn .llm-output-chip.is-example")).to_have_count(
+            1, timeout=5000
+        )
+        expect(page.locator("#distribution-bars .dist-row.is-chosen")).to_have_count(
+            1, timeout=5000
+        )
+        before = page.inner_text("#llm-step-history")
+        live.switched = True
+        live.add_batch(
+            (
+                "model_load_ended",
+                {"model": live.active_model, "status": "ok", "duration_ms": 1200},
+            )
+        )
+        live.release()
+        expect(page.locator("#llm-step-append")).to_be_visible(timeout=10_000)
+        expect(page.locator("#llm-step-drawn .llm-output-chip")).to_have_count(0, timeout=5000)
+        expect(page.locator("#distribution-bars .dist-row.is-chosen")).to_have_count(
+            0, timeout=5000
+        )
+        r.check(
+            before.startswith("derniers tirages : ")
+            and page.locator(".llm-output-chip.is-example").count() == 0
+            and page.inner_text("#llm-step-history") == ""
+            and page.locator("#logits-bars .dist-row.is-chosen").count() == 0
+            and page.locator("#llm-step-undo").is_visible()
+            and not errors,
+            "cloud A puis candidats disponibles, même page : la puce d'exemple, son historique"
+            " et ses marques s'effacent, « Ajouter »/« Retirer » reviennent",
+            f"{before!r} · {page.inner_text('#llm-step-history')!r} · {errors}",
+        )
+    finally:
+        for pattern, handler in routes:
+            page.unroute(pattern, handler)
+        page.remove_listener("pageerror", listener)
 
 
 def _llm_loop(r: Run, live: _LoopLab) -> None:

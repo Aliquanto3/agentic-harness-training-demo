@@ -392,6 +392,10 @@ class OutputExample(_Strict):
     tag_text: str  # the badge, in place of `tag_text`
     note_text: str  # before the reason the real candidates cannot be read, or what to do
     unsupported_text: str  # after a setting's reason: it only moves the example
+    # Correction F of 2026-10-05: the token drawn in the example, its chip's mention and
+    # accessible name (`{texte}`: the token's text).
+    drawn_text: str
+    chip_label_text: str
     candidates: list[ExampleCandidate]
     tail: float = Field(ge=0.0, le=1.0)
 

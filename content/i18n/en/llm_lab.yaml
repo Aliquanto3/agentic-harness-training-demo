@@ -299,6 +299,8 @@ stages:
       tag_text: "Example · illustrative probabilities"
       note_text: "An illustrative example, not the model's computation: the settings move it as they move the real draw."
       unsupported_text: "It only moves the example."
+      drawn_text: "example"
+      chip_label_text: "{texte}, drawn in the example"
       candidates:
         - {text: "?", p: 0.48}
         - {text: " doing", p: 0.17}

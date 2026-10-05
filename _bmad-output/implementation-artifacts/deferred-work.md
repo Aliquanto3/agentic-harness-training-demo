@@ -1022,3 +1022,9 @@
   summary: Journal de la page principale (`app.js`, `ragLabStage`) — nommer « Lexical indexing » les événements à `part: "index"` (ils reprennent l'id de l'étape BM25 et s'affichent « BM25 · … », deux lignes par run hybride).
   evidence: low ; revue B2 (edge, verif, blind). `app.js` est modifié en parallèle par un autre lot ce jour-là : laissé de côté pour éviter un conflit. Correctif d'une ligne : `if (p.part) return` le libellé de l'étape du catalogue (`phase_label` porte déjà « Lexical indexing »).
   closed: lot des retours du 2026-10-05, après fusion de A, B et C : `ragLabStage` rend `main.log.rag_lab_lexical_index` (« Lexical indexing », fr/en/de) pour `part: "index"`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f-2026-10-05-atelier-llm-tirage-dans-l-exemple.md`
+  summary: E2E de l'Atelier LLM — retarder `/api/llm_lab/example_draw` (page.route), bouger un réglage pendant l'attente et vérifier qu'aucune puce n'apparaît et que « derniers tirages » ne change pas (garde `store.step.ticket`).
+  evidence: low ; revue F (verification-gap, blind) : `_example_draw` attend la puce avant de bouger un réglage, aucune requête n'est en vol quand le ticket change.
+- source_spec: `_bmad-output/implementation-artifacts/spec-f-2026-10-05-atelier-llm-tirage-dans-l-exemple.md`
+  summary: E2E de l'Atelier LLM — vérifier que « Tirer le token suivant » reste actif en mode exemple pendant une session occupée (par ex. pendant `_lab_generate(..., watch=True)` sur le cloud A).
+  evidence: low ; revue F (verification-gap) : la route est testée occupée (pytest), la page seulement au repos.

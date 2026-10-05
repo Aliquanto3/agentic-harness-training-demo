@@ -559,6 +559,21 @@ def create_app(
                 status_code=404, detail=render(missing.reason_text, app_session.language)
             ) from None
 
+    @app.post("/api/llm_lab/example_draw")
+    def llm_lab_example_draw(request: LlmExampleDistributionRequest) -> dict[str, object]:
+        """Correction F of 2026-10-05, read only, in any state (AD-1: drawn by the session):
+        one of the OUTPUT example's kept candidates drawn for a sampling, by the chances
+        `example_distribution` shows, when no real token can be drawn (a cloud model, a
+        server, no model); no event, nothing in the journal; 404 when the screen's texts
+        cannot be read."""
+        sampling = Sampling(**request.sampling.model_dump())
+        try:
+            return shown(app_session.llm_example_draw(sampling))
+        except DistributionMissing as missing:
+            raise HTTPException(
+                status_code=404, detail=render(missing.reason_text, app_session.language)
+            ) from None
+
     @app.get("/rag")
     def rag_page() -> FileResponse:
         """Story 30: the RAG workshop, a RAG chain drawn and run apart from the brick."""

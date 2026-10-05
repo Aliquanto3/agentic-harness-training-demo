@@ -49,8 +49,20 @@ const store = {
   // OUTPUT's draws (`added`: the tokens kept in the INPUT, for the text `forText`; `drawn`:
   // the last token the engine drew); `steppers`: one per stage; `transfo.last`: the step
   // drawn last (its vectors move to the next one's).
+  // Correction F (2026-10-05): `drawing`, a draw in the example in flight (only it greys
+  // « Tirer » then); `ticket`, bumped by a setting moved: its answer then draws nothing.
   tokenized: null,
-  step: { added: [], forText: null, prompt: null, drawn: null, history: [], status: "", error: false },
+  step: {
+    added: [],
+    forText: null,
+    prompt: null,
+    drawn: null,
+    history: [],
+    status: "",
+    error: false,
+    drawing: false,
+    ticket: 0,
+  },
   steppers: { input: null, transfo: null, output: null },
   transfo: { last: -1 },
 };
@@ -398,7 +410,8 @@ function renderTokenized(p) {
   // Correction C (2026-10-05): the first load's cut, then its step, real values with no click.
   if (store.auto === "tokenize") {
     store.auto = null;
-    if (p.exact && !store.dist.tokens && !anyPending() && !stepReason()) {
+    // Correction F: never in the example (`stepReason` is then null, nothing to read).
+    if (p.exact && !store.dist.tokens && !anyPending() && !exampleMode() && !stepReason()) {
       store.auto = "step";
       drawStep();
     }
@@ -1117,6 +1130,7 @@ function renderSampling() {
 }
 
 function resetSampling() {
+  clearDrawn(); // correction F: every setting moved, the token drawn goes (a draw in flight too)
   store.values = { ...store.sampling.defaults };
   saveSampling();
   renderSampling();
@@ -1320,7 +1334,11 @@ function renderDistribution(body) {
   // step's: nothing named).
   const named =
     store.dist.source === "step" ? Boolean(store.step.drawn) : store.gen.texts[store.dist.index] !== undefined;
-  const chosen = example || !named ? null : body.token_text;
+  // Correction F (2026-10-05): the example's token drawn by « Tirer » is marked in both
+  // charts by its position (the session's `index`), never named (no engine drew it).
+  const chosenIndex = example && store.step.drawn?.example ? store.step.drawn.index : null;
+  const chosen = example ? null : named ? body.token_text : null;
+  const isChosen = (c, i) => (example ? i === chosenIndex : chosen !== null && c.text === chosen);
   $("distribution-token").textContent =
     chosen === null
       ? ""
@@ -1336,12 +1354,12 @@ function renderDistribution(body) {
   // The Logits: the model's probability of each word, then the rest of the vocabulary.
   const logits = $("logits-bars");
   logits.replaceChildren();
-  for (const c of shown) {
+  shown.forEach((c, i) => {
     const row = el("li", "dist-row");
-    if (chosen !== null && c.text === chosen) row.classList.add("is-chosen");
+    if (isChosen(c, i)) row.classList.add("is-chosen");
     row.append(distText(c.text), distributionBar("is-model", c.p, percent().format(c.p), probability));
     logits.append(row);
-  }
+  });
   const rest = el("li", "dist-row is-tail");
   rest.append(el("span", "dist-text", text("distribution.tail_text")));
   rest.append(distributionBar("is-model", body.tail, percent().format(body.tail), probability));
@@ -1356,7 +1374,7 @@ function renderDistribution(body) {
   shown.forEach((c, i) => {
     const row = el("li", "dist-row");
     if (!c.kept) row.classList.add("is-dropped");
-    if (chosen !== null && c.text === chosen) row.classList.add("is-chosen");
+    if (isChosen(c, i)) row.classList.add("is-chosen");
     const why = body.dropped_by?.[i];
     const dropped = why ? text("stages.output.dropped_text", { reglage: why }) : text("distribution.dropped_text");
     row.append(distText(c.text));
@@ -1425,8 +1443,16 @@ function showOutputStep(index) {
   caption($("output-caption"), `stages.output.steps.${step}`);
 }
 
-// Why « Tirer » cannot be pressed now, else `null`.
+// Correction F (2026-10-05): no token can be drawn by the model (a cloud model, a server, no
+// model): « Tirer » draws among the example's kept candidates (`/api/llm_lab/example_draw`).
+// An engine in process still showing the example (before a cut) is not this mode.
+function exampleMode() {
+  return Boolean(store.candidates) && !store.candidates.available;
+}
+
+// Why « Tirer » cannot be pressed now, else `null` (none in the example: it needs no model).
 function stepReason() {
+  if (exampleMode()) return null;
   const busy = busyReason();
   if (busy) return busy;
   const offer = store.candidates;
@@ -1441,6 +1467,7 @@ function stepReason() {
 
 // A setting moved: the token drawn was drawn with the previous ones (the mockup's rule).
 function clearDrawn() {
+  store.step.ticket += 1; // correction F: a draw in the example in flight is stale
   if (!store.step.drawn) return;
   store.step.drawn = null;
   unmarkStepToken();
@@ -1448,9 +1475,10 @@ function clearDrawn() {
 }
 
 // Correction D (2026-10-05): a step's token chip gone, its name and its marked rows go with
-// it at once (the bars asked again draw them so too, `renderDistribution`).
+// it at once (the bars asked again draw them so too, `renderDistribution`). Correction F
+// (2026-10-05): the example's marked row goes too.
 function unmarkStepToken() {
-  if (store.dist.source !== "step" || store.dist.example) return;
+  if (store.dist.source !== "step" && !store.dist.example) return;
   $("distribution-token").textContent = "";
   for (const row of document.querySelectorAll("#logits-bars .is-chosen, #distribution-bars .is-chosen")) {
     row.classList.remove("is-chosen");
@@ -1459,20 +1487,32 @@ function unmarkStepToken() {
 
 function renderStep() {
   const step = store.step;
+  const example = exampleMode();
   const reason = stepReason();
   const pending = anyPending();
   const draw = $("llm-step-button");
-  draw.disabled = Boolean(reason) || pending;
+  // Correction F (2026-10-05): in the example, greyed only while its own draw is in flight.
+  draw.disabled = example ? step.drawing : Boolean(reason) || pending;
   draw.title = reason || "";
   const drawn = $("llm-step-drawn");
   drawn.replaceChildren();
-  if (step.drawn) {
+  if (step.drawn?.example) {
+    // Drawn in the example by the session: its chip says so, in words, not by colour alone.
+    const chip = el("span", "llm-output-chip is-example", visibleBlanks(step.drawn.text));
+    chip.setAttribute("aria-label", text("stages.output.example.chip_label_text", { texte: quote(step.drawn.text) }));
+    const mention = el("span", "llm-stage-tag is-example llm-output-chip-mention", text("stages.output.example.drawn_text"));
+    mention.setAttribute("aria-hidden", "true"); // said by the chip's name
+    drawn.append(chip, mention);
+  } else if (step.drawn) {
     const chip = el("span", "llm-output-chip", visibleBlanks(step.drawn.text));
     chip.setAttribute("aria-label", t("llm.token_label", { text: quote(step.drawn.text), id: String(step.drawn.id) }));
     drawn.append(chip);
   } else {
     drawn.append(el("span", "llm-output-history", text("stages.output.none_text")));
   }
+  // The example has nothing to follow: neither « Ajouter à la suite » nor « Retirer le dernier ».
+  $("llm-step-append").hidden = example;
+  $("llm-step-undo").hidden = example;
   $("llm-step-append").disabled = !step.drawn || step.drawn.id === null || pending || step.added.length >= STEP_LIMIT;
   $("llm-step-undo").disabled = !step.added.length || pending;
   // « sans gabarit »: said only where a step can be drawn (not a server, not a cloud model).
@@ -1482,12 +1522,15 @@ function renderStep() {
     : "";
   const status = $("llm-step-status");
   status.classList.toggle("is-error", step.error);
-  // The reason « Tirer » is greyed (a server, a cloud model), unless a status says more.
-  // Correction C (2026-10-05): the candidates' reason is said once, with the example under
-  // the Draw's chart (the button's title keeps it), so that the stage fits the screen.
+  // With an engine in process: the reason « Tirer » is greyed (busy, a text to cut first, the
+  // limit), unless a status says more. Correction C (2026-10-05): the candidates' reason is
+  // said once, with the example under the Draw's chart, so that the stage fits the screen.
+  // Correction F (2026-10-05): in the example (a server, a cloud model, no model) « Tirer »
+  // is never greyed by a reason: it draws in the example.
   const said = store.dist.example && reason && reason === store.candidates?.reason_text;
   status.textContent = step.status || (pending || said ? "" : reason || "");
-  if (said) draw.setAttribute("aria-describedby", "distribution-note");
+  // Correction F: in the example, the note under the Draw says what « Tirer » draws from.
+  if (said || example) draw.setAttribute("aria-describedby", "distribution-note");
   else draw.removeAttribute("aria-describedby");
 }
 
@@ -1497,7 +1540,43 @@ function setStepStatus(message, error = false) {
   renderStep();
 }
 
+// Correction F (2026-10-05): no model can draw (a cloud model, a server, no model): the
+// session draws one of the example's kept candidates, by the chances the Draw shows (AD-1:
+// the page sends the settings shown and draws the answer). No event, no journal line.
+async function drawExample() {
+  store.step.ticket += 1;
+  const ticket = store.step.ticket;
+  store.step.drawing = true;
+  setStepStatus("");
+  const answer = await post("/api/llm_lab/example_draw", { sampling: exampleSampling() });
+  store.step.drawing = false;
+  // A setting moved meanwhile, or the model changed: drawn with what no longer shows.
+  if (ticket !== store.step.ticket || !exampleMode()) {
+    renderStep();
+    return;
+  }
+  if (!answer.ok) {
+    // The error alone: the previous chip and its marked rows go with it.
+    store.step.drawn = null;
+    unmarkStepToken();
+    setStepStatus(refusalText(answer), true);
+    return;
+  }
+  const drawnText = answer.body.token_text;
+  store.step.drawn = { id: null, index: answer.body.index, text: drawnText, example: true };
+  store.step.history = [drawnText, ...store.step.history].slice(0, HISTORY);
+  store.step.status = "";
+  store.step.error = false;
+  store.steppers.output?.show(OUTPUT_STEPS.length - 1);
+  renderStep();
+  fetchExample(); // its row marked in both charts
+}
+
 async function drawStep() {
+  if (exampleMode()) {
+    await drawExample();
+    return;
+  }
   const prompt = $("llm-prompt").value;
   if (!prompt.trim()) {
     store.auto = null; // no read follows: the next « Tirer » draws
@@ -2346,7 +2425,15 @@ async function refresh() {
   store.tokenizer = body.tokenizer;
   store.sampling = body.sampling;
   store.reasoning = body.reasoning;
+  // Correction F (2026-10-05): a token drawn in the example and one drawn by the engine never
+  // mix: a model that starts (or stops) drawing for real clears the other mode's draws.
+  const wasExample = store.candidates ? exampleMode() : null;
   store.candidates = body.candidates;
+  if (wasExample !== null && wasExample !== exampleMode()) {
+    store.step.ticket += 1;
+    store.step.drawn = null;
+    store.step.history = [];
+  }
   store.lastLoad = body.last_load;
   // Story 5 (2026-09-30): what the session keeps of the last generation (0 after a switch).
   store.dist.tokens = body.distribution?.tokens || 0;

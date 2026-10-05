@@ -26,7 +26,8 @@ Maquette de référence : [mockups/llm-loop.html](mockups/llm-loop.html) (v3).
 - **Règle AD-1** : la page ne calcule aucun chiffre. Tokens, identifiants et dimensions
   viennent de `llm_tokenized` ; probabilités et chances de `POST /api/llm_lab/distribution`
   (celles de l'exemple de `POST /api/llm_lab/example_distribution`, correction C du 2026-10-05) ;
-  le token tiré du moteur (`llm_step`) ; l'architecture de
+  le token tiré du moteur (`llm_step`), ou, sans modèle qui tire, celui que la session tire
+  dans l'exemple (`POST /api/llm_lab/example_draw`, correction F du 2026-10-05) ; l'architecture de
   `llm_tokenized.dimensions.architecture`.
 - **Portée (D4)** : la TRANSFORMATION détaille le transformeur décodeur dense (Qwen3, Llama,
   Gemma). Un modèle hybride ou MoE garde le même dessin, sous un bandeau qui dit en quoi il
@@ -86,7 +87,8 @@ pas ».
 | Gardés | {gardés} gardés sur {lus} · la chance est partagée entre eux seuls (le reste du vocabulaire, {reste}, n'est pas tiré ici). |
 | Aide des réglages | les textes existants `sampling.settings.*.help_text` (au survol et au clic du nom) |
 | Token tiré | 🎲 Tirer le token suivant — ↺ Ajouter à la suite — Retirer le dernier — derniers tirages : … |
-| Sans moteur en processus | la raison existante `candidates.reason_text` (serveur, cloud), dans l'OUTPUT, sous le graphique du Tirage, après la note de l'exemple (correction C du 2026-10-05 : les graphiques d'exemple restent ; la raison n'est plus répétée sous « Tirer », dont le titre la garde, pour que l'étape tienne à 1366 × 768) |
+| Sans moteur en processus | la raison existante `candidates.reason_text` (serveur, cloud), dans l'OUTPUT, sous le graphique du Tirage, après la note de l'exemple (correction C du 2026-10-05 : les graphiques d'exemple restent ; la raison n'est plus répétée sous « Tirer », pour que l'étape tienne à 1366 × 768) |
+| Token tiré dans l'exemple (correction F du 2026-10-05) | Puce suivie du badge « exemple » ; nom accessible « {texte}, tiré dans l'exemple » |
 | Exemple (correction C du 2026-10-05) | Badges « Exemple · tokens d'illustration », « Exemple · probabilités d'illustration » — Exemple : un texte découpé comme le ferait un tokenizer, avec des identifiants d'illustration. Découpez votre texte : ses vrais tokens remplaceront ceux-ci. — Exemple de découpage, pas celui de ce modèle : son tokenizer est chez son fournisseur. Pour votre texte, WaveStack donne seulement l'estimation ci-contre. — Exemple d'illustration, pas le calcul du modèle : les réglages le font bouger comme le vrai tirage. — Il ne bouge que l'exemple. |
 
 ## Component Patterns
@@ -98,7 +100,7 @@ pas ».
 | TRANSFORMATION | Chaque pas redessine le canevas ; les cellules des vecteurs passent de l'état du pas précédent à celui du pas (0,5 s). Panneau : titre, explication, « En vrai, pour {modèle} », pile des couches (couche en cours en halo ; hybride : pleine = attention complète, tirets = récurrente). Les états des vecteurs sont pseudo-aléatoires à graine fixe : le même texte donne le même dessin. |
 | OUTPUT · Logits | Les 6 candidats les plus probables (texte et probabilité du modèle) et le reste du vocabulaire, du dernier pas (au premier chargement, le pas automatique : une lecture des candidats du token suivant, sans tirage, correction E du 2026-10-05), sinon du token choisi en section 6. Le token tiré n'est nommé (légende) et marqué que tant que sa puce est montrée, en section 6 ou dans « Token tiré » ; après un rechargement, rien n'est nommé (correction D du 2026-10-05). |
 | OUTPUT · Tirage | Les quatre réglages : chaque mouvement redemande la distribution (`/api/llm_lab/distribution`, 80 ms d'attente, la dernière réponse gagne) et redessine le graphique. Le nom de chaque réglage est un bouton : son explication au survol (`title`) et au clic, Entrée ou Espace (encart ancré, Échap le ferme). |
-| OUTPUT · Token tiré | « Tirer le token suivant » appelle `POST /api/intentions/llm_step` : le moteur lit le texte de l'INPUT et les tokens déjà ajoutés, tire un token avec les réglages, et renvoie ses candidats. La puce tirée s'affiche, les Logits et le Tirage passent à ce token. « Tirer » à nouveau retire au sort au même endroit (le cache rend le pas rapide). « Ajouter à la suite » ajoute le token à l'INPUT (puce « produit ») et remonte à l'INPUT ; « Retirer le dernier » enlève le dernier ajout. Changer le texte de l'INPUT efface les ajouts. 64 ajouts au plus. Un réglage bougé efface la puce tirée, avec sa légende et sa ligne marquée dans les graphiques ; « derniers tirages » reste (règle de la maquette, correction D du 2026-10-05). |
+| OUTPUT · Token tiré | « Tirer le token suivant » appelle `POST /api/intentions/llm_step` : le moteur lit le texte de l'INPUT et les tokens déjà ajoutés, tire un token avec les réglages, et renvoie ses candidats. La puce tirée s'affiche, les Logits et le Tirage passent à ce token. « Tirer » à nouveau retire au sort au même endroit (le cache rend le pas rapide). « Ajouter à la suite » ajoute le token à l'INPUT (puce « produit ») et remonte à l'INPUT ; « Retirer le dernier » enlève le dernier ajout. Changer le texte de l'INPUT efface les ajouts. 64 ajouts au plus. Un réglage bougé efface la puce tirée, avec sa légende et sa ligne marquée dans les graphiques ; « derniers tirages » reste (règle de la maquette, correction D du 2026-10-05). Sans modèle qui tire (cloud, serveur, aucun modèle ; correction F du 2026-10-05) : « Tirer » tire dans l'exemple, par la session (`POST /api/llm_lab/example_draw`), un des candidats gardés selon les chances affichées, jamais le reste du vocabulaire ; puce marquée « exemple », ligne marquée dans les deux graphiques sans légende (aucun moteur n'a tiré), « derniers tirages » rempli, « Ajouter à la suite » et « Retirer le dernier » masqués (l'exemple n'a pas de suite) ; aucun événement, rien au journal du Harnais. Le bouton n'est grisé que pendant son propre tirage. Un moteur en processus qui montre encore l'exemple (avant découpage) garde le vrai tirage. |
 | Bandeau D4 | En tête de la TRANSFORMATION quand `architecture.family` vaut `hybrid` ou `moe` ; raisons cumulées pour un hybride à experts. Jamais refermable. |
 
 ## State Patterns
@@ -110,8 +112,8 @@ pas ».
 | Avant toute tokenisation | Colonnes d'**exemple** (`stages.transfo.example_tokens` et `example_ids`), badge « Exemple · tokens d'illustration », note « Exemple : … » ; ◀ ▶ les découpent pas à pas | Dessin avec les tokens d'exemple, dit « exemple » | Graphiques d'**exemple** (`stages.output.example`, tirés par la session pour les réglages affichés), badge « Exemple · probabilités d'illustration », note + « Tirez le token suivant… » |
 | Tokenisé | Colonnes réelles, badge « Réel » | Tokens réels, dimensions réelles | Exemple jusqu'au premier pas |
 | Pas tiré / génération avec candidats | Ajouts en puces « produit » | Les ajouts comptent comme tokens | Graphiques réels, badge « Réel » ; un ajout ou un retrait repasse à l'exemple |
-| Serveur ou cloud | Cloud : colonnes d'exemple + « ≈ N tokens » du texte tapé, note « Exemple de découpage, pas celui de ce modèle » ; serveur : exemple puis colonnes réelles après « Découper » | Dimensions « inconnue » si non lues | Graphiques d'exemple avec la raison de session ; tous les curseurs actifs (un réglage non pris garde sa raison, « il ne bouge que l'exemple ») ; « Tirer » désactivé avec la raison |
-| Session occupée (tour de l'atelier, chargement) | Boutons désactivés avec la raison (existant) | — | « Tirer » désactivé avec la raison |
+| Serveur ou cloud | Cloud : colonnes d'exemple + « ≈ N tokens » du texte tapé, note « Exemple de découpage, pas celui de ce modèle » ; serveur : exemple puis colonnes réelles après « Découper » | Dimensions « inconnue » si non lues | Graphiques d'exemple avec la raison de session ; tous les curseurs actifs (un réglage non pris garde sa raison, « il ne bouge que l'exemple ») ; « Tirer » tire dans l'exemple (correction F du 2026-10-05), « Ajouter » et « Retirer » masqués |
+| Session occupée (tour de l'atelier, chargement) | Boutons désactivés avec la raison (existant) | — | « Tirer » désactivé avec la raison (moteur en processus ; sans modèle qui tire, il tire toujours dans l'exemple, correction F du 2026-10-05) |
 | Hybride / MoE | — | Bandeau ; MoE : routeur et experts au pas MLP | — |
 | Architecture non lue | — | Note sous le panneau | — |
 
@@ -161,7 +163,8 @@ projeté, Qwen3.5-2B chargé dans WaveStack.
    donne les tokens exacts ; la TRANSFORMATION porte la note « Architecture non lue ».
 2. L'OUTPUT montre l'exemple étiqueté : ses curseurs font bouger les barres, ce qui suffit à
    expliquer le tirage ; il dit que les vrais candidats ne sont lus qu'avec un modèle chargé
-   dans WaveStack, et « Tirer » est grisé avec la même raison.
+   dans WaveStack ; « Tirer » tire dans l'exemple, puce marquée « exemple » (correction F
+   du 2026-10-05).
 3. **Temps fort** : elle charge le GGUF dans WaveStack avant la session ; à l'ouverture de
    `/llm`, l'INPUT et l'OUTPUT montrent alors des valeurs réelles sans clic.
 

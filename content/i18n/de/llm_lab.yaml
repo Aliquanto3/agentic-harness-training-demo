@@ -301,6 +301,8 @@ stages:
       tag_text: "Beispiel · illustrative Wahrscheinlichkeiten"
       note_text: "Ein illustratives Beispiel, nicht die Rechnung des Modells: Die Einstellungen bewegen es wie die echte Ziehung."
       unsupported_text: "Sie bewegt nur das Beispiel."
+      drawn_text: "Beispiel"
+      chip_label_text: "{texte}, im Beispiel gezogen"
       candidates:
         - {text: " es", p: 0.71}
         - {text: "'s", p: 0.06}

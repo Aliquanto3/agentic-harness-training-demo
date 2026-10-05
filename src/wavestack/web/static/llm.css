@@ -1014,6 +1014,22 @@ body.llm-page {
   white-space: pre;
 }
 
+/* Correction F (2026-10-05): a token drawn in the example, dotted as the INPUT's example
+   tokens, followed by the « exemple » badge of the stages (the word carries the meaning). */
+.llm-output-chip.is-example {
+  background: var(--color-surface-raised);
+  border-style: dotted;
+}
+
+.llm-output-chip-mention {
+  margin-left: var(--spacing-2);
+  vertical-align: middle;
+}
+
+.llm-output-drawrow [hidden] {
+  display: none;
+}
+
 .llm-output-history {
   color: var(--color-ink-soft);
   font: var(--typography-body-sm-font-weight) var(--typography-body-sm-font-size) /

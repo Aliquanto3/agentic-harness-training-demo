@@ -83,6 +83,7 @@ Règles de dépendance :
     - les écarts entre deux valeurs reçues ;
     - le chronomètre local ancré sur le `ts` d’un `*_started`, que remplace le `duration_ms` du `*_ended`.
   - Story 5 du 2026-09-30 : la distribution vivante de l'écran « LLM nu » reste tenue par AD-1. À chaque réglage, la page redemande à la session (`POST /api/llm_lab/distribution`) qui reste en lice et la chance de chacun ; elle ne calcule aucune probabilité et n'en tire que la largeur des barres (mise en forme).
+  - Correction F du 2026-10-05 : sans modèle qui tire (cloud, serveur, aucun modèle), « Tirer le token suivant » tire dans l'exemple de l'OUTPUT. Le tirage est fait par la session (`POST /api/llm_lab/example_draw`, lecture seule, servie dans tout état et sans modèle) parmi les candidats gardés de l'exemple, aux chances de `candidates.distribution` (`draw_index`), celles que montrent les barres ; aucun événement, aucune ligne de journal. La page envoie les réglages affichés et dessine la réponse.
   - Un seul magasin de projection côté navigateur consomme tous les événements, que les volets soient visibles ou masqués.
 
 ### AD-2 — Enveloppe, catalogue et flux des événements

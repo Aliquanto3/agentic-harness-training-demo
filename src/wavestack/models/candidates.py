@@ -203,3 +203,24 @@ def distribution(top_p_values: Sequence[float], tail: float, sampling: Any) -> l
         {"p": v, "kept": i < kept_n, "p_sampled": sampled[i] if i < kept_n else 0.0}
         for i, v in enumerate(values)
     ]
+
+
+def draw_index(rows: Sequence[dict[str, Any]], rng: Any) -> int:
+    """Correction F of 2026-10-05: the index of one of `distribution`'s rows drawn among
+    the kept ones only, each with its `p_sampled` as weight (`rng.random()`, a
+    `random.Random`): the same chances as the bars the page draws. The first kept row when
+    every weight is 0 (T = 0 already gives it 1); `ValueError` when no row is kept."""
+    kept = [(i, max(0.0, float(r["p_sampled"]))) for i, r in enumerate(rows) if r["kept"]]
+    if not kept:
+        raise ValueError("no kept row to draw from")
+    total = sum(w for _, w in kept)
+    if total <= 0.0:
+        return kept[0][0]
+    point = rng.random() * total
+    cumulated = 0.0
+    for index, weight in kept:
+        cumulated += weight
+        if point < cumulated:
+            return index
+    # Rounding left `point` at the very top: the last kept row with a weight.
+    return next(i for i, w in reversed(kept) if w > 0.0)
