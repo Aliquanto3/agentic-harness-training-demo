@@ -7518,6 +7518,20 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
         said,
     )
 
+    # (1b) Story 3 (V1.1, CAP-6): « Mode focus » grows the Séquence pane, Echap closes it.
+    seq_pane = page.locator('.pane[data-pane="seq"]')
+    seq_focus = seq_pane.locator('[data-action="focus"]')
+    seq_focus.click()
+    expect(seq_pane).to_have_class(re.compile(r"\bis-focused\b"), timeout=5000)
+    opened = seq_focus.get_attribute("aria-pressed")
+    page.keyboard.press("Escape")
+    expect(seq_pane).not_to_have_class(re.compile(r"\bis-focused\b"), timeout=5000)
+    r.check(
+        opened == "true" and seq_focus.get_attribute("aria-pressed") == "false",
+        "Séquence : « Mode focus » l'agrandit (aria-pressed), Echap referme",
+        opened,
+    )
+
     # (2) A real turn of the workshop: « Occupé », the commands unavailable.
     seq = r.ev.mark()
     r.api("POST", "/api/intentions/send", {"message": "Explique le harnais [lent] [long]"})

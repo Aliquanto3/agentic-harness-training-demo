@@ -1695,6 +1695,13 @@ async function refresh() {
   return body;
 }
 
+// Story 3 (V1.1, CAP-6): the Séquence grown to almost the whole window (no `.pane`/panes.js
+// here, so its own toggle; Echap closes it, wired in `main`).
+function setSeqExpanded(on) {
+  $("rag-seq").classList.toggle("is-expanded", on);
+  $("rag-seq-expand").setAttribute("aria-pressed", String(on));
+}
+
 async function main() {
   await textsReady; // the page's texts and formats in the session's language (languages 4/5)
   const mode = stored(MODE_KEY);
@@ -1720,6 +1727,13 @@ async function main() {
   for (const button of document.querySelectorAll("#rag-modes [data-mode]")) {
     button.addEventListener("click", () => setMode(button.dataset.mode));
   }
+  $("rag-seq-expand").addEventListener("click", () => setSeqExpanded(!$("rag-seq").classList.contains("is-expanded")));
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (!$("rag-seq").classList.contains("is-expanded")) return;
+    event.preventDefault();
+    setSeqExpanded(false);
+  });
   document.body.dataset.ragReady = "true";
   streamEvents();
 }

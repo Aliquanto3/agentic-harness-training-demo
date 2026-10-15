@@ -86,7 +86,20 @@
       </div>
       <div class="rag-views" id="rag-views" data-mode="play">
         <div class="rag-seq" id="rag-seq">
-          <span class="rag-view-label" data-text="sequence_title_text">Séquence</span>
+          <div class="rag-seq-view-head">
+            <span class="rag-view-label" data-text="sequence_title_text">Séquence</span>
+            <div class="pane-actions">
+              <button
+                type="button"
+                id="rag-seq-expand"
+                aria-pressed="false"
+                title="Mode focus"
+                data-i18n-title="common.panes.focus"
+                aria-label="Mode focus"
+                data-i18n-aria-label="common.panes.focus"
+              >⛶</button>
+            </div>
+          </div>
           <p class="rag-phase is-build" id="rag-phase-build"></p>
           <ol class="rag-seq-list" id="rag-seq-build" aria-labelledby="rag-phase-build"></ol>
           <p class="rag-phase is-run" id="rag-phase-run"></p>

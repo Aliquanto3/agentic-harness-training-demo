@@ -181,6 +181,7 @@ export function createPanes({
       if (!pane) continue;
       pane.classList.toggle("is-hidden", hidden.has(id));
       pane.classList.toggle("is-focused", focused === id);
+      pane.querySelector('[data-action="focus"]')?.setAttribute("aria-pressed", String(focused === id));
       const button = pane.querySelector('[data-action="hide"]');
       if (!button) continue;
       // aria-disabled, never `disabled`: the button keeps the focus (AD-28).
@@ -397,6 +398,12 @@ export function createPanes({
     render();
     // aria-valuenow follows the window too (the left and bottom panes are in px).
     new ResizeObserver(scheduleHandleValues).observe(layout);
+    // Story 3 (V1.1): Echap leaves the focused pane, unless another handler already claimed it.
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || event.defaultPrevented || focused === null) return;
+      event.preventDefault();
+      toggleFocus(focused);
+    });
   }
 
   return {
