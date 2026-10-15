@@ -428,10 +428,19 @@ class DiagnosticSession:
         with self._lock:
             try:
                 self._extended = True
-                candidates = self._discover(self.selected_model_path)
+                # No probe here: a probe loads full weights, possibly beside the active
+                # model, and many files may be found; the chosen one is probed when chosen.
+                candidates = self._discover(self.selected_model_path, probe_only=set())
                 previous = self.last_result or DiagnosticResult(
                     ready=False, blocking_checks=["model"]
                 )
+                known = {  # keep earlier probe failures, as `_select_model_locked`
+                    c.path: c for c in previous.candidates if c.status == "incompatible" and c.path
+                }
+                for candidate in candidates:
+                    if candidate.path in known and candidate.status == "found":
+                        candidate.status = "incompatible"
+                        candidate.reason = known[candidate.path].reason
                 self.last_result = DiagnosticResult(
                     ready=previous.ready,
                     blocking_checks=previous.blocking_checks,

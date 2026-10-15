@@ -1015,3 +1015,50 @@ def test_incompatible_probe_keeps_the_loader_message_as_the_cause(monkeypatch, t
     error = [e.payload for e in get_journal().events_since(before) if e.kind == "harness_error"][0]
     assert error["message_text"] == f"Modèle incompatible : {reason}"
     assert error["cause"] == f"Failed to load model from file: {path}"
+
+
+def _hf_gguf(monkeypatch, tmp_path, name="hf.gguf"):
+    """A GGUF in the isolated Hugging Face cache of `_build` (read on demand only, CAP-4)."""
+    monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path / "data"))
+    hf_file = tmp_path / "no-hf-cache" / name
+    hf_file.parent.mkdir(parents=True, exist_ok=True)
+    hf_file.write_bytes(b"placeholder")
+    return hf_file
+
+
+def test_saved_hf_cache_model_still_boots_without_the_extended_search(monkeypatch, tmp_path):
+    """CAP-4: a file saved from the Hugging Face cache is an explicit path, still read at
+    launch although the cache itself is no longer searched."""
+    hf_file = _hf_gguf(monkeypatch, tmp_path)
+    config.save_setting("selected_model", str(hf_file))
+    session, _ = _build(monkeypatch, tmp_path)
+
+    result = session.check_model()
+
+    assert result.ready is True and result.model_path == str(hf_file)
+    assert [c.source for c in result.candidates if c.path == str(hf_file)] == ["explicit"]
+
+
+def test_search_more_lists_hf_cache_without_probing_and_keeps_it(monkeypatch, tmp_path):
+    """CAP-4: « Ajouter d'autres modèles… » lists the Hugging Face cache, probes nothing (a
+    probe loads full weights; the chosen file is probed when chosen) and stays on."""
+    hf_file = _hf_gguf(monkeypatch, tmp_path)
+    session, app = _build(monkeypatch, tmp_path, models=("a.gguf",))
+    probed = []
+    monkeypatch.setattr(
+        session, "_probe_candidate", lambda candidate, cancel=None: probed.append(candidate.path)
+    )
+    session.check_model()
+    probed.clear()
+    assert str(hf_file) not in {c.path for c in session.last_result.candidates}
+
+    response = _client(app).post(
+        "/api/intentions/search_more", json={}, headers={"Origin": "http://127.0.0.1:8420"}
+    )
+
+    assert response.status_code == 200
+    assert str(hf_file) in {c["path"] for c in response.json()["candidates"]}
+    assert probed == []
+    assert session.last_result.ready is True  # what was ready stays ready
+    other = session.select_model(str(config.models_dir() / "a.gguf"))
+    assert str(hf_file) in {c.path for c in other.candidates if c.source == "hf_cache"}

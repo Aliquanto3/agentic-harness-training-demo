@@ -120,3 +120,12 @@ lancement d'E2E dans cette story (laissé à l'orchestrateur).
 - Lancer WaveStack, ouvrir le sélecteur de modèles, choisir « Ajouter d'autres modèles… » :
   le sélecteur propose « Rechercher », puis liste les modèles trouvés dans le cache HF ou
   chez LM Studio s'il y en a.
+
+## Revue
+
+- high (second avis 1) | rejeté | un GGUF du cache HF enregistré reste candidat au démarrage : `discover()` l'insère comme `explicit` (chemin explicite, CAP-4). Prouvé par `test_saved_hf_cache_model_still_boots_without_the_extended_search`.
+- high (second avis 2, relevé de medium) | corrigé | `search_more` sondait tous les GGUF trouvés (chargement complet des poids, éventuellement à côté du modèle actif, 16 Go) dans la requête et sous le verrou. Désormais `probe_only=set()` et reprise des échecs connus, comme `_select_model_locked` ; le fichier choisi est sondé au choix.
+- medium (second avis 3) | corrigé | tests ajoutés dans `tests/test_cli_diagnostic.py` : redémarrage avec un modèle HF enregistré, `POST /api/intentions/search_more` (liste, aucun sondage, prêt conservé, drapeau gardé au `select_model` suivant).
+- low (second avis 4) | rejeté | `search_more` ne renvoie ni `model_path` ni `server` : seul son appelant lit le résultat (route qui n'expose que `candidates`), `hand_to` reçoit le résultat de `run()`, pas `last_result` ; même motif que `select_model` refusé.
+- info (second avis 5) | confirmé | rien à signaler sur `run_e2e.py`, Origin, classe (b), textes.
+- reporté | E2E `s_model_catalog` et clic réel du bouton dans Edge, laissés à l'orchestrateur.
