@@ -27,7 +27,9 @@
 // export createPanes(options) → controller
 //   options: { panes: [ids], labels: {id: name}, storageKey, layout: Element,
 //              left?, row?: [ids], bottom?, pinned?: [ids], chips?: Element,
-//              chipState?(id) → { linked?, awaiting?, title? }, onChange?() }
+//              chipState?(id) → { linked?, awaiting?, title? }, onChange?(),
+//              escape?: true when Echap should leave the focused pane (a page with no
+//              Escape handler of its own; app.js has one, ordered after its drawers) }
 //   controller: { hidden: Set, focused (get/set), sizes, isVisible(id), canHide(id),
 //                 hide(id), show(id), toggle(id), toggleFocus(id), load(), save(), start(),
 //                 render(), renderChips(), scheduleHandleValues() }
@@ -60,6 +62,7 @@ export function createPanes({
   chips = null,
   chipState = () => ({}),
   onChange = () => {},
+  escape = false,
 }) {
   const hidden = new Set();
   const sizes = {};
@@ -398,9 +401,12 @@ export function createPanes({
     render();
     // aria-valuenow follows the window too (the left and bottom panes are in px).
     new ResizeObserver(scheduleHandleValues).observe(layout);
-    // Story 3 (V1.1): Echap leaves the focused pane, unless another handler already claimed it.
+    // Story 3 (V1.1): Echap leaves the focused pane, unless another handler already claimed it
+    // or a modal dialog is open (its own Echap closes it). Opt-in: app.js orders its own.
+    if (!escape) return;
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || event.defaultPrevented || focused === null) return;
+      if (document.querySelector("dialog[open]")) return;
       event.preventDefault();
       toggleFocus(focused);
     });

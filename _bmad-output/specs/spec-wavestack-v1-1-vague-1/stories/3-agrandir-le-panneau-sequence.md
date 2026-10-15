@@ -73,3 +73,12 @@ context:
 - `uv run pytest -q --tb=short tests/test_ui_texts.py tests/test_web_app.py tests/test_web_tokens.py` -- obtenu : 87 passés.
 - `python .claude/cost-kit/controle_rapide.py` -- obtenu : aucun écart (lint/format).
 - E2E (non lancé par le développeur) : `uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py --channel msedge --only mcp_lab_page` -- à lancer par l'orchestrateur.
+
+## Revue
+
+- medium | second avis 1 | corrigé | sur `/`, l'écouteur Échap de `panes.js` (posé par `panes.start()`, avant celui d'app.js) passait avant tiroirs, menu des volets, panneau Fenêtre et sélection (story 34), qu'app.js gère déjà dans l'ordre, focus compris. Échap de `panes.js` devient opt-in (`escape: true`), activé par `mcp.js` seul ; `/` revient au comportement d'avant la story.
+- medium | second avis 2 | corrigé | Échap avec un volet focalisé annulait la fermeture native d'un `<dialog>` modal (audit, avertissement cloud sur `/`). Réglé par l'opt-in, plus une garde `dialog[open]` dans `panes.js`.
+- low | second avis 3 | rejeté | Échap dans un champ d'un volet focalisé sur `/mcp` : aucune action native perdue (le menu d'un `select` ouvert ne remonte pas au document), et sortir du focus est l'effet attendu.
+- low | second avis 4 | rejeté | le recouvrement RAG n'est pas modal (comme le « Mode focus » des volets) ; le ⛶ reste dans le recouvrement, donc le focus n'est jamais perdu à la fermeture.
+- low | second avis 5 | rejeté | le setter `focused` est toujours suivi d'un `render()` chez ses appelants (app.js passe par `store.focusedPane` puis `render`), comme le dit le contrat du module.
+- low | second avis 6 | corrigé | vérification légère ajoutée dans `_rag_lab` (scénario `rag_lab`) : ⛶, recouvrement à plus de 90 % de la fenêtre, `aria-pressed`, Échap. Reporté : lancer `--only mcp_lab_page,rag_lab` (non lancé en revue).

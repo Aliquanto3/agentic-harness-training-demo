@@ -14515,6 +14515,22 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         "Dérouler : les trois vues tiennent dans 1 000 px de haut",
         str(boxes["views"]),
     )
+    # Story 3 (V1.1, CAP-6): ⛶ grows the Séquence over the window, Echap closes it.
+    seq_expand = page.locator("#rag-seq-expand")
+    seq_expand.click()
+    expect(page.locator("#rag-seq")).to_have_class(re.compile(r"\bis-expanded\b"))
+    grown = page.evaluate(
+        "() => { const b = document.getElementById('rag-seq').getBoundingClientRect();"
+        " return b.width / innerWidth > 0.9 && b.height / innerHeight > 0.9; }"
+    )
+    pressed = seq_expand.get_attribute("aria-pressed")
+    page.keyboard.press("Escape")
+    expect(page.locator("#rag-seq")).not_to_have_class(re.compile(r"\bis-expanded\b"))
+    r.check(
+        grown and pressed == "true" and seq_expand.get_attribute("aria-pressed") == "false",
+        "Séquence RAG : ⛶ l'agrandit à la fenêtre (aria-pressed), Echap referme",
+        f"{grown} · {pressed}",
+    )
     _rag_mode(r, "compose")
     names = page.locator("#rag-seq .rag-seq-name").all_inner_texts()
     build = page.locator("#rag-seq-build .rag-seq-step").count()
