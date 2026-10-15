@@ -311,6 +311,8 @@ main:
     suffix_incompatible: "(incompatible)"
     picker_head: "Changer de modèle…"
     picker_table: "Tableau des modèles et de leurs capacités…"
+    picker_search_more: "Ajouter d'autres modèles…"
+    search_more_apply: "Rechercher"
     picker_other: "Autre fichier ou clé API…"
     group_local: "Sur ce poste"
     group_network: "Réseau"

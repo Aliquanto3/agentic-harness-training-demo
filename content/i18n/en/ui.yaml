@@ -300,6 +300,8 @@ main:
     suffix_incompatible: "(incompatible)"
     picker_head: "Change model…"
     picker_table: "Table of models and their capabilities…"
+    picker_search_more: "Add other models…"
+    search_more_apply: "Search"
     picker_other: "Other file or API key…"
     group_local: "On this workstation"
     group_network: "Network"

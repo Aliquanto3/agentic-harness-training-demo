@@ -241,8 +241,16 @@ def _server_candidates(
     return candidates
 
 
-def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
-    """List every model candidate, in AD-7 order. Never raises on a missing location."""
+def discover(
+    explicit_path: str | Path | None = None, *, extended: bool = False
+) -> list[ModelCandidate]:
+    """List every model candidate, in AD-7 order. Never raises on a missing location.
+
+    CAP-4: at launch (`extended=False`, the default), only `models_dir`, the explicit
+    path and Ollama's own folder are read; the Hugging Face cache and LM Studio's folders
+    are only read on demand (`extended=True`, the « Ajouter d'autres modèles » button), to
+    never freeze the disk of a testing machine with many GGUF files elsewhere.
+    """
     candidates: list[ModelCandidate] = []
     cfg = config.load_config()
     rag_files = _rag_model_files(cfg)  # stories 15, 16: the RAG's models are no chat model
@@ -251,18 +259,19 @@ def discover(explicit_path: str | Path | None = None) -> list[ModelCandidate]:
         for p in _glob_gguf(config.models_dir())
         if _key(p) not in rag_files and not _rag_model_dir(p)
     ]
-    candidates += [
-        ModelCandidate(source="hf_cache", status="found", path=str(p))
-        for p in _glob_gguf(_hf_cache_dir())
-    ]
+    if extended:
+        candidates += [
+            ModelCandidate(source="hf_cache", status="found", path=str(p))
+            for p in _glob_gguf(_hf_cache_dir())
+        ]
 
-    for lmstudio_dir in _lm_studio_dirs():
-        found = _glob_gguf(lmstudio_dir)
-        if found:
-            candidates += [
-                ModelCandidate(source="lm_studio", status="found", path=str(p)) for p in found
-            ]
-            break
+        for lmstudio_dir in _lm_studio_dirs():
+            found = _glob_gguf(lmstudio_dir)
+            if found:
+                candidates += [
+                    ModelCandidate(source="lm_studio", status="found", path=str(p)) for p in found
+                ]
+                break
 
     candidates += _ollama_candidates()
     candidates += _server_candidates(cfg)

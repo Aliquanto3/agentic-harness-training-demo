@@ -919,6 +919,15 @@ def create_app(
             "message_text": shown(message_text),
         }
 
+    @app.post("/api/intentions/search_more")
+    def search_more() -> dict[str, object]:
+        """CAP-4: the « Ajouter d'autres modèles » button. Turns on, for the rest of the
+        session, the search of the Hugging Face cache and LM Studio's folders, skipped at
+        launch; the next `/api/diagnostic` lists what it found."""
+        _diagnostic_class_b()
+        result = session.search_more()
+        return {"candidates": [c.model_dump() for c in result.candidates]}
+
     @app.post("/api/intentions/context_window")
     def context_window(intention: ContextWindowIntention) -> dict[str, object]:
         """Story 26, class (b): the window, applied in `idle` only (AD-3). A local or served
