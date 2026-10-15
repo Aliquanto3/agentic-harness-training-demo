@@ -93,3 +93,18 @@ cette story livrée.
 
 ## Revue
 
+
+Revue Opus du 2026-10-15 (commit 82ae19c), comportement CAP-4 vérifié sur `feat/v1-1-4-decouverte-ciblee`.
+
+- high | second avis 1-2 | corrigé | CAP-4 alignée sur la PR #36 : Ollama (appel HTTP et `~/.ollama/models`) lu au démarrage, « Ajouter d'autres modèles… » en fin du menu des modèles de l'Atelier Harnais, fichiers listés sans sondage, sondage au choix.
+- medium | second avis 3 | corrigé | `docs/installation.md` plaçait le bouton sur la page de diagnostic : il est dans le menu de l'atelier (`app.js`, `PICK_SEARCH_MORE`).
+- medium | revue | corrigé | le README disait que `irm … | iex` installe « sur place » dans un clone : sous `iex`, `$PSScriptRoot` est vide, il installe toujours dans `Documents\WaveStack` (vérifié en mode à blanc). Seul `install.bat` installe sur place.
+- medium | revue | corrigé | la dernière sous-section annonçait « une dizaine de minutes après ce clic » : le bouton ne sonde rien, l'attente vient d'Ollama au démarrage.
+- medium | second avis 4 | corrigé | consigne proxy du README déplacée avant la commande `irm`.
+- medium | second avis 5 | corrigé | `raw.githubusercontent.com` et `codeload.github.com` ajoutés à la liste du proxy.
+- medium | second avis 6 | corrigé | options PowerShell : depuis un clone (`.\install.ps1`, `install.bat`) ou par `& ([scriptblock]::Create((irm <url>))) -DryRun` (forme vérifiée en local) ; variables bash devant `bash`.
+- medium | second avis 7 | corrigé | `| sh` remplacé par `| bash` (le script exige bash : `set -o pipefail`, shebang bash).
+- low | second avis 8 | corrigé | avec 1-2.
+- low | second avis 9 | rejeté | `docs/modeles.md` (llama-server) hors du périmètre de la story (blocs d'installation uv, clone, modèle) et non modifié par le commit.
+- low | second avis 10 | corrigé | « zip décompressé » précisé ; le README disait déjà « depuis un clone ou un zip ».
+- reporté | `irm … | iex` de bout en bout sur un poste vierge derrière le proxy d'entreprise : non lancé (réseau et installation réels). À vérifier à la première passe testeur.

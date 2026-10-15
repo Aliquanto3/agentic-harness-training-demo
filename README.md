@@ -34,23 +34,22 @@ tous les modèles du RAG) et 4 Go de RAM libre. Sous macOS ou Linux, ou si une �
 (proxy, politique du poste), suivez [l'installation détaillée](docs/installation.md).
 
 **Une seule commande**, dans PowerShell (pas CMD) : elle installe `uv` si besoin, récupère
-WaveStack (sur place si vous l'avez déjà cloné ou décompressé, sinon dans
-`Documents\WaveStack`), dépose le modèle Qwen (1,3 Go), puis lance l'appli. Relancer la même
-commande plus tard rouvre WaveStack sans rien retélécharger :
+WaveStack dans `Documents\WaveStack`, dépose le modèle Qwen (1,3 Go), puis lance l'appli ;
+relancée plus tard, elle rouvre WaveStack sans rien retélécharger. **Sur un réseau
+d'entreprise**, tapez d'abord `$env:UV_SYSTEM_CERTS = "1"` dans ce même terminal et faites
+autoriser les domaines de [Derrière un proxy d'entreprise](docs/installation.md#derrière-un-proxy-dentreprise) :
 
 ```powershell
 irm https://raw.githubusercontent.com/Aliquanto3/agentic-harness-training-demo/main/install.ps1 | iex
 ```
 
-Depuis un clone ou un zip déjà sur le poste, double-cliquez sur `install.bat` à la place.
-**Sur un réseau d'entreprise**, dans PowerShell (pas CMD), tapez d'abord `$env:UV_SYSTEM_CERTS = "1"`
-et faites autoriser les domaines de [Derrière un proxy d'entreprise](docs/installation.md#derrière-un-proxy-dentreprise).
+Depuis un clone ou un zip décompressé, double-cliquez plutôt sur `install.bat` : il installe sur place.
 
 Au premier lancement, la page de diagnostic s'ouvre sans scanner tout le poste : seuls le
-dossier des modèles et les chemins explicites sont lus. Si plusieurs modèles sont trouvés,
-cliquez sur « Choisir ce modèle » en face de Qwen3.5-2B, puis sur le lien « Harnais ». Pour
-chercher d'autres modèles déjà installés (cache Hugging Face, LM Studio), utilisez « Ajouter
-d'autres modèles… », en bas du menu des modèles de l'Atelier Harnais.
+dossier des modèles, les chemins explicites et Ollama sont lus. Si plusieurs modèles sont
+trouvés, cliquez sur « Choisir ce modèle » en face de Qwen3.5-2B, puis sur le lien « Harnais ».
+Pour y ajouter des modèles déjà téléchargés ailleurs (cache Hugging Face, LM Studio), choisissez
+« Ajouter d'autres modèles… », en bas du menu des modèles de l'Atelier Harnais.
 
 **Si vous préférez les étapes à la main**, ou si l'installeur échoue : dans PowerShell (pas CMD),
 installez `uv`, récupérez WaveStack, puis déposez le modèle Qwen (1,28 Go), hors du dossier cloné :
