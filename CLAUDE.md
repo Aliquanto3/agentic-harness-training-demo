@@ -13,3 +13,8 @@ Démonstrateur pédagogique local qui montre, brique par brique, ce qu'un harnai
 - Utiliser `ruff` pour le lint et le formatage, `pytest` pour les tests.
 - Code et identifiants en anglais. Textes d'interface et contenus pédagogiques en français par défaut, anglais et allemand en surcouche sous `content/i18n/{en,de}/` (même arborescence, mêmes noms de fichiers, résolus par `config.content_file`).
 - Le processus de développement suit la méthode BMAD, dont la configuration est dans `_bmad/`.
+
+## Commandes
+- Contrôle rapide de fin de story (lint et format, 3 s) : `python .claude/cost-kit/controle_rapide.py`
+- Tests ciblés : `uv run pytest -q --tb=short tests/test_<module>.py` ; suite complète en quatre quarts, jamais deux suites à la fois (16 Go de RAM).
+- E2E : `uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py --channel msedge --only <scénarios>`, par tranches de 4 à 6 scénarios (`tools/e2e/README.md`).

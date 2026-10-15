@@ -43,3 +43,4 @@ data/*.tmp
 
 # Finition V1: the results of tools/recette_scenarios_2b.py, run from the repo root
 recette-scenarios-2b.json
+.claude/cost-kit/.blocages
