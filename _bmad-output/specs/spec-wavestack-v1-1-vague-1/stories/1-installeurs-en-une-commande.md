@@ -96,3 +96,14 @@ relancer l'application, ne retélécharge ni le projet ni le modèle déjà pré
 téléchargement effectif de `uv` et du modèle sur un poste sans droits admin.
 
 </frozen-after-approval>
+
+## Revue
+
+- high | second avis 1 | corrigé | modèle téléchargé vers `.part` puis renommé (ps1 et sh) : une coupure ne laisse plus un GGUF tronqué pris pour « déjà présent ». Vérifié : URL en échec → code 1, aucun fichier final.
+- medium | second avis 2 | corrigé | `$LASTEXITCODE` contrôlé après `git clone` et l'installeur de uv. Vérifié par `test_install_ps1_stops_when_git_clone_fails` (faux git, code 1, pas de dossier de données).
+- medium | second avis 3 | corrigé | corps de `install.ps1` dans un bloc enfant `& { }` ; `UV_PROJECT_ENVIRONMENT`, `UV_CACHE_DIR`, `WAVESTACK_DATA_DIR` posés seulement autour du lancement puis restaurés. Vérifié sous `iex` : `$ErrorActionPreference` reste `Continue`. Le `PATH` garde uv exprès.
+- medium | second avis 4 | corrigé | sans git : archive zip de `main` (`Invoke-WebRequest` + `Expand-Archive`, `Remove-Item` remplacé par `[IO.File]::Delete` car il refuse le `%TEMP%` en 8.3 de ce poste) ; tarball + `tar --strip-components=1` sous bash. Vérifié avec des archives locales en `file://`.
+- medium | revue | corrigé | `-DataDir` (ou `WAVESTACK_INSTALL_DIR`/`WAVESTACK_DATA_DIR` sous bash) déposait le modèle dans un dossier que l'appli ne lisait pas : `config.data_dir()` ne lit que `WAVESTACK_DATA_DIR`. L'installeur l'exporte désormais pour `uv run wavestack`.
+- low | second avis 5 | corrigé | `pause` dans `install.bat` si le code de sortie est non nul ; `install.bat` en CRLF (`.gitattributes`).
+- low | second avis 6 | corrigé en partie | ajout du mode à blanc de `install.sh` et de l'échec de clone ; le partiel n'a pas de test automatique (il faudrait un vrai téléchargement), vérifié à la main.
+- reporté | revue | à vérifier sur un poste réel sans droits admin : `irm | iex` complet (uv, zip ou clone, Qwen 1,3 Go, page ouverte) ; `install.sh` sur macOS et Linux ; URL du zip et du tarball GitHub (dépôt public, branche `main`).

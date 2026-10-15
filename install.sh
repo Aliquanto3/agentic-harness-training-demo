@@ -12,6 +12,7 @@ set -euo pipefail
 QWEN_URL="https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
 QWEN_FILE="Qwen3.5-2B-Q4_K_M.gguf"
 REPO_URL="https://github.com/Aliquanto3/agentic-harness-training-demo.git"
+TARBALL_URL="https://github.com/Aliquanto3/agentic-harness-training-demo/archive/refs/heads/main.tar.gz"
 
 INSTALL_DIR="${WAVESTACK_INSTALL_DIR:-}"
 DATA_DIR="${WAVESTACK_DATA_DIR:-}"
@@ -63,7 +64,13 @@ fi
 if [ ! -f "$INSTALL_DIR/pyproject.toml" ]; then
     echo "Recuperation de WaveStack dans $INSTALL_DIR..."
     mkdir -p "$(dirname "$INSTALL_DIR")"
-    git clone "$REPO_URL" "$INSTALL_DIR"
+    if command -v git >/dev/null 2>&1; then
+        git clone "$REPO_URL" "$INSTALL_DIR"
+    else
+        # Pas de git sur le poste : archive de la branche main.
+        mkdir -p "$INSTALL_DIR"
+        curl -fL "$TARBALL_URL" | tar -xz --strip-components=1 -C "$INSTALL_DIR"
+    fi
 else
     echo "WaveStack deja present dans $INSTALL_DIR, pas de nouveau clone."
 fi
@@ -72,12 +79,16 @@ fi
 mkdir -p "$MODELS_DIR"
 if [ ! -f "$MODEL_PATH" ]; then
     echo "Telechargement du modele Qwen (1,3 Go)..."
-    curl -fL -o "$MODEL_PATH" "$QWEN_URL"
+    # Telechargement vers .part puis renommage : une coupure ne laisse pas un faux modele.
+    curl -fL -o "$MODEL_PATH.part" "$QWEN_URL"
+    mv -f "$MODEL_PATH.part" "$MODEL_PATH"
 else
     echo "Modele Qwen deja present, pas de nouveau telechargement."
 fi
 
-# -- Venv et caches sous le dossier de donnees, jamais sous Documents.
+# -- Venv et caches sous le dossier de donnees, jamais sous Documents ; l'appli lit ses
+#    modeles dans le meme dossier.
+export WAVESTACK_DATA_DIR="$DATA_DIR"
 export UV_PROJECT_ENVIRONMENT="$VENV_DIR"
 export UV_CACHE_DIR="$CACHE_DIR"
 

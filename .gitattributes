@@ -4,3 +4,5 @@ tests/fixtures/** -text
 src/wavestack/compression/tiktoken/9b5ad71b2ce5302211f9c61530b329a4922fc6a4 -text
 # install.sh runs on macOS/Linux: keep LF even when checked out on Windows.
 install.sh text eol=lf
+# cmd.exe reads install.bat: keep CRLF.
+install.bat text eol=crlf

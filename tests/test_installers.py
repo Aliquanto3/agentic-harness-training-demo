@@ -9,6 +9,7 @@ only exercise -DryRun or the already-installed, idempotent branch.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -119,3 +120,59 @@ def test_install_ps1_is_idempotent_when_already_installed(tmp_path) -> None:
     )
     assert "pas de nouveau clone" in result.stdout
     assert "pas de nouveau telechargement" in result.stdout
+
+
+def test_install_sh_dry_run_creates_nothing(tmp_path) -> None:
+    if not shutil.which("bash"):
+        pytest.skip("bash indisponible sur ce poste")
+    env = {
+        **os.environ,
+        "WAVESTACK_INSTALL_DIR": (tmp_path / "project").as_posix(),
+        "WAVESTACK_DATA_DIR": (tmp_path / "data").as_posix(),
+        "WAVESTACK_DRY_RUN": "1",
+    }
+    result = subprocess.run(
+        ["bash", (ROOT / "install.sh").as_posix()],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+        timeout=30,
+    )
+    assert "Qwen3.5-2B-Q4_K_M.gguf" in result.stdout
+    assert not (tmp_path / "project").exists()
+    assert not (tmp_path / "data").exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="install.ps1 cible Windows")
+@pytest.mark.skipif(
+    shutil.which("uv") is None, reason="uv absent : eviterait un telechargement reel"
+)
+def test_install_ps1_stops_when_git_clone_fails(tmp_path) -> None:
+    # A failing native command must stop the script before the 1.3 GB model download.
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "git.cmd").write_text("@exit /b 128\r\n", encoding="ascii")
+    env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"}
+    result = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ROOT / "install.ps1"),
+            "-InstallDir",
+            str(tmp_path / "project"),
+            "-DataDir",
+            str(tmp_path / "data"),
+            "-NoLaunch",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+    assert result.returncode != 0
+    assert "git clone a echoue" in result.stdout + result.stderr
+    assert not (tmp_path / "data").exists()
