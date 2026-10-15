@@ -8,6 +8,13 @@
     "ponytail@ponytail": true
   },
   "permissions": {
+    "allow": [
+      "Bash(uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff check *)",
+      "Bash(uv run ruff format --check *)",
+      "Bash(python .claude/cost-kit/controle_rapide.py)"
+    ],
     "deny": [
       "Read(./.venv/**)",
       "Read(./**/__pycache__/**)",
