@@ -8,6 +8,7 @@ commandes près.
 
 - [Prérequis](#prérequis)
 - [Derrière un proxy d'entreprise](#derrière-un-proxy-dentreprise)
+- [Installeur en une commande](#installeur-en-une-commande)
 - [Windows](#windows)
 - [macOS et Linux](#macos-et-linux)
 - [Le modèle local](#le-modèle-local)
@@ -72,16 +73,34 @@ données (`%LOCALAPPDATA%\WaveStack` sous Windows, `~/.local/share/wavestack` ai
 Ce fichier surcharge `wavestack.toml` sans le modifier ; les hôtes en boucle locale
 (`127.0.0.1`, `localhost`) et les hôtes de proxy détectés sont toujours autorisés.
 
+## Installeur en une commande
+
+`install.ps1` (Windows), `install.bat` (double-clic ou CMD, qui délègue à `install.ps1`) et
+`install.sh` (macOS, Linux) font en une seule commande ce que fait tout le pas à pas ci-dessous :
+installer `uv` s'il manque, récupérer WaveStack (sur place si le dossier contient déjà
+`pyproject.toml`, sinon dans `Documents\WaveStack` ou `~/Documents/WaveStack`), déposer le
+modèle Qwen, puis lancer `uv run wavestack`. Idempotent : relancer la même commande plus tard
+rouvre WaveStack sans retélécharger ce qui est déjà en place. Voir la [commande du
+README](../README.md#installation-sous-windows) ; sous macOS ou Linux, `curl -fsSL
+https://raw.githubusercontent.com/Aliquanto3/agentic-harness-training-demo/main/install.sh | sh`.
+
+Surcharges utiles pour un cas particulier : `-InstallDir`/`-DataDir` (PowerShell) ou
+`WAVESTACK_INSTALL_DIR`/`WAVESTACK_DATA_DIR` (bash) changent les dossiers ; `-DryRun`/
+`WAVESTACK_DRY_RUN=1` affiche les dossiers résolus sans rien installer ni télécharger ;
+`-NoLaunch`/`WAVESTACK_NO_LAUNCH=1` n'ouvre pas l'application à la fin.
+
+Si l'installeur échoue (politique du poste, proxy), suivez le pas à pas manuel ci-dessous.
+
 ## Windows
 
-Dans un terminal PowerShell, installez d'abord `uv` dans votre profil, puis fermez et rouvrez
+Dans PowerShell (pas CMD), installez d'abord `uv` dans votre profil, puis fermez et rouvrez
 le terminal pour que la commande `uv` soit reconnue :
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Dans le nouveau terminal, récupérez WaveStack, déposez le modèle (1,28 Go), puis lancez :
+Dans le nouveau terminal PowerShell (pas CMD), récupérez WaveStack, déposez le modèle (1,28 Go), puis lancez :
 
 ```powershell
 git clone <adresse-du-dépôt>
@@ -229,13 +248,18 @@ uv run python scripts/build_rag_index.py --lang de
 
 ## Premier lancement et diagnostic
 
-Au lancement, WaveStack vérifie la mémoire disponible, la présence d'un modèle GGUF déjà sur le
-poste, l'accès réseau et la disponibilité du port — chaque résultat s'affiche en français dans le
-terminal et sur la page de diagnostic. Si aucun modèle n'est trouvé, la page propose de saisir le
-chemin d'un fichier `.gguf` (partage, clé USB, cache Hugging Face, LM Studio, Ollama). Avec
-plusieurs modèles utilisables, cliquez sur « Choisir ce modèle » en face de celui que vous voulez, puis
-ouvrez l'Atelier Harnais par le lien « Harnais » de la barre de navigation. Pour la suite (l'interface,
-les scénarios, les ateliers), voir le [guide d'utilisation](guide.md).
+Au lancement, WaveStack vérifie la mémoire disponible, la présence d'un modèle GGUF, l'accès
+réseau et la disponibilité du port — chaque résultat s'affiche en français dans le terminal et
+sur la page de diagnostic. Pour ce test de présence, seuls le dossier des modèles et les chemins
+explicites (dont un modèle déjà enregistré) sont lus ; Ollama reste détecté par un simple appel
+réseau local. Le reste du poste (cache Hugging Face, LM Studio) n'est pas parcouru au démarrage :
+cela évite qu'une installation chargée de modèles fige le premier lancement. Si aucun modèle
+n'est trouvé, ou pour en proposer d'autres, la page affiche « Ajouter d'autres modèles… », qui
+lance cette recherche à la demande et affiche ce qu'elle trouve ; vous pouvez toujours saisir
+le chemin d'un fichier `.gguf` à la main (partage, clé USB). Avec plusieurs modèles utilisables,
+cliquez sur « Choisir ce modèle » en face de celui que vous voulez, puis ouvrez l'Atelier
+Harnais par le lien « Harnais » de la barre de navigation. Pour la suite (l'interface, les
+scénarios, les ateliers), voir le [guide d'utilisation](guide.md).
 
 ### Page ouverte au lancement
 
@@ -249,13 +273,13 @@ les scénarios, les ateliers), voir le [guide d'utilisation](guide.md).
 - Le diagnostic reste accessible par l'indicateur de modèle de la barre du bas et par le lien
   « 🛠️ Diagnostic » de la barre de navigation, en haut de chaque page.
 
-### Premier lancement long sur un poste qui a beaucoup de modèles
+### « Ajouter d'autres modèles… » et le premier lancement sur un poste qui en a beaucoup
 
-Avant de proposer un choix, le diagnostic teste chaque fichier GGUF trouvé (dossier des modèles,
-cache Hugging Face, LM Studio, Ollama), chacun dans un processus à part. Sur un poste qui a
-beaucoup de modèles Ollama, comptez une dizaine de minutes (18 modèles le 2026-10-02) ; la page
-dit « n modèles testés sur N ». Les résultats sont gardés dans `settings.json` : les lancements
-suivants ne refont pas ces tests (sauf pour un fichier modifié).
+Le diagnostic teste chaque fichier GGUF retenu (dossier des modèles, chemins explicites, puis
+ceux trouvés par « Ajouter d'autres modèles… »), chacun dans un processus à part. Sur un poste
+qui a beaucoup de modèles Ollama, comptez une dizaine de minutes après ce clic (18 modèles le
+2026-10-02) ; la page dit « n modèles testés sur N ». Les résultats sont gardés dans
+`settings.json` : les lancements suivants ne refont pas ces tests (sauf pour un fichier modifié).
 
 ## Mise à jour
 
