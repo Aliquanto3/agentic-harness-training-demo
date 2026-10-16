@@ -7518,6 +7518,20 @@ def _mcp_lab_page(r: Run, errors: list[str]) -> None:
         said,
     )
 
+    # (1b) Story 3 (V1.1, CAP-6): « Mode focus » grows the Séquence pane, Echap closes it.
+    seq_pane = page.locator('.pane[data-pane="seq"]')
+    seq_focus = seq_pane.locator('[data-action="focus"]')
+    seq_focus.click()
+    expect(seq_pane).to_have_class(re.compile(r"\bis-focused\b"), timeout=5000)
+    opened = seq_focus.get_attribute("aria-pressed")
+    page.keyboard.press("Escape")
+    expect(seq_pane).not_to_have_class(re.compile(r"\bis-focused\b"), timeout=5000)
+    r.check(
+        opened == "true" and seq_focus.get_attribute("aria-pressed") == "false",
+        "Séquence : « Mode focus » l'agrandit (aria-pressed), Echap referme",
+        opened,
+    )
+
     # (2) A real turn of the workshop: « Occupé », the commands unavailable.
     seq = r.ev.mark()
     r.api("POST", "/api/intentions/send", {"message": "Explique le harnais [lent] [long]"})
@@ -14500,6 +14514,22 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         boxes["views"]["h"] <= 1000 and boxes["focus"]["l"] > boxes["arch"]["r"],
         "Dérouler : les trois vues tiennent dans 1 000 px de haut",
         str(boxes["views"]),
+    )
+    # Story 3 (V1.1, CAP-6): ⛶ grows the Séquence over the window, Echap closes it.
+    seq_expand = page.locator("#rag-seq-expand")
+    seq_expand.click()
+    expect(page.locator("#rag-seq")).to_have_class(re.compile(r"\bis-expanded\b"))
+    grown = page.evaluate(
+        "() => { const b = document.getElementById('rag-seq').getBoundingClientRect();"
+        " return b.width / innerWidth > 0.9 && b.height / innerHeight > 0.9; }"
+    )
+    pressed = seq_expand.get_attribute("aria-pressed")
+    page.keyboard.press("Escape")
+    expect(page.locator("#rag-seq")).not_to_have_class(re.compile(r"\bis-expanded\b"))
+    r.check(
+        grown and pressed == "true" and seq_expand.get_attribute("aria-pressed") == "false",
+        "Séquence RAG : ⛶ l'agrandit à la fenêtre (aria-pressed), Echap referme",
+        f"{grown} · {pressed}",
     )
     _rag_mode(r, "compose")
     names = page.locator("#rag-seq .rag-seq-name").all_inner_texts()

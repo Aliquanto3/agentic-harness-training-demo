@@ -2320,6 +2320,7 @@ function startPanes() {
     bottom: "arch",
     pinned: ["seq"],
     chips: $("mcp-pane-chips"),
+    escape: true, // story 3 (V1.1): Echap leaves « Mode focus »
     onChange: () => {
       panes.render();
       layer?.schedule();

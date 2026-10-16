@@ -149,6 +149,30 @@ body.rag-page {
   text-transform: uppercase;
 }
 
+/* Story 3 (V1.1, CAP-6): the Séquence's own « Mode focus » (pages.css's `.pane-actions`
+   button, reused here although this view is not a `.pane`). */
+.rag-seq-view-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.rag-seq-view-head > .rag-view-label {
+  margin: 0;
+}
+
+.rag-seq.is-expanded {
+  position: fixed;
+  inset: var(--spacing-4);
+  z-index: 45; /* over the site-nav's own menu (pages.css, 40) */
+  overflow: auto;
+  background: var(--color-surface-raised);
+  border-radius: var(--rounded-lg);
+  box-shadow: 0 var(--spacing-relief-offset) 0 var(--color-relief);
+  padding: var(--spacing-4);
+}
+
 /* The sequence: BUILD then RUN, each under its band. */
 .rag-phase {
   display: flex;
