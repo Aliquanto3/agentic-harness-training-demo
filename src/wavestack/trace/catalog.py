@@ -590,15 +590,19 @@ class GuardrailExample(BaseModel):
 
 
 class GuardrailCard(BaseModel):
-    """Story 5 (CAP-5, CAP-6): one guardrail's row in the `guardrails` brick."""
+    """Story 5 (CAP-5, CAP-6): one guardrail's row in the `guardrails` brick. Story 13:
+    `injection`'s own install (a Hugging Face token, not the brick's extra) — `needs_token`
+    tells the front to show the token field and « Installer » instead of plain text, and
+    `loading`/`error` give the download its own states, the others never reach."""
 
     id: Literal["toxicity", "pii", "injection"]
     label_text: str
-    status: Literal["active", "off", "not_installed"]
+    status: Literal["active", "off", "not_installed", "loading", "error"]
     mode: Literal["block", "flag", "off"]
     modes: list[GuardrailModeOption] = []
     examples: list[GuardrailExample] = []
     install_text: str | None = None
+    needs_token: bool = False
 
 
 class BrickState(BaseModel):
@@ -640,6 +644,9 @@ class BrickState(BaseModel):
     outbound_text: str | None = None
     # Story 5, `guardrails` brick only: one row per guardrail (mode switch, examples).
     guardrails: list[GuardrailCard] | None = None
+    # Story 13, `guardrails` brick only: a real « Installer » for its extra (pip packages),
+    # shown instead of the plain `reason_text` command while it is missing.
+    installable: bool = False
 
 
 class SystemPromptState(BaseModel):
@@ -822,6 +829,8 @@ class EffectAppliedPayload(BaseModel):
         "model_download",
         "model_download_stopped",
         "rag_index_write",
+        # Story 13: the brick's « Installer » (`uv sync --extra guardrails`), no secret in it.
+        "guardrails_extra_installed",
     ]
     lines: list[str] = []
     # `memory_write` (story 14, AD-23): the change applied to `memory.json`.

@@ -149,6 +149,9 @@ main:
     mcp_workshop: "Voir le protocole dans l'atelier MCP →"
     help_label: "Ce que la brique {brick} ajoute"
     edit_prompt: "Modifier le prompt"
+    # Story 13, `guardrails` brick only: the extra's and Prompt Guard's « Installer ».
+    guardrails_install: Installer
+    guardrails_token_placeholder: "Collez votre jeton Hugging Face…"
     groups:
       reads: "Ce que le modèle lit"
       acts: "Ce que le harnais fait"
@@ -156,6 +159,8 @@ main:
       imposed: "Imposé par ce modèle"
       unavailable: "Indisponible"
       not_installed: "Non installé"
+      loading: "Chargement…"
+      error: "Erreur de chargement"
       switched_off: "Éteinte"
       waiting_model: "En attente du modèle"
       reserve: "Réserve de sortie : {tokens}"

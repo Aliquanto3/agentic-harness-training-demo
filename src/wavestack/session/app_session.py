@@ -20,6 +20,7 @@ import logging
 import math
 import random
 import re
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -31,6 +32,7 @@ from typing import Any, NamedTuple
 
 import httpx
 from mcp.shared.exceptions import MCPError
+from pydantic import SecretStr
 
 from wavestack import config
 from wavestack import memory as memory_file
@@ -941,6 +943,9 @@ class AppSession:
         # models (toxicity, personal data) load lazily, at the manager's first `check`.
         self._guardrails_missing = guardrails_availability.missing_fr()
         self._guardrails = GuardrailsManager()
+        # Story 13: true while `install_prompt_guard`'s thread runs (its own `loading`
+        # status, on the `injection` row only; the brick stays `idle`/`download` as before).
+        self._injection_loading = False
         self._guardrail_steps = 0  # story 5: its own step counter, like `_hook_steps`
         # Story 5: the message as the history keeps it (masked by an input guardrail), and
         # whether the answer was withheld from the live stream until its output check.
@@ -1646,6 +1651,9 @@ class AppSession:
                 }
             if brick.id == "guardrails":
                 bricks[-1]["guardrails"] = self._guardrails_card()
+                # Story 13: a real « Installer » replaces the plain command once the brick
+                # is missing its extra, on this card alone (the toggle is already disabled).
+                bricks[-1]["installable"] = self._guardrails_missing is not None
         text = custom if custom is not None else self._default_prompt
         self._journal().emit(
             "bricks_changed",
@@ -3423,18 +3431,15 @@ class AppSession:
 
     def _guardrails_card(self) -> list[dict[str, Any]]:
         """Story 5 (CAP-5, CAP-6): one entry per guardrail, for the brick's mode switches
-        and « Essayer : … » buttons. `injection` always `not_installed` (story 13, Prompt
-        Guard, out of this story's scope)."""
+        and « Essayer : … » buttons. Story 13: `injection` needs its own install (a Hugging
+        Face token, downloaded on « Installer ») on top of the brick's extra — `not_installed`
+        with `needs_token` until it has one, `loading` while `install_prompt_guard` runs,
+        `error` on a failed download, then the same switch as the other two."""
         cards = []
         installed = self._guardrails_missing is None
         for guardrail in ("toxicity", "pii", "injection"):
             label = self._t(f"guardrails.labels.{guardrail}")
-            if guardrail == "injection" or not installed:
-                install_text = (
-                    self._t("guardrails.injection_not_installed")
-                    if guardrail == "injection"
-                    else self._guardrails_missing
-                )
+            if not installed:
                 cards.append(
                     {
                         "id": guardrail,
@@ -3443,9 +3448,32 @@ class AppSession:
                         "mode": "off",
                         "modes": [],
                         "examples": [],
-                        "install_text": install_text,
+                        "install_text": self._guardrails_missing,
                     }
                 )
+                continue
+            if guardrail == "injection" and not self._guardrails.injection_ready():
+                card = {
+                    "id": "injection",
+                    "label_text": label,
+                    "mode": "off",
+                    "modes": [],
+                    "examples": [],
+                    "needs_token": True,
+                }
+                if self._injection_loading:
+                    card |= {"status": "loading", "install_text": None}
+                elif (error := self._guardrails.load_error("injection")) is not None:
+                    card |= {
+                        "status": "error",
+                        "install_text": self._t("guardrails.injection.install_failed", cause=error),
+                    }
+                else:
+                    card |= {
+                        "status": "not_installed",
+                        "install_text": self._t("guardrails.injection.how_to_install"),
+                    }
+                cards.append(card)
                 continue
             mode = self._guardrails.modes[guardrail]
             flag_key = "flag_pii" if guardrail == "pii" else "flag"
@@ -3478,6 +3506,147 @@ class AppSession:
                 }
             )
         return cards
+
+    def install_guardrails_extra(self) -> str:
+        """Story 13, class (b): `uv sync --extra guardrails --inexact` in the running `uv`
+        environment (`--inexact`: a plain `uv sync --extra guardrails` would uninstall any
+        other extra already in place, docs/installation.md). On success, tries to activate
+        the brick live (`importlib.invalidate_caches()`, the availability check read again);
+        when that still finds something missing (e.g. a DLL Windows only picks up at process
+        start), it says to relaunch WaveStack instead of guessing why. `KeyError` without the
+        brick, `SendRefused` already installed or outside `idle`."""
+        if "guardrails" not in self._bricks:
+            raise KeyError("guardrails")
+        if self._guardrails_missing is None:
+            raise SendRefused(self._t("guardrails.install_extra.already_installed"))
+        reason = self._t("guardrails.install_extra.installing")
+        previous = self._enter_rag_job("download", reason, download_module.StopToken())
+        threading.Thread(
+            target=self._run_install_extra,
+            args=(previous,),
+            name="wavestack-install-guardrails",
+            daemon=True,
+        ).start()
+        return reason
+
+    def _run_install_extra(self, previous: str | None) -> None:
+        failure: str | None
+        try:
+            done = subprocess.run(
+                ["uv", "sync", "--extra", "guardrails", "--inexact"],
+                cwd=config.repo_root(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=600,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            failure = f"{type(exc).__name__}: {exc}"
+        else:
+            failure = (
+                None
+                if done.returncode == 0
+                else (
+                    (done.stderr or done.stdout or "").strip()[-2000:]
+                    or f"uv sync: code {done.returncode}"
+                )
+            )
+        with scoped(brick="guardrails", component="guardrails.install"):
+            if failure is not None:
+                self._error(
+                    Message("guardrails.install_extra.failed_message"),
+                    failure,
+                    Message("guardrails.install_extra.failed_effect"),
+                )
+            else:
+                importlib.invalidate_caches()
+                self._guardrails_missing = guardrails_availability.missing_fr()
+                done_text = Message(
+                    "guardrails.install_extra.done"
+                    if self._guardrails_missing is None
+                    else "guardrails.install_extra.restart_needed"
+                )
+                self._journal().emit(
+                    "effect_applied",
+                    {"effect": "guardrails_extra_installed", "lines": [self._text(done_text)]},
+                )
+        self._set_state("idle", previous)
+        self._emit_bricks()
+        self._emit_architecture()
+
+    def install_prompt_guard(self, token: str) -> str:
+        """Story 13, class (b): saves the Hugging Face token (file, outside the repository,
+        never traced — AD-15) and downloads Prompt Guard 2's ONNX weights eagerly, so a bad
+        token or a network failure surfaces now, with progress, instead of silently at the
+        next turn. `KeyError` without the brick or its extra, `SendRefused` on an empty
+        token, already installed, or outside `idle`."""
+        if "guardrails" not in self._bricks:
+            raise KeyError("guardrails")
+        if self._guardrails_missing is not None:
+            raise SendRefused(self._guardrails_missing)
+        token = token.strip()
+        if not token:
+            raise SendRefused(self._t("guardrails.injection.token_empty"))
+        if self._guardrails.injection_ready():
+            raise SendRefused(self._t("guardrails.install_extra.already_installed"))
+        try:
+            config.write_hf_token(SecretStr(token))
+        except OSError as exc:
+            raise SendRefused(
+                Message(
+                    "guardrails.injection.token_not_saved", cause=exc.strerror or type(exc).__name__
+                )
+            ) from None
+        reason = self._t("guardrails.injection.installing")
+        previous = self._enter_rag_job("download", reason, download_module.StopToken())
+        with self._lock:
+            self._injection_loading = True
+        self._emit_bricks()
+        threading.Thread(
+            target=self._run_prompt_guard_install,
+            args=(previous,),
+            name="wavestack-install-prompt-guard",
+            daemon=True,
+        ).start()
+        return reason
+
+    def _run_prompt_guard_install(self, previous: str | None) -> None:
+        failure: str | None = None
+        try:
+            with scoped(brick="guardrails", component="guardrails.injection", origin="download"):
+                self._guardrails.install_injection(
+                    self._throttled(
+                        "download",
+                        lambda d, t: self._download_fr(
+                            d, t, self._t("guardrails.injection.model_noun")
+                        ),
+                    )
+                )
+        except download_module.DownloadError as exc:
+            failure = self._text(exc.reason_text)
+        except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
+            failure = f"{type(exc).__name__}: {exc}"
+        with self._lock:
+            self._injection_loading = False
+        with scoped(brick="guardrails", component="guardrails.injection"):
+            if failure is not None:
+                self._error(
+                    Message("guardrails.injection.install_failed", cause=failure),
+                    failure,
+                    Message("guardrails.injection.installing"),
+                )
+            else:
+                self._journal().emit(
+                    "effect_applied",
+                    {
+                        "effect": "model_download",
+                        "lines": [self._text(Message("guardrails.injection.install_done"))],
+                    },
+                )
+        self._set_state("idle", previous)
+        self._emit_bricks()
 
     def set_rag_rerank(self, enabled: bool) -> None:
         """Class (a), story 16: the RAG brick's reranking sub-option, effective from the next
@@ -5666,12 +5835,18 @@ class AppSession:
 
     def set_guardrail_mode(self, guardrail: str, mode: str) -> None:
         """CAP-5, class (a): a guardrail's mode (`block`, `flag` or `off`), effective from
-        the next check; `injection` stays `off` until it has a model (story 13, Prompt
-        Guard). `ValueError` on an unknown guardrail or mode: no mode is silently ignored."""
+        the next check. Story 13: `injection` now takes a mode too, once it has a model
+        (`install_prompt_guard`); until then the card shows no switch, so the front never
+        sends one. `ValueError` on an unknown guardrail or mode: no mode is silently
+        ignored."""
         if (
-            guardrail == "injection"
-            or mode not in ("block", "flag", "off")
+            mode not in ("block", "flag", "off")
             or self._guardrails_missing is not None  # not installed: no switch acts
+            or (
+                guardrail == "injection"
+                and not self._guardrails.injection_ready()
+                and mode != "off"
+            )
         ):
             raise ValueError(f"{guardrail}:{mode}")
         self._guardrails.set_mode(guardrail, mode)  # type: ignore[arg-type]
