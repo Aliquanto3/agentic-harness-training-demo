@@ -105,7 +105,8 @@ common:
     spend:
       label: "Dépense"
       saved: "économisé {amount}"
-      footprint_label: "Empreinte estimée"
+      overcost: "surcoût du cache {amount}"
+      time_saved: "{seconds} s de calcul évitées"
       panel_title: "Bilan de la séance"
       detail_link: "Détail par appel"
       without_optimization: "Sans optimisation"
@@ -115,6 +116,7 @@ common:
       summary: "{percent} % économisés : {cache} grâce au cache de prompt, {compression} grâce à la compression."
       summary_kv: "En local, le cache du modèle a évité {seconds} s de calcul."
       summary_none: "Aucune économie mesurée pour l'instant."
+      summary_overcost: "Le cache de prompt a coûté {amount} de plus qu'il n'a fait économiser : ses écritures coûtent plus cher que ses relectures n'ont rapporté."
     log:
       label: "Journal"
       panel_title: "Derniers événements"
@@ -135,6 +137,10 @@ common:
         blocked: "Bloqué"
         masked: "Masqué"
         timeout: "Refusé (sans réponse)"
+        error: "Erreur"
+        flagged: "Signalé"
+        partial: "Rien détecté (en partie)"
+        passed: "Rien détecté"
   panes:
     focus: "Mode focus"
     hide_short: "Masquer le volet"
@@ -751,8 +757,6 @@ main:
     unavailable: "Empreinte estimée : indisponible"
     turn_label: "empreinte estimée "
   consumption:
-    spend_label: "Dépense estimée"
-    footprint_label: "Empreinte estimée"
     paid_calls:
       one: "{count} appel payant"
       other: "{count} appels payants"

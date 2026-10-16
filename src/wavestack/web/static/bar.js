@@ -7,25 +7,33 @@
 //   panel and closes the other; Escape closes the open one and returns the focus to its
 //   button; a click outside both closes them too (a page change closes them for free, a
 //   full navigation).
-// - Its state: `GET /api/state` at load, and again each time a panel opens (as site-nav.js's
-//   own picker does on the four pages that do not feed it live). The main screen's own
-//   `/api/stream` reader already parses every envelope for its own render; it forwards
-//   `consumption_updated` whole and `security_event` through `feedSecurityEvent`, in O(1),
-//   never a walk of the journal (a structure that only grows during a session).
+// - Its state: `GET /api/state` at load, and again each time a panel opens. Every page's own
+//   `/api/stream` reader (app.js, llm.js, rag.js, mcp.js, the diagnostic's) hands each
+//   envelope to `feedBar`, which keeps only `consumption_updated` and `security_event`, in
+//   O(1), never a walk of the journal (a structure that only grows during a session). `seq`
+//   orders the two sources: a snapshot older than the last event fed is ignored.
+// - It replaces the main screen's former « Dépense estimée » gauge (ux/EXPERIENCE.md): the
+//   panel carries what the gauge said (the euros, the cap, the footprint, the reset).
 
-import { dateTimeFormat, numberFormat, ready, t } from "./i18n.js";
+import { dateTimeFormat, has, numberFormat, rangeText, ready, t } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 
 let consumption = null; // the `consumption_updated` shape, or null before any paid/impactful call
 let preview = { denied_count: 0, entries: [] }; // newest first, 5 at most
+let maxSessionUsd = null; // finition V1 (#27): `[finops] max_session_usd`, from `/api/state`
+let seq = 0; // the newest journal `seq` the figures above reflect
 
-export function feedConsumption(payload) {
-  consumption = payload;
-  renderSpend();
-}
-
-export function feedSecurityEvent(payload) {
+export function feedBar(envelope) {
+  const kind = envelope.kind;
+  if ((kind !== "consumption_updated" && kind !== "security_event") || envelope.seq <= seq) return;
+  seq = envelope.seq;
+  const payload = envelope.payload;
+  if (kind === "consumption_updated") {
+    consumption = payload;
+    renderSpend();
+    return;
+  }
   preview = {
     denied_count: payload.denied_count,
     entries: [
@@ -45,8 +53,13 @@ export function feedSecurityEvent(payload) {
 async function refresh() {
   try {
     const body = await (await fetch("/api/state")).json();
-    consumption = body.consumption_updated ?? null;
-    preview = body.security_journal_preview ?? { denied_count: 0, entries: [] };
+    maxSessionUsd = body.max_session_usd ?? null;
+    // An answer older than an event already fed would put stale figures back.
+    if ((body.seq ?? 0) >= seq) {
+      seq = body.seq ?? 0;
+      consumption = body.consumption_updated ?? null;
+      preview = body.security_journal_preview ?? { denied_count: 0, entries: [] };
+    }
   } catch {
     // Kept as it was: a page briefly unreachable shows the last known state, not a blank one.
   }
@@ -60,11 +73,20 @@ const shortUsd = (n) =>
   n > 0 && n < 0.00005
     ? t("common.format.usd_below", { amount: numberFormat({ maximumFractionDigits: 4 }).format(0.0001) })
     : t("common.format.usd", { amount: numberFormat({ maximumFractionDigits: 4 }).format(n) });
+const usd = (n) => t("common.format.usd", { amount: numberFormat({ maximumSignificantDigits: 4 }).format(n) });
+const eur = (n) => t("common.format.eur", { amount: numberFormat({ maximumSignificantDigits: 4 }).format(n) });
+// AD-4: « ≈ » on every amount of a session whose spend is (partly) estimated.
+const guess = () => (consumption?.approx ? "≈ " : "");
+const money = (n) => `${guess()}${shortUsd(n)}`;
+const kvSeconds = (s) => numberFormat({ maximumFractionDigits: 1 }).format(s);
 
 // ---------- « Dépense » ----------
 
-function economySaved(c) {
-  return Math.max(0, (c.cache_saved_usd ?? 0) + (c.compression_saved_usd ?? 0));
+// The session's net economy, signed (a cache write may cost more than its reads saved), or
+// null when nothing priced was measured (never a fabricated « économisé 0 $ »).
+function economy(c) {
+  if (!c.saved_calls) return null;
+  return (c.cache_saved_usd ?? 0) + (c.compression_saved_usd ?? 0);
 }
 
 function renderSpend() {
@@ -72,45 +94,108 @@ function renderSpend() {
   if (!toggle) return;
   toggle.hidden = !consumption;
   if (!consumption) return;
+  const c = consumption;
   const amount = $("bar-spend-amount");
-  amount.textContent = shortUsd(consumption.total_usd);
+  amount.textContent = c.calls > 0 ? money(c.total_usd) : shortUsd(0);
   const saved = $("bar-spend-saved");
-  const economy = economySaved(consumption);
-  saved.textContent = t("common.bar.spend.saved", { amount: shortUsd(economy) });
-  saved.hidden = false;
+  const net = economy(c);
+  if (c.calls > 0 && net !== null) {
+    saved.textContent =
+      net >= 0 ? t("common.bar.spend.saved", { amount: money(net) }) : t("common.bar.spend.overcost", { amount: money(-net) });
+  } else if (c.kv_time_saved_s > 0) {
+    // A local session costs nothing: the time the KV-cache saved is its one economy.
+    saved.textContent = t("common.bar.spend.time_saved", { seconds: kvSeconds(c.kv_time_saved_s) });
+  } else {
+    saved.textContent = "";
+  }
+  saved.hidden = !saved.textContent;
   toggle.setAttribute(
     "aria-label",
-    `${t("common.bar.spend.label")} ${amount.textContent} · ${saved.textContent}`,
+    [`${t("common.bar.spend.label")} ${amount.textContent}`, saved.textContent].filter(Boolean).join(" · "),
   );
+  toggle.title = detailSentence(c);
   renderSpendPanel();
+}
+
+// The former gauge's sentence: the spend in dollars and euros, the cap, the footprint, and
+// what resets them.
+function detailSentence(c) {
+  const paid = c.calls > 0;
+  const green = (c.impact_calls ?? 0) > 0;
+  const sentences = [];
+  if (paid) {
+    sentences.push(
+      t("main.consumption.spend_sentence", {
+        input: `${guess()}${usd(c.total_in_usd)}`,
+        output: `${guess()}${usd(c.total_out_usd)}`,
+        total: `${guess()}${eur(c.total_eur)}`,
+        rate: numberFormat({ maximumSignificantDigits: 4 }).format(c.eur_per_usd),
+        calls: t("main.consumption.paid_calls", { count: c.calls }),
+      }),
+    );
+    if (maxSessionUsd != null) {
+      sentences.push(t("main.consumption.cap_sentence", { total: `${guess()}${usd(c.total_usd)}`, cap: usd(maxSessionUsd) }));
+    }
+  }
+  if (green) {
+    sentences.push(
+      t("main.consumption.footprint_sentence", {
+        energy: rangeText(c.energy_wh_min, c.energy_wh_max, "Wh"),
+        grams: rangeText(c.gco2e_min, c.gco2e_max, "g CO₂e"),
+        calls: t("common.count.call", { count: c.impact_calls }),
+      }),
+    );
+  }
+  sentences.push(paid && green ? t("main.consumption.reset_totals") : t("main.consumption.reset_total"));
+  return sentences.join(" ");
 }
 
 function renderSpendPanel() {
   const bars = $("bar-savings-bars");
   const summary = $("bar-spend-summary");
   if (!bars || !summary || !consumption) return;
-  const real = consumption.total_usd;
-  const economy = economySaved(consumption);
-  const without = real + economy;
-  bars.replaceChildren(savingsBar(t("common.bar.spend.without_optimization"), without), savingsBar(t("common.bar.spend.real_cost"), real));
-  if (without <= 0) {
-    summary.textContent = t("common.bar.spend.summary_none");
-    return;
+  const c = consumption;
+  const paid = c.calls > 0;
+  const real = c.total_usd;
+  const net = economy(c);
+  // Exact arithmetic: what the session would have cost with no cache nor compression; above
+  // the real cost when they saved, below it when the cache's writes cost more.
+  const without = real + (net ?? 0);
+  const scale = Math.max(without, real) || 1;
+  bars.replaceChildren(
+    savingsBar(t("common.bar.spend.without_optimization"), without, scale),
+    savingsBar(t("common.bar.spend.real_cost"), real, scale),
+  );
+  bars.hidden = !paid;
+  const legend = document.querySelector(".bar-savings-legend");
+  if (legend) legend.hidden = !paid;
+  const lines = [];
+  if (paid && net !== null && net < 0) {
+    lines.push(t("common.bar.spend.summary_overcost", { amount: money(-net) }));
+  } else if (paid && net !== null && without > 0) {
+    lines.push(
+      t("common.bar.spend.summary", {
+        percent: String(Math.round((100 * net) / without)),
+        cache: money(c.cache_saved_usd ?? 0),
+        compression: money(c.compression_saved_usd ?? 0),
+      }),
+    );
+  } else if (!(c.kv_time_saved_s > 0)) {
+    lines.push(t("common.bar.spend.summary_none"));
   }
-  const percent = Math.round((100 * economy) / without);
-  let text = t("common.bar.spend.summary", {
-    percent: String(percent),
-    cache: shortUsd(Math.max(0, consumption.cache_saved_usd ?? 0)),
-    compression: shortUsd(Math.max(0, consumption.compression_saved_usd ?? 0)),
-  });
-  const kvSeconds = consumption.kv_time_saved_s;
-  if (kvSeconds > 0) {
-    text += ` ${t("common.bar.spend.summary_kv", { seconds: numberFormat({ maximumFractionDigits: 1 }).format(kvSeconds) })}`;
+  if (c.kv_time_saved_s > 0) lines.push(t("common.bar.spend.summary_kv", { seconds: kvSeconds(c.kv_time_saved_s) }));
+  summary.textContent = lines.join(" ");
+  const footprint = $("bar-spend-footprint");
+  const green = (c.impact_calls ?? 0) > 0;
+  if (footprint) {
+    footprint.textContent = green ? `🍃 ${rangeText(c.energy_wh_min, c.energy_wh_max, "Wh")} · ${rangeText(c.gco2e_min, c.gco2e_max, "g CO₂e")}` : "";
+    footprint.hidden = !green;
   }
-  summary.textContent = text;
+  const detail = $("bar-spend-detail");
+  if (detail) detail.textContent = detailSentence(c);
 }
 
-function savingsBar(label, amount) {
+function savingsBar(label, amount, scale) {
   const row = document.createElement("div");
   row.className = "bar-savings-row";
   const name = document.createElement("span");
@@ -124,11 +209,12 @@ function savingsBar(label, amount) {
   const total = (consumption.total_in_usd ?? 0) + (consumption.total_out_usd ?? 0) || 1;
   // The bar's own shares, from this session's cloud totals only (sub-agent calls already in
   // them, never added again): entrée/sortie, the only split cheap enough to show honestly.
-  input.style.width = `${(100 * (consumption.total_in_usd ?? 0)) / total}%`;
-  output.style.width = `${(100 * (consumption.total_out_usd ?? 0)) / total}%`;
+  const length = Math.max(0, amount) / scale;
+  input.style.width = `${(100 * length * (consumption.total_in_usd ?? 0)) / total}%`;
+  output.style.width = `${(100 * length * (consumption.total_out_usd ?? 0)) / total}%`;
   track.append(input, output);
   const value = document.createElement("span");
-  value.textContent = shortUsd(amount);
+  value.textContent = money(amount);
   row.append(name, track, value);
   return row;
 }
@@ -163,7 +249,19 @@ function renderLogPanel() {
   for (const entry of preview.entries) list.append(logRow(entry));
 }
 
-const LEVEL_OF = { allow: "low", allow_once: "low", deny: "high", blocked: "high", masked: "mid", cancelled: "mid", timeout: "high" };
+const LEVEL_OF = {
+  allow: "low",
+  allow_once: "low",
+  passed: "low",
+  partial: "low",
+  deny: "high",
+  blocked: "high",
+  timeout: "high",
+  masked: "mid",
+  cancelled: "mid",
+  flagged: "mid",
+  error: "mid",
+};
 
 function logRow(entry) {
   const row = document.createElement("li");
@@ -180,7 +278,8 @@ function logRow(entry) {
   name.textContent = entry.name;
   const chip = document.createElement("span");
   chip.className = `status-chip status-chip-${LEVEL_OF[entry.decision] ?? "mid"}`;
-  chip.textContent = t(`common.bar.log.decisions.${entry.decision}`) || entry.decision;
+  const key = `common.bar.log.decisions.${entry.decision}`;
+  chip.textContent = has(key) ? t(key) : entry.decision; // `t` would show the key itself
   button.append(chevron, name, chip);
   const body = document.createElement("div");
   body.className = "disclosure-row-body";

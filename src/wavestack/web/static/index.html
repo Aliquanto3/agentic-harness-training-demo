@@ -47,6 +47,8 @@
           <span data-i18n="common.bar.spend.legend_output">Sortie</span>
         </div>
         <p class="bar-flyout-note" id="bar-spend-summary"></p>
+        <p class="bar-flyout-note number" id="bar-spend-footprint" hidden></p>
+        <p class="bar-flyout-note" id="bar-spend-detail"></p>
       </div>
       <div class="bar-flyout" id="bar-log-panel" role="group" aria-label="Derniers événements" data-i18n-aria-label="common.bar.log.panel_title" hidden>
         <div class="bar-flyout-head">
@@ -265,10 +267,6 @@
       </div>
       <span class="gauge-figures" id="gauge-figures" data-i18n="main.gauge.waiting">Contexte : en attente du modèle</span>
     </div>
-    <!-- FinOps: the session's API spend (« Consommation »), from the first paid call; GreenOps:
-         its footprint on its own line (lot 1 of 2026-10-04: three lines, two with local calls
-         only). -->
-    <span class="gauge-figures number" id="consumption" role="img" hidden><span id="consumption-label" data-i18n="main.consumption.spend_label">Dépense estimée</span><span id="consumption-money"></span><span id="consumption-footprint"></span></span>
     <div class="window-picker" id="window-picker">
       <button type="button" id="window-toggle" class="window-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="window-panel"><span class="window-toggle-long" data-i18n="main.window.toggle">Fenêtre</span> <span id="window-toggle-value">…</span> ▾</button>
       <section id="window-panel" class="window-panel" role="dialog" aria-labelledby="window-panel-title" hidden>

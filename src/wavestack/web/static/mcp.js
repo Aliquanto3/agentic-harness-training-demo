@@ -13,6 +13,7 @@
 // descriptions and the captured JSON are never translated.
 
 import { has, numberFormat, ready as textsReady, t } from "./i18n.js";
+import { feedBar } from "./bar.js";
 import { createStepper, explain, light, marker, reveal, svgEl, wire, wireLayer } from "./diagram.js";
 import { createPanes, initProjection } from "./panes.js";
 
@@ -2209,6 +2210,8 @@ function newSeries(first) {
 }
 
 function applyEnvelope(envelope) {
+  // Story 9 (CAP-3, CAP-7, CAP-9): the bar's « Dépense » and « Journal », live, in O(1).
+  feedBar(envelope);
   if (envelope.kind === "session_state") {
     store.session = envelope.payload;
     return "controls";

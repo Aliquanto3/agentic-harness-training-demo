@@ -56,6 +56,21 @@ export const dateTimeFormat = (options = {}) =>
   cached("date", options, () => new Intl.DateTimeFormat(locale(), options));
 const pluralRules = () => cached("plural", {}, () => new Intl.PluralRules(locale()));
 
+// GreenOps: energy and emissions, 2 significant digits, French comma; a range « 0,035–0,23 Wh »
+// when its bounds differ once formatted. Under the display's precision (a thousandth), a
+// positive value is « < 0,001 » and a range from under it « ≤ 0,0016 »; 0 is a true 0 (its
+// note says why). Formatting only (the figures are the session's).
+const footprintFormat = () => numberFormat({ maximumSignificantDigits: 2 });
+const FOOTPRINT_FLOOR = 0.001;
+const tiny = (n) => n > 0 && n < FOOTPRINT_FLOOR;
+export function rangeText(low, high, unit) {
+  if (tiny(high) || (tiny(low) && high === low)) return `< ${footprintFormat().format(FOOTPRINT_FLOOR)} ${unit}`;
+  const b = footprintFormat().format(high);
+  if (tiny(low)) return `≤ ${b} ${unit}`;
+  const a = footprintFormat().format(low);
+  return a === b ? `${a} ${unit}` : `${a}–${b} ${unit}`;
+}
+
 // « a, b et c », « a, b and c », « a, b und c ».
 export const joinList = (items) =>
   cached("list", {}, () => new Intl.ListFormat(locale(), { style: "long", type: "conjunction" })).format(items);

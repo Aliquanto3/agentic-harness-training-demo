@@ -130,6 +130,8 @@
           <span data-i18n="common.bar.spend.legend_output">Sortie</span>
         </div>
         <p class="bar-flyout-note" id="bar-spend-summary"></p>
+        <p class="bar-flyout-note number" id="bar-spend-footprint" hidden></p>
+        <p class="bar-flyout-note" id="bar-spend-detail"></p>
       </div>
       <div class="bar-flyout" id="bar-log-panel" role="group" aria-label="Derniers événements" data-i18n-aria-label="common.bar.log.panel_title" hidden>
         <div class="bar-flyout-head">
@@ -272,6 +274,7 @@
     // (`candidates[]`) or cloud row (`cloud.models[]`) by kind and ref, filters, sorts and lays
     // them out; it never groups nor computes a capability.
     import { locale, numberFormat, ready, section, t } from "/static/i18n.js";
+    import { feedBar } from "/static/bar.js";
 
     const $ = (id) => document.getElementById(id);
     const quote = (value) => t("common.format.quote", { text: value });
@@ -1360,7 +1363,11 @@
       source.addEventListener("harness_error", (event) => onEnvelope(event, renderHarnessError));
       source.addEventListener("model_load_ended", (event) => onEnvelope(event, onModelLoadEnded));
       source.addEventListener("diagnostic_progress", (event) => onEnvelope(event, onProgress));
-      source.addEventListener("consumption_updated", (event) => onEnvelope(event, onSpend));
+      source.addEventListener("consumption_updated", (event) => {
+        feedBar(JSON.parse(event.data)); // story 9: the bar's « Dépense », live
+        onEnvelope(event, onSpend);
+      });
+      source.addEventListener("security_event", (event) => feedBar(JSON.parse(event.data)));
     }
 
     // Finition V1 (#27): the spend so far, live (turns run in the workshop's tab meanwhile).

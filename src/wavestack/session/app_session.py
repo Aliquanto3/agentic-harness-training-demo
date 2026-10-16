@@ -10861,10 +10861,18 @@ class AppSession:
         """Story 9, the bar's « Journal » button and its flyout: the count (its red badge)
         and the 5 most recent entries, newest first (bounded by the journal's own cap, never
         a growing walk)."""
-        entries = self.security_journal_entries()
         return {
             "denied_count": self._security_journal.denied_count(),
-            "entries": list(reversed(entries[-5:])),
+            "entries": [
+                {
+                    "ts": e.ts.isoformat(timespec="seconds"),
+                    "source": e.source,
+                    "name": e.name,
+                    "decision": e.decision,
+                    "reason_text": e.reason_text,
+                }
+                for e in self._security_journal.recent(5)
+            ],
         }
 
     def security_journal_csv(self) -> str:

@@ -62,42 +62,42 @@ companions:
 
 ## Décisions
 
-- **Formule du bilan** : « sans optimisation » = coût réel (`total_usd`, déjà la somme de
-  tous les appels cloud de la séance, sous-agent inclus une seule fois) + `cache_saved_usd`
-  + `compression_saved_usd`. Jamais de double compte du sous-agent : ces deux économies sont
-  déjà les sommes des appels individuels, pas une addition séparée d'un total par tour.
-  Pourcentage = économies ÷ sans-optimisation. L'économie affichée sur le bouton est
-  bornée à 0 (`Math.max(0, …)`) : un net signé négatif (une séance surtout en écriture de
-  cache) ne s'affiche jamais comme une économie négative, mais ne fabrique pas non plus un
-  gain inventé.
+- **Formule du bilan** (revue) : arithmétique exacte. « Sans optimisation » = coût réel
+  (`total_usd`) + économie nette signée (`cache_saved_usd` + `compression_saved_usd`), qui
+  peut rester sous le coût réel quand les écritures de cache coûtent plus que leurs relectures.
+  Net positif : « économisé x $ » et « p % économisés » ; net négatif : « surcoût du cache
+  x $ » (bouton) et sa phrase dans le bilan, jamais écrêté à 0. Seules les économies chiffrées
+  comptent : un cache sans prix déclaré (`cache_priced` faux) n'ajoute rien, et `saved_calls`
+  (nombre d'économies chiffrées) à 0 donne « Aucune économie mesurée », jamais un faux
+  « économisé 0 $ ». « ≈ » devant chaque montant quand la dépense est estimée (`approx`).
+  Séance locale (coût 0) : le bouton dit le temps évité par le KV-cache ; `session_spend`
+  n'est plus `None` dès qu'un temps évité existe.
 - **Compteur Journal** : `SecurityJournal.denied_count()` (refus `deny`/`blocked`
-  seulement) ; `cancelled`, `masked`, `allow*` n'y entrent pas (déjà la définition de la
+  seulement), compteur de séance incrémenté par `record` en O(1), qui ne baisse pas quand une
+  entrée sort de la fenêtre des 500 ; l'aperçu lit `recent(5)`, jamais une copie du journal ; `cancelled`, `masked`, `allow*` n'y entrent pas (déjà la définition de la
   story 1, réutilisée telle quelle, conforme à la consigne « refus et blocages »).
 - **`security_event`** est émis à chaque `SecurityJournal.record(...)`, pas relu par
   l'aperçu : la charge porte l'entrée elle-même et le `denied_count` déjà calculé, pour que
   la page qui l'écoute n'ait jamais à parcourir le journal pour se tenir à jour.
-- **Mise à jour en direct** limitée à l'écran principal (`app.js`, la scène des flux 1 et 3
-  de `ux/EXPERIENCE.md`) : les quatre autres pages affichent l'état lu à l'ouverture du
-  panneau, comme le fait déjà `site-nav.js` pour son sélecteur de langue sur ces mêmes
-  pages. Les y câbler aussi est un raffinement possible, pas requis par le succès de CAP-9
-  (« depuis n'importe quelle page, le bouton Journal montre les 5 derniers événements » —
-  vrai dès l'ouverture, pas nécessairement sans un ré-affichage).
-- **L'ancienne jauge `#consumption`** (Dépense/Empreinte estimée, écran principal
-  seulement) n'est pas retirée : `ux/EXPERIENCE.md` dit qu'elle est « remplacée » par le
-  bouton de la barre, mais la retirer casserait une dizaine de repères déjà posés dans
-  `tools/e2e/run_e2e.py` (`#consumption`, `#consumption-label`, `#consumption-money`,
-  `#consumption-footprint`) par d'autres scénarios (FinOps, GreenOps) hors du périmètre de
-  cette story. Reporté : un futur ménage qui retire la jauge et met à jour ces scénarios en
-  même temps.
+- **Mise à jour en direct** (revue) : les cinq pages ont déjà un flux d'événements ;
+  chacune passe chaque enveloppe à `feedBar` (app.js, llm.js, rag.js, mcp.js, et le flux du
+  diagnostic pour `consumption_updated` et `security_event`). `seq` ordonne les deux sources :
+  une réponse de `/api/state` plus ancienne que le dernier événement reçu est ignorée.
+- **L'ancienne jauge `#consumption`** (revue) : retirée (`ux/EXPERIENCE.md` : « remplace »).
+  Ce qu'elle disait passe au bouton Dépense : la phrase entière (dollars, euros, plafond,
+  empreinte, remise à zéro) en infobulle et dans le panneau (`#bar-spend-detail`), l'empreinte
+  « 🍃 … Wh · … g CO₂e » sur sa ligne du panneau (`#bar-spend-footprint`). Les repères E2E
+  qui la lisaient (`gemini_shape`, `local_server`, `priced_estimate`) lisent le bouton et son
+  panneau (`_spend_panel`).
 - **Lien « Détail par appel »** renvoie à `/` (l'écran principal, où le détail par appel vit
   dans Orchestration) plutôt qu'à un ancrage précis, qui dépendrait d'un tour en cours.
 
 ## Hors périmètre (reste à faire)
 
 - La page `/security` (story 10) : le lien « Tout le journal » y pointe déjà.
-- Le câblage en direct du compteur Journal sur `/llm`, `/rag`, `/mcp` et `/diagnostic`
-  (aujourd'hui : à l'ouverture du panneau seulement).
-- Le retrait de l'ancienne jauge `#consumption` de l'écran principal (voir Décisions).
+- Le libellé des lignes de l'aperçu reste le nom technique (`guardrails.pii`,
+  `local__define_term`) ; la raison, déjà localisée, est dans le détail déplié. La page
+  `/security` (story 10) fixera la présentation.
 - Le segment « sous-agent » des barres du bilan (DESIGN.md en prévoit un jeton de couleur) :
   non tenu au niveau de la séance aujourd'hui (seulement par tour, story 7) ; les barres
   montrent entrée/sortie seulement, un chiffre honnête plutôt qu'une part devinée.
@@ -135,4 +135,39 @@ companions:
 
 ## Revue
 
-(pas encore de relecture)
+Relecture Opus du 16/10, après rebase sur `origin/main` (9d80885, sans conflit).
+
+- MEDIUM, second avis 1 (temps KV-cache jamais affiché en local) : corrigé. Pastille
+  « n s de calcul évitées » sur le bouton, ligne du bilan même sans coût ; `session_spend`
+  compte une séance qui n'a que ce temps.
+- MEDIUM, second avis 2 (net de cache écrêté à 0) : corrigé. Arithmétique exacte, « surcoût
+  du cache » quand le net est négatif (voir Décisions).
+- MEDIUM, second avis 3 (« ≈ » ignoré) : corrigé, sur chaque montant du bouton et du panneau.
+- MEDIUM, second avis 4 (verdicts `error`, `flagged`, `partial`, `passed` sans libellé, clé
+  brute à l'écran car `t()` renvoie la clé) : corrigé. Libellés fr/en/de, `has()` avant `t()`,
+  niveaux de pastille.
+- MEDIUM, second avis 5 (`bar_panels` compte un cas non testé comme réussi) : corrigé. Le
+  scénario injecte une dépense dans `/api/state` (`page.route`) et vérifie « 0,033 $ ·
+  économisé 0,029 $ », 47 %, 0,062 $ / 0,033 $, sans clé cloud ni GreenOps.
+- MEDIUM, orchestrateur 6 (ancienne jauge gardée) : corrigé, jauge retirée, repères E2E
+  réalignés (voir Décisions).
+- MEDIUM, orchestrateur 7 (direct limité à l'écran principal) : corrigé sur les cinq pages.
+- MEDIUM, revue (`.bar-button { display: inline-flex }` l'emporte sur `hidden`) : corrigé. Le
+  bouton Dépense s'affichait vide avant toute dépense ; `[hidden]` rétabli pour le bouton, les
+  barres et leur légende.
+- MEDIUM, revue (les deux barres du bilan avaient toujours la même longueur) : corrigé, une
+  échelle commune (la plus longue pleine largeur).
+- LOW, second avis (`denied_count` et l'aperçu parcourent le journal) : corrigé, compteur O(1)
+  et `recent(5)`.
+- LOW, second avis (course `/api/state` contre un événement) : corrigé par `seq`.
+- LOW, second avis (prix du cache non déclaré, faux « économisé 0 $ ») : corrigé
+  (`saved_calls`, seul un cache chiffré compte).
+- LOW, revue (kind `security_event` sans résumé dans `eventSummary`, E031) : corrigé (la
+  raison). Libellé fr/en/de déjà présent.
+- LOW, revue (deux `margin-left: auto` dans la barre : « Affichage ▾ » décollé du groupe) :
+  corrigé.
+- LOW, revue (nom technique dans les lignes de l'aperçu) : reporté en story 10.
+- Reporté, E2E (l'orchestrateur le lance) : `bar_panels`, `gemini_shape`, `local_server`,
+  `priced_estimate` (repères réalignés), `native_tools` (E031), `mcp_lab_page` ; vérifier aussi
+  que la barre commune tient à 1 280 px avec « Dépense … · économisé … » (`_bar_fits`).
+

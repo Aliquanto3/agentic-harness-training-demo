@@ -80,6 +80,18 @@ def test_journal_records_and_counts_denials():
     assert journal.denied_count() == 2
 
 
+def test_the_denied_count_is_the_sessions_even_past_the_journals_window():
+    """Story 9 (review): counted as recorded, O(1); never lowered when an entry leaves the
+    500-entry window; `recent` gives the newest first without copying the journal."""
+    journal = SecurityJournal()
+    for i in range(510):
+        journal.record("mcp_tool", f"t{i}", "deny", "refusé")
+    journal.record("mcp_tool", "last", "allow", "autorisé")
+    assert len(journal.entries()) == 500
+    assert journal.denied_count() == 510
+    assert [e.name for e in journal.recent(3)] == ["last", "t509", "t508"]
+
+
 def test_journal_csv_has_a_header_and_no_secret_beyond_what_was_recorded():
     journal = SecurityJournal()
     journal.record("mcp_tool", "local__define_term", "deny", "refusé par la politique")

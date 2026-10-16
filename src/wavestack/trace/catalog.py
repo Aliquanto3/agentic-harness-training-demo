@@ -500,6 +500,7 @@ class ConsumptionUpdatedPayload(BaseModel):
     cache_saved_usd: float = 0.0
     compression_saved_usd: float = 0.0
     kv_time_saved_s: float = 0.0
+    saved_calls: int = 0  # priced economies counted above (0: nothing measured)
 
 
 class SpecialTokenNeutralizedPayload(BaseModel):

@@ -399,6 +399,9 @@ _EMPTY: dict[str, Any] = {
     "cache_saved_usd": 0.0,
     "compression_saved_usd": 0.0,
     "kv_time_saved_s": 0.0,
+    # How many priced economies (a cache with declared prices, a priced compression) the
+    # totals above hold: 0 means "nothing measured", never a fabricated « économisé 0 $ ».
+    "saved_calls": 0,
 }
 _spend: dict[str, Any] = dict(_EMPTY)
 
@@ -422,6 +425,7 @@ def _spend_payload(eur_per_usd: float) -> dict[str, Any]:
         "cache_saved_usd": _spend["cache_saved_usd"],
         "compression_saved_usd": _spend["compression_saved_usd"],
         "kv_time_saved_s": _spend["kv_time_saved_s"],
+        "saved_calls": _spend["saved_calls"],
     }
 
 
@@ -455,8 +459,10 @@ def record_spend(
             _spend["impact_calls"] += 1
         if cache_saved_usd is not None:
             _spend["cache_saved_usd"] += cache_saved_usd
+            _spend["saved_calls"] += 1
         if compression_saved_usd is not None:
             _spend["compression_saved_usd"] += compression_saved_usd
+            _spend["saved_calls"] += 1
         if kv_time_saved_s is not None:
             _spend["kv_time_saved_s"] += kv_time_saved_s
         payload = _spend_payload(eur_per_usd)
@@ -469,7 +475,7 @@ def session_spend(eur_per_usd: float) -> dict[str, Any] | None:
     """The session's spend and footprint as `consumption_updated` carries them; `None`
     before a paid call or a call with a footprint."""
     with _spend_lock:
-        counted = _spend["calls"] or _spend["impact_calls"]
+        counted = _spend["calls"] or _spend["impact_calls"] or _spend["kv_time_saved_s"]
         return _spend_payload(eur_per_usd) if counted else None
 
 
@@ -1049,9 +1055,10 @@ def run_call(
         journal.emit("model_call_ended", payload, actor="model")
         impact = out.impact if out.impact is not None and out.impact.estimated else None
         # Story 9 (CAP-7): the cache's net signed saving joins the session's running total,
-        # even when zero (no declared cache discount): a conservative, never fabricated figure.
-        cache_saved_usd = cache["cache_saved_usd"] if cache is not None else None
-        if out.cost is not None or impact is not None or cache_saved_usd is not None:
+        # only when its prices are declared (`cache_priced`): an unknown net is not a 0.
+        priced = cache is not None and cache["cache_priced"]
+        cache_saved_usd = cache["cache_saved_usd"] if priced else None
+        if out.cost is not None or impact is not None:
             record_spend(
                 out.cost,
                 eur_per_usd,

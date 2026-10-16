@@ -22,6 +22,7 @@
 
 import { createStepper, light, svgEl, wire, wireLayer } from "./diagram.js";
 import { numberFormat, ready as textsReady, t } from "./i18n.js";
+import { feedBar } from "./bar.js";
 
 const $ = (id) => document.getElementById(id);
 const quote = (value) => t("common.format.quote", { text: value });
@@ -1299,6 +1300,8 @@ function partOf(envelope) {
 
 function applyEnvelope(envelope) {
   store.lastSeq = Math.max(store.lastSeq, envelope.seq);
+  // Story 9 (CAP-3, CAP-7, CAP-9): the bar's « Dépense » and « Journal », live, in O(1).
+  feedBar(envelope);
   const p = envelope.payload;
   switch (envelope.kind) {
     case "session_state": {

@@ -413,8 +413,13 @@ def test_the_sessions_economies_sum_across_calls_and_reset():
     assert spend["cache_saved_usd"] == pytest.approx(0.003)
     assert spend["compression_saved_usd"] == pytest.approx(0.0005)
     assert spend["kv_time_saved_s"] == pytest.approx(1.5)
+    assert spend["saved_calls"] == 3  # two cache nets and one compression
     reset_spend()
     assert session_spend(0.86) is None
+    # A local session with only the KV-cache's time saved is still the bar's to show.
+    record_spend(None, 0.86, kv_time_saved_s=2.0)
+    assert session_spend(0.86)["kv_time_saved_s"] == pytest.approx(2.0)
+    reset_spend()
 
 
 @pytest.mark.parametrize(
@@ -470,3 +475,31 @@ def test_a_call_reads_the_cached_tokens_of_its_usage():
     assert ended["cache_write_usd"] == pytest.approx(100 * 1.25 / 1e6)
     assert ended["cache_saved_usd"] == pytest.approx(ended["cache_full_usd"] - ended["cost_in_usd"])
     assert ended["cache_priced"] is True and ended["cache_source"]
+    # Story 9: the session's running net, from the prices above (1000 full − 305 paid).
+    spend = _of(events, "consumption_updated")[-1].payload
+    assert spend["cache_saved_usd"] == pytest.approx((1000 - 305) / 1e6)
+    assert spend["saved_calls"] == 1
+
+
+def test_an_unpriced_cache_adds_no_economy_to_the_session():
+    """Story 9 (review): without a declared cache price the net is unknown, so the bar
+    says nothing was measured rather than « économisé 0 $ »."""
+    usage = {
+        "prompt_tokens": 1000,
+        "completion_tokens": 10,
+        "total_tokens": 1010,
+        "prompt_tokens_details": {"cached_tokens": 800},
+    }
+    stream = sse(delta(content="Oui."), {**delta("stop"), "usage": usage})
+    pricing = {"input_usd_per_mtok": 1, "output_usd_per_mtok": 5, "checked": "2026-10-03"}
+    settings = {"cloud": {"models": [{"id": "gemini", "pricing": pricing}]}}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(json.dumps(settings), encoding="utf-8")
+    session = _session("gemini", GeminiProvider(stream))
+
+    events = _turn(session, "Bonjour")
+
+    (ended,) = (e.payload for e in _of(events, "model_call_ended"))
+    assert ended["cache_priced"] is False
+    spend = _of(events, "consumption_updated")[-1].payload
+    assert spend["saved_calls"] == 0 and spend["cache_saved_usd"] == 0

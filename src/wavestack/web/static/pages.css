@@ -215,6 +215,11 @@
   margin-left: auto;
 }
 
+/* One auto margin only, or the free space would split and leave « Affichage ▾ » adrift. */
+.bar-group + .display-menu {
+  margin-left: 0;
+}
+
 .bar-button {
   display: inline-flex;
   align-items: center;
@@ -269,7 +274,11 @@
   box-shadow: 0 var(--spacing-relief-offset-overlay) 0 var(--color-relief);
 }
 
-.bar-flyout[hidden] {
+/* `display` above would otherwise beat the `hidden` attribute (« Dépense » before any spend). */
+.bar-flyout[hidden],
+.bar-button[hidden],
+.bar-savings-bars[hidden],
+.bar-savings-legend[hidden] {
   display: none;
 }
 
