@@ -1228,6 +1228,10 @@ mcp:
     connected_text: "Connecté en lecture · expire dans {time}"
     expired_text: "Le jeton a expiré : reconnectez-vous."
     error_text: "Connexion à GitHub refusée."
+    error:
+      access_denied: "Connexion refusée sur github.com : relancez-la si c'était une erreur."
+      expired_token: "Le code a expiré (15 min) avant d'être saisi : relancez la connexion."
+      network: "Erreur réseau : GitHub n'a pas répondu au renouvellement du jeton. Nouvel essai dans 30 s."
     state:
       disconnected: "non connecté"
       waiting: "en attente"

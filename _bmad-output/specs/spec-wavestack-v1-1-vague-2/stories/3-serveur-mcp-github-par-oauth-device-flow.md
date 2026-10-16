@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-10-16'
 status: 'review'
 route: 'dispatch'
-review_loop_iteration: 0
+review_loop_iteration: 1
 baseline_commit: '1a7b015'
 context:
   - '{project-root}/_bmad-output/specs/spec-wavestack-v1-1-vague-2/SPEC.md'
@@ -197,4 +197,18 @@ sous-option de la brique Harnais.
 
 ## Revue
 
-(pas encore de relecture)
+Relecture du 16/10 (Opus), après rebase sur `origin/main` (277567b, sans conflit).
+
+- MEDIUM · second avis 1 · corrigé · `poll`/`_refresh` : une page 200 non JSON (proxy Zscaler, portail captif) levait `JSONDecodeError` et cassait `GET /api/mcp_lab` en 500 ; `GithubAuth._post` lève `ValueError`, attrapée (sondage : on attend le suivant ; renouvellement : erreur réseau). Tests `test_a_proxy_page_*`.
+- MEDIUM · second avis 2 · corrigé · `start` : même cas, et champ manquant (`KeyError`) ; `github_connect` rend un 409 « réseau » au lieu d'un 500.
+- MEDIUM · second avis 3 · corrigé · flux 4 : renouvellement refusé ou expiré → état `expired` (« Se reconnecter »), plus `disconnected` ; « Se déconnecter » revient à « non connecté ». Une panne réseau garde le jeton (6 mois) et réessaie toutes les 30 s (état « erreur réseau »).
+- MEDIUM · second avis 4 · corrigé · `GET /api/mcp_lab` renouvelle un jeton d'accès expiré avant de lire l'état (plus de « expire dans 0 s »).
+- MEDIUM · second avis 5 · corrigé · le bearer était figé à la création du client httpx : `McpServer.auth` (un `httpx2.Auth`, `GithubAuth.bearer`) le pose à chaque requête, renouvelé hors de la boucle (`asyncio.to_thread`). Test de bout en bout : connexion ouverte, 8 h plus tard, l'appel part avec le jeton renouvelé.
+- MEDIUM · relecture · corrigé · flux 4 : un appel d'outil GitHub sur une connexion restée ouverte sans jeton valable partait avec l'ancien jeton (401 obscur) ; il est refusé avant l'envoi avec « Envoyé à GitHub : non » (`session.mcp_lab.github_expired_call`), la connexion se ferme.
+- MEDIUM · relecture · corrigé · `renderGithub` réactivait le bouton générique « Se connecter » à chaque rendu hors GitHub, effaçant l'état occupé posé par `renderControls` ; la condition GitHub vit maintenant dans `renderControls`.
+- MEDIUM · relecture · corrigé · E2E `mcp_lab_page` attendait trois serveurs ; `run_e2e.py` attend maintenant les quatre (GitHub compris).
+- LOW · second avis · corrigé · clés `mcp.github.error.{access_denied,expired_token,network}` ajoutées (fr, en, de) ; un code inconnu garde le texte générique (`has()`). Un échec de « Se connecter à GitHub » affiche le détail du 409.
+- LOW · second avis · corrigé · `_masked_body` ré-encode le corps masqué : docstring du module corrigée (« corps, champs sensibles masqués »), test du masquage rendu strict.
+- LOW · second avis · corrigé · écriture atomique de `github_token.json` (`os.replace`) ; `OSError` toujours avalé (le jeton reste en mémoire, choix conservé) ; limite « jeton stocké en clair » ajoutée à `limites-harnais.md` (11 limites, à reporter dans l'affichage de la story 9).
+- LOW · relecture · corrigé · `POST /api/intentions/mcp_server` acceptait `github` (sous-option cachée de la brique Harnais) ; refusé en 404.
+- Reporté · essai réel avec Anaël : device flow derrière le proxy, renouvellement sans client secret accepté par GitHub (non vérifiable sans compte), 401/403 réels, page MCP rejouée (E2E `mcp_lab_page`, `mcp_lab`).

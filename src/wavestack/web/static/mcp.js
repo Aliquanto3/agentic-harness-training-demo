@@ -12,7 +12,7 @@
 // `content/mcp_lab.yaml` (`GET /api/mcp_lab`, in the session's language). The servers'
 // descriptions and the captured JSON are never translated.
 
-import { numberFormat, ready as textsReady, t } from "./i18n.js";
+import { has, numberFormat, ready as textsReady, t } from "./i18n.js";
 import { createStepper, explain, light, marker, reveal, svgEl, wire, wireLayer } from "./diagram.js";
 import { createPanes, initProjection } from "./panes.js";
 
@@ -1645,7 +1645,9 @@ function renderControls() {
   banner.textContent = busy || "";
   const connect = $("mcp-connect");
   connect.textContent = t(store.openServer === store.selected ? "mcp.servers.reconnect" : "mcp.servers.connect");
-  setAvailable(connect, idle() ? null : busy);
+  // CAP-4: connecting to GitHub's server itself needs a token first.
+  const githubBlocked = store.selected === "github" && store.github.status !== "connected";
+  setAvailable(connect, idle() ? (githubBlocked ? t("mcp.github.intro") : null) : busy);
   setAvailable($("mcp-stop"), store.session.state === "mcp_lab" ? null : t("mcp.servers.nothing_to_stop"));
   renderServers();
   renderCommands();
@@ -2393,6 +2395,7 @@ function startGithubPoll() {
       return; // a transient fetch failure: the next tick tries again
     }
     store.github = body.github || { status: "disconnected" };
+    renderControls(); // the generic « Se connecter » follows the token
     renderGithub();
     if (store.github.status !== "waiting") clearInterval(githubPollTimer);
   }, 2000);
@@ -2416,7 +2419,8 @@ function renderGithub() {
   } else if (status === "expired") {
     text.textContent = t("mcp.github.expired_text");
   } else if (status === "error") {
-    text.textContent = t("mcp.github.error_text");
+    const { error_key: key, error_text: shown } = store.github;
+    text.textContent = shown || (key && has(key) ? t(key) : t("mcp.github.error_text"));
   } else {
     text.textContent = t("mcp.github.intro");
   }
@@ -2424,22 +2428,21 @@ function renderGithub() {
   connectButton.hidden = status === "connected";
   connectButton.textContent = status === "expired" ? t("mcp.github.reconnect") : t("mcp.github.connect");
   $("mcp-github-disconnect").hidden = status !== "connected";
-  // Connecting to the server itself needs a token first.
-  setAvailable($("mcp-connect"), store.selected === "github" && status !== "connected" ? t("mcp.github.intro") : null);
   startGithubPoll();
 }
 
 async function githubConnect() {
-  const { ok, body } = await post("/api/intentions/github_connect", {});
-  if (ok) {
-    store.github = { status: "waiting", ...body };
-    renderGithub();
-  }
+  const answer = await post("/api/intentions/github_connect", {});
+  store.github = answer.ok
+    ? { status: "waiting", ...answer.body }
+    : { status: "error", error_text: refusalText(answer) };
+  renderGithub();
 }
 
 async function githubDisconnect() {
   await post("/api/intentions/github_disconnect", {});
   store.github = { status: "disconnected" };
+  renderControls();
   renderGithub();
 }
 

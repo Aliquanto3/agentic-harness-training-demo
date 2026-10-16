@@ -22,9 +22,11 @@ class McpServer:
     id: str
     url: str | None  # None: the local server, a child process over stdio
     # Story 3 (CAP-4): extra default headers for this connection (GitHub's bearer token and
-    # toolsets); filled fresh at connect time (`AppSession._resolve_mcp_server`), never kept
-    # in `mcp_servers()`'s own entry, so the token lives only as long as the attempt needs it.
+    # toolsets); filled at connect time (`AppSession._mcp_connect`, `_run_mcp_lab_connect`), never
+    # kept in `mcp_servers()`'s own entry. `auth` sets the bearer again on each request (an
+    # `httpx2.Auth`): a connection outlives the 8 h access token.
     headers: dict[str, str] | None = None
+    auth: Any = None
 
     @property
     def network(self) -> bool:

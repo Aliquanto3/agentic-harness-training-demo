@@ -566,6 +566,7 @@ session:
     policy_ask_cancelled: "Abgebrochen: Der Austausch endete vor Ihrer Entscheidung über « {tool} ». Das Tool wurde nicht ausgeführt."
     github_not_connected: "Verbinden Sie sich zuerst mit GitHub (GitHub-Block unten): Die Verbindung kann ohne Token nicht geöffnet werden."
     github_start_failed: "Verbindung zu GitHub nicht möglich: Das Netzwerk hat nicht geantwortet. Versuchen Sie es erneut."
+    github_expired_call: "Abgelehnt: Die GitHub-Verbindung ist abgelaufen oder wurde geschlossen. Verbinden Sie sich im GitHub-Block erneut. An GitHub gesendet: nein."
     launch:
       stdio: "startet den Server: {command}"
       http: "öffnet eine HTTP-Sitzung mit {host}"

@@ -7170,7 +7170,11 @@ def _mcp_lab(r: Run, errors: list[str]) -> None:
     servers = page.locator("#mcp-servers .mcp-server").evaluate_all(
         "items => items.map(i => i.dataset.server)"
     )
-    r.check(servers == ["local", "datagouv", "mslearn"], "/mcp : les trois serveurs", str(servers))
+    r.check(
+        servers == ["local", "datagouv", "mslearn", "github"],
+        "/mcp : les quatre serveurs (GitHub, story 3 de la V1.1 vague 2)",
+        str(servers),
+    )
     r.check(
         page.locator("#mcp-seq-empty").is_visible()
         and not _mcp_revealed_heads(r)

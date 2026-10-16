@@ -141,3 +141,47 @@ def test_github_disconnect_http_clears_the_token(loop):  # noqa: F811
     assert response.status_code == 200
     assert client.get("/api/mcp_lab").json()["github"] == {"status": "disconnected"}
     session.close()
+
+
+def test_a_proxy_page_never_breaks_the_mcp_page(loop, tmp_path):  # noqa: F811
+    """A 200 HTML page from a corporate proxy (Zscaler, captive portal): a 409 on start, and
+    `GET /api/mcp_lab` stays a 200 while a device flow is pending."""
+    import httpx
+
+    from wavestack.mcp import github_auth
+
+    def proxy(request):  # noqa: ANN001, ANN202
+        return httpx.Response(200, text="<html>proxy</html>")
+
+    session = mcp_session(loop)
+    session._github = github_auth.GithubAuth(
+        transport=httpx.MockTransport(proxy), path=tmp_path / "github_token.json"
+    )
+    client = _client(session)
+
+    assert (
+        client.post("/api/intentions/github_connect", json={}, headers=HEADERS).status_code == 409
+    )
+    session._github._device = {
+        "device_code": "d",
+        "user_code": "ABCD-1234",
+        "verification_uri": "https://github.com/login/device",
+        "interval": 5.0,
+        "next_poll": 0.0,
+    }
+    response = client.get("/api/mcp_lab")
+    assert response.status_code == 200
+    assert response.json()["github"]["status"] == "waiting"
+    session.close()
+
+
+def test_github_is_never_a_harnais_brick_sub_option(loop):  # noqa: F811
+    session = mcp_session(loop)
+    client = _client(session)
+
+    response = client.post(
+        "/api/intentions/mcp_server", json={"server": "github", "enabled": True}, headers=HEADERS
+    )
+
+    assert response.status_code >= 400
+    session.close()

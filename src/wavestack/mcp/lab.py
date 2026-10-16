@@ -647,6 +647,7 @@ class LabConnection(McpConnection):
                 timeout=self.connect_timeout,
                 annotate=self._annotate,
                 headers=self.server.headers,
+                auth=self.server.auth,
             )
             stack.push_async_callback(http.aclose)
             inner = streamable_http_client(self.server.url, http_client=http)

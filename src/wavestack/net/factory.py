@@ -2,9 +2,10 @@
 
 A destination outside `allowed_hosts` and the loopback range is refused
 (`NetworkBlocked`) before anything is sent or traced. Every other destination
-outside the loopback range emits `outbound_request` (address, headers and exact
-body) via the journal, before the request is sent, tagged with the scope's
-`origin`. The hook runs again on every redirect hop, with that hop's headers.
+outside the loopback range emits `outbound_request` (address, headers and body,
+its sensitive form fields masked: `_masked_body`) via the journal, before the request
+is sent, tagged with the scope's `origin`. The hook runs again on every redirect hop,
+with that hop's headers.
 
 Headers are traced in the order and case they are sent. Only the closed
 allow-list `config.PUBLIC_HEADERS` keeps its value: any other header (a cloud key
@@ -288,6 +289,7 @@ def create_async_client(
     timeout: float = 30.0,
     annotate: Callable[[httpx2.Request], dict[str, object]] | None = None,
     headers: dict[str, str] | None = None,
+    auth: httpx2.Auth | None = None,
 ) -> httpx2.AsyncClient:
     """Asynchronous httpx2 client, same configuration as `create_client`.
 
@@ -298,7 +300,8 @@ def create_async_client(
     the MCP workshop): fields added to the request's `outbound_request` (`message_seq`).
     `headers` (story 3, CAP-4): extra default headers for every request of this client (an
     MCP server reached with a bearer token, e.g. GitHub's); masked in the journal the same
-    way as any other header outside `config.PUBLIC_HEADERS`.
+    way as any other header outside `config.PUBLIC_HEADERS`. `auth`: a per-request header
+    (GitHub's bearer, refreshed while the connection lasts), applied before the trace hook.
     """
 
     async def trace(request: httpx2.Request) -> None:
@@ -318,5 +321,6 @@ def create_async_client(
         transport=transport,
         mounts=mounts,
         headers={"User-Agent": user_agent(), **(headers or {})},
+        auth=auth,
         event_hooks={"request": [trace], "response": [trace_response]},
     )

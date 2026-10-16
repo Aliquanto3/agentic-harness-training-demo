@@ -5602,7 +5602,7 @@ class AppSession:
     def set_mcp_server(self, server_id: str, enabled: bool) -> None:
         """Class (a): an MCP server sub-option. Enabled with the brick wanted, the server is
         contacted now; disabled, its connection closes. `KeyError` if unknown."""
-        if server_id not in self._mcp_servers:
+        if server_id not in self._mcp_servers or server_id == "github":  # CAP-4: lab only
             raise KeyError(server_id)
         with self._lock:
             if (server_id in self._mcp_enabled) == enabled:
@@ -5661,7 +5661,7 @@ class AppSession:
         """CAP-4: starts (or restarts) GitHub's device flow; a network failure: `SendRefused`."""
         try:
             return self._github.start()
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, ValueError) as exc:  # ValueError: a proxy's page, not GitHub
             raise SendRefused(Message("session.mcp_lab.github_start_failed")) from exc
 
     def github_disconnect(self) -> None:
@@ -5671,8 +5671,10 @@ class AppSession:
 
     def _github_state(self) -> dict[str, Any]:
         """`GET /api/mcp_lab`'s `github`: advances a pending device flow (cheap, rate-limited
-        by its own interval), never the token itself."""
+        by its own interval), refreshes an expired access token (once, then every 30 s at most
+        on a network failure), never the token itself."""
         self._github.poll()
+        self._github.access_token()
         return self._github.state()
 
     def _mcp_connect(self, server_id: str) -> None:
@@ -5686,7 +5688,7 @@ class AppSession:
             if headers is None:
                 github_blocked = True
             else:
-                server = replace(server, headers=headers)
+                server = replace(server, headers=headers, auth=self._github.bearer)
         applied = threading.Event()  # #5: set by `_mcp_apply`, waited for by `_start`
         with self._lock:
             if server_id in self._mcp_conns:
@@ -10735,7 +10737,7 @@ class AppSession:
                 if headers is None:
                     end["error_text"] = Message("session.mcp_lab.github_not_connected")
                     return
-                server = replace(server, headers=headers)
+                server = replace(server, headers=headers, auth=self._github.bearer)
 
             def emit(payload: dict[str, Any], step: str) -> int | None:
                 return self._mcp_lab_emit("mcp_lab_message", payload, step, server_id)
@@ -11177,6 +11179,17 @@ class AppSession:
                 }
                 self._mcp_lab_after(conn, payload, cancel)
                 return payload
+        if server_id == "github" and self._github.access_token() is None:
+            # Flow 4 (EXPERIENCE.md): the token expired or was dropped while the connection
+            # stayed open; said plainly, nothing sent (never GitHub's obscure 401).
+            payload |= {
+                "status": "error",
+                "error_kind": "unreachable",
+                "error_text": Message("session.mcp_lab.github_expired_call"),
+                "raw": None,
+            }
+            self._mcp_lab_after(conn, payload, cancel)
+            return payload
         try:
             result = conn.call_result(tool, arguments)
         except Exception as exc:  # noqa: BLE001 - AD-16: said in the Séquence

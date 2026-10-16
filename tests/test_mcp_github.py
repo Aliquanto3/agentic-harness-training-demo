@@ -117,3 +117,60 @@ def test_without_a_token_the_connection_is_refused_without_any_network_call(loop
     assert "GitHub" in ended["error_text"]
     assert server.sent == []  # not even attempted
     session.close()
+
+
+def _expire_access(session) -> None:  # noqa: ANN001
+    from dataclasses import replace
+
+    a = session._github
+    with a._lock:
+        a._token = replace(a._token, obtained_at=time.time() - a._token.expires_in - 1)
+
+
+def test_an_open_connection_sends_the_refreshed_bearer_after_8_hours(loop, web, tmp_path):  # noqa: F811
+    import httpx
+    from test_mcp_github_auth import FakeGithub
+
+    server = web(McpWeb(GITHUB_TOOLS))
+    session = mcp_session(loop)
+    session._github = github_auth.GithubAuth(
+        transport=httpx.MockTransport(FakeGithub()), path=tmp_path / "github_token.json"
+    )
+    connected(session)
+    _expire_access(session)  # the same open connection, 8 h later
+    mark = len(server.sent)
+
+    _, ended = lab_call(session, "github", "list_secret_scanning_alerts")
+
+    assert ended["status"] == "ok"
+    assert {r.headers["authorization"] for r in server.sent[mark:]} == {"Bearer gho_refreshed"}
+    session.close()
+
+
+def test_flow_4_a_call_after_the_refresh_is_refused_says_so_and_sends_nothing(
+    loop,  # noqa: F811
+    web,  # noqa: F811
+    tmp_path,
+):
+    import httpx
+
+    def refuse(request):  # noqa: ANN001, ANN202
+        return httpx.Response(200, json={"error": "bad_refresh_token"})
+
+    server = web(McpWeb(GITHUB_TOOLS))
+    session = mcp_session(loop)
+    session._github = github_auth.GithubAuth(
+        transport=httpx.MockTransport(refuse), path=tmp_path / "github_token.json"
+    )
+    connected(session)
+    _expire_access(session)  # the next day: GitHub refuses the refresh token
+    mark = len(server.sent)
+
+    _, ended = lab_call(session, "github", "list_secret_scanning_alerts")
+
+    assert ended["status"] == "error"
+    assert "GitHub" in ended["error_text"]
+    # no `tools/call` left for GitHub (only the DELETE that closes the stale session)
+    assert [r.method for r in server.sent[mark:]] in ([], ["DELETE"])
+    assert session.mcp_lab_state()["github"] == {"status": "expired"}
+    session.close()

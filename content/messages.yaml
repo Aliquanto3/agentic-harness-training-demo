@@ -571,6 +571,7 @@ session:
     # Story 3 (CAP-4) : bloc GitHub de l'atelier MCP.
     github_not_connected: "Connectez-vous d'abord à GitHub (bloc GitHub, ci-dessous) : la connexion ne peut pas s'ouvrir sans jeton."
     github_start_failed: "Connexion à GitHub impossible : le réseau n'a pas répondu. Réessayez."
+    github_expired_call: "Refusé : la connexion GitHub a expiré ou a été fermée. Reconnectez-vous dans le bloc GitHub. Envoyé à GitHub : non."
     # Lot 4 of 2026-10-04 (AD-27): the deduced arrow Hôte → Client of a connection.
     launch:
       stdio: "lance le serveur : {command}"
