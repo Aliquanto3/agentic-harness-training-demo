@@ -56,11 +56,15 @@ def _session(language: str, outputs: list[str], *, contrary: bool = True):
 def _french_values() -> set[str]:
     """Every French text of the catalogue (both forms of a plural), `{…}` cut out: none
     may appear in what a German or English session writes."""
-    values = set()
-    for text in messages.load_messages("fr").values():
-        for form in text.values() if isinstance(text, dict) else (text,):
-            values |= {p.strip() for p in messages._VARIABLE.split(form) if len(p.strip()) > 12}
-    return values
+    def fragments(lang: str) -> set[str]:
+        found = set()
+        for text in messages.load_messages(lang).values():
+            for form in text.values() if isinstance(text, dict) else (text,):
+                found |= {p.strip() for p in messages._VARIABLE.split(form) if len(p.strip()) > 12}
+        return found
+
+    # A fragment the English catalogue also holds is a proper noun (« Microsoft Learn »), not French.
+    return fragments("fr") - fragments("en")
 
 
 def _no_french(text: str) -> None:
