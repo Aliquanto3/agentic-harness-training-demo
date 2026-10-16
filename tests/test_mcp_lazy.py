@@ -220,12 +220,13 @@ def test_loading_twice_or_an_unknown_name(loop):  # noqa: F811
 def test_everything_loaded_keeps_the_meta_tool_then_clearing_unloads(loop):  # noqa: F811
     """D16-a (local mode): `tools` and the catalog never change with a loading; the tools
     documented are read in the history, until « Vider la conversation »."""
-    session = lazy_session(loop, [load(LOCAL[0]), load(LOCAL[1]), "Voilà."])
+    # The five documentations together outgrow the default 4096 window.
+    session = lazy_session(loop, [*(load(name) for name in LOCAL), "Voilà."], window=8192)
     _run(session, "Charge tout")
 
     state = session.build_turn_state()
     assert state.tools == ("load_tool_doc",) and state.loadable == LOCAL
-    assert state.documented == LOCAL[:2]
+    assert state.documented == LOCAL
     mark = get_journal().last_seq()
 
     session.clear_conversation()

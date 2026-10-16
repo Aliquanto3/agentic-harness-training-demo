@@ -94,6 +94,15 @@ def system_info() -> str:
     )
 
 
+# Caps against filling the disk (review): a file's text, and the captures kept.
+MAX_CONTENT_BYTES = 1_000_000
+MAX_SCREENSHOTS = 20
+
+
+def _error(text: str) -> CallToolResult:
+    return CallToolResult(content=[TextContent(type="text", text=text)], is_error=True)
+
+
 @server.tool(description=_TOOLS.create_path)
 def create_path(
     path: str, kind: Literal["file", "folder"] = "file", content: str = ""
@@ -101,30 +110,42 @@ def create_path(
     try:
         target = sandbox.resolve(path)
     except sandbox.SandboxError as exc:
-        return CallToolResult(content=[TextContent(type="text", text=str(exc))], is_error=True)
-    if kind == "folder":
-        target.mkdir(parents=True, exist_ok=True)
-        text = msg("mcp.sandbox.folder_created", LANGUAGE, path=path)
-    else:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        text = msg("mcp.sandbox.file_created", LANGUAGE, path=path)
+        return _error(msg(f"mcp.sandbox.{exc.key}", LANGUAGE, path=exc.part or path))
+    data = content.encode("utf-8")
+    if len(data) > MAX_CONTENT_BYTES:
+        limit = config.size_fr(MAX_CONTENT_BYTES, LANGUAGE)
+        return _error(msg("mcp.sandbox.too_large", LANGUAGE, limit=limit))
+    try:
+        if kind == "folder":
+            target.mkdir(parents=True, exist_ok=True)
+            text = msg("mcp.sandbox.folder_created", LANGUAGE, path=path)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("xb") as file:  # never overwrites an existing file or folder
+                file.write(data)
+            text = msg("mcp.sandbox.file_created", LANGUAGE, path=path)
+    except OSError as exc:
+        return _error(msg("mcp.sandbox.failed", LANGUAGE, path=path, reason=exc.strerror))
     return CallToolResult(content=[TextContent(type="text", text=text)])
 
 
 @server.tool(description=_TOOLS.take_screenshot)
 def take_screenshot() -> CallToolResult:
     """A capture of the main monitor, saved in the sandbox; never sent to the model, which
-    receives only its path and its byte size (CAP-1's constraint)."""
-    target = sandbox.resolve(f"screenshots/{int(time.time() * 1000)}.png")
+    receives only its path and its byte size (CAP-1's constraint). Only the last
+    `MAX_SCREENSHOTS` captures are kept."""
+    target = sandbox.resolve(f"screenshots/{time.time_ns()}.png")
     target.parent.mkdir(parents=True, exist_ok=True)
     with mss.mss() as shot:
         image = shot.grab(shot.monitors[1] if len(shot.monitors) > 1 else shot.monitors[0])
         mss.tools.to_png(image.rgb, image.size, output=str(target))
+    # Bounded: at most MAX_SCREENSHOTS + 1 files listed per capture.
+    for old in sorted(target.parent.glob("*.png"))[:-MAX_SCREENSHOTS]:
+        old.unlink(missing_ok=True)
     text = msg(
         "mcp.screenshot.saved",
         LANGUAGE,
-        path=str(target.relative_to(sandbox.sandbox_dir())),
+        path=target.relative_to(sandbox.sandbox_dir()).as_posix(),
         size=target.stat().st_size,
     )
     return CallToolResult(content=[TextContent(type="text", text=text)])

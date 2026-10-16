@@ -772,6 +772,11 @@ mcp:
   sandbox:
     file_created: "Datei in der Sandbox erstellt: {path}."
     folder_created: "Ordner in der Sandbox erstellt: {path}."
+    empty: "Leerer Pfad: einen Pfad relativ zur Sandbox angeben."
+    reserved: "Name abgelehnt: „{path}“ bezeichnet ein Windows-Gerät oder einen NTFS-Datenstrom."
+    outside: "Pfad abgelehnt: „{path}“ führt aus der Sandbox heraus."
+    too_large: "Inhalt abgelehnt: mehr als {limit}."
+    failed: "„{path}“ kann nicht erstellt werden: {reason}."
   screenshot:
     saved: "Screenshot in der Sandbox gespeichert: {path} ({size} Byte)."
   # `load_tool_doc` (AD-25), the lazy loading's meta-tool.

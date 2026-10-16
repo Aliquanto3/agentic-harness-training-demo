@@ -779,6 +779,11 @@ mcp:
   sandbox:
     file_created: "Fichier créé dans le bac à sable : {path}."
     folder_created: "Dossier créé dans le bac à sable : {path}."
+    empty: "Chemin vide : indiquer un chemin relatif au bac à sable."
+    reserved: "Nom refusé : « {path} » désigne un périphérique Windows ou un flux NTFS."
+    outside: "Chemin refusé : « {path} » sort du bac à sable."
+    too_large: "Contenu refusé : plus de {limit}."
+    failed: "Impossible de créer « {path} » : {reason}."
   screenshot:
     saved: "Capture d'écran enregistrée dans le bac à sable : {path} ({size} octets)."
   # `load_tool_doc` (AD-25), the lazy loading's meta-tool.

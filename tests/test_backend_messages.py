@@ -304,6 +304,7 @@ PERIMETER = (
     "tools/registry.py",
     "mcp/connection.py",
     "mcp/local_server.py",
+    "mcp/sandbox.py",
     "hooks.py",
     "memory.py",
     "messages.py",
