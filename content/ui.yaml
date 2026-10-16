@@ -579,6 +579,15 @@ main:
       before: "Avant ({tokens} tokens)"
       after: "Après ({tokens} tokens)"
       title: "Compression du contexte ({compressor})"
+      saved_usd: "{amount} économisés"
+    cache:
+      line: "Cache de prompt : {read} tokens relus · {saved} économisés"
+      full: "Prix plein"
+      paid: "Payé"
+      write: "Écriture"
+      write_tokens: "{tokens} tokens · {cost}"
+      write_none: "0 token sur ce tour"
+      source: "Source"
     rows:
       overflow: "Contexte dépassé"
       sub_overflow: "Contexte du sous-agent dépassé"

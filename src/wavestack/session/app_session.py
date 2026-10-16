@@ -6960,6 +6960,15 @@ class AppSession:
             finally:  # AD-2: the pair is always complete
                 total_before = sum(item["tokens_before"] for item in items)
                 total_after = sum(item["tokens_after"] for item in items)
+                saved_tokens = max(0, total_before - total_after)
+                # CAP-7: the saved tokens × the active entry's input price; `None` on a local
+                # model or one without a declared price (zero dollar, tokens shown all the same).
+                price_in = (
+                    self._cloud.pricing.input_usd_per_mtok
+                    if self._cloud is not None and self._cloud.pricing is not None
+                    else None
+                )
+                saved_usd = None if price_in is None else saved_tokens * price_in / 1_000_000
                 journal.emit(
                     "compression_ended",
                     {
@@ -6968,7 +6977,8 @@ class AppSession:
                         "items": items,
                         "tokens_before": total_before,
                         "tokens_after": total_after,
-                        "saved_tokens": max(0, total_before - total_after),
+                        "saved_tokens": saved_tokens,
+                        "saved_usd": saved_usd,
                         "estimated": estimated,
                         "unchanged_text": content.unchanged_text,
                         "error_text": " ".join(errors) or None,

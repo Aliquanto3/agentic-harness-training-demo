@@ -2442,6 +2442,41 @@ function footprintNode(ended) {
   return node;
 }
 
+// FinOps (CAP-7, disclosure-row): the cloud cache's own line, « Cache de prompt : 10 240
+// tokens relus · 0,0276 $ économisés », absent when this call read or wrote no cache. The
+// calc unfolds on place (native `<details>`, same pattern as `compressionBody`'s before/after).
+function cacheNode(ended) {
+  if (ended?.cache_saved_usd == null) return null;
+  const guess = approx(ended.cost_source === "estimate");
+  const node = el("details", "token-counter number saving disclosure-row");
+  const kv = el("dl", "kv");
+  kv.append(
+    el("dt", "", t("main.orch.cache.full")),
+    el("dd", "", `${guess}${usd(ended.cache_full_usd)}`),
+    el("dt", "", t("main.orch.cache.paid")),
+    el("dd", "", `${guess}${usd(ended.cost_in_usd)}`),
+    el("dt", "", t("main.orch.cache.write")),
+    el(
+      "dd",
+      "",
+      ended.cache_write_tokens
+        ? t("main.orch.cache.write_tokens", { tokens: fmt(ended.cache_write_tokens), cost: `${guess}${usd(ended.cache_write_usd)}` })
+        : t("main.orch.cache.write_none")
+    ),
+    el("dt", "", t("main.orch.cache.source")),
+    el("dd", "code", "usage.prompt_tokens_details.cached_tokens")
+  );
+  node.append(
+    el(
+      "summary",
+      "",
+      t("main.orch.cache.line", { read: fmt(ended.cache_read_tokens), saved: `${guess}${usd(ended.cache_saved_usd)}` })
+    ),
+    kv
+  );
+  return node;
+}
+
 // FinOps, the top bar's compact amounts: 4 decimals at most (a hundredth of a cent), « < 0,0001 $ »
 // under it; the 4 significant digits stay in the tooltip. Formatting only.
 const shortMoneyFormat = () => intlNumber({ minimumFractionDigits: 0, maximumFractionDigits: 4 });
@@ -4739,6 +4774,9 @@ function callBody(turn, step) {
   const nodes = [el("p", "label", t("main.orch.call.label", { id: step.id ?? turn.id })), counter];
   // FinOps: a cloud call with declared prices; never for a local model.
   if (ended?.cost_in_usd != null) nodes.push(el("div", "token-counter number", costText(ended)));
+  // FinOps (CAP-7): the cloud cache's own line, absent when this call had no cache.
+  const cache = cacheNode(ended);
+  if (cache) nodes.push(cache);
   // GreenOps: its footprint (cloud: EcoLogits, local: CodeCarbon), or « indisponible ».
   const footprint = footprintNode(ended);
   if (footprint) nodes.push(footprint);
@@ -5009,7 +5047,9 @@ function rerankBody(step) {
 function compressionFigure(p) {
   const percent = p.tokens_before ? Math.round((100 * p.saved_tokens) / p.tokens_before) : 0;
   const mark = approx(p.estimated);
-  return t("main.orch.compression.figure", { before: `${mark}${fmt(p.tokens_before)}`, after: `${mark}${fmt(p.tokens_after)}`, percent: String(percent) });
+  const figure = t("main.orch.compression.figure", { before: `${mark}${fmt(p.tokens_before)}`, after: `${mark}${fmt(p.tokens_after)}`, percent: String(percent) });
+  // CAP-7, finops.md: $ on a cloud model with a declared price; zero on a local one (tokens only).
+  return p.saved_usd == null ? figure : `${figure} · ${t("main.orch.compression.saved_usd", { amount: `${approx(true)}${usd(p.saved_usd)}` })}`;
 }
 
 function compressionBody(step) {

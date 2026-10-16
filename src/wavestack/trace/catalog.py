@@ -437,6 +437,14 @@ class ModelCallEndedPayload(BaseModel):
     cost_in_usd: float | None = None
     cost_out_usd: float | None = None
     cost_source: Literal["api", "estimate"] | None = None
+    # CAP-7: the cloud cache's own line, absent when this call read or wrote no cache.
+    # `cache_full_usd`: the input at the plain price, with no cache at all. `cache_write_usd`:
+    # this call's write, a distinct line, never a saving. `cache_saved_usd`: the net saving.
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    cache_full_usd: float | None = None
+    cache_write_usd: float | None = None
+    cache_saved_usd: float | None = None
     # GreenOps: the call's estimated footprint, in Wh and g CO₂e, as a range (min = max for
     # a single value): EcoLogits for a cloud call whose entry declares `impacts`, CodeCarbon
     # for a local one. `impact_note_text`: the method and its limits, or why there is none.
@@ -1071,6 +1079,9 @@ class CompressionEndedPayload(BaseModel):
     tokens_before: int
     tokens_after: int
     saved_tokens: int
+    # CAP-7, finops.md: `saved_tokens` × the active entry's input price; `None` on a local
+    # model or one without a declared price (zero dollar, tokens shown all the same).
+    saved_usd: float | None = None
     estimated: bool = False  # chat mode: tokens estimated (AD-4)
     unchanged_text: str  # why a candidate may come back as it was (content/compression.yaml)
     error_text: str | None = None

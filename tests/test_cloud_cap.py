@@ -33,6 +33,7 @@ from wavestack.models.cloud_base import (
     ChatBody,
     ProviderError,
     _cached_tokens,
+    cache_savings,
     call_cost,
     record_spend,
     run_call,
@@ -357,6 +358,31 @@ def test_cached_tokens_are_read_from_the_usage_details():
     assert _cached_tokens(usage) == (800, 100)
 
 
+# ---------- CAP-7: the cache's own line in `model_call_ended` ----------
+
+
+def test_no_cache_line_without_any_cache_on_this_call():
+    assert cache_savings(_pricing(), 1000, 0, 0, 1000 * 1 / 1e6) is None
+
+
+def test_the_cache_line_names_the_full_price_the_write_apart_and_the_net_saving():
+    pricing = _pricing(cache_read_usd_per_mtok=0.10, cache_write_usd_per_mtok=1.25)
+    paid = call_cost(pricing, 1000, 0, "api", cached_read=800, cached_write=100).input_usd
+    line = cache_savings(pricing, 1000, 800, 100, paid)
+    assert line["cache_read_tokens"] == 800 and line["cache_write_tokens"] == 100
+    assert line["cache_full_usd"] == pytest.approx(1000 * 1 / 1e6)
+    assert line["cache_write_usd"] == pytest.approx(100 * 1.25 / 1e6)
+    assert line["cache_saved_usd"] == pytest.approx(line["cache_full_usd"] - paid)
+    assert line["cache_saved_usd"] > 0
+
+
+def test_the_cache_line_never_turns_negative():
+    pricing = _pricing(cache_read_usd_per_mtok=0.10, cache_write_usd_per_mtok=1.25)
+    # A paid cost higher than the full price (an inconsistent usage): the saving floors at 0.
+    line = cache_savings(pricing, 1000, 800, 100, 1.0)
+    assert line["cache_saved_usd"] == 0.0
+
+
 @pytest.mark.parametrize("field", ["cache_read_usd_per_mtok", "cache_write_usd_per_mtok"])
 @pytest.mark.parametrize("value", [-1, float("nan"), float("inf")])
 def test_a_cache_price_must_be_finite_and_not_negative(field, value):
@@ -392,3 +418,8 @@ def test_a_call_reads_the_cached_tokens_of_its_usage():
     expected = (100 * 1 + 800 * 0.10 + 100 * 1.25) / 1e6
     assert ended["cost_in_usd"] == pytest.approx(expected)
     assert ended["cost_out_usd"] == pytest.approx(10 * 5 / 1e6)
+    # CAP-7: the cache's own line, in the same event.
+    assert ended["cache_read_tokens"] == 800 and ended["cache_write_tokens"] == 100
+    assert ended["cache_full_usd"] == pytest.approx(1000 * 1 / 1e6)
+    assert ended["cache_write_usd"] == pytest.approx(100 * 1.25 / 1e6)
+    assert ended["cache_saved_usd"] == pytest.approx(ended["cache_full_usd"] - ended["cost_in_usd"])

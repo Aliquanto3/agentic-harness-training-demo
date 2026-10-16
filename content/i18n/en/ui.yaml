@@ -567,7 +567,16 @@ main:
       item_unchanged: "{before} tokens · unchanged"
       before: "Before ({tokens} tokens)"
       after: "After ({tokens} tokens)"
+      saved_usd: "{amount} saved"
       title: "Context compression ({compressor})"
+    cache:
+      line: "Prompt cache: {read} tokens reread · {saved} saved"
+      full: "Full price"
+      paid: "Paid"
+      write: "Write"
+      write_tokens: "{tokens} tokens · {cost}"
+      write_none: "0 token this turn"
+      source: "Source"
     rows:
       overflow: "Context exceeded"
       sub_overflow: "Sub-agent context exceeded"
