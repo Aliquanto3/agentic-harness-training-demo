@@ -7053,10 +7053,11 @@ def s_rag_rerank(r: Run) -> None:
     )
     r.shot("27-reranking-brique-rag-eteinte")
     r.set_brick("RAG", True)
-    r.check(
-        toggle.is_checked() and toggle.is_enabled() and not row.get_attribute("title"),
-        "brique RAG rallumée : « Reranking » de nouveau réglable, toujours coché",
+    # The option re-renders after bricks_changed: poll, as an immediate read is flaky.
+    relit, _ = r.poll(
+        lambda: toggle.is_checked() and toggle.is_enabled() and not row.get_attribute("title"), 5
     )
+    r.check(relit, "brique RAG rallumée : « Reranking » de nouveau réglable, toujours coché")
 
 
 def _compression_step(r: Run):
