@@ -208,6 +208,9 @@ class TurnEndedPayload(BaseModel):
     energy_wh_max: float | None = None
     gco2e_min: float | None = None
     gco2e_max: float | None = None
+    # Story 5: the answer after its output guardrails, when it was withheld from the live
+    # stream (`model_call_started.withheld`); empty when blocked. Absent otherwise.
+    text: str | None = None
 
 
 class CompressedFromPayload(BaseModel):
@@ -405,6 +408,8 @@ class SamplingTrace(BaseModel):
 class ModelCallStartedPayload(BaseModel):
     phase_label: str
     sampling: SamplingTrace | None = None  # story 29
+    # Story 5: an output guardrail blocks or masks, the answer is checked before it shows.
+    withheld: bool = False
 
 
 class ModelFirstTokenPayload(BaseModel):
@@ -793,6 +798,8 @@ class GuardrailVerdictPayload(BaseModel):
     entities: list[str] = []
     masked_text: str | None = None
     detail_text: str = ""
+    # Toxicity scored only part of a very long text (`_MAX_WINDOWS`): said, never silent.
+    partial: bool = False
     verdict_text: str
     # `None`: nothing worth a banner (mode active, nothing detected).
     banner_text: str | None = None

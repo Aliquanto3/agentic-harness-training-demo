@@ -46,6 +46,15 @@ class GuardrailsManager:
             raise ValueError(f"unknown guardrail: {guardrail!r}")
         self.modes[guardrail] = mode
 
+    def withholds_output(self) -> bool:
+        """Story 5: whether an answer must be checked before it is shown (`block`, or `pii`
+        in `flag`, which masks): then it is never streamed live."""
+        return any(
+            m == "block" or (g == "pii" and m == "flag")
+            for g, m in self.modes.items()
+            if g != "injection"
+        )
+
     def _classifier(self, guardrail: GuardrailId) -> Classifier | None:
         if guardrail not in self._factories or guardrail in self._load_errors:
             return None
@@ -84,13 +93,17 @@ class GuardrailsManager:
                     guardrail, direction, mode, "error", detail_text=self._load_errors[guardrail]
                 )
             return Verdict(guardrail, direction, mode, "not_installed")
+        masked = None
         try:
             result = classifier.classify(text)
+            if mode == "flag" and result.detected and result.entities:
+                masked = classifier.mask(text, result.entities)
         except Exception as exc:  # noqa: BLE001 - a missing/broken model never blocks the turn
+            # The real classifiers load (and download) inside `classify`: the failure is
+            # cached here, never retried on every turn, until `unload_idle`.
+            self._load_errors[guardrail] = str(exc)
+            self._instances.pop(guardrail, None)
             return Verdict(guardrail, direction, mode, "error", detail_text=str(exc))
-        masked = None
-        if mode == "flag" and result.detected and result.entities:
-            masked = classifier.mask(text, result.entities)
         return Verdict(
             guardrail,
             direction,
@@ -101,6 +114,7 @@ class GuardrailsManager:
             threshold=result.threshold,
             entities=tuple(e.label for e in result.entities),
             masked_text=masked,
+            partial=result.partial,
         )
 
     def unload_idle(self) -> None:

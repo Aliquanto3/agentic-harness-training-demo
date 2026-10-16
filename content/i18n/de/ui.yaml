@@ -256,6 +256,7 @@ main:
     stop_requested: "Stopp angefordert: Er greift ab dem ersten Token"
     preparing: "Kontext wird vorbereitet"
     empty_answer: "(leere Antwort)"
+    guardrail_checking: "Prüfung durch die Garde-fous…"
     nothing_to_replay: "Kein Prompt zum Wiederholen: Senden Sie zuerst eine Nachricht."
     compare_needs_two: "Zum Vergleichen braucht es mindestens zwei Runden."
     waiting_model: "Warten auf das Modell…"

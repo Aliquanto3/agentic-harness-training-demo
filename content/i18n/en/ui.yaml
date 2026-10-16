@@ -256,6 +256,7 @@ main:
     stop_requested: "Stop requested: it takes effect from the first token"
     preparing: "Preparing the context"
     empty_answer: "(empty answer)"
+    guardrail_checking: "Checking with the guardrails…"
     nothing_to_replay: "No prompt to replay: send a message first."
     compare_needs_two: "At least two turns are needed to compare."
     waiting_model: "Waiting for the model…"

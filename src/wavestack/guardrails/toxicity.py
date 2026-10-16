@@ -50,7 +50,8 @@ _SENTENCES = re.compile(r"(?<=[.!?…])\s+|\n+")
 _WINDOW = 256
 # shortcut: ~25 ms/window measured 2026-10-16 (story 4's review); an unbounded message could
 # cost ~10 s (400 sentences). Bounded at 64 windows (~1.6 s): a toxic sentence past that point
-# in a very long message is missed — upgrade: stream the score, or run windows in parallel.
+# in a very long message is missed (the verdict says « partial ») — upgrade: stream the
+# score, or run windows in parallel.
 _MAX_WINDOWS = 64
 _STRIDE = 32
 
@@ -93,8 +94,10 @@ class ToxicityGuardrail:
         score = 0.0
         # The ONNX export has a fixed batch size of 1: one run per window, the worst one wins.
         windows = (w for e in self._tokenizer.encode_batch(sentences) for w in (e, *e.overflowing))
+        partial = False
         for i, window in enumerate(windows):
             if i >= _MAX_WINDOWS:
+                partial = True  # said in the verdict (« analysé en partie »), never silent
                 break
             ids = np.array([window.ids], dtype=np.int64)
             mask = np.array([window.attention_mask], dtype=np.int64)
@@ -102,7 +105,9 @@ class ToxicityGuardrail:
             logits = self._session.run(None, inputs)[0][0]
             probs = np.exp(logits) / np.exp(logits).sum()
             score = max(score, float(probs[TOXIC_LABEL]))
-        return Classification(detected=score >= THRESHOLD, score=score, threshold=THRESHOLD)
+        return Classification(
+            detected=score >= THRESHOLD, score=score, threshold=THRESHOLD, partial=partial
+        )
 
     def mask(self, text: str, entities: tuple[Entity, ...]) -> str:
         return text  # toxicity never masks: "signaler" only annotates

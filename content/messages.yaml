@@ -1307,20 +1307,26 @@ guardrails:
     flagged: signalé
     passed: "rien détecté"
     error: erreur
+    partial: "rien détecté (analysé en partie)"
   # Vue humain (verdict-banner): always names who decided and what did not go through.
   banner:
     blocked_input: "Bloqué par le garde-fou {guardrail}. Le modèle ne l'a pas reçu."
     blocked_output: "Bloqué par le garde-fou {guardrail}. Vous n'avez pas reçu la réponse."
-    masked: "Masqué par le garde-fou {guardrail} avant envoi."
+    masked_input: "Masqué par le garde-fou {guardrail} avant l'envoi au modèle."
+    masked_output: "Masqué par le garde-fou {guardrail} avant l'affichage de la réponse."
+    partial: "Garde-fou {guardrail} : message trop long, seul le début a été analysé (rien détecté)."
     flagged: "Signalé par le garde-fou {guardrail}."
     error: "Le garde-fou {guardrail} a échoué : {detail}. Le tour continue."
   # Journal de sécurité (CAP-3): one reason per decision, no secret.
   decisions:
-    blocked: "{guardrail} : bloqué, le texte n'est pas passé."
-    masked: "{guardrail} : masqué avant envoi."
+    blocked_input: "{guardrail} : message bloqué, le modèle ne l'a pas reçu."
+    blocked_output: "{guardrail} : réponse bloquée, elle n'a pas été affichée."
+    masked_input: "{guardrail} : masqué avant l'envoi au modèle."
+    masked_output: "{guardrail} : masqué avant l'affichage de la réponse."
     flagged: "{guardrail} : signalé, rien de changé."
     error: "{guardrail} : erreur de chargement ({detail}), le tour continue."
     passed: "{guardrail} : rien détecté."
+    partial: "{guardrail} : rien détecté, texte analysé en partie seulement (trop long)."
   injection_not_installed: "Non installé : jeton Hugging Face requis (voir la story suivante)."
   # CAP-6: neutral, fabricated examples (brouillon validé de guardrails.md), never real
   # dangerous content; the button never shows the example's text, only its label.

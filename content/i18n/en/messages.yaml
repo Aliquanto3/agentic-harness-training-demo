@@ -1293,18 +1293,24 @@ guardrails:
     flagged: flagged
     passed: "nothing detected"
     error: error
+    partial: "nothing detected (partly analysed)"
   banner:
     blocked_input: "Blocked by the {guardrail} guardrail. The model did not receive it."
     blocked_output: "Blocked by the {guardrail} guardrail. You did not receive the answer."
-    masked: "Masked by the {guardrail} guardrail before it was sent."
+    masked_input: "Masked by the {guardrail} guardrail before it was sent to the model."
+    masked_output: "Masked by the {guardrail} guardrail before the answer was shown."
+    partial: "{guardrail} guardrail: message too long, only its beginning was analysed (nothing detected)."
     flagged: "Flagged by the {guardrail} guardrail."
     error: "The {guardrail} guardrail failed: {detail}. The turn goes on."
   decisions:
-    blocked: "{guardrail}: blocked, the text did not go through."
-    masked: "{guardrail}: masked before sending."
+    blocked_input: "{guardrail}: message blocked, the model did not receive it."
+    blocked_output: "{guardrail}: answer blocked, it was not shown."
+    masked_input: "{guardrail}: masked before it was sent to the model."
+    masked_output: "{guardrail}: masked before the answer was shown."
     flagged: "{guardrail}: flagged, nothing changed."
     error: "{guardrail}: load error ({detail}), the turn goes on."
     passed: "{guardrail}: nothing detected."
+    partial: "{guardrail}: nothing detected, text only partly analysed (too long)."
   injection_not_installed: "Not installed: a Hugging Face token is required (see the next story)."
   examples:
     toxicity:

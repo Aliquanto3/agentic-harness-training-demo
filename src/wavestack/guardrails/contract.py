@@ -36,6 +36,8 @@ class Classification:
     score: float
     threshold: float
     entities: tuple[Entity, ...] = ()
+    # Story 5: only part of the text was scored (toxicity's window budget, `_MAX_WINDOWS`).
+    partial: bool = False
 
 
 class Classifier(Protocol):
@@ -67,6 +69,7 @@ class Verdict:
     entities: tuple[str, ...] = field(default_factory=tuple)
     masked_text: str | None = None
     detail_text: str = ""
+    partial: bool = False
 
     @property
     def blocks(self) -> bool:

@@ -185,3 +185,31 @@ def test_real_presidio_masks_the_guardrails_md_example() -> None:
         "Mon numéro fiscal est 1234567890123.",
         pii.classify("Mon numéro fiscal est 1234567890123.").entities,
     )
+
+
+def test_classify_failure_is_cached_and_mask_failure_fails_open() -> None:
+    """Review of story 5 (MEDIUM): the real classifiers load inside `classify`; a failure
+    there is cached (never 135 MB retried every turn), and a failing `mask` is an `error`
+    verdict, never an exception that breaks the turn."""
+
+    class Broken(FakeClassifier):
+        calls = 0
+
+        def classify(self, text: str):  # type: ignore[override]
+            Broken.calls += 1
+            raise RuntimeError("download failed")
+
+    m = manager(toxicity=Broken())
+    m.set_mode("toxicity", "block")
+    assert m.check("input", "x")[0].status == "error"
+    assert m.check("input", "x")[0].status == "error"
+    assert Broken.calls == 1
+
+    class BadMask(FakeClassifier):
+        def mask(self, text, entities):  # type: ignore[override]
+            raise RuntimeError("mask failed")
+
+    m = GuardrailsManager({"pii": lambda: BadMask("PII", "E-MAIL"), "toxicity": FakeClassifier})
+    m.set_mode("pii", "flag")
+    [v] = m.check("output", "PII")
+    assert v.status == "error" and not v.blocks and not v.masks

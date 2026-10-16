@@ -267,6 +267,7 @@ main:
     stop_requested: "Arrêt demandé : il prend effet dès le premier token"
     preparing: "Préparation du contexte"
     empty_answer: "(réponse vide)"
+    guardrail_checking: "Vérification par les garde-fous…"
     nothing_to_replay: "Aucun prompt à rejouer : envoyez d'abord un message."
     compare_needs_two: "Il faut au moins deux tours pour comparer."
     waiting_model: "En attente du modèle…"

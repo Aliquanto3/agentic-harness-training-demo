@@ -1296,18 +1296,24 @@ guardrails:
     flagged: gemeldet
     passed: "nichts erkannt"
     error: Fehler
+    partial: "nichts erkannt (teilweise analysiert)"
   banner:
     blocked_input: "Vom Garde-fou {guardrail} blockiert. Das Modell hat sie nicht erhalten."
     blocked_output: "Vom Garde-fou {guardrail} blockiert. Sie haben die Antwort nicht erhalten."
-    masked: "Vom Garde-fou {guardrail} vor dem Versand maskiert."
+    masked_input: "Vom Garde-fou {guardrail} vor dem Versand an das Modell maskiert."
+    masked_output: "Vom Garde-fou {guardrail} vor der Anzeige der Antwort maskiert."
+    partial: "Garde-fou {guardrail}: Nachricht zu lang, nur ihr Anfang wurde analysiert (nichts erkannt)."
     flagged: "Vom Garde-fou {guardrail} gemeldet."
     error: "Der Garde-fou {guardrail} ist fehlgeschlagen: {detail}. Die Runde geht weiter."
   decisions:
-    blocked: "{guardrail}: blockiert, der Text wurde nicht übermittelt."
-    masked: "{guardrail}: vor dem Versand maskiert."
+    blocked_input: "{guardrail}: Nachricht blockiert, das Modell hat sie nicht erhalten."
+    blocked_output: "{guardrail}: Antwort blockiert, sie wurde nicht angezeigt."
+    masked_input: "{guardrail}: vor dem Versand an das Modell maskiert."
+    masked_output: "{guardrail}: vor der Anzeige der Antwort maskiert."
     flagged: "{guardrail}: gemeldet, nichts geändert."
     error: "{guardrail}: Ladefehler ({detail}), die Runde geht weiter."
     passed: "{guardrail}: nichts erkannt."
+    partial: "{guardrail}: nichts erkannt, Text nur teilweise analysiert (zu lang)."
   injection_not_installed: "Nicht installiert: Ein Hugging-Face-Token ist erforderlich (siehe die nächste Story)."
   examples:
     toxicity:

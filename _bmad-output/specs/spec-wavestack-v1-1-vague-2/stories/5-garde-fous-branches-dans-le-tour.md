@@ -178,3 +178,40 @@ Orchestration ni dans le journal de sécurité (CAP-3, story 1).
   Garde-fous de bout en bout à l'écran (ou la page Sécurité, story 10).
 
 </frozen-after-approval>
+
+## Portée (ajout de la revue, 16/10)
+
+Les garde-fous contrôlent la conversation principale seulement : le message envoyé (entrée,
+après les actions armées et `on_user_message`) et la réponse finale (sortie). Un tour rejoué
+passe par eux. Ne passent pas par eux, et c'est déclaré dans la brique Garde-fous et dans
+`limites-harnais.md` : les résultats d'outils, le raisonnement, les sorties intermédiaires
+(appels avec outils), le sous-agent, les ateliers (LLM nu, RAG, MCP). La décision « le
+masquage en sortie ne couvre pas le flux en direct » (Decisions) est remplacée : en Bloquer
+ou Masquer, la réponse n'est plus diffusée en direct (voir Revue).
+
+## Revue
+
+Revue Opus du 16/10, après rebase sur `origin/main` (277567b, sans conflit).
+
+| Sévérité | Source | Constat | Suite | Motif |
+|---|---|---|---|---|
+| HIGH | second avis 1 | Réponse bloquée ou masquée diffusée en direct (`model_delta`) et affichée (`model_call_ended.text`), y compris sous le bandeau « Vous n'avez pas reçu la réponse ». | corrigé | `GuardrailsManager.withholds_output()` ; `_call_model`/`run_call(withhold=)` : pas de delta du canal `text`, `model_call_started.withheld`, `text`/`raw_output` vides dans `model_call_ended` d'une réponse finale ; `turn_ended.text` porte le texte contrôlé (masqué, ou vide si bloqué) ; l'interface affiche « Vérification par les garde-fous… » en attendant. Signaler et Désactivé gardent le direct. |
+| HIGH | second avis 1 | Libellés faux en sortie (« avant envoi », « le texte n'est pas passé »). | corrigé | `banner.masked_{input,output}`, `decisions.{blocked,masked}_{input,output}` (fr, en, de). |
+| HIGH | second avis 2 | Entrée masquée : le message brut entrait dans `Exchange` et repartait au modèle aux tours suivants. | corrigé | `_turn_input` (masqué) dans l'historique ; test au tour suivant avec mémoire courte. `turn_started.message` garde le texte saisi pour la bulle de l'utilisateur (décision de l'orchestrateur), il ne repart jamais au modèle. |
+| HIGH | second avis 3 | `model_call_ended` gardait le texte brut en Bloquer/Masquer ; le test l'assertait. | corrigé | voir le premier constat ; tests réécrits : aucun déclencheur dans `model_delta`, `model_call_ended`, `turn_ended` (local et chat). |
+| MEDIUM | second avis 4 | `mask()` hors du `try` : une exception cassait le tour. | corrigé | dans le `try`, verdict `error`, fail-open ; test. |
+| MEDIUM | second avis 5 | `_load_errors` inopérant pour les vrais classifieurs (échec dans `classify`). | corrigé | l'échec de `classify` est mis en cache et l'instance lâchée ; test avec un `classify` qui lève (un seul essai). |
+| MEDIUM | second avis 6 | Sorties intermédiaires et résultats d'outils non contrôlés. | déclaré | section Portée, brique, `limites-harnais.md`. |
+| MEDIUM | second avis 7 | Sous-agent, ateliers sans contrôle. | déclaré | idem ; le rejeu passe bien par `_run_turn`, donc par les garde-fous (écarté pour lui). |
+| MEDIUM | second avis 8 | Au-delà de 64 fenêtres, « rien détecté » silencieux. | corrigé | `Classification.partial` → `Verdict.partial` → verdict « rien détecté (analysé en partie) », bandeau et décision `partial` au journal de sécurité ; test. |
+| LOW | second avis | Verdict d'erreur en rouge. | corrigé | bandeau jaune (`is-flagged`), ligne d'Orchestration `info`. |
+| LOW | second avis | Route `guardrail_mode` acceptée quand non installé. | corrigé | `ValueError` → 422. |
+| LOW | second avis | `_instances` muté depuis deux threads. | rejeté | `unload_idle` et les tours passent par le même `_executor` à un seul worker. |
+| LOW | revue | Le texte saisi reste en clair dans `turn_started` (trace, export) en Masquer. | reporté | conforme à la décision de l'orchestrateur ; à rediscuter avec la page Sécurité (story 10) si l'export doit être expurgé. |
+| LOW | revue | Le raisonnement n'est pas contrôlé (affiché et tracé tel quel). | déclaré | Portée. |
+
+**À vérifier sur le poste (E2E, modèles réels)** : `s_hooks`, `s_native_tools` (E031,
+`guardrail_verdict`), puis à la main avec les vrais modèles : données personnelles en
+Masquer, bouton « Essayer : coordonnées » renvoyé en sortie par le modèle (« Vérification
+par les garde-fous… » puis texte masqué), toxicité en Bloquer en sortie (rien sous le
+bandeau), et un modèle cloud (chemin `run_call`).

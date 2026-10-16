@@ -491,6 +491,7 @@ function applyEnvelope(envelope) {
           firstToken: false,
           text: "",
           reasoning: "",
+          withheld: Boolean(p.withheld), // story 5: the answer shows only once checked
         });
         lastCall(turn).startedAt = Date.parse(envelope.ts);
       }
@@ -699,6 +700,8 @@ function applyEnvelope(envelope) {
     case "turn_ended":
       if (turn) {
         turn.status = p.status;
+        // Story 5: the answer after its output guardrails (masked, or empty if blocked).
+        if (p.text != null) turn.text = p.text;
         // FinOps: the turn's cost as the session summed it, when it cost something.
         turn.cost = p.cost_in_usd != null ? p : null;
         // GreenOps: its footprint likewise, when one of its calls had one.
@@ -3245,6 +3248,10 @@ function renderChat() {
       const since = turn.callStartedAt ?? turn.startedAt;
       const label = turn.stopRequested ? t("main.chat.stop_requested") : turn.phaseLabel || t("main.chat.preparing");
       answer.appendChild(el("div", "working-indicator", `${label}… ${seconds(Date.now() - since)}`));
+    } else if (turn.status === null && turn.withheld && !turn.text && !(turn.reasoning && !store.showReasoning)) {
+      // Story 5: an output guardrail blocks or masks, nothing is streamed before its check.
+      const since = turn.callStartedAt ?? turn.startedAt;
+      answer.appendChild(el("div", "working-indicator", `${t("main.chat.guardrail_checking")} ${seconds(Date.now() - since)}`));
     }
     for (const notice of turn.notices) answer.appendChild(el("div", "bubble-note", notice));
     // Story 5 (CAP-5): verdict-banner, under the message, for every guardrail with
@@ -5301,7 +5308,7 @@ function hookCard(step) {
 function verdictBanner(p) {
   const blocked = p.mode === "block" && p.detected;
   const masked = p.mode === "flag" && p.detected && p.masked_text != null;
-  const banner = el("div", `verdict-banner ${blocked ? "is-blocked" : masked ? "is-masked" : p.status === "error" ? "is-blocked" : "is-flagged"}`);
+  const banner = el("div", `verdict-banner ${blocked ? "is-blocked" : masked ? "is-masked" : "is-flagged"}`);
   banner.setAttribute("role", "status");
   banner.setAttribute("aria-live", "polite");
   banner.appendChild(el("p", "verdict-banner-text", p.banner_text));
@@ -5337,7 +5344,7 @@ function guardrailCard(step) {
   if (p.masked_text) lines.push(el("p", "", p.masked_text));
   if (blocked) lines.push(el("p", "", t("main.orch.hook.effect_turn")));
   lines.push(el("p", "label", t("main.orch.decision_by_harness")));
-  return harnessEvent(`${p.guardrail_text} · ${p.direction_text}`, blocked || p.status === "error" ? "error" : "info", lines);
+  return harnessEvent(`${p.guardrail_text} · ${p.direction_text}`, blocked ? "error" : "info", lines);
 }
 
 function malformedCard(p) {
