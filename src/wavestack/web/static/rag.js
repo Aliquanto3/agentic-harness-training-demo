@@ -1704,6 +1704,9 @@ const stepperHome = { parent: null, next: null };
 function setSeqExpanded(on) {
   const seq = $("rag-seq");
   const stepperBox = $("rag-stepper");
+  if (on === seq.classList.contains("is-expanded")) return; // keeps `stepperHome` as recorded
+  // Moving the focused ◀/▶ blurs it to <body>: hand the focus back after the move.
+  const focused = stepperBox.contains(document.activeElement) ? document.activeElement : null;
   seq.classList.toggle("is-expanded", on);
   $("rag-seq-expand").setAttribute("aria-pressed", String(on));
   if (on) {
@@ -1714,6 +1717,7 @@ function setSeqExpanded(on) {
     stepperHome.parent.insertBefore(stepperBox, stepperHome.next);
     stepperHome.parent = null;
   }
+  focused?.focus();
 }
 
 async function main() {
