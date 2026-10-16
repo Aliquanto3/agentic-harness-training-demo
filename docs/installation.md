@@ -74,6 +74,21 @@ données (`%LOCALAPPDATA%\WaveStack` sous Windows, `~/.local/share/wavestack` ai
 Ce fichier surcharge `wavestack.toml` sans le modifier ; les hôtes en boucle locale
 (`127.0.0.1`, `localhost`) et les hôtes de proxy détectés sont toujours autorisés.
 
+## Ouvrir PowerShell
+
+Les commandes Windows de cette page se tapent dans PowerShell, pas dans l'invite de commandes
+(CMD). Aucun droit administrateur n'est nécessaire.
+
+1. Appuyez sur la touche Windows, tapez `PowerShell`, puis choisissez « Windows PowerShell » et
+   appuyez sur Entrée. N'utilisez pas « Exécuter en tant qu'administrateur ». Sous Windows 11,
+   vous pouvez aussi faire un clic droit sur le bouton Démarrer, puis choisir « Terminal ».
+2. Vérifiez l'invite : elle doit commencer par `PS`, par exemple `PS C:\Users\vous>`. Si elle
+   commence par `C:\` sans `PS`, vous êtes dans CMD : tapez `powershell`, puis Entrée.
+3. Collez la commande avec Ctrl+V ou un clic droit, puis appuyez sur Entrée.
+
+Pour ouvrir PowerShell directement dans un dossier, par exemple un clone de WaveStack, ouvrez ce
+dossier dans l'Explorateur, tapez `powershell` dans la barre d'adresse, puis Entrée.
+
 ## Installeur en une commande
 
 `install.ps1` (Windows), `install.bat` (double-clic ou CMD, qui délègue à `install.ps1`) et
