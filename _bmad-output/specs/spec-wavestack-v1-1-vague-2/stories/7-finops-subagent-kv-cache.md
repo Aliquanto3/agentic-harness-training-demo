@@ -65,6 +65,15 @@ companions:
   (commentaire existant : « no cache here ») : aucun scénario n'affiche donc la ligne
   « Mémoire de contexte » aujourd'hui, comme pour la ligne « Cache de prompt » de la story 6.
 
+- **Règle de somme (story 9)** : les champs de `subagent_ended` sont un sous-ensemble du
+  tour ; le total de `turn_ended` inclut déjà le sous-agent : ne jamais additionner les deux.
+- Le débit n'est publié que si la première génération a lu au moins `READ_MIN_TOKENS` (64)
+  tokens, comme `_note_read_rate` : sur un prompt presque entièrement repris, le débit mesuré
+  sur une poignée de tokens est du surcoût fixe, pas un débit de lecture. La ligne garde alors
+  les tokens repris, sans temps évité (`main.orch.kv.line_no_rate`).
+- « Recalculés » = `prompt_tokens − cache_n` : les trois chiffres de la ligne viennent de la
+  même (première) génération, jamais de la somme `evaluated_tokens` d'un appel relancé.
+
 ## Hors périmètre (reste à faire)
 
 - Le bilan de séance (barres sans optimisation / coût réel) : story 9. Les champs du
@@ -80,6 +89,8 @@ companions:
   (`timings.cache_n`/`prompt_per_second` → `kv_cache_tokens`/`kv_prompt_per_second`) et
   `test_llama_server_no_kv_cache_timings_is_absent` (un serveur qui n'en envoie pas : les
   deux champs absents, jamais à 0).
+- `tests/test_reasoning_budget.py` : `test_the_kv_cache_line_is_the_first_generations_own`
+  (relance après coupe : chiffres de la première génération ; rien si elle n'a rien dit).
 - `tests/test_subagent.py` : `test_cloud_sub_agent_has_its_own_tokens_and_cost_line`
   (tokens et coût de la délégation seule, hors l'appel de `delegate` et le reste du tour) et
   `test_local_sub_agent_has_tokens_but_no_cost_line` (tokens présents, aucune clé
@@ -94,4 +105,16 @@ Orchestration sous la délégation.
 
 ## Revue
 
-En attente (second avis puis reviewer).
+Reviewer Opus, 16/10, après rebase sur `origin/main` (80e5567, sans conflit).
+
+- MEDIUM, second avis 1 : corrigé. `kv_reuse` relu tant qu'il était `None`, donc pris sur la relance après une coupe quand la première génération n'avait rien dit ; lu désormais sur `len(evaluations) == 1` (test `test_the_kv_cache_line_is_the_first_generations_own`, rouge avant le correctif).
+- MEDIUM, second avis 2 : corrigé. `cache_n` gardé même sans débit (`last_cache_reuse` → `(cache_n, None)`), ligne `line_no_rate` sans temps évité.
+- MEDIUM, second avis 3 : corrigé (interface). Le backend portait bien le coût ; `subCostNode` masquait la ligne faute de tokens. Chaque partie s'affiche seule si elle est connue (`cost_tokens`) ; test backend du contrat (`..._billed_then_failed_keeps_its_cost_without_tokens`).
+- MEDIUM, reviewer : corrigé. `subCostNode` masquait aussi un sous-agent local sans empreinte (tokens seuls), contraire à « seuls les tokens et l'empreinte (si connue) ».
+- MEDIUM, second avis 4 : corrigé. Règle « ne pas additionner » dans `SubagentEndedPayload` et dans les Décisions.
+- MEDIUM, second avis 5 : corrigé. « Recalculés » = `prompt_tokens − cache_n` (première génération) au lieu de `evaluated_tokens` (toutes les générations) ; test multi-génération ajouté.
+- LOW, second avis (débit minuscule) : corrigé. Débit publié seulement au-delà de `READ_MIN_TOKENS` lus, sinon pas de temps évité.
+- LOW, second avis (`_turn_call_tokens` hors tour) : corrigé. Ajout seulement quand `current().turn_id` existe, comme `_count_impact` (les ateliers n'ont pas de tour).
+- LOW, second avis (`last_cache_reuse` dans le `Protocol`) : rejeté. Même convention que `dimensions` (déclarée dans le Protocol, lue par `getattr`) ; type aligné sur `float | None`.
+- Parité i18n fr/en/de vérifiée (`main.orch.kv.*`, `main.orch.sub.cost_*`), aucune citation interne.
+- Reporté : la ligne « Mémoire de contexte » n'a été vue sur aucun vrai llama-server (le faux serveur E2E n'envoie pas `cache_n`). À vérifier à l'œil : deux tours de suite sur llama-server, la ligne du second montre `cache_n` ≈ le préfixe commun et un temps évité plausible.

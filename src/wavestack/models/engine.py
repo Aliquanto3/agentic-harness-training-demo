@@ -155,9 +155,9 @@ class Engine(Protocol):
     # without it (`getattr`); only `LlamaServerEngine` has one, from its own `timings`.
 
     @property
-    def last_cache_reuse(self) -> tuple[int, float] | None:
-        """`(cache_n, prompt_per_second)` of the server's own prompt cache on the last call;
-        `None` when the engine does not expose it or the last call did not say."""
+    def last_cache_reuse(self) -> tuple[int, float | None] | None:
+        """`(cache_n, prompt_per_second)` of the server's own prompt cache on the last call
+        (the rate `None` when it gave none); `None` when the last call did not say."""
         ...
 
     # Story 29 (« LLM nu »): optional too, the session tolerates an engine without it.

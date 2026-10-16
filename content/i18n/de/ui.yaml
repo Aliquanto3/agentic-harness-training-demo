@@ -588,6 +588,8 @@ main:
       unpriced: "Prompt-Cache: {read} Tokens wiedergelesen · Cache-Preis nicht angegeben"
     kv:
       line: "Kontextgedächtnis: {reused} Tokens ohne Neuberechnung wiederverwendet · etwa {saved} eingespart"
+      line_no_rate: "Kontextgedächtnis: {reused} Tokens ohne Neuberechnung wiederverwendet"
+      tokens_value: "{tokens} Tokens"
       recalculated: "Neu berechnet"
       recalculated_value: "{tokens} Tokens mit {rate} Tokens/s ({time})"
       without_cache: "Ohne Cache"
@@ -658,7 +660,8 @@ main:
       result: "Ergebnis (kommt als Einziges in den Hauptkontext zurück)"
       error_instead: "Statt des Ergebnisses eingespeister Fehler"
       show_context: "Kontext des Sub-Agenten anzeigen"
-      cost_line: "Sub-Agent: {tokens} Tokens · {detail}"
+      cost_line: "Sub-Agent: {detail}"
+      cost_tokens: "{tokens} Tokens"
       cost_input: "Eingabe"
       cost_output: "Ausgabe"
       cost_footprint: "Fußabdruck"

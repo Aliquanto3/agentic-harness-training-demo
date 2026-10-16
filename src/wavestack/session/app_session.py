@@ -713,7 +713,7 @@ def _evaluated(engine: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def _kv_reuse(engine: Any) -> tuple[int, float] | None:
+def _kv_reuse(engine: Any) -> tuple[int, float | None] | None:
     """Story 7 (CAP-7): `(cache_n, prompt_per_second)` of the engine's own prompt cache on
     its last call; `None` when it does not say (not a `llama-server` engine, or no call yet)."""
     try:
@@ -8309,17 +8309,15 @@ class AppSession:
                     "usage_source": "engine",
                     "evaluated_tokens": evaluated,
                 }
-                | (
-                    {"kv_cache_tokens": kv_reuse[0], "kv_prompt_per_second": kv_reuse[1]}
-                    if kv_reuse is not None
-                    else {}
-                )
+                | self._kv_fields(kv_reuse, evaluations[0])
                 | impact.fields(self._language),
                 actor="model",
             )
             self._count_impact(impact)
-            # Story 7 (CAP-7): this call's own tokens, for the sub-agent's dedicated line.
-            self._turn_call_tokens.append((len(rendered.ids), output_tokens))
+            # Story 7 (CAP-7): this call's own tokens, for the sub-agent's dedicated line
+            # (within a turn only, like `_count_impact`: the labs have none).
+            if current().turn_id is not None:
+                self._turn_call_tokens.append((len(rendered.ids), output_tokens))
 
         def generate(ids: list[int], max_tokens: int, cut_at: int | None) -> str:
             """One generation of the engine, its tokens counted after the ones before it;
@@ -8376,7 +8374,7 @@ class AppSession:
             finally:
                 fragments.close()  # stops the engine's generation when cut (lot C)
                 evaluations.append(_evaluated(self._engine))
-                if kv_reuse is None:  # the first generation only (AD-4's own `evaluations[0]`)
+                if len(evaluations) == 1:  # the first generation only, like `evaluations[0]`
                     kv_reuse = _kv_reuse(self._engine)
             return reason
 
@@ -8505,6 +8503,19 @@ class AppSession:
                 pass
         return list(prompt_ids) + self._engine.tokenize(produced + closure)
 
+    @staticmethod
+    def _kv_fields(reuse: tuple[int, float | None] | None, evaluated: int | None) -> dict[str, Any]:
+        """Story 7 (CAP-7): `model_call_ended`'s KV-cache fields, from the first generation.
+        The rate only when that generation read at least `READ_MIN_TOKENS` tokens: measured
+        on a handful (a prompt almost wholly reused), it is overhead, not a read rate."""
+        if reuse is None:
+            return {}
+        cache_n, rate = reuse
+        fields: dict[str, Any] = {"kv_cache_tokens": cache_n}
+        if rate and evaluated is not None and evaluated >= READ_MIN_TOKENS:
+            fields["kv_prompt_per_second"] = rate
+        return fields
+
     def _turn_cost(self, costs: list[CallCost] | None = None) -> dict[str, Any]:
         """FinOps: `turn_ended`'s cost fields, the sums of the turn's cloud calls (sub-agent
         included); none when no call of the turn had a price. Story 7: also used on a slice
@@ -8600,7 +8611,8 @@ class AppSession:
             self._turn_impacts.append(call.impact)
         prompt_tokens = int((call.usage or {}).get("prompt_tokens") or 0)
         # Story 7 (CAP-7): this call's own tokens, for the sub-agent's dedicated line.
-        self._turn_call_tokens.append((prompt_tokens, call.output_tokens))
+        if current().turn_id is not None:
+            self._turn_call_tokens.append((prompt_tokens, call.output_tokens))
         if prompt_tokens:  # AD-4: `usage` is the total; the ratio learns from real calls only
             payload = self._chat_gauge(rendered, prompt_tokens, "api", reserve)
             journal.emit("context_reconciled", payload | {"call_id": scope.call_id or ""})

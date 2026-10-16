@@ -447,11 +447,12 @@ class LlamaServerEngine:
         return self._last_evaluated
 
     @property
-    def last_cache_reuse(self) -> tuple[int, float] | None:
+    def last_cache_reuse(self) -> tuple[int, float | None] | None:
         """Story 7 (CAP-7, « Mémoire de contexte »): `(cache_n, prompt_per_second)` from the
-        server's own prompt-cache `timings` on the last call; `None` when it sent none (an
-        older server, or a call that never reached `/completion`'s last chunk)."""
-        if self._last_cache_n is None or not self._last_prompt_per_second:
+        server's own prompt-cache `timings` on the last call, the rate `None` when it gave
+        none (a prompt wholly reused); `None` when it sent no `cache_n` (an older server,
+        or a call that never reached `/completion`'s last chunk)."""
+        if self._last_cache_n is None:
             return None
         return self._last_cache_n, self._last_prompt_per_second
 
@@ -537,8 +538,10 @@ class LlamaServerEngine:
                         self._last_evaluated = timings["prompt_n"]
                     if isinstance(timings, dict):
                         cache_n, pps = timings.get("cache_n"), timings.get("prompt_per_second")
-                        if isinstance(cache_n, int) and isinstance(pps, (int, float)) and pps > 0:
-                            self._last_cache_n, self._last_prompt_per_second = cache_n, float(pps)
+                        if isinstance(cache_n, int) and not isinstance(cache_n, bool):
+                            self._last_cache_n = cache_n
+                            if isinstance(pps, (int, float)) and pps > 0:
+                                self._last_prompt_per_second = float(pps)
                     break
         if cancel.cancelled:
             reason = "cancelled"

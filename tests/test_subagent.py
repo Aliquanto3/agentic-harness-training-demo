@@ -561,6 +561,44 @@ def test_cloud_sub_agent_has_its_own_tokens_and_cost_line():
     session.close()
 
 
+def test_cloud_sub_agent_billed_then_failed_keeps_its_cost_without_tokens():
+    """Story 7 (review): the sub-agent's only call fails after its output: billed (an
+    estimate), no `usage` so no tokens; the line keeps the cost, never a false 0 token."""
+    delegate = sse(
+        delta(
+            tool_calls=[
+                {
+                    "index": 0,
+                    "id": "c1",
+                    "function": {"name": "delegate", "arguments": '{"task": "R"}'},
+                }
+            ]
+        ),
+        {**delta("tool_calls"), "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+    )
+    failed = sse(
+        delta(content="Résultat partiel"), {"error": {"message": "Internal error", "code": 500}}
+    )
+    final = sse(
+        delta(content="Voilà."),
+        {**delta("stop"), "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+    )
+    pricing = {"input_usd_per_mtok": 3, "output_usd_per_mtok": 15, "checked": "2026-10-03"}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(
+        json.dumps({"cloud": {"models": [{"id": "groq", "pricing": pricing}]}}), encoding="utf-8"
+    )
+    session = _cloud_session("groq", Provider(delegate, failed, final), bricks=("subagent",))
+
+    events = run(session, "Résume.")
+
+    ended = of(events, "subagent_ended")[0].payload
+    assert ended["status"] == "error"
+    assert ended["cost_in_usd"] > 0 and ended["cost_source"] == "estimate"
+    assert "input_tokens" not in ended and "output_tokens" not in ended
+    session.close()
+
+
 def test_local_sub_agent_has_tokens_but_no_cost_line():
     """Story 7: a local sub-agent's own tokens, with no `cost_*`/footprint keys at all
     (never a false 0 $, EXPERIENCE.md « Lignes FinOps »)."""

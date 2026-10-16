@@ -465,7 +465,8 @@ class ModelCallEndedPayload(BaseModel):
     impact_method: Literal["ecologits", "codecarbon"] | None = None
     impact_note_text: str | None = None
     # Story 7 (CAP-7, « Mémoire de contexte »): the first generation's own prompt-cache reuse
-    # on a `llama-server` engine (finops.md); absent when the server sent no `timings`.
+    # on a `llama-server` engine (finops.md); absent when the server sent no `timings`. The
+    # rate is absent too when that generation read under `READ_MIN_TOKENS` (no real rate).
     kv_cache_tokens: int | None = None
     kv_prompt_per_second: float | None = None
 
@@ -1049,7 +1050,8 @@ class SubagentEndedPayload(BaseModel):
     state_saved_bytes: int | None = None
     state_restore_ms: int | None = None
     # Story 7 (CAP-7): this delegation's own tokens, cost and footprint (finops.md), absent
-    # when it made no call that had one (e.g. a local model has no `cost_*`).
+    # when it made no call that had one (e.g. a local model has no `cost_*`). A SUBSET of the
+    # same turn's `turn_ended` sums, which already include them: never add the two (story 9).
     input_tokens: int | None = None
     output_tokens: int | None = None
     cost_in_usd: float | None = None
