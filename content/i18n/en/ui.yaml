@@ -1173,7 +1173,7 @@ mcp:
       ask: "Ask"
       deny: "Deny"
   authorize:
-    waiting: "« {tool} » is waiting for your decision (rule: Ask)."
+    waiting: "“{tool}” is waiting for your decision (rule: Ask)."
     allow_once: "Allow once"
     deny: "Deny"
   security_journal:

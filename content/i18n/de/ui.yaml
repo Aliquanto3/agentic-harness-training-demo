@@ -1173,7 +1173,7 @@ mcp:
       ask: "Fragen"
       deny: "Ablehnen"
   authorize:
-    waiting: "« {tool} » wartet auf Ihre Entscheidung (Regel: Fragen)."
+    waiting: "„{tool}“ wartet auf Ihre Entscheidung (Regel: Fragen)."
     allow_once: "Einmal erlauben"
     deny: "Ablehnen"
   security_journal:
