@@ -1573,7 +1573,13 @@ class AppSession:
         the public MCP servers. None for a brick with nothing that can leave."""
         if content is None or content.outbound_text is None or brick_id not in ("tools", "mcp"):
             return None
-        servers = [self._mcp_label(s.id) for s in self._mcp_servers.values() if s.network]
+        # Story 3 (CAP-4): GitHub is an Atelier MCP server only, excluded here like every
+        # other Harnais brick listing of the public servers (see `_mcp_options`).
+        servers = [
+            self._mcp_label(s.id)
+            for s in self._mcp_servers.values()
+            if s.network and s.id != "github"
+        ]
         tools: list[str] = []
         if brick_id == "tools":
             tools = [o["label_text"] for o in self._tool_options() if o["network"]]

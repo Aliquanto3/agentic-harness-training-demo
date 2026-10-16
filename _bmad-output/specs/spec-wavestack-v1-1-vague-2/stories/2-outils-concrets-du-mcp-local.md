@@ -155,3 +155,21 @@ Revue Opus du 16/10 (base 3e15139, commit f6e3093), avec la liste du second avis
 - LOW, second avis : TOCTOU par jonction posée entre contrôle et écriture. Reporté (documenté dans `sandbox.py`) : exige un acteur local déjà sur le poste, hors du modèle de menace (le modèle).
 - LOW, second avis : `test_mcp_lazy` (`LOCAL[:2]`) avait perdu l'intention « tout chargé ». Corrigé : les cinq outils chargés, fenêtre 8192 (les cinq documentations débordent 4096).
 - Reporté (E2E) : `mcp_lab_page,mcp_lab` à rejouer ; la vraie capture `mss` sur l'écran du poste n'est vérifiée qu'à la recette manuelle (appel autorisé une fois, PNG sous `mcp_sandbox/screenshots/`).
+
+## Correctif après fusion
+
+Correctif du 16/10 (branche `fix/v1-1-v2-test-program`, base 998729f), signalé par un
+relecteur : `tests/test_program.py::test_every_scenario_fits_the_default_window_with_every_prompt`
+débordait sur `mcp_full` (puis, une fois celui-ci réparé, sur `mcp_lazy` et `compression`).
+Cause racine : les trois nouveaux outils locaux (`system_info`, `create_path`,
+`take_screenshot`) ajoutent leurs descriptions à la documentation complète du serveur
+local (`mcp_full`) et à la ligne par outil du catalogue en lazy loading (`mcp_lazy`,
+`compression`, qui chargent aussi le serveur local) ; leurs textes, bavards, faisaient
+déborder des scénarios déjà proches de la fenêtre de 4 096 tokens par construction (la
+jauge « presque pleine » est voulue par `mcp_full`). Plutôt qu'élargir une limite,
+`content/mcp_local/tools.yaml` (et ses traductions `en`/`de`) sont raccourcis : les trois
+nouvelles descriptions tiennent en une ligne télégraphique (le bac à sable reste imposé par
+`sandbox.resolve`, pas seulement décrit), et `list_terms` perd une redondance (« glossaire du
+démonstrateur WaveStack » → « glossaire WaveStack ») pour les derniers tokens de marge sur
+`compression`. Testé : `tests/test_program.py` (19 verts), `tests/test_mcp*.py`,
+`tests/test_bricks.py`, `tests/test_i18n.py`, `tests/test_forced.py` verts.
