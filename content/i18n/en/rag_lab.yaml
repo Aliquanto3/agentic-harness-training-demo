@@ -3,10 +3,12 @@
 
 title_text: "RAG workshop: the RAG architecture to handle"
 intro_text: >-
-  A RAG in two phases: indexing (build) stores the corpus's chunks in a vector store (a
-  database that stores vectors and quickly finds the closest ones) once and for all; the
-  query (run), for each question, searches it for the useful chunks and places
-  them in the model's prompt. Run the pipeline on a question to see what each step receives,
+  A RAG (Retrieval-Augmented Generation: the model answers from passages found in
+  documents) works in two phases. Indexing (build) splits the corpus, the set of documents to
+  search, into chunks (pieces of a few paragraphs) once and for all, and stores their vectors
+  (lists of numbers that sum up the meaning of a text) in a vector store (a database that
+  quickly finds the closest vectors). The query (run), for each question, searches it for
+  the useful chunks and places them in the model's prompt. Run the pipeline on a question to see what each step receives,
   produces and costs. This is a sandbox: the workshop's RAG brick does not change.
 busy_text: "Unavailable for now: {raison}"
 
@@ -14,8 +16,9 @@ chain_title_text: "The RAG pipeline, step by step"
 chain_help_text: >-
   The sequence of steps, the components it calls on and the focus on the chosen step. In Play
   mode, the steps and their components arrive one by one, by hand (◀ ▶) or as a run goes. In
-  Compose mode, the steps of the retrieval segment (Dense retrieval,
-  BM25, Fusion, Reranking) can be removed, added and moved; Generation sends the augmented
+  Compose mode, the steps of the retrieval segment (Dense retrieval: search by meaning;
+  BM25: search by keywords; Fusion of the two rankings; Reranking: a new sort by a second
+  model) can be removed, added and moved; Generation sends the augmented
   prompt to the workshop's active model, or generates nothing if you choose so.
 
 question_label_text: "Question"
@@ -119,7 +122,8 @@ stages:
     label_text: "Dense retrieval"
     explain_text: >-
       The vector store returns the chunks whose vector is closest to the question's (cosine
-      similarity), with no threshold: the k closest, relevant or not.
+      similarity: a score that rises when the two vectors point in the same direction), with
+      no threshold: the k closest (k, the number of chunks requested), relevant or not.
   lexical_search:
     label_text: "BM25"
     explain_text: >-
@@ -151,7 +155,7 @@ stages:
   generation:
     label_text: "Generation"
     explain_text: >-
-      The LLM reads the augmented prompt and answers based on the chunks. A good answer
+      The LLM (the large language model that writes the answer) reads the augmented prompt and answers based on the chunks. A good answer
       depends on what the previous steps brought it. Here, the workshop's active model answers,
       with the workshop's system prompt and a turn's bounds (output reserve, reasoning budget);
       the answer does not join the conversation.

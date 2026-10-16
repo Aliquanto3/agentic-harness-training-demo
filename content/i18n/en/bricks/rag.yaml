@@ -5,15 +5,17 @@ category_text: context engineering
 hosting_text: Local
 explanation_text:
   - >-
-    With RAG, it is not the model that knows: it is the harness that searches. At every
-    turn, before calling the model, the harness searches a corpus for the passages closest
-    to your question, then places them in your message, just before the question.
+    With RAG (Retrieval-Augmented Generation: an answer fed by a search through documents),
+    it is not the model that knows: it is the harness that searches. At every turn, before
+    calling the model, the harness searches a corpus (the set of documents provided) for the
+    passages closest to your question, then places them in your message, just before the question.
   - >-
-    The search is semantic: a small local embedding model turns the question into a
-    vector, and the index (rag_index.sqlite) returns the excerpts whose vector is closest.
+    The search is semantic (by meaning, not by exact words): a small local embedding model
+    turns the question into a vector (a list of numbers that sums up its meaning), and the
+    index (rag_index.sqlite) returns the excerpts whose vector is closest.
     The score ranges from 0 to 1: the closer to 1, the more the excerpt resembles the
-    question (it measures the angle between the two vectors, a measure called cosine
-    distance); no threshold is applied: the excerpts are sent even when they do not
+    question (a cosine similarity: it rises when the two vectors point in the same
+    direction); no threshold is applied: the excerpts are sent even when they do not
     answer.
   - - "Gain: the model answers from documents it never saw during training."
     - >-

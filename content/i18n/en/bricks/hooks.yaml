@@ -13,7 +13,9 @@ explanation_text:
       The guard prevents reading the confidential folder even when the model asks for it
       (security, DLP: data loss prevention).
     - "Logging writes an audit log that the model does not see."
-    - "Context injection adds the date and the mission's rules before each message."
+    - >-
+      Context injection (an automatic addition made by the harness, not an attack) adds
+      the date and the mission's rules before each message.
     - >-
       Human approval, to tick in the card, suspends the turn before a network tool is
       called and shows you the exact request, which is only sent if you allow it (human

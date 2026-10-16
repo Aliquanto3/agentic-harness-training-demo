@@ -3,6 +3,7 @@
 
 title_text: "LLM-Werkstatt: das Innere des Modells"
 intro_text: >-
+  Ein LLM (Large Language Model, großes Sprachmodell) ist das Modell, das den Text schreibt.
   Hier gibt es keinen Baustein: keinen System-Prompt, keinen Verlauf, kein Tool, kein
   Gedächtnis. Wir sehen, was das Modell selbst tut: den Text in Tokens zerlegen, sie in
   Vektoren umwandeln und dann eine Antwort erzeugen, Token für Token. Diese Ansicht arbeitet
@@ -22,13 +23,14 @@ sections:
     questions_text:
       - "Warum liest das Modell keine Wörter?"
       - "Wie viele Tokens für einen deutschen Satz, und für ein Emoji?"
-      - "Was ist ein Spezial-Token, und warum fügt die Vorlage welche hinzu?"
+      - "Was ist ein Spezial-Token, und warum fügt die Vorlage (die modelleigene Formatierung der Nachrichten) welche hinzu?"
       - "Was wird aus der Kennung eines Tokens im Modell?"
   sampling:
     title_text: "Sampling-Einstellungen"
     intro_text: >-
       Bei jedem Schritt gibt das Modell jedem Token des Vokabulars eine Wahrscheinlichkeit.
-      Diese Einstellungen entscheiden, wie das nächste Token unter ihnen gezogen wird. Die
+      Sampling ist die Zufallsziehung des nächsten Tokens unter ihnen; diese Einstellungen
+      entscheiden, wie sie abläuft. Die
       hier beschriebene Reihenfolge ist die von llama.cpp (Engine von WaveStack,
       llama-server, Ollama): Top-k (nur die wahrscheinlichsten Tokens behalten), dann Top-p
       (eine Gruppe von Tokens behalten, deren Wahrscheinlichkeit zusammen einen Wert
@@ -52,7 +54,8 @@ sections:
   reading:
     title_text: "Lesen des Prompts"
     intro_text: >-
-      Der Prompt wird mit der Vorlage des Modells gerendert und dann in einem Block gelesen:
+      Der Prompt wird mit der Vorlage des Modells gerendert (der Formatierung, die jede
+      Nachricht mit modelleigenen Markierungen umgibt) und dann in einem Block gelesen:
       Das ist die Wartezeit bis zum ersten Token.
     questions_text:
       - "Was wird wirklich an das Modell gesendet?"
@@ -126,7 +129,7 @@ stages:
       Für Ihren Text gibt WaveStack nur die Schätzung daneben an.
   transfo:
     title_text: "TRANSFORMATION"
-    subtitle_text: "die Zahlen durchlaufen die Schichten des Modells"
+    subtitle_text: "die Zahlen durchlaufen die Schichten (die Rechenstufen) des Modells"
     tag_text: "Illustrativ · echte Dimensionen"
     link_text: "der Vektor des letzten Tokens wird mit dem ganzen Vokabular verglichen"
     steps:
@@ -145,7 +148,8 @@ stages:
       mlp:
         title_text: "Schicht 1 · MLP: jedes Token durchläuft allein ein breiteres Netz"
         text_text: >-
-          Der Vektor durchläuft ein kleines neuronales Netz: er wird breiter (mehr Neuronen),
+          Das MLP (mehrschichtiges Perzeptron) ist ein kleines neuronales Netz. Der Vektor
+          durchläuft es: er wird breiter (mehr Neuronen),
           einige Neuronen leuchten auf, dann kehrt er zu seiner Größe zurück. Hier fügt das
           Modell gelerntes Wissen hinzu. Dasselbe Netz gilt für jedes Token, einzeln.
       attention_2:
@@ -187,8 +191,9 @@ stages:
       table_text: "Embedding-Tabelle"
       table_rows_text: "{vocabulaire} Zeilen × {dimension}"
       attention_text: >-
-        Gezeichnet: worauf {dernier} schaut, für einen Attention-Kopf (in Wirklichkeit:
-        {tetes}, jedes Token tut dasselbe).
+        Gezeichnet: worauf {dernier} schaut, für einen einzigen Attention-Kopf (eine
+        Schicht schaut parallel auf mehrere Arten, eine pro Kopf; in Wirklichkeit: {tetes},
+        jedes Token tut dasselbe).
       self_text: "{p} sich selbst"
       mlp_title_text: "MLP · {entree} → {cachee} → {entree} Neuronen"
       mlp_real_text: "in Wirklichkeit: {mlp}"
@@ -214,7 +219,7 @@ stages:
       layers_text: "{couches} Schichten, jede: Attention ({tetes}), dann MLP ({mlp})"
       layers_unknown_text: "jede Schicht: Attention ({tetes}), dann MLP ({mlp})"
       heads_text: "{tetes} Attention-Köpfe"
-      heads_kv_text: "{tetes} Attention-Köpfe, {kv} K/V"
+      heads_kv_text: "{tetes} Attention-Köpfe, {kv} K/V (Schlüssel- und Wert-Köpfe, von ihnen geteilt)"
       mlp_text: "{dimension} → {largeur} → {dimension}"
       moe_text: "{experts} Experten zu {dimension} → {largeur} → {dimension}, {actifs} aktiv pro Token"
       moe_any_text: "{experts} Experten zu {dimension} → {largeur} → {dimension}"
@@ -250,7 +255,7 @@ stages:
       Router einige davon. Das Schema zeichnet 6 davon, 2 aktiv.
     unknown_architecture_text: >-
       Architektur für dieses Modell nicht gelesen: standardmäßig das Schema des dichten
-      Decoder-Transformers.
+      Decoder-Transformers (die häufigste Architektur von LLMs).
   output:
     title_text: "OUTPUT"
     subtitle_text: "vom Vektor zum nächsten Token"
@@ -260,7 +265,7 @@ stages:
         title_text: "Logits."
         text_text: >-
           Der Vektor des letzten Tokens wird mit jedem Token des Vokabulars verglichen: je ein
-          Wert, in eine Wahrscheinlichkeit umgerechnet. Das Modell hat noch nichts gewählt.
+          Wert (die Logits), in eine Wahrscheinlichkeit umgerechnet. Das Modell hat noch nichts gewählt.
       draw:
         title_text: "Ziehung."
         text_text: >-

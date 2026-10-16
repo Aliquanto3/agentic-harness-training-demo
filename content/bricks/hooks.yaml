@@ -13,7 +13,9 @@ explanation_text:
       Le garde-fou empêche la lecture du dossier confidentiel même quand le
       modèle la demande (sécurité, DLP : la prévention de fuite de données).
     - "La journalisation écrit un journal d'audit que le modèle ne voit pas."
-    - "L'injection de contexte ajoute la date et les règles de la mission avant chaque message."
+    - >-
+      L'injection de contexte (un ajout automatique voulu par le harnais, pas une attaque)
+      ajoute la date et les règles de la mission avant chaque message.
     - >-
       La validation humaine, à cocher dans la carte, suspend le tour avant
       l'appel d'un outil réseau et vous montre la requête exacte, qui ne part

@@ -2,9 +2,9 @@
 title: 'Story 8 : textes des briques du Harnais et des ateliers LLM et RAG pour un non-ingénieur'
 type: 'content'
 created: '2026-10-16'
-status: 'review'
+status: 'done'
 route: 'dispatch'
-review_loop_iteration: 0
+review_loop_iteration: 1
 baseline_commit: '3e15139'
 context:
   - '{project-root}/_bmad-output/specs/spec-wavestack-v1-1-vague-2/SPEC.md'
@@ -68,7 +68,7 @@ context:
 
 ## Review Triage Log
 
-(pas encore de relecture)
+Voir la section Revue.
 
 ## Verification
 
@@ -83,4 +83,15 @@ context:
 
 ## Revue
 
-(pas encore de relecture)
+Revue Opus du 16/10 (base 3e15139, commit f6e3093), avec la liste du second avis.
+
+- MEDIUM, second avis : `take_screenshot` comparait chemin résolu et non résolu (`relative_to`) ; sous un nom 8.3, une jonction ou un profil redirigé, ValueError après écriture du PNG. Corrigé : `sandbox_dir()` renvoie le chemin résolu ; sonde sous `ANAEL~1.YAH` verte.
+- MEDIUM, second avis : pas de plafond (contenu de `create_path`, captures jamais purgées). Corrigé : contenu limité à 1 Mo (message `mcp.sandbox.too_large`), 20 dernières captures gardées (purge des plus anciennes, liste bornée à 21 fichiers).
+- MEDIUM, revue : les messages de `SandboxError` étaient des littéraux français renvoyés au modèle quelle que soit la langue (contrainte « libellés fr, en, de »). Corrigé : `SandboxError.key` + `mcp.sandbox.{empty,reserved,outside,failed}` en fr/en/de ; `mcp/sandbox.py` ajouté au périmètre « aucun littéral français ».
+- MEDIUM, revue : AC 1 et AC 4 (outils `create_path`, `take_screenshot`) sans test. Corrigé : tests in-process, faux capteur `mss` (aucune vraie capture).
+- LOW, second avis : `CON:x`, `nul:x`, `x/CON:y`, `CONIN$`, `conin$.txt`, flux NTFS acceptés. Corrigé : `:` refusé après une éventuelle lettre de lecteur, `conin$`/`conout$` réservés.
+- LOW, second avis : `kind="file"` sur un dossier → IsADirectoryError non convertie. Corrigé : `OSError` → erreur MCP `mcp.sandbox.failed`.
+- LOW, second avis : écrasement silencieux, « file.txt. » ≡ « file.txt ». Corrigé : création exclusive (`xb`), un fichier existant est refusé.
+- LOW, second avis : TOCTOU par jonction posée entre contrôle et écriture. Reporté (documenté dans `sandbox.py`) : exige un acteur local déjà sur le poste, hors du modèle de menace (le modèle).
+- LOW, second avis : `test_mcp_lazy` (`LOCAL[:2]`) avait perdu l'intention « tout chargé ». Corrigé : les cinq outils chargés, fenêtre 8192 (les cinq documentations débordent 4096).
+- Reporté (E2E) : `mcp_lab_page,mcp_lab` à rejouer ; la vraie capture `mss` sur l'écran du poste n'est vérifiée qu'à la recette manuelle (appel autorisé une fois, PNG sous `mcp_sandbox/screenshots/`).

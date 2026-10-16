@@ -14,7 +14,9 @@ explanation_text:
       wenn das Modell es verlangt (Sicherheit, DLP: Data Loss Prevention, der Schutz vor
       Datenverlust).
     - "Die Protokollierung schreibt ein Audit-Protokoll, das das Modell nicht sieht."
-    - "Die Kontextinjektion fügt vor jeder Nachricht das Datum und die Regeln der Mission hinzu."
+    - >-
+      Die Kontextinjektion (eine automatische Ergänzung durch den Harness, kein Angriff)
+      fügt vor jeder Nachricht das Datum und die Regeln der Mission hinzu.
     - >-
       Die menschliche Freigabe, auf der Karte anzukreuzen, hält die Runde vor dem Aufruf
       eines Netzwerk-Tools an und zeigt Ihnen die genaue Anfrage, die nur gesendet wird,

@@ -15,6 +15,7 @@ explanation_text:
     jeder Fehlschlag erscheinen im Bereich Orchestrierung.
 outbound_text: >-
   Können den Arbeitsplatz verlassen: {tools}, sowie die öffentlichen MCP-Server
-  ({servers}) des Bausteins MCP. Was sie senden (Adresse, Header, Body): Bereich
+  ({servers}) des Bausteins MCP (Model Context Protocol, ein gemeinsames Format zum
+  Anbinden externer Tools). Was sie senden (Adresse, Header, Body): Bereich
   Orchestrierung, Block „🌐 Ausgehende Daten“ ihres Schritts; ein Klick auf ihren
   🌐-Knoten im Schema führt dorthin.

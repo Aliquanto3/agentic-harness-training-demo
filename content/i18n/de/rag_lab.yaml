@@ -3,10 +3,13 @@
 
 title_text: "RAG-Werkstatt: die RAG-Architektur zum Ausprobieren"
 intro_text: >-
-  Ein RAG in zwei Phasen: Die Indexierung (Build) legt die Chunks des Korpus ein für alle Mal
-  in einem Vector Store ab (eine Datenbank, die Vektoren speichert und die nächstgelegenen
-  schnell findet); die Anfrage (Run) sucht darin bei jeder Frage die nützlichen Chunks
-  und setzt sie in den Prompt des Modells. Starten Sie die Kette mit einer Frage, um zu sehen,
+  Ein RAG (Retrieval-Augmented Generation: Das Modell antwortet anhand von Passagen, die in
+  Dokumenten gefunden wurden) arbeitet in zwei Phasen. Die Indexierung (Build) zerlegt den
+  Korpus, die Gesamtheit der zu durchsuchenden Dokumente, ein für alle Mal in Chunks (Stücke
+  von einigen Absätzen) und legt ihre Vektoren (Listen von Zahlen, die den Sinn eines Textes
+  zusammenfassen) in einem Vector Store ab (eine Datenbank, die die nächstgelegenen Vektoren
+  schnell findet). Die Anfrage (Run) sucht darin bei jeder Frage die nützlichen Chunks und
+  setzt sie in den Prompt des Modells. Starten Sie die Kette mit einer Frage, um zu sehen,
   was jeder Schritt erhält, was er erzeugt und was er kostet. Das ist eine Spielwiese: Der
   RAG-Baustein der Werkstatt ändert sich nicht.
 busy_text: "Derzeit nicht verfügbar: {raison}"
@@ -16,7 +19,8 @@ chain_help_text: >-
   Die Sequenz der Schritte, die Komponenten, die sie anspricht, und der Fokus auf dem gewählten
   Schritt. Im Modus Abspielen erscheinen die Schritte und ihre Komponenten nacheinander, von
   Hand (◀ ▶) oder im Lauf einer Ausführung. Im Modus Zusammenstellen lassen sich die Schritte des Retrieval-Segments
-  (Dense retrieval, BM25, Fusion, Reranking) entfernen, hinzufügen und verschieben; die
+  (Dense retrieval: Suche nach dem Sinn; BM25: Suche nach Schlüsselwörtern; Fusion der
+  beiden Ranglisten; Reranking: neue Sortierung durch ein zweites Modell) entfernen, hinzufügen und verschieben; die
   Generation sendet den erweiterten Prompt an das aktive Modell der Werkstatt, oder generiert
   nichts, wenn Sie es so wählen.
 
@@ -120,7 +124,9 @@ stages:
     label_text: "Dense retrieval"
     explain_text: >-
       Der Vector Store liefert die Chunks, deren Vektor dem der Frage am nächsten liegt
-      (Kosinus-Ähnlichkeit), ohne Schwelle: die k nächsten, ob relevant oder nicht.
+      (Kosinus-Ähnlichkeit: ein Wert, der steigt, wenn die beiden Vektoren in dieselbe
+      Richtung zeigen), ohne Schwelle: die k nächsten (k, die Zahl der angefragten Chunks), ob
+      relevant oder nicht.
   lexical_search:
     label_text: "BM25"
     explain_text: >-
@@ -155,7 +161,7 @@ stages:
   generation:
     label_text: "Generation"
     explain_text: >-
-      Das LLM liest den erweiterten Prompt und antwortet gestützt auf die Chunks. Eine gute
+      Das LLM (das große Sprachmodell, das die Antwort schreibt) liest den erweiterten Prompt und antwortet gestützt auf die Chunks. Eine gute
       Antwort hängt davon ab, was die vorigen Schritte ihm geliefert haben. Hier antwortet das
       aktive Modell der Werkstatt, mit dem System-Prompt der Werkstatt und den Grenzen einer
       Runde (Ausgabereserve, Reasoning-Budget); die Antwort geht nicht in die Unterhaltung ein.

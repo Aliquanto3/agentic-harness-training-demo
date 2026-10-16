@@ -6,8 +6,9 @@ hosting_text: Local
 explanation_text:
   - >-
     Some models can “think out loud” before answering: they first write a line of
-    reasoning, then the answer. The harness turns this mode on locally through a variable
-    of the chat template, and in the cloud through a parameter of the request.
+    reasoning, then the answer. The harness (all the code around the model) turns this
+    mode on locally through a variable of the chat template (the model's own formatting of
+    messages), and in the cloud through a parameter of the request.
   - >-
     The reasoning is always visible in LLM context. In the Human view, the “Show the
     reasoning” option shows or hides it, as chatbots do.
