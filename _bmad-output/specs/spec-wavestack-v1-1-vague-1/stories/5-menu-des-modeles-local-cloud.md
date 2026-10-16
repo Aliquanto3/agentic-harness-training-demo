@@ -117,6 +117,11 @@ ni le README/docs (story 2) ; pas d'emoji sur « Ajouter d'autres modèles… »
 
 ## Revue
 
+- low | second avis 1 | corrigé | `color: var(--color-ink)` sur les options écrasait le gris UA des options désactivées ; ajout de `option:disabled { color: var(--color-muted) }` dans les deux groupes (contraste 2,9 à 4,2:1, contrôles désactivés exemptés par WCAG 1.4.3, suffixe textuel conservé).
+- low | second avis 2 | reporté | couleur de l'option surlignée dans la liste native d'Edge : la fenêtre déroulante n'est ni dans le DOM ni capturable hors poste ; à vérifier à l'œil dans Edge (survol d'une option des deux groupes, thèmes clair et sombre).
+- low | second avis 3 | reporté | `tools/e2e/README.md` (l. 387, 400) cite encore « Local · » / « RÉSEAU · » sans emoji ; doc hors périmètre de cette story (consigne : pas de README/docs), à reprendre avec la story 2 ou à l'intégration.
+- info | revue | rejeté | libellés E2E restants sans emoji (l. 9947, 10071, 10104, 11912, 10674) : ils visent `#model-indicator`, `#llm-model` ou le tableau des modèles, pas les options du sélecteur.
+
 ## Non vérifié
 
 - E2E non lancé dans cette story (consigne) ; les libellés ont été adaptés par
