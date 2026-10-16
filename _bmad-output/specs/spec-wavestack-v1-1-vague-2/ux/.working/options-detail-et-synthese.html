@@ -1,0 +1,272 @@
+<title>Options détail et synthèse</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Fredoka:wght@500;600&family=JetBrains+Mono&display=swap">
+<style>
+/* Jetons de src/wavestack/web/static/tokens.css */
+:root {
+  --primary: #451DC7; --primary-deep: #250F6B; --primary-soft: #EDE7FE;
+  --accent: #04F06A; --accent-soft: #CAFEE0;
+  --ink: #0A0A14; --ink-soft: #4A4A5E; --muted: #6E6E84; --line: #E6E6EC;
+  --surface: #F6F5FA; --raised: #FFFFFF; --relief: #D9D0F6;
+  --warning: #FFCA4A; --warning-soft: #FFF4D6; --danger: #D9123A; --danger-soft: #FDE8EB;
+  --ok-ink: #046B32; --on-primary: #FFFFFF;
+  --f-title: Fredoka, system-ui, sans-serif;
+  --f-body: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --f-code: 'JetBrains Mono', Consolas, ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --primary: #9C86FF; --primary-deep: #C9BDFF; --primary-soft: #2A2350; --accent-soft: #0F3A24;
+    --ink: #ECEBF5; --ink-soft: #B4B3C7; --muted: #9A9AAE; --line: #3A394F;
+    --surface: #12121C; --raised: #1E1D2C; --relief: #2A2156;
+    --warning-soft: #3A3014; --danger: #FF6B7F; --danger-soft: #3A1820; --ok-ink: #5BF59B; --on-primary: #0E0B1E;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --primary: #9C86FF; --primary-deep: #C9BDFF; --primary-soft: #2A2350; --accent-soft: #0F3A24;
+  --ink: #ECEBF5; --ink-soft: #B4B3C7; --muted: #9A9AAE; --line: #3A394F;
+  --surface: #12121C; --raised: #1E1D2C; --relief: #2A2156;
+  --warning-soft: #3A3014; --danger: #FF6B7F; --danger-soft: #3A1820; --ok-ink: #5BF59B; --on-primary: #0E0B1E;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+.opts.wide { grid-template-columns: 1fr; }
+.opts.wide .opt { grid-template-columns: minmax(0, 300px) minmax(0, 1fr); grid-template-rows: auto auto 1fr; align-items: start; column-gap: 24px; }
+.opts.wide .opt > :not(.stage) { grid-column: 1; }
+.opts.wide .stage { grid-column: 2; grid-row: 1 / span 3; }
+@media (max-width: 760px) { .opts.wide .opt { grid-template-columns: 1fr; } .opts.wide .stage { grid-column: 1; grid-row: auto; } }
+body { background: var(--surface); color: var(--ink); font: 400 14px/1.5 var(--f-body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 56px; display: grid; gap: 28px; }
+h1, h2, h3 { font-family: var(--f-title); font-weight: 600; margin: 0; text-wrap: balance; }
+h1 { font-size: 24px; } h2 { font-size: 19px; } h3 { font-size: 15px; }
+p { margin: 0; }
+.lead { color: var(--ink-soft); max-width: 70ch; }
+.sub { color: var(--ink-soft); font-size: 13px; }
+.note { color: var(--muted); font-size: 12px; }
+code, .code { font-family: var(--f-code); font-size: 12px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent); border-radius: 6px; }
+section.part { display: grid; gap: 14px; }
+.opts { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); align-items: start; }
+.opt { background: var(--raised); border-radius: 26px; padding: 18px; display: grid; gap: 12px; box-shadow: 0 4px 0 var(--relief); align-content: start; }
+.opt-h { display: flex; gap: 10px; align-items: baseline; }
+.letter { font-family: var(--f-title); font-weight: 600; font-size: 13px; background: var(--ink); color: var(--surface); border-radius: 999px; min-width: 26px; height: 26px; display: inline-grid; place-items: center; }
+.exists { font-size: 12px; color: var(--primary-deep); background: var(--primary-soft); border-radius: 999px; padding: 2px 10px; justify-self: start; }
+.pc { display: grid; gap: 4px; font-size: 13px; }
+.pc span::before { font-weight: 700; margin-right: 6px; }
+.pc .pro::before { content: "+"; color: var(--ok-ink); }
+.pc .con::before { content: "−"; color: var(--danger); }
+.stage { background: var(--surface); border-radius: 18px; padding: 12px; position: relative; display: grid; gap: 6px; min-height: 230px; align-content: start; }
+
+/* Lignes de démonstration */
+.line { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 8px; align-items: center; padding: 7px 8px; border-radius: 10px; background: var(--raised); }
+.line .lbl { min-width: 0; }
+.chip { font-family: var(--f-title); font-size: 12px; font-weight: 500; border-radius: 999px; padding: 1px 9px; white-space: nowrap; }
+.chip.ok { background: var(--accent-soft); color: var(--ok-ink); }
+.chip.no { background: var(--danger-soft); color: var(--danger); }
+.chip.ask { background: var(--warning-soft); color: var(--ink); box-shadow: inset 0 0 0 1px var(--warning); }
+.chev { border: 0; background: none; width: 22px; height: 22px; border-radius: 6px; color: var(--ink-soft); }
+.chev[aria-expanded="true"] { transform: rotate(90deg); }
+.info { border: 1.5px solid var(--primary); color: var(--primary); background: none; border-radius: 999px; width: 22px; height: 22px; font: 600 12px/1 var(--f-title); display: inline-grid; place-items: center; }
+.info[aria-expanded="true"] { background: var(--primary); color: var(--on-primary); }
+.more { border: 0; background: none; color: var(--primary); font-size: 12.5px; text-decoration: underline; text-underline-offset: 2px; padding: 0 2px; }
+.detail { margin: -2px 0 4px 30px; padding: 10px 12px; border-radius: 10px; background: var(--raised); box-shadow: inset 3px 0 0 var(--primary); display: grid; gap: 4px; font-size: 13px; }
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: 12.5px; }
+dl.kv dt { color: var(--muted); } dl.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+pre { margin: 4px 0 0; padding: 8px; border-radius: 8px; background: var(--surface); overflow-x: auto; font-family: var(--f-code); font-size: 11.5px; line-height: 1.45; }
+.pop { position: absolute; z-index: 5; width: min(300px, calc(100% - 24px)); right: 12px; background: var(--raised); border-radius: 14px; padding: 12px; box-shadow: 0 0 0 1px var(--line), 0 10px 24px rgba(10,10,20,.18); display: grid; gap: 6px; font-size: 13px; }
+.drawer-host { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.drawer-host.open { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); }
+.drawer { background: var(--raised); border-radius: 14px; padding: 12px; display: grid; gap: 6px; align-content: start; box-shadow: inset 0 0 0 1.5px var(--primary); font-size: 13px; }
+.drawer-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.x { border: 0; background: var(--surface); border-radius: 999px; width: 26px; height: 26px; }
+.sel { box-shadow: inset 0 0 0 2px var(--primary); }
+
+/* Emplacements : mini-cadres d'appli */
+.frame { background: var(--surface); border-radius: 18px; padding: 10px; display: grid; gap: 8px; font-size: 12px; }
+.fbar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; background: var(--raised); border-radius: 10px; padding: 6px 8px; }
+.fbar b { font-family: var(--f-title); color: var(--primary); margin-right: 6px; }
+.tab { padding: 2px 6px; border-radius: 999px; color: var(--ink-soft); font-family: var(--f-title); }
+.tab.on { background: var(--primary-soft); color: var(--primary-deep); }
+.tab.new, .blk.new { box-shadow: inset 0 0 0 1.5px var(--primary); }
+.tab.new { color: var(--primary); }
+.fbody { display: grid; gap: 6px; min-height: 190px; }
+.cols { display: grid; gap: 6px; }
+.blk { background: var(--raised); border-radius: 8px; padding: 6px 8px; color: var(--ink-soft); display: grid; gap: 2px; align-content: start; }
+.blk strong { font-family: var(--f-title); font-weight: 500; color: var(--ink); font-size: 12px; }
+.blk.new strong { color: var(--primary); }
+.blk.dim { opacity: .55; }
+.pill { display: inline-block; border-radius: 999px; padding: 1px 8px; background: var(--danger-soft); color: var(--danger); font-family: var(--f-title); font-size: 11px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--ink-soft); }
+.legend i { display: inline-block; width: 14px; height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1.5px var(--primary); margin-right: 6px; vertical-align: -1px; }
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:6px">
+    <h1>Vague 2 : deux choix à trancher</h1>
+    <p class="lead">Même contenu, trois façons de faire. Les exemples sont cliquables : essayez-les, puis dites-moi une lettre par partie (ou un mélange).</p>
+  </header>
+
+  <!-- ============ Partie 1 ============ -->
+  <section class="part">
+    <div style="display:grid;gap:4px">
+      <h2>1. Comment ouvrir le détail technique</h2>
+      <p class="lead">Exemple : trois lignes du journal de sécurité. Le détail montre l'outil réel, la règle appliquée et le message JSON.</p>
+    </div>
+    <div class="opts wide">
+
+      <article class="opt" data-opt="deplier">
+        <div class="opt-h"><span class="letter">A</span><h3>Déplier sur place</h3></div>
+        <span class="exists">Existe déjà : flèches de la Séquence MCP, cartes de modèle</span>
+        <div class="stage" id="stage-a"></div>
+        <div class="pc">
+          <span class="pro">Le détail reste dans le fil, rien ne masque la page.</span>
+          <span class="pro">Plusieurs détails ouverts à la fois, pour comparer.</span>
+          <span class="con">Pousse le contenu vers le bas : la page s'allonge.</span>
+        </div>
+      </article>
+
+      <article class="opt" data-opt="bulle">
+        <div class="opt-h"><span class="letter">B</span><h3>Bulle ancrée</h3></div>
+        <span class="exists">Existe déjà : bouton « i » des consignes de scénario</span>
+        <div class="stage" id="stage-b"></div>
+        <div class="pc">
+          <span class="pro">Rien ne bouge, la mise en page reste stable.</span>
+          <span class="pro">Idéal pour un terme ou une valeur courte.</span>
+          <span class="con">Masque ce qu'il y a dessous ; trop petite pour un long JSON.</span>
+        </div>
+      </article>
+
+      <article class="opt" data-opt="tiroir">
+        <div class="opt-h"><span class="letter">C</span><h3>Panneau de détail à droite</h3></div>
+        <span class="exists">Existe déjà : tiroir « Modifier » du prompt système</span>
+        <div class="stage" id="stage-c"></div>
+        <div class="pc">
+          <span class="pro">Place pour les détails longs (JSON, journal complet).</span>
+          <span class="pro">La liste reste visible ; on passe d'une ligne à l'autre.</span>
+          <span class="con">Prend la moitié de la largeur ; un seul détail à la fois.</span>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ Partie 2 ============ -->
+  <section class="part">
+    <div style="display:grid;gap:4px">
+      <h2>2. Où placer la synthèse sécurité</h2>
+      <p class="lead">Synthèse = matrice des risques, contrôles actifs, journal, limites. Les règles et les garde-fous se règlent là où ils agissent dans tous les cas.</p>
+      <p class="legend"><span><i></i>nouveau dans la vague 2</span></p>
+    </div>
+    <div class="opts">
+
+      <article class="opt">
+        <div class="opt-h"><span class="letter">D</span><h3>Une page « Sécurité »</h3></div>
+        <div class="frame" aria-label="Schéma : page Sécurité">
+          <div class="fbar"><b>WaveStack</b><span class="tab">Harnais</span><span class="tab">LLM</span><span class="tab">RAG</span><span class="tab">MCP</span><span class="tab on new">Sécurité</span><span class="tab">Diagnostic</span></div>
+          <div class="fbody">
+            <div class="cols" style="grid-template-columns:repeat(4,1fr)">
+              <div class="blk new"><strong>Peut écrire</strong>3 outils</div><div class="blk new"><strong>Autorisé par vous</strong>2</div><div class="blk new"><strong>Bloqué</strong>3</div><div class="blk new"><strong>Non couvert</strong>10</div>
+            </div>
+            <div class="cols" style="grid-template-columns:1.3fr 1fr">
+              <div class="blk new"><strong>Matrice des risques</strong>7 outils, risque, règle</div>
+              <div class="blk new"><strong>Contrôles actifs</strong>règles, garde-fous, hooks, réseau</div>
+            </div>
+            <div class="blk new"><strong>Journal de sécurité</strong>événements de la séance · Télécharger</div>
+            <div class="blk new"><strong>Ce que le harnais ne protège pas</strong>10 limites</div>
+          </div>
+        </div>
+        <div class="pc">
+          <span class="pro">Une adresse à donner au RSSI : « tout est sur la page Sécurité ».</span>
+          <span class="pro">Place pour tout, sans gêner les ateliers.</span>
+          <span class="con">Il faut changer de page pour voir l'effet d'un refus qu'on vient de provoquer.</span>
+        </div>
+      </article>
+
+      <article class="opt">
+        <div class="opt-h"><span class="letter">E</span><h3>Un volet de la page Harnais</h3></div>
+        <div class="frame" aria-label="Schéma : volet Sécurité du Harnais">
+          <div class="fbar"><b>WaveStack</b><span class="tab on">Harnais</span><span class="tab">LLM</span><span class="tab">RAG</span><span class="tab">MCP</span><span class="tab">Diagnostic</span></div>
+          <div class="fbody cols" style="grid-template-columns:.8fr 1.2fr 1fr">
+            <div class="blk dim"><strong>Briques</strong></div>
+            <div class="blk dim"><strong>Vue humain</strong>conversation</div>
+            <div class="blk new"><strong>Sécurité</strong>Bloqué : 3 <span class="pill">refus</span><br>Matrice<br>Contrôles<br>Journal en direct<br>Limites</div>
+          </div>
+        </div>
+        <div class="pc">
+          <span class="pro">On voit le refus apparaître à côté de la conversation qui l'a provoqué.</span>
+          <span class="pro">Se masque comme les autres volets.</span>
+          <span class="con">Volet étroit : la matrice et les limites y sont à l'étroit ; la page Harnais se charge encore.</span>
+        </div>
+      </article>
+
+      <article class="opt">
+        <div class="opt-h"><span class="letter">F</span><h3>Réparti, plus un bouton dans la barre</h3></div>
+        <div class="frame" aria-label="Schéma : synthèse répartie">
+          <div class="fbar"><b>WaveStack</b><span class="tab on">Harnais</span><span class="tab">LLM</span><span class="tab">RAG</span><span class="tab">MCP</span><span class="tab">Diagnostic</span><span class="tab new" style="margin-left:auto">Journal · 3 refus</span></div>
+          <div class="fbody cols" style="grid-template-columns:1fr 1fr">
+            <div class="blk dim"><strong>Harnais</strong>garde-fous dans les briques</div>
+            <div class="blk dim"><strong>MCP</strong>règles et matrice près des outils</div>
+            <div class="blk new" style="grid-column:1/-1"><strong>Journal (s'ouvre depuis la barre, sur toutes les pages)</strong>événements · Télécharger · limites en bas</div>
+          </div>
+        </div>
+        <div class="pc">
+          <span class="pro">Aucune page en plus ; chaque réglage reste là où il agit.</span>
+          <span class="pro">Le compteur de refus suit le RSSI sur toutes les pages.</span>
+          <span class="con">Pas de vue d'ensemble unique : la matrice et les limites sont dispersées.</span>
+        </div>
+      </article>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  const ROWS = [
+    { id: 'r1', icon: '✖', label: 'Créer le fichier notes.txt', chip: ['no', 'refusé'], tool: 'create_file', server: 'local (stdio)', rule: 'refuser', why: 'Règle « Refuser » sur cet outil',
+      json: '{"jsonrpc":"2.0","id":7,"error":{"code":-32001,\n "message":"Refusé par la politique WaveStack"}}' },
+    { id: 'r2', icon: '✔', label: "Capture d'écran", chip: ['ask', 'autorisée une fois'], tool: 'screenshot', server: 'local (stdio)', rule: 'demander', why: 'Autorisée par vous à 10:42:08',
+      json: '{"jsonrpc":"2.0","id":8,"result":{"content":[{"type":"text",\n "text":"bac-a-sable/capture-104208.png (1,2 Mo)"}]}}' },
+    { id: 'r3', icon: '✔', label: 'Alertes de secrets exposés (GitHub)', chip: ['ok', 'autorisé'], tool: 'list_secret_scanning_alerts', server: 'GitHub (distant, OAuth)', rule: 'autoriser', why: 'Lecture, règle « Autoriser »',
+      json: '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{\n "name":"list_secret_scanning_alerts","arguments":{"repo":"demo"}}}' }
+  ];
+  const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const body = r => '<dl class="kv"><dt>Outil</dt><dd class="code">' + r.tool + '</dd><dt>Serveur</dt><dd>' + r.server + '</dd><dt>Règle</dt><dd>' + r.rule + '</dd><dt>Raison</dt><dd>' + r.why + '</dd></dl><pre>' + esc(r.json) + '</pre>';
+  const chip = r => '<span class="chip ' + r.chip[0] + '">' + r.chip[1] + '</span>';
+
+  // A : déplier
+  const a = document.getElementById('stage-a');
+  a.innerHTML = ROWS.map((r, i) => '<div class="line"><button class="chev" aria-expanded="' + (i === 0) + '" aria-controls="a-' + r.id + '" aria-label="Détail : ' + r.label + '">▸</button><span class="lbl">' + r.label + '</span>' + chip(r) + '<span></span></div><div class="detail" id="a-' + r.id + '"' + (i === 0 ? '' : ' hidden') + '>' + body(r) + '</div>').join('');
+  a.addEventListener('click', e => { const b = e.target.closest('.chev'); if (!b) return; const open = b.getAttribute('aria-expanded') !== 'true'; b.setAttribute('aria-expanded', String(open)); document.getElementById(b.getAttribute('aria-controls')).hidden = !open; });
+
+  // B : bulle
+  const bS = document.getElementById('stage-b');
+  bS.innerHTML = ROWS.map(r => '<div class="line"><span>' + r.icon + '</span><span class="lbl">' + r.label + '</span>' + chip(r) + '<button class="info" aria-expanded="false" data-id="' + r.id + '" aria-label="Détail : ' + r.label + '">i</button></div>').join('') + '<div class="pop" id="pop" role="dialog" aria-label="Détail technique" hidden></div>';
+  const pop = document.getElementById('pop');
+  function closePop() { pop.hidden = true; bS.querySelectorAll('.info').forEach(x => x.setAttribute('aria-expanded', 'false')); }
+  bS.addEventListener('click', e => {
+    const b = e.target.closest('.info'); if (!b) return;
+    const was = b.getAttribute('aria-expanded') === 'true'; closePop(); if (was) return;
+    const r = ROWS.find(x => x.id === b.dataset.id); b.setAttribute('aria-expanded', 'true');
+    pop.innerHTML = body(r); pop.style.top = (b.closest('.line').offsetTop + b.closest('.line').offsetHeight + 6) + 'px'; pop.hidden = false;
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closePop(); closeDrawer(); } });
+  document.addEventListener('click', e => { if (!e.target.closest('#stage-b')) closePop(); });
+  setTimeout(() => bS.querySelector('.info').click(), 0);
+
+  // C : tiroir
+  const c = document.getElementById('stage-c');
+  c.innerHTML = '<div class="drawer-host" id="host"><div style="display:grid;gap:6px;align-content:start">' + ROWS.map(r => '<div class="line" style="grid-template-columns:22px 1fr auto"><span>' + r.icon + '</span><span class="lbl">' + r.label + '<br><button class="more" data-id="' + r.id + '">Voir le détail</button></span>' + chip(r) + '</div>').join('') + '</div><aside class="drawer" id="drawer" hidden></aside></div>';
+  const host = document.getElementById('host'), drawer = document.getElementById('drawer');
+  function closeDrawer() { drawer.hidden = true; host.classList.remove('open'); c.querySelectorAll('.line').forEach(l => l.classList.remove('sel')); }
+  c.addEventListener('click', e => {
+    if (e.target.closest('.x')) { closeDrawer(); return; }
+    const b = e.target.closest('.more'); if (!b) return;
+    const r = ROWS.find(x => x.id === b.dataset.id);
+    c.querySelectorAll('.line').forEach(l => l.classList.toggle('sel', l.contains(b)));
+    drawer.innerHTML = '<div class="drawer-h"><strong>' + r.label + '</strong><button class="x" aria-label="Fermer le détail">✕</button></div>' + body(r);
+    drawer.hidden = false; host.classList.add('open');
+  });
+  c.querySelector('.more').click();
+})();
+</script>

@@ -1,0 +1,111 @@
+- id: "1"
+  title: Politique d'autorisation par outil MCP et journal de sécurité
+  description: >-
+    CAP-2 et CAP-3 : niveau de risque et règle autoriser / demander / refuser par outil (défauts de
+    mcp-tools.md), refus visible dans la Séquence, journal horodaté téléchargeable.
+  invoke_dev_with: >-
+    Lane A, première story, fondation des stories 3, 5 et 10. Fichiers : src/wavestack/mcp/
+    (lab.py:412-536 journalise déjà le JSON-RPC), content/mcp.yaml, mcp.html/mcp.js. Le journal
+    doit accepter des événements d'autres sources (verdicts des garde-fous, story 5) : interface
+    d'ajout simple. Aucun secret dans le journal. Libellés en fr, en et de. Ne pas toucher à
+    app.js (lane C). E2E : s_mcp_lab_page, s_mcp_lab.
+- id: "2"
+  title: Outils concrets du MCP local (bac à sable, RAM, capture d'écran)
+  description: >-
+    CAP-1 : créer fichier/dossier dans un bac à sable, lire RAM et système, capture d'écran
+    locale jamais envoyée au modèle ; le glossaire reste.
+  invoke_dev_with: >-
+    Lane A, après la story 1. Fichiers : src/wavestack/mcp/local_server.py, content/mcp_local/.
+    Bac à sable sous le dossier de données WaveStack (config.data_dir) ; refuser tout chemin
+    résolu hors du dossier, avec un test. psutil est déjà une dépendance. Capture : dépendance
+    légère sans admin (ex. mss), le modèle ne reçoit que chemin et taille. Règles par défaut
+    de mcp-tools.md.
+- id: "3"
+  title: Serveur MCP GitHub par OAuth device flow
+  description: >-
+    CAP-4 : connexion par device flow de l'OAuth App WaveStack, jeton fin en repli, outils
+    d'alertes de sécurité, refus d'écriture visible et journalisé.
+  invoke_dev_with: >-
+    Lane A, après la story 2. Repères dans mcp-tools.md (Client ID, en-têtes X-MCP-Toolsets et
+    X-MCP-Readonly, test du 16/10). Trancher et consigner : renouvellement du jeton sans client
+    secret, portées OAuth minimales. Le jeton reste en mémoire ou dans un stockage local hors
+    dépôt, jamais dans le journal ni la Séquence. Tests sans réseau (faux serveur) ; l'essai réel
+    se fait avec Anaël. Ajouter api.githubcopilot.com et github.com à la liste blanche réseau.
+- id: "4"
+  title: Garde-fous entrée/sortie (toxicité multilingue, Presidio-fr), modes et brique Garde-fous
+  description: >-
+    CAP-5 : interface commune, toxicité gravitee ONNX quantifié et données personnelles
+    Presidio + presidio-fr, en entrée et en sortie, modes bloquer / signaler (masquer) /
+    désactivé, réglés dans une nouvelle brique Garde-fous ; verdicts dans Vue humain et Orchestration.
+  invoke_dev_with: >-
+    Lane B, première story. Nouveau module (ex. src/wavestack/guardrails/) et dépendance
+    optionnelle « guardrails » dans pyproject.toml, comme « compression » ; WaveStack démarre
+    sans elle. Modèles chargés à la demande et déchargeables, 1,5 Go au plus pour l'ensemble :
+    mesurer et consigner. Repli toxicité : textdetox (guardrails.md). UI : brique Garde-fous,
+    verdict-banner et dépli d'Orchestration (ux/DESIGN.md, écran Harnais de la maquette). Ne pas écrire dans le
+    journal de sécurité (story 5). Pas de pytest qui télécharge un modèle : faux classifieur.
+- id: "5"
+  title: Prompt Guard 2 optionnel, exemples neutres et verdicts journalisés
+  description: >-
+    CAP-5 et CAP-6 : garde-fou injection actif avec un jeton Hugging Face, sinon « non
+    installé » avec la marche à suivre ; exemples qui déclenchent ou passent ; verdicts au journal.
+  invoke_dev_with: >-
+    Lane B, après les stories 1 et 4. Trancher et consigner torch CPU ou conversion ONNX pour
+    Prompt Guard 2 (86M si la RAM le permet, sinon 22M). Exemples neutres et fabriqués, jamais
+    de contenu dangereux réel (dépôt public). L'utilisateur télécharge le modèle sous sa propre
+    acceptation de la licence Llama 4 Community.
+- id: "6"
+  title: FinOps visible, économie du cache cloud et gain de la compression
+  description: >-
+    CAP-7 (partie 1) : coût réel contre prix plein grâce au cache de prompt, écriture en cache
+    en ligne distincte, tokens et coût économisés par Headroom.
+  invoke_dev_with: >-
+    Lane C, première story. Données déjà lues (finops.md) : aucun nouvel appel API. Fichiers :
+    session/app_session.py, models/cloud_base.py, app.js (zone compteur 2425-2487). Aucun chiffre
+    tiers non vérifié dans l'interface. Usage estimé marqué « ≈ ».
+- id: "7"
+  title: FinOps du sous-agent isolé et KV-cache local
+  description: >-
+    CAP-7 (partie 2) : ligne dédiée tokens, coût et empreinte du sous-agent ; tokens repris du
+    KV-cache et débit de préremplissage pour les modèles locaux.
+  invoke_dev_with: >-
+    Lane C, après la story 6. Sous-agent : _turn_costs et _turn_impacts (app_session.py:1031).
+    KV-cache : timings.cache_n, prompt_per_second (models/servers.py:520 lit déjà prompt_n).
+    Pas de mention « 15× » tant qu'aucune source primaire Anthropic n'est trouvée.
+- id: "8"
+  title: Textes des ateliers LLM et RAG pour un non-ingénieur
+  description: >-
+    CAP-10 (partie 1) : réécrire content/llm_lab.yaml et rag_lab.yaml pour qu'aucun terme
+    technique ne reste inexpliqué à sa première apparition.
+  invoke_dev_with: >-
+    Lane D, première story. Contenu seulement, plus les surcouches content/i18n/en et de. Garder
+    les clés existantes. Ne pas toucher à mcp_lab.yaml (story 11).
+- id: "9"
+  title: Barre commune, bouton Dépense (économisé, bilan de séance) et bouton Journal
+  description: >-
+    CAP-7 et CAP-9 : « économisé » à côté de la dépense et panneau Bilan de la séance ; bouton
+    Journal avec compteur des refus et aperçu des 5 derniers événements, sur toutes les pages.
+  invoke_dev_with: >-
+    Lane D, après les stories 1 (journal) et 7 (même app.js). Composants bar-button et bar-flyout
+    de ux/DESIGN.md, comportement dans ux/EXPERIENCE.md (non modal, un seul ouvert, Échap rend le
+    focus). La barre commune est partagée par toutes les pages : vérifier index, llm, rag, mcp,
+    diagnostic. Libellés en fr, en et de. E2E : ouvrir et fermer chaque panneau sur deux pages.
+- id: "10"
+  title: Page Sécurité
+  description: >-
+    CAP-9 et CAP-8 : nouvelle entrée « Sécurité » de la barre commune avec cartes-questions,
+    matrice des risques, contrôles actifs dépliables, journal complet téléchargeable en CSV et
+    limites dépliables.
+  invoke_dev_with: >-
+    Lane D, après les stories 3, 5 et 9. Maquette : maquette-vague-2.html, écran « Page Sécurité ».
+    Une seule source de données : lire la politique, les garde-fous et le journal existants, ne
+    rien dupliquer ; les réglages restent dans MCP et dans la brique Garde-fous (liens).
+    Limites : limites-harnais.md. Expliquer les trois niveaux de refus GitHub (mcp-tools.md).
+    Valider contre le flux 1 de ux/EXPERIENCE.md.
+- id: "11"
+  title: Textes de l'atelier MCP pour un non-ingénieur
+  description: >-
+    CAP-10 (partie 2) : réécrire content/mcp_lab.yaml et les textes MCP, nouveaux outils compris,
+    pour un non-ingénieur.
+  invoke_dev_with: >-
+    Lane D, dernière story, après la story 3. Contenu seulement, plus les surcouches en et de.
