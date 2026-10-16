@@ -14531,6 +14531,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     before = position.inner_text()
     page.locator("#rag-seq .diagram-step-next").click()
     advanced, _ = r.poll(lambda: position.inner_text() != before)
+    after = position.inner_text()  # read now: Echap moves the stepper back out of #rag-seq
     page.keyboard.press("Escape")
     expect(page.locator("#rag-seq")).not_to_have_class(re.compile(r"\bis-expanded\b"))
     r.check(
@@ -14541,7 +14542,7 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
     r.check(
         advanced,
         "Séquence RAG agrandie : ▶ du pas-à-pas reste visible et fait avancer d'une étape",
-        f"{before} → {position.inner_text()}",
+        f"{before} → {after}",
     )
     _rag_mode(r, "compose")
     names = page.locator("#rag-seq .rag-seq-name").all_inner_texts()
