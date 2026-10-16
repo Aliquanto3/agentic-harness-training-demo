@@ -114,3 +114,20 @@ moteur déjà démontrable et mesuré sur les quatre exemples de `guardrails.md`
 - `tests/test_guardrails.py` (nouveau) — le manager, factice uniquement.
 
 </frozen-after-approval>
+
+## Revue
+
+Revue du 16/10 (Opus), sur le vrai Presidio et le vrai modèle gravitee (téléchargé dans un dossier temporaire, révision `865ad1b`).
+
+- MEDIUM, second avis 1 : `TAX_ID_FR` à 0,3 sous le seuil 0,4, jamais détecté (vérifié). Corrigé : motif SPI (13 chiffres, premier 0 à 3) et mots de contexte (« fiscal », « impôt », « SPI ») qui le portent à 0,65.
+- MEDIUM, second avis 2 : pas d'échec ORT (tokenizer.json tronque et complète déjà à 256 tokens), mais tout ce qui suit le 256e token était ignoré et une insulte noyée dans ~200 tokens neutres tombait sous 0,05 : contournement en mode bloquer. Corrigé : score par phrase (fenêtres de 256 avec recouvrement pour une phrase très longue), le pire gagne, sans remplissage. Fail-open en erreur conservé : c'est la matrice figée (« jamais le tour n'est bloqué par un modèle absent ») ; le statut `error` reste visible dans le verdict. Limite : une phrase sans ponctuation de plusieurs centaines de mots dilue encore l'insulte (limite du modèle, à dire en démo).
+- MEDIUM, second avis 3 : `fr_core_news_sm` par URL GitHub (empreinte sha256 dans `uv.lock`). Pas de source plus robuste sans changer d'hôte ; corrigé en documentation : extra `guardrails` et hôtes des releases GitHub ajoutés à `docs/installation.md`.
+- MEDIUM, second avis 4 : rejeté sur le fond, « 06 12 34 56 78 » était détecté, mais au score 0,4, pile au seuil. Renforcé : reconnaisseur de téléphone région FR avec mots de contexte français (0,75 sur l'exemple).
+- MEDIUM, revue : modèle de toxicité téléchargé depuis `resolve/main` sans sha256, contraire aux autres modèles de `wavestack.toml`. Corrigé : révision et sha256 épinglés.
+- LOW, second avis 5 : tout nombre de 9 chiffres devenait `[SIRET]`. Corrigé : SIREN/SIRET à 0,3, détectés seulement près de « SIRET »/« SIREN ».
+- LOW, second avis 5 : aucun test réel de `pii.py`/`toxicity.py`. Corrigé : motifs, découpe en phrases, et l'exemple de `guardrails.md` sur le vrai Presidio (sauté sans l'extra).
+- LOW, second avis 5 : `missing_fr` ne vérifiait pas `fr_core_news_sm`, renvoi à `docs/guardrails-ram.md` absent, libellés en/de (`[PHONE]`, `[TELEFON]`) différents du code. Corrigés.
+- LOW, revue : `ORGANIZATION` sans libellé français. Corrigé (`[ORGANISATION]`). Faux positifs spaCy (« Appelez » en LIEU) : laissés, à montrer en démo.
+- LOW, second avis 5 : numpy non déclaré. Rejeté : dépendance d'onnxruntime, installé avec l'extra.
+- LOW, second avis 5 : NOTICE des licences (OpenRAIL++, MIT). Reporté à la story 5 (installation en un clic).
+- Reporté à la story 5 : téléchargement synchrone de 135 Mo au premier `classify`, sans cache d'échec (réessayé à chaque tour) ; `unload_idle` à appeler quand la brique s'éteint ; coût d'environ 25 ms par phrase (10 s pour un collage de 400 phrases) à borner ou afficher ; vérifier le téléchargement derrière le proxy du poste.

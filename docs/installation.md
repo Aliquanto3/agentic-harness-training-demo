@@ -48,7 +48,7 @@ commandes près.
   (roue CPU de `llama-cpp-python`), `github.com` et ses domaines de téléchargement,
   dont `raw.githubusercontent.com` (installeur en une commande) et `codeload.github.com`
   (archive zip ou tar.gz de WaveStack quand Git manque), `huggingface.co` et `*.hf.co`.
-- Pour llama-server, facultatif (voir [Obtenir llama-server sans droits d'administrateur](modeles.md#obtenir-llama-server-sans-droits-dadministrateur-windows)) :
+- Pour l'extra `guardrails` (modèle spaCy français) et pour llama-server, facultatif (voir [Obtenir llama-server sans droits d'administrateur](modeles.md#obtenir-llama-server-sans-droits-dadministrateur-windows)) :
   `api.github.com`, et les hôtes de téléchargement des releases GitHub,
   `objects.githubusercontent.com` et `release-assets.githubusercontent.com`.
 - Pendant les séances, selon les briques utilisées : les modèles cloud (voir
@@ -317,7 +317,7 @@ vous utilisez un extra (ci-dessous), relancez aussi `uv sync` avec tous vos extr
 
 ## Extras optionnels
 
-Trois briques ou ateliers demandent des dépendances supplémentaires, que `uv run wavestack`
+Quatre briques ou ateliers demandent des dépendances supplémentaires, que `uv run wavestack`
 seul n'installe pas. Ajoutez-les depuis le dossier de WaveStack, puis après chaque mise à jour,
 en gardant tous les extras voulus dans la même commande :
 
@@ -330,3 +330,4 @@ uv sync --extra compression --extra rag-alt --extra greenops
 | `compression` | La brique Compression (Headroom) | ≈ 285 Mo | [Compression du contexte](guide.md#compression-du-contexte-headroom) |
 | `rag-alt` | FAISS et LanceDB dans l'Atelier RAG | ≈ 390 Mo | [FAISS et LanceDB](guide.md#faiss-et-lancedb-extra-rag-alt) |
 | `greenops` | L'empreinte des modèles locaux (CodeCarbon) | ≈ 150 Mo | [GreenOps](guide.md#greenops-empreinte-estimée-des-appels-au-modèle) |
+| `guardrails` | La brique Garde-fous (toxicité ONNX, Presidio et spaCy français) ; le modèle de toxicité (≈ 140 Mo) se télécharge depuis Hugging Face à la première utilisation | ≈ 500 Mo | Le modèle spaCy `fr_core_news_sm` vient des releases GitHub de spaCy : autoriser `github.com`, `objects.githubusercontent.com` et `release-assets.githubusercontent.com` derrière un proxy |

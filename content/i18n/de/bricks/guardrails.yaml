@@ -12,7 +12,7 @@ explanation_text:
     angezeigt), melden (das Urteil wird angezeigt, nichts ändert sich) oder aus.
   - >-
     Bei personenbezogenen Daten wird „melden“ zu „maskieren“: Der Text wird vor dem Lesen
-    ersetzt, zum Beispiel durch „[TELEFON]“ oder „[E-MAIL]“, und das Urteil nennt, was
+    ersetzt, zum Beispiel durch „[TÉLÉPHONE]“ oder „[E-MAIL]“, und das Urteil nennt, was
     maskiert wurde.
   - - "Toxizität: `gravitee-io/distilbert-multilingual-toxicity-classifier`, ein quantisiertes ONNX-Modell, ohne torch."
     - "Personenbezogene Daten: Microsoft Presidio, mit einem spaCy-Modell für Französisch und einigen frankreichspezifischen Mustern (Sozialversicherungsnummer, Unternehmens-ID, Kennzeichen)."

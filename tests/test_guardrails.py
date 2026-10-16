@@ -115,3 +115,52 @@ def test_unload_idle_clears_instances_and_calls_unload() -> None:
     m.unload_idle()
     assert fake.unloaded is True
     assert m._instances == {}
+
+
+# Review of story 4: the real patterns and sentence split, without loading any model.
+def test_french_patterns_match_their_examples_only() -> None:
+    import re
+
+    from wavestack.guardrails.pii import _FR_PATTERNS
+
+    patterns = {entity: re.compile(regex) for entity, regex, _, _ in _FR_PATTERNS}
+    assert patterns["NIR_FR"].search("NIR 1 85 05 78 006 084 36")
+    assert patterns["PLATE_FR"].search("plaque AB-123-CD")
+    assert patterns["TAX_ID_FR"].search("numéro fiscal 1234567890123")
+    assert not patterns["TAX_ID_FR"].search("9234567890123")  # an SPI starts with 0 to 3
+    # Bare digit runs stay under the threshold until a context word lifts them (Presidio +0.35).
+    scores = {entity: score for entity, _, score, _ in _FR_PATTERNS}
+    assert scores["SIRET_FR"] < 0.4 and scores["TAX_ID_FR"] < 0.4
+
+
+def test_toxicity_scores_each_sentence() -> None:
+    from wavestack.guardrails.toxicity import _SENTENCES
+
+    text = "Le comité se réunit mardi. Franchement, t'es nul !\nMerci."
+    parts = [s for s in _SENTENCES.split(text) if s.strip()]
+    assert parts == ["Le comité se réunit mardi.", "Franchement, t'es nul !", "Merci."]
+
+
+def test_real_presidio_masks_the_guardrails_md_example() -> None:
+    """The real engine (no download: `fr_core_news_sm` is a wheel of the `guardrails` extra)."""
+    import pytest
+
+    pytest.importorskip("presidio_analyzer")
+    pytest.importorskip("fr_core_news_sm")
+    from wavestack.guardrails.pii import PiiGuardrail
+
+    pii = PiiGuardrail()
+    text = (
+        "Je suis Camille Martin, joignable au 06 12 34 56 78 ou à camille.martin@example.com, "
+        "IBAN FR76 3000 6000 0112 3456 7890 189."
+    )
+    found = pii.classify(text)
+    masked = pii.mask(text, found.entities)
+    for label in ("[TÉLÉPHONE]", "[E-MAIL]", "[IBAN]"):
+        assert label in masked
+    assert "06 12" not in masked and "example.com" not in masked
+    assert not pii.classify("Commande numéro 123456789 livrée.").detected
+    assert "[NUMÉRO FISCAL]" in pii.mask(
+        "Mon numéro fiscal est 1234567890123.",
+        pii.classify("Mon numéro fiscal est 1234567890123.").entities,
+    )

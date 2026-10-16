@@ -5,7 +5,8 @@ shortcut: `presidio-fr` is not a published package (the Hub lists only a communi
 patterns, not a maintained pip install) — the orchestrator authorized the simplest working
 substitute. These four patterns are added as ordinary `PatternRecognizer`s instead:
 NIR (social security number), SIRET/SIREN, a tax number and a licence plate. Presidio's own
-built-ins already cover EMAIL_ADDRESS, PHONE_NUMBER (FR region) and IBAN_CODE.
+built-ins already cover EMAIL_ADDRESS and IBAN_CODE; PHONE_NUMBER gets an FR-region recognizer
+with French context words on top of the built-in one.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ LABELS = {
     "IBAN_CODE": "IBAN",
     "PERSON": "NOM",
     "LOCATION": "LIEU",
+    "ORGANIZATION": "ORGANISATION",
     "NIR_FR": "NIR",
     "SIRET_FR": "SIRET",
     "TAX_ID_FR": "NUMÉRO FISCAL",
@@ -28,16 +30,30 @@ LABELS = {
 # French patterns Presidio has no built-in for (story 4, "presidio-fr" substitute).
 _FR_PATTERNS = (
     # NIR: 1 (sexe) + 2 (année) + 2 (mois) + 2 (département, 2A/2B compris) + 3 + 3 + 2 (clé).
-    ("NIR_FR", r"\b[12]\s?\d{2}\s?(0[1-9]|1[0-2])\s?(\d{2}|2[AB])\s?\d{3}\s?\d{3}\s?\d{2}\b", 0.6),
-    ("SIRET_FR", r"\b\d{3}\s?\d{3}\s?\d{3}(\s?\d{5})?\b", 0.4),
-    ("TAX_ID_FR", r"\b\d{13}\b", 0.3),
-    ("PLATE_FR", r"\b[A-Z]{2}-\d{3}-[A-Z]{2}\b", 0.6),
+    (
+        "NIR_FR",
+        r"\b[12]\s?\d{2}\s?(0[1-9]|1[0-2])\s?(\d{2}|2[AB])\s?\d{3}\s?\d{3}\s?\d{2}\b",
+        0.6,
+        None,
+    ),
+    # SIREN/SIRET and the tax number are bare digit runs: under THRESHOLD alone, detected only
+    # with a context word nearby (Presidio adds 0.35), so "commande 123456789" stays untouched.
+    ("SIRET_FR", r"\b\d{3}\s?\d{3}\s?\d{3}(\s?\d{5})?\b", 0.3, ["siret", "siren"]),
+    (
+        "TAX_ID_FR",
+        r"\b[0-3]\d\s?\d{2}\s?\d{3}\s?\d{3}\s?\d{3}\b",
+        0.3,
+        ["fiscal", "spi", "impôt", "impôts", "impots"],
+    ),
+    ("PLATE_FR", r"\b[A-Z]{2}-\d{3}-[A-Z]{2}\b", 0.6, None),
 )
+_PHONE_CONTEXT = ["téléphone", "tél", "portable", "mobile", "joignable", "appeler", "numéro"]
 
 
 def _build_analyzer():
     from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
     from presidio_analyzer.nlp_engine import NlpEngineProvider
+    from presidio_analyzer.predefined_recognizers import PhoneRecognizer
 
     provider = NlpEngineProvider(
         nlp_configuration={
@@ -46,13 +62,18 @@ def _build_analyzer():
         }
     )
     analyzer = AnalyzerEngine(nlp_engine=provider.create_engine(), supported_languages=["fr"])
-    for entity, regex, score in _FR_PATTERNS:
+    for entity, regex, score, context in _FR_PATTERNS:
         recognizer = PatternRecognizer(
             supported_entity=entity,
             patterns=[Pattern(name=entity, regex=regex, score=score)],
+            context=context,
             supported_language="fr",
         )
         analyzer.registry.add_recognizer(recognizer)
+    # The built-in phone recognizer has no FR region and English context words only.
+    analyzer.registry.add_recognizer(
+        PhoneRecognizer(supported_language="fr", supported_regions=("FR",), context=_PHONE_CONTEXT)
+    )
     return analyzer
 
 

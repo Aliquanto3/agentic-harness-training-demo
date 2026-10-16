@@ -11,9 +11,9 @@ _INSTALL = "uv sync --extra guardrails"
 
 
 def missing_fr() -> str | Message | None:
-    """`None` once `onnxruntime`, `tokenizers`, `presidio_analyzer`/`presidio_anonymizer` and
-    `spacy` are all importable; the brick reports "non installés" with the command otherwise.
-    Each guardrail's own model (gravitee, Presidio's `fr_core_news_sm`) is downloaded or
+    """`None` once `onnxruntime`, `tokenizers`, `presidio_analyzer`/`presidio_anonymizer`,
+    `spacy` and its `fr_core_news_sm` wheel are all importable; the brick reports "non
+    installés" with the command otherwise. The toxicity model is downloaded and every model
     loaded lazily, at its first use (story 4), never at this check."""
     missing = [
         name
@@ -23,6 +23,7 @@ def missing_fr() -> str | Message | None:
             "presidio_analyzer",
             "presidio_anonymizer",
             "spacy",
+            "fr_core_news_sm",
         )
         if find_spec(name) is None
     ]

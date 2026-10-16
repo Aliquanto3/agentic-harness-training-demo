@@ -11,7 +11,7 @@ explanation_text:
     answer is not shown), flag (the verdict is shown, nothing changes) or off.
   - >-
     For personal data, "flag" becomes "mask": the text is replaced before it is read,
-    for example "[PHONE]" or "[EMAIL]", and the verdict says what was masked.
+    for example "[TÉLÉPHONE]" or "[E-MAIL]" (French labels), and the verdict says what was masked.
   - - "Toxicity: `gravitee-io/distilbert-multilingual-toxicity-classifier`, a quantized ONNX model, no torch."
     - "Personal data: Microsoft Presidio, with a spaCy model for French and a few France-specific patterns (social security number, company id, licence plate)."
     - "Prompt injection: not installed yet, see the next story."
