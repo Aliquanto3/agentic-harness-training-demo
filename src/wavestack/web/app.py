@@ -1148,6 +1148,16 @@ def create_app(
             headers={"Content-Disposition": 'attachment; filename="journal_securite.csv"'},
         )
 
+    @app.get("/api/security")
+    def api_security() -> dict[str, object]:
+        """Story 10 (CAP-9): the page Sécurité's question cards, risk matrix, active
+        controls and limits count; the journal itself stays on its own route above."""
+        return shown(app_session.security_state())
+
+    @app.get("/security")
+    def security_page() -> FileResponse:
+        return FileResponse(STATIC_DIR / "security.html")
+
     @app.post("/api/intentions/guardrail_mode")
     def guardrail_mode(intention: GuardrailModeIntention) -> dict[str, bool]:
         """CAP-5, class (a): a guardrail's mode, effective from the next check."""

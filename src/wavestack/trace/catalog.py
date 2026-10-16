@@ -1719,11 +1719,15 @@ class McpLabAuthorizationResolvedPayload(BaseModel):
 class SecurityEventPayload(BaseModel):
     """Story 9 (CAP-3, CAP-9): a security journal entry (an MCP tool decision or a
     guardrail's verdict), notified live to the bar's « Journal » button on every page
-    (`JournalEntry`'s own fields, plus the journal's live `denied_count`)."""
+    (`JournalEntry`'s own fields, plus the journal's live `denied_count`). Story 10
+    (CAP-9): `label_text`, the RSSI-readable name (`guardrails.pii` -> « Garde-fou données
+    personnelles »), so the bar's preview and the page Sécurité never show a raw technical
+    name."""
 
     ts: str
     source: str
     name: str
+    label_text: str
     decision: str
     reason_text: str
     denied_count: int

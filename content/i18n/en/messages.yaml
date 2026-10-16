@@ -555,6 +555,7 @@ session:
     is_error: "The server answered with isError: the tool reports an error, which the harness reinjects to the model as it is. The protocol worked, the tool did not."
     interrupted: The MCP workshop stopped on an error.
     policy_denied: "Denied by the security policy: the rule for « {tool} » is Deny. The tool was not run."
+    policy_denied_github: "Denied by the security policy: the rule for « {tool} » is Deny. Sent to GitHub: no."
     policy_allowed: "Allowed by the security policy (the rule for « {tool} »)."
     policy_denied_by_user: "Denied by you: you refused the call to « {tool} ». The tool was not run."
     policy_allowed_once: "Allowed once by you: you authorized the call to « {tool} »."
@@ -1610,3 +1611,105 @@ net:
   host_refused: "Network host not allowed: {host}"
   address_refused: "Network address not allowed: {host}"
   loopback_refused: "Host outside the local loopback refused: {host}"
+
+security:
+  guardrail_name: "{guardrail} guardrail"
+  tools:
+    local__list_terms: Glossary
+    local__define_term: Glossary
+    local__system_info: RAM and system
+    local__create_path: Create a file or folder
+    local__take_screenshot: Screenshot
+    datagouv__search_datasets: data.gouv.fr
+    mslearn__microsoft_docs_search: Microsoft Learn
+    github__list_secret_scanning_alerts: "GitHub: exposed secret alerts"
+    github__list_dependabot_alerts: "GitHub: Dependabot alerts"
+    github__get_file_contents: "GitHub: a file's content"
+    github__list_issues: "GitHub: issues"
+    github__merge_pull_request: "GitHub: merging a PR"
+    github__create_pull_request: "GitHub: creating a PR"
+  matrix:
+    glossary:
+      label: Glossary
+      nature: read
+    system:
+      label: RAM and system
+      nature: read
+    create_path:
+      label: Create a file or folder
+      nature: "write, sandboxed"
+    screenshot:
+      label: Screenshot
+      nature: "sensitive read"
+    network:
+      label: "data.gouv.fr, Microsoft Learn"
+      nature: "read, network"
+    github_read:
+      label: "GitHub: alerts, files, issues"
+      nature: "read, OAuth"
+    github_write:
+      label: "GitHub: merging and creating PRs"
+      nature: "write, OAuth"
+  questions:
+    authorized_by_you:
+      one: "{count} authorization you granted, once"
+      other: "{count} authorizations you granted, once each"
+    tool_denied:
+      one: "{count} tool call refused"
+      other: "{count} tool calls refused"
+    guardrail_blocked:
+      one: "{count} message blocked"
+      other: "{count} messages blocked"
+    nothing_blocked: "No refusal nor block for now."
+    not_covered:
+      one: "{count} known limit, further down the page"
+      other: "{count} known limits, further down the page"
+  limits:
+    guardrails_wrong:
+      statement: "The guardrails get it wrong sometimes."
+      reason: "They are classifiers: false positives and false negatives. They are weaker outside English (Llama Guard: 38% of violations caught in French against 75% in English, per Meta)."
+      production: "Several layers, thresholds calibrated on its own data, a human review of the borderline cases."
+    guardrails_scope:
+      statement: "The guardrails only see the main conversation."
+      reason: "They check the message sent and the final reply. Tool results, the reasoning, the intermediate steps, the sub-agent and the workshops (plain LLM, RAG, MCP) do not go through them. A very long message is only partly analyzed by toxicity and injection (Prompt Guard 2: the first 512 tokens only; the verdict says so)."
+      production: "A check on every input and output of the model, sub-agents and tools included."
+    injection_indirect:
+      statement: "Indirect injection goes through when the detector is absent."
+      reason: "A RAG document or a tool result can carry instructions. Without Prompt Guard (optional), nothing detects them."
+      production: "Detection on every incoming content, not only the user's message."
+    tool_name_only:
+      statement: "Authorization is on the tool's name, not on what it does."
+      reason: "An MCP server can describe a tool misleadingly or change its behaviour server-side."
+      production: "Approved and pinned MCP servers, a review of their descriptions, a server-side log."
+    github_token_scope:
+      statement: "The GitHub token carries every right it was granted."
+      reason: "An OAuth App's rights are broad; WaveStack filters the tools, but the token stays valid 8h for everything it covers, with a 6-month renewal."
+      production: "A fine-grained GitHub App, short-lived tokens, centralized revocation."
+    github_token_storage:
+      statement: "The GitHub token is stored in clear text on the workstation."
+      reason: "It is written in the user profile (`github_token.json`, WaveStack's data folder), protected only by the Windows account's rights: any program run under that account can read it."
+      production: "The system's secret vault (DPAPI, Windows Credential Manager) or a token kept in memory only."
+    sandbox_not_isolated:
+      statement: "The sandbox does not isolate the process."
+      reason: "It is a path check inside the application, not a container nor a dedicated system account."
+      production: "Running tools in a container or a VM, under an unprivileged account."
+    screenshot_whole_screen:
+      statement: "The screenshot sees the whole screen."
+      reason: "Other open windows show up in it. It stays on the workstation, but it exists."
+      production: "Forbid the tool, or limit it to one window."
+    journal_not_audit:
+      statement: "The journal has no audit value."
+      reason: "It is local, unsigned, and editable by the workstation's user."
+      production: "Sent to a SIEM, timestamped and its integrity guaranteed."
+    cloud_provider:
+      statement: "The harness does not control what the cloud provider does."
+      reason: "Messages sent to a cloud model are subject to its retention and usage terms. Presidio detects personal data, it does not guarantee its absence."
+      production: "A controlled contract and hosting region, or a local model for sensitive data."
+    no_authentication:
+      statement: "The app has no authentication."
+      reason: "It only listens on the machine (127.0.0.1): whoever uses the workstation has access."
+      production: "Authentication and per-user isolation, outside the demo's scope."
+    costs_estimated:
+      statement: "Costs are estimates."
+      reason: "Prices declared in the configuration; « ≈ » when usage is not measured by the provider."
+      production: "Reconciliation with the provider's invoice."

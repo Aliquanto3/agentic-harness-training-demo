@@ -34,6 +34,20 @@ _DEFAULTS: dict[str, tuple[str, str]] = {
     "github__merge_pull_request": ("high", "deny"),
     "github__create_pull_request": ("high", "deny"),
 }
+# CAP-9 (the page Sécurité's « Matrice des risques »): one row per `mcp-tools.md` category,
+# each identified by a representative tool whose live `risk_of`/`rule_of` stands for the
+# whole row (several tools share the same risk and rule); `write` flags a row the page's
+# « Quels outils peuvent écrire ? » card counts. Order matches `mcp-tools.md`.
+MATRIX_ROWS: tuple[tuple[str, str, bool], ...] = (
+    ("glossary", "local__list_terms", False),
+    ("system", "local__system_info", False),
+    ("create_path", "local__create_path", True),
+    ("screenshot", "local__take_screenshot", False),
+    ("network", "datagouv__search_datasets", False),
+    ("github_read", "github__list_secret_scanning_alerts", False),
+    ("github_write", "github__merge_pull_request", True),
+)
+
 _FALLBACK = ("low", "allow")
 # GitHub exposes 46 tools (28 read-only): one not named above is presumed to write (the
 # orchestrator's prudent default), high risk, refused until this table names it explicitly.

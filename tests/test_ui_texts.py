@@ -23,7 +23,7 @@ TRANSLATED = ("en", "de")
 _VARIABLE = re.compile(r"\{(\w+)\}")
 _KEY = r"[a-z0-9_.]+"
 # Languages (4/5): a section per page, and `common` for the shared texts.
-SECTIONS = {"common", "main", "llm", "rag", "mcp", "diagnostic", "models"}  # story 6: mcp
+SECTIONS = {"common", "main", "llm", "rag", "mcp", "diagnostic", "models", "security"}  # story 10
 # Each page and its scripts (its inline `<script type="module">` included).
 # Story 2 (2026-09-30): each loads site-nav.js, the shared bar's menu.
 PAGES = {
@@ -34,6 +34,8 @@ PAGES = {
     "mcp.html": ("mcp", ("mcp.js", "diagram.js", "panes.js", "site-nav.js")),  # story 6, lot 4
     # Lot 3 of 2026-10-04: « Diagnostic et modèles », story 25's table merged into it.
     "diagnostic.html": ("diagnostic", ("site-nav.js",)),
+    # Story 10: the page Sécurité.
+    "security.html": ("security", ("security.js", "site-nav.js")),
 }
 
 
@@ -169,7 +171,7 @@ def test_every_key_of_the_page_is_in_french_and_the_html_says_it(name):
 
 
 def test_every_page_loads_i18n_js_after_theme_js():
-    for name in ("index", "llm", "rag", "mcp", "diagnostic"):
+    for name in ("index", "llm", "rag", "mcp", "security", "diagnostic"):
         page = (STATIC / f"{name}.html").read_text(encoding="utf-8")
         theme = page.index('<script src="/static/theme.js"></script>')
         module = page.index('<script type="module" src="/static/i18n.js"></script>')
@@ -207,8 +209,9 @@ def test_each_page_awaits_the_texts_and_shares_the_navigation(name):
     links = re.findall(r'<a href="/(\w*)"( class="site-nav-brand")?[^>]*>([^<]+)</a>', nav)
     assert [(href, text) for href, brand, text in links if brand] == [("", "WaveStack")], name
     named = [(href or "home", text) for href, brand, text in links if not brand]
-    # Lot 1 of 2026-10-04 (D2): five tabs, « Modèles » out of the bar.
-    assert [href for href, _ in named] == ["home", "llm", "rag", "mcp", "diagnostic"], name
+    # Lot 1 of 2026-10-04 (D2): five tabs, « Modèles » out of the bar; story 10: a sixth tab.
+    expected = ["home", "llm", "rag", "mcp", "security", "diagnostic"]
+    assert [href for href, _ in named] == expected, name
     for link, text in named:
         assert FRENCH["common"]["links"][link] == text, (name, link)
     # The page's own tab is the current one.
@@ -226,6 +229,7 @@ def test_i18n_names_the_links_by_their_address_the_brand_aside():
         "/llm": "llm",
         "/rag": "rag",
         "/mcp": "mcp",
+        "/security": "security",
     }
     assert ":not(.site-nav-brand)" in script
     # Lot 1 of 2026-10-04 (D2): the short names of the bar, in each language.

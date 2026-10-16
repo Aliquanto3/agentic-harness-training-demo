@@ -39,6 +39,11 @@ class SecurityJournal:
         # The session's refusals and blocks, counted as recorded (O(1)), never lowered when
         # an entry leaves the 500-entry window: the bar's count is the session's.
         self._denied = 0
+        # Story 10 (CAP-9, the page Sécurité's question cards): the same O(1) pattern, never
+        # a walk of the journal, however long the session runs.
+        self._allow_once = 0
+        self._tool_denied = 0
+        self._guardrail_blocked = 0
 
     def record(self, source: str, name: str, decision: str, reason_text: str) -> JournalEntry:
         entry = JournalEntry(datetime.now(UTC), source, name, decision, reason_text)
@@ -46,6 +51,12 @@ class SecurityJournal:
             self._entries.append(entry)
             if decision in _DENIED:
                 self._denied += 1
+            if decision == "allow_once":
+                self._allow_once += 1
+            if source == "mcp_tool" and decision == "deny":
+                self._tool_denied += 1
+            if source == "guardrail" and decision == "blocked":
+                self._guardrail_blocked += 1
         return entry
 
     def entries(self) -> list[JournalEntry]:
@@ -55,6 +66,18 @@ class SecurityJournal:
     def denied_count(self) -> int:
         with self._lock:
             return self._denied
+
+    def allow_once_count(self) -> int:
+        with self._lock:
+            return self._allow_once
+
+    def tool_denied_count(self) -> int:
+        with self._lock:
+            return self._tool_denied
+
+    def guardrail_blocked_count(self) -> int:
+        with self._lock:
+            return self._guardrail_blocked
 
     def recent(self, n: int) -> list[JournalEntry]:
         """The `n` most recent entries, newest first (O(n), not a copy of the journal)."""

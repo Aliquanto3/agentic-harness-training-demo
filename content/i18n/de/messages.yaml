@@ -558,6 +558,7 @@ session:
     is_error: "Der Server hat mit isError geantwortet: Das Tool meldet einen Fehler, den der Harness unverändert an das Modell zurückgibt. Das Protokoll hat funktioniert, das Tool nicht."
     interrupted: Die MCP-Werkstatt wurde durch einen Fehler unterbrochen.
     policy_denied: "Von der Sicherheitsrichtlinie abgelehnt: Die Regel für « {tool} » steht auf Ablehnen. Das Tool wurde nicht ausgeführt."
+    policy_denied_github: "Von der Sicherheitsrichtlinie abgelehnt: Die Regel für « {tool} » steht auf Ablehnen. An GitHub gesendet: nein."
     policy_allowed: "Von der Sicherheitsrichtlinie erlaubt (Regel für « {tool} »)."
     policy_denied_by_user: "Von Ihnen abgelehnt: Sie haben den Aufruf von « {tool} » abgelehnt. Das Tool wurde nicht ausgeführt."
     policy_allowed_once: "Von Ihnen einmalig erlaubt: Sie haben den Aufruf von « {tool} » genehmigt."
@@ -1613,3 +1614,105 @@ net:
   host_refused: "Netzwerk-Host nicht zugelassen: {host}"
   address_refused: "Netzwerkadresse nicht zugelassen: {host}"
   loopback_refused: "Host außerhalb der lokalen Schleife abgelehnt: {host}"
+
+security:
+  guardrail_name: "Garde-fou {guardrail}"
+  tools:
+    local__list_terms: Glossar
+    local__define_term: Glossar
+    local__system_info: RAM und System
+    local__create_path: Datei oder Ordner erstellen
+    local__take_screenshot: Bildschirmfoto
+    datagouv__search_datasets: data.gouv.fr
+    mslearn__microsoft_docs_search: Microsoft Learn
+    github__list_secret_scanning_alerts: "GitHub: aufgedeckte Sicherheitswarnungen"
+    github__list_dependabot_alerts: "GitHub: Dependabot-Warnungen"
+    github__get_file_contents: "GitHub: Inhalt einer Datei"
+    github__list_issues: "GitHub: Tickets"
+    github__merge_pull_request: "GitHub: PR zusammenführen"
+    github__create_pull_request: "GitHub: PR erstellen"
+  matrix:
+    glossary:
+      label: Glossar
+      nature: Lesen
+    system:
+      label: RAM und System
+      nature: Lesen
+    create_path:
+      label: Datei oder Ordner erstellen
+      nature: "Schreiben, Sandbox"
+    screenshot:
+      label: Bildschirmfoto
+      nature: "sensibles Lesen"
+    network:
+      label: "data.gouv.fr, Microsoft Learn"
+      nature: "Lesen, Netzwerk"
+    github_read:
+      label: "GitHub: Warnungen, Dateien, Tickets"
+      nature: "Lesen, OAuth"
+    github_write:
+      label: "GitHub: PRs zusammenführen und erstellen"
+      nature: "Schreiben, OAuth"
+  questions:
+    authorized_by_you:
+      one: "{count} von Ihnen einmal erteilte Autorisierung"
+      other: "{count} von Ihnen jeweils einmal erteilte Autorisierungen"
+    tool_denied:
+      one: "{count} abgelehnter Werkzeugaufruf"
+      other: "{count} abgelehnte Werkzeugaufrufe"
+    guardrail_blocked:
+      one: "{count} blockierte Nachricht"
+      other: "{count} blockierte Nachrichten"
+    nothing_blocked: "Bisher keine Ablehnung und keine Blockierung."
+    not_covered:
+      one: "{count} bekannte Grenze, weiter unten auf der Seite"
+      other: "{count} bekannte Grenzen, weiter unten auf der Seite"
+  limits:
+    guardrails_wrong:
+      statement: "Die Garde-fous irren sich manchmal."
+      reason: "Es sind Klassifikatoren: falsch positive und falsch negative Ergebnisse. Außerhalb des Englischen sind sie schwächer (Llama Guard: 38 % der erkannten Verstöße auf Französisch gegenüber 75 % auf Englisch, laut Meta)."
+      production: "Mehrere Schichten, auf eigene Daten kalibrierte Schwellenwerte, eine menschliche Überprüfung der Grenzfälle."
+    guardrails_scope:
+      statement: "Die Garde-fous sehen nur die Hauptkonversation."
+      reason: "Sie prüfen die gesendete Nachricht und die endgültige Antwort. Werkzeugergebnisse, das Reasoning, die Zwischenschritte, der Subagent und die Werkstätten (reines LLM, RAG, MCP) laufen nicht durch sie. Eine sehr lange Nachricht wird von Toxizität und Injektion nur teilweise analysiert (Prompt Guard 2: nur die ersten 512 Token; das Urteil sagt es)."
+      production: "Eine Prüfung jeder Ein- und Ausgabe des Modells, Subagenten und Werkzeuge eingeschlossen."
+    injection_indirect:
+      statement: "Indirekte Injektion kommt durch, wenn der Detektor fehlt."
+      reason: "Ein RAG-Dokument oder ein Werkzeugergebnis kann Anweisungen enthalten. Ohne Prompt Guard (optional) erkennt nichts sie."
+      production: "Erkennung bei jedem eingehenden Inhalt, nicht nur bei der Nachricht der Nutzerin oder des Nutzers."
+    tool_name_only:
+      statement: "Die Autorisierung bezieht sich auf den Namen des Werkzeugs, nicht auf seine Funktion."
+      reason: "Ein MCP-Server kann ein Werkzeug irreführend beschreiben oder sein Verhalten serverseitig ändern."
+      production: "Zugelassene und festgelegte MCP-Server, eine Überprüfung ihrer Beschreibungen, ein serverseitiges Protokoll."
+    github_token_scope:
+      statement: "Das GitHub-Token trägt alle gewährten Rechte."
+      reason: "Die Rechte einer OAuth App sind weit gefasst; WaveStack filtert die Werkzeuge, aber das Token bleibt 8 Stunden für alles gültig, was es abdeckt, mit einer 6-monatigen Erneuerung."
+      production: "Eine GitHub App mit feingranularen Berechtigungen, kurzlebige Token, zentrale Widerrufung."
+    github_token_storage:
+      statement: "Das GitHub-Token wird im Klartext auf dem Arbeitsplatz gespeichert."
+      reason: "Es wird im Benutzerprofil geschrieben (`github_token.json`, Datenordner von WaveStack), nur durch die Rechte des Windows-Kontos geschützt: Jedes unter diesem Konto gestartete Programm kann es lesen."
+      production: "Der Secrets-Speicher des Systems (DPAPI, Windows-Anmeldeinformationsverwaltung) oder ein nur im Speicher gehaltenes Token."
+    sandbox_not_isolated:
+      statement: "Die Sandbox isoliert den Prozess nicht."
+      reason: "Es ist eine Pfadprüfung innerhalb der Anwendung, kein Container und kein eigenes Systemkonto."
+      production: "Ausführung der Werkzeuge in einem Container oder einer VM, unter einem Konto ohne Privilegien."
+    screenshot_whole_screen:
+      statement: "Das Bildschirmfoto zeigt den ganzen Bildschirm."
+      reason: "Andere geöffnete Fenster sind darauf zu sehen. Es bleibt auf dem Arbeitsplatz, existiert aber."
+      production: "Das Werkzeug verbieten oder auf ein bestimmtes Fenster beschränken."
+    journal_not_audit:
+      statement: "Das Protokoll hat keinen Revisionswert."
+      reason: "Es ist lokal, unsigniert und von der Nutzerin oder dem Nutzer des Arbeitsplatzes veränderbar."
+      production: "Versand an ein SIEM, garantierte Zeitstempelung und Integrität."
+    cloud_provider:
+      statement: "Der Harness kontrolliert nicht, was der Cloud-Anbieter tut."
+      reason: "Nachrichten an ein Cloud-Modell unterliegen dessen Aufbewahrungs- und Nutzungsbedingungen. Presidio erkennt personenbezogene Daten, garantiert aber nicht deren Abwesenheit."
+      production: "Ein kontrollierter Vertrag und Hosting-Standort, oder ein lokales Modell für sensible Daten."
+    no_authentication:
+      statement: "Die App hat keine Authentifizierung."
+      reason: "Sie lauscht nur auf dem Rechner (127.0.0.1): Wer den Arbeitsplatz nutzt, hat Zugriff."
+      production: "Authentifizierung und Trennung nach Nutzerin oder Nutzer, außerhalb des Umfangs der Demo."
+    costs_estimated:
+      statement: "Die Kosten sind Schätzungen."
+      reason: "In der Konfiguration angegebene Preise; „≈“, wenn die Nutzung vom Anbieter nicht gemessen wird."
+      production: "Abgleich mit der Rechnung des Anbieters."
