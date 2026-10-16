@@ -107,6 +107,8 @@ from wavestack.mcp.connection import (
     describe_error,
     result_text,
 )
+from wavestack.mcp.policy import RULES, ToolPolicy
+from wavestack.mcp.security_log import SecurityJournal
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
 from wavestack.messages import (
     KeyedError,
@@ -984,6 +986,12 @@ class AppSession:
         self._mcp_state: dict[str, tuple[str, str | None]] = {}  # contact, reason_text
         # AD-9 (E089): a connected public server's gap to its snapshot, beyond the threshold.
         self._mcp_drift: dict[str, mcp_snapshot.Drift] = {}
+        # CAP-2, CAP-3: the per-tool rule (mcp-tools.md's defaults) and the security journal;
+        # a pending `ask`, by its `request_id` (`_await_mcp_authorization`, answered from the UI).
+        self._mcp_policy = ToolPolicy()
+        self._security_journal = SecurityJournal()
+        self._mcp_authorizations: dict[str, tuple[threading.Event, dict[str, str | None]]] = {}
+        self._mcp_authorizations_seq = 0
         # Story 6b: documentation complète by default; the documentations loaded belong to
         # the conversation (AD-17), and wait while their server is off.
         self._mcp_lazy: bool
@@ -5529,6 +5537,29 @@ class AppSession:
         self._emit_bricks()
         self._emit_architecture()
         self._refresh_preview()
+
+    def set_mcp_tool_rule(self, tool: str, rule: str) -> None:
+        """CAP-2, class (a): the rule (`allow`, `ask` or `deny`) of an MCP tool, exposed as
+        `{server}__{tool}`; effective from the next call, no restart. `ValueError` if `rule`
+        is not one of `RULES`."""
+        if rule not in RULES:
+            raise ValueError(rule)
+        self._mcp_policy.set_rule(tool, rule)
+
+    def answer_mcp_authorization(self, request_id: str, decision: str) -> None:
+        """CAP-2: resolves a pending `ask` (« Autoriser une fois » or « Refuser »), without a
+        modal; the first answer wins, a later or unknown `request_id` is a no-op."""
+        if decision not in ("allow_once", "deny"):
+            raise ValueError(decision)
+        with self._lock:
+            entry = self._mcp_authorizations.get(request_id)
+            if entry is None:
+                return
+            event, box = entry
+            if box["decision"] is not None:
+                return
+            box["decision"] = decision
+        event.set()
 
     def _mcp_connect(self, server_id: str) -> None:
         """Start contacting `server_id` on the loop; `_mcp_connected` applies the outcome."""
@@ -10212,6 +10243,27 @@ class AppSession:
             "model": self.active_model() if ready else None,
         }
 
+    def security_journal_entries(self) -> list[dict[str, Any]]:
+        """CAP-3, `GET /api/security_journal`: the whole journal, oldest first; read only.
+        Story 9 (barre, « Journal ») and story 10 (page Sécurité) build their screens on it."""
+        return [
+            {
+                "ts": e.ts.isoformat(timespec="seconds"),
+                "source": e.source,
+                "name": e.name,
+                "decision": e.decision,
+                "reason_text": e.reason_text,
+            }
+            for e in self._security_journal.entries()
+        ]
+
+    def security_journal_denied_count(self) -> int:
+        return self._security_journal.denied_count()
+
+    def security_journal_csv(self) -> str:
+        """CAP-3: the journal as a downloadable CSV, never a secret (nothing recorded is)."""
+        return self._security_journal.to_csv()
+
     def mcp_lab_state(self) -> dict[str, Any]:
         """`GET /api/mcp_lab` (AD-1, AD-27): what the page needs before the stream, from
         `seq` on: the servers, the texts (or why not), the call presets, the server the
@@ -10566,6 +10618,8 @@ class AppSession:
                     "doc_tokens": count(definition_text),
                     "line_text": line_text,
                     "line_tokens": count(line_text),
+                    "risk": self._mcp_policy.risk_of(name),  # CAP-2
+                    "rule": self._mcp_policy.rule_of(name),
                 }
             )
         figures: dict[str, Any] = {
@@ -10738,10 +10792,53 @@ class AppSession:
         reported stopped, as the connection it leaves (`payload` updated in place)."""
         if payload["status"] == "ok" and cancel.cancelled:
             payload |= self._mcp_lab_failure(ConnectionError("stopped"), cancel, 0)
-        if payload["status"] != "ok" and payload.get("error_kind") != "jsonrpc_error":
+        # CAP-2: a `policy_denied` call never reached the server, like a `jsonrpc_error`
+        # answer: not a reason to close the connection.
+        if payload["status"] != "ok" and payload.get("error_kind") not in (
+            "jsonrpc_error",
+            "policy_denied",
+        ):
             self._mcp_lab_drop(conn, wait=True)
         elif cancel.cancelled or not conn.alive:
             self._mcp_lab_drop(conn, wait=True)
+
+    def _await_mcp_authorization(self, step_id: str, server_id: str, tool: str) -> str:
+        """CAP-2: the tool's rule is `ask` — waits here for `answer_mcp_authorization`
+        (« Autoriser une fois » or « Refuser »), shown in the Séquence without a modal, or
+        for the turn to stop. Returns `allow_once`, `deny` or `cancelled`.
+
+        shortcut: polls the cancel token every 0.5 s rather than a composite wait; fine for
+        a demo's single pending request, not for many concurrent ones."""
+        with self._lock:
+            self._mcp_authorizations_seq += 1
+            request_id = f"{step_id}.auth{self._mcp_authorizations_seq}"
+            event = threading.Event()
+            box: dict[str, str | None] = {"decision": None}
+            self._mcp_authorizations[request_id] = (event, box)
+            cancel = self._cancel
+        risk = self._mcp_policy.risk_of(f"{server_id}__{tool}")
+        self._mcp_lab_emit(
+            "mcp_lab_authorization_requested",
+            {"server": server_id, "tool": tool, "risk": risk, "request_id": request_id},
+            step_id,
+            server_id,
+        )
+        decision: str | None = None
+        while decision is None:
+            if event.wait(timeout=0.5):
+                with self._lock:
+                    decision = box["decision"]
+            elif cancel is not None and cancel.cancelled:
+                decision = "cancelled"
+        with self._lock:
+            self._mcp_authorizations.pop(request_id, None)
+        self._mcp_lab_emit(
+            "mcp_lab_authorization_resolved",
+            {"server": server_id, "tool": tool, "request_id": request_id, "decision": decision},
+            step_id,
+            server_id,
+        )
+        return decision
 
     def _mcp_lab_tool_call(
         self,
@@ -10754,10 +10851,52 @@ class AppSession:
     ) -> dict[str, Any]:
         """`tools/call` through the workshop's connection (by hand, or the tool the model
         asked for, `mcp{n}.t1`): the raw answer and the text the harness reinjects
-        (`result_text`, then `_bound_result`), an `isError` result being a result."""
+        (`result_text`, then `_bound_result`), an `isError` result being a result.
+
+        CAP-2: the tool's rule (`mcp-tools.md`'s defaults, « Serveurs et outils ») decides
+        first. `deny` never reaches the server; `ask` waits for a human decision. Either
+        way the decision joins the security journal (CAP-3)."""
         server_id = conn.server.id
         payload: dict[str, Any] = {"server": server_id, "tool": tool, "arguments": arguments}
         payload["by"] = by
+        name = f"{server_id}__{tool}"
+        rule = self._mcp_policy.rule_of(name)
+        if rule == "ask":
+            decision = self._await_mcp_authorization(step_id, server_id, tool)
+            if decision == "cancelled":
+                payload |= self._mcp_lab_failure(ConnectionError("stopped"), cancel, 0)
+                self._mcp_lab_after(conn, payload, cancel)
+                return payload
+            if decision == "deny":
+                reason = self._t("session.mcp_lab.policy_denied_by_user", tool=name)
+                self._security_journal.record("mcp_tool", name, "deny", reason)
+                payload |= {
+                    "status": "error",
+                    "error_kind": "policy_denied",
+                    "error_text": reason,
+                    "raw": None,
+                }
+                self._mcp_lab_after(conn, payload, cancel)
+                return payload
+            reason = self._t("session.mcp_lab.policy_allowed_once", tool=name)
+            self._security_journal.record("mcp_tool", name, "allow_once", reason)
+        else:
+            reason = self._t(
+                "session.mcp_lab.policy_denied"
+                if rule == "deny"
+                else "session.mcp_lab.policy_allowed",
+                tool=name,
+            )
+            self._security_journal.record("mcp_tool", name, rule, reason)
+            if rule == "deny":
+                payload |= {
+                    "status": "error",
+                    "error_kind": "policy_denied",
+                    "error_text": reason,
+                    "raw": None,
+                }
+                self._mcp_lab_after(conn, payload, cancel)
+                return payload
         try:
             result = conn.call_result(tool, arguments)
         except Exception as exc:  # noqa: BLE001 - AD-16: said in the Séquence

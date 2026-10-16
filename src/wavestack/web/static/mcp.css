@@ -314,6 +314,23 @@ body.mcp-page {
   font-size: var(--typography-body-sm-font-size);
 }
 
+/* CAP-2 (vague 2, story 1): a tool's rule is « Demander » — waits for a decision. */
+.mcp-authorize {
+  margin: 0 0 var(--spacing-2);
+  padding: var(--spacing-2);
+  border-left: var(--spacing-1) solid var(--color-warning);
+  background: var(--color-warning-soft);
+  border-radius: var(--rounded-sm);
+}
+
+.mcp-tool-policy {
+  margin: 0 0 var(--spacing-2);
+}
+
+.mcp-tool-risk {
+  margin: 0 0 var(--spacing-1);
+}
+
 .mcp-server-set,
 .mcp-resource-set {
   margin: 0 0 var(--spacing-2);

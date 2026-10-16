@@ -20,7 +20,13 @@ from typing import Annotated, Any, Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import (
     AliasChoices,
@@ -101,6 +107,20 @@ class McpServerIntention(BaseModel):
 
 class McpModeIntention(BaseModel):
     lazy: bool
+
+
+class McpToolRuleIntention(BaseModel):
+    """CAP-2: the rule of an MCP tool (exposed name `{server}__{tool}`)."""
+
+    tool: str
+    rule: str
+
+
+class McpAuthorizationIntention(BaseModel):
+    """CAP-2: answers a pending `ask` (« Autoriser une fois » / « Refuser »)."""
+
+    request_id: str
+    decision: str
 
 
 class RagRerankIntention(BaseModel):
@@ -1053,6 +1073,44 @@ def create_app(
         """Class (a): documentation complète or lazy loading, from the next turn (AD-25)."""
         app_session.set_mcp_mode(intention.lazy)
         return {"accepted": True}
+
+    @app.post("/api/intentions/mcp_tool_rule")
+    def mcp_tool_rule(intention: McpToolRuleIntention) -> dict[str, bool]:
+        """CAP-2, class (a): the rule of an MCP tool, effective from the next call."""
+        try:
+            app_session.set_mcp_tool_rule(intention.tool, intention.rule)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=t("web.unknown.mcp_tool_rule")) from None
+        return {"accepted": True}
+
+    @app.post("/api/intentions/mcp_tool_authorize")
+    def mcp_tool_authorize(intention: McpAuthorizationIntention) -> dict[str, bool]:
+        """CAP-2: answers a pending `ask` (« Autoriser une fois » or « Refuser »)."""
+        try:
+            app_session.answer_mcp_authorization(intention.request_id, intention.decision)
+        except ValueError:
+            raise HTTPException(
+                status_code=422, detail=t("web.unknown.mcp_authorization")
+            ) from None
+        return {"accepted": True}
+
+    @app.get("/api/security_journal")
+    def security_journal() -> dict[str, object]:
+        """CAP-3: the whole security journal, read only (story 9's « Journal » and story
+        10's page Sécurité build their screens on it)."""
+        return {
+            "entries": app_session.security_journal_entries(),
+            "denied_count": app_session.security_journal_denied_count(),
+        }
+
+    @app.get("/api/security_journal.csv")
+    def security_journal_csv() -> Response:
+        """CAP-3: the journal as a downloadable CSV, never a secret."""
+        return Response(
+            app_session.security_journal_csv(),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="journal_securite.csv"'},
+        )
 
     @app.post("/api/intentions/rag_rerank")
     def rag_rerank(intention: RagRerankIntention) -> dict[str, bool]:

@@ -1156,10 +1156,28 @@ mcp:
     unreachable: "Server nicht erreichbar"
     timeout: "Zeitlimit überschritten"
     guard_blocked: "vom Netzwerkschutz blockiert"
+    policy_denied: "von der Sicherheitsrichtlinie abgelehnt"
     lost: "Verbindung verloren"
     stopped: "vom Nutzer gestoppt"
     interrupted: "durch einen Fehler unterbrochen"
     provider: "Fehler des Anbieters"
+  policy:
+    risk_label: "Risiko"
+    rule_label: "Regel"
+    risk:
+      low: "niedrig"
+      mid: "mittel"
+      high: "hoch"
+    rule:
+      allow: "Erlauben"
+      ask: "Fragen"
+      deny: "Ablehnen"
+  authorize:
+    waiting: "« {tool} » wartet auf Ihre Entscheidung (Regel: Fragen)."
+    allow_once: "Einmal erlauben"
+    deny: "Ablehnen"
+  security_journal:
+    download: "Journal herunterladen (CSV)"
   outcomes:
     no_tool: "Antwort ohne Tool"
     answer: "Antwort"

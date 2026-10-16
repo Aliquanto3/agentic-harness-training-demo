@@ -554,6 +554,10 @@ session:
     closed: "Die Verbindung der MCP-Werkstatt ist geschlossen: Verbinden Sie sich erneut mit dem Server."
     is_error: "Der Server hat mit isError geantwortet: Das Tool meldet einen Fehler, den der Harness unverändert an das Modell zurückgibt. Das Protokoll hat funktioniert, das Tool nicht."
     interrupted: Die MCP-Werkstatt wurde durch einen Fehler unterbrochen.
+    policy_denied: "Von der Sicherheitsrichtlinie abgelehnt: Die Regel für « {tool} » steht auf Ablehnen. Das Tool wurde nicht ausgeführt."
+    policy_allowed: "Von der Sicherheitsrichtlinie erlaubt (Regel für « {tool} »)."
+    policy_denied_by_user: "Von Ihnen abgelehnt: Sie haben den Aufruf von « {tool} » abgelehnt. Das Tool wurde nicht ausgeführt."
+    policy_allowed_once: "Von Ihnen einmalig erlaubt: Sie haben den Aufruf von « {tool} » genehmigt."
     launch:
       stdio: "startet den Server: {command}"
       http: "öffnet eine HTTP-Sitzung mit {host}"
@@ -1282,6 +1286,8 @@ web:
     memory_entry: Unbekannter Gedächtniseintrag.
     scenario: Unbekanntes Szenario.
     download_target: Unbekanntes Download-Ziel.
+    mcp_tool_rule: "Ungültige Regel: Erlauben, Fragen oder Ablehnen."
+    mcp_authorization: Keine ausstehende Autorisierungsanfrage mit dieser ID.
 
 models:
   # `models/openai_chat.py` (AD-16): a cloud provider's refusal, its hints, a malformed call.

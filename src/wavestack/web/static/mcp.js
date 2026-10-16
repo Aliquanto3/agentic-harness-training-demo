@@ -33,6 +33,8 @@ const KINDS = new Set([
   "mcp_lab_model_ended",
   "mcp_lab_ask_ended",
   "mcp_lab_closed",
+  "mcp_lab_authorization_requested",
+  "mcp_lab_authorization_resolved",
   "model_call_started",
   "model_call_ended",
   "outbound_request",
@@ -41,7 +43,7 @@ const KINDS = new Set([
 // The methods whose answer the server took from its source (the deduced arrows Serveur ↔ Source).
 const SOURCED = new Set(["tools/call", "resources/read", "prompts/get"]);
 // AD-27: the error kinds where no answer came back (a `jsonrpc_error` is an answer).
-const NO_REPLY_KINDS = new Set(["timeout", "lost", "unreachable", "guard_blocked", "stopped"]);
+const NO_REPLY_KINDS = new Set(["timeout", "lost", "unreachable", "guard_blocked", "policy_denied", "stopped"]);
 const PANES_KEY = "wavestack.mcp.panes";
 const ARCH_KEY = "wavestack.mcp.arch_view";
 
@@ -1602,7 +1604,33 @@ function lastOk(kind) {
   return phase ?? null;
 }
 
+// CAP-2: the tool whose rule is « Demander » the Séquence's connection is waiting on, if
+// any (the last request not yet resolved, from the current series' envelopes).
+function pendingAuthorization() {
+  const open = new Map();
+  for (const envelope of store.envelopes) {
+    if (envelope.kind === "mcp_lab_authorization_requested") open.set(envelope.payload.request_id, envelope.payload);
+    else if (envelope.kind === "mcp_lab_authorization_resolved") open.delete(envelope.payload.request_id);
+  }
+  return [...open.values()].at(-1) ?? null;
+}
+
+function authorize(decision) {
+  const requestId = $("mcp-authorize").dataset.requestId;
+  if (requestId) post("/api/intentions/mcp_tool_authorize", { request_id: requestId, decision });
+}
+
+function renderAuthorization() {
+  const pending = pendingAuthorization();
+  const box = $("mcp-authorize");
+  box.hidden = !pending;
+  if (!pending) return;
+  box.dataset.requestId = pending.request_id;
+  $("mcp-authorize-text").textContent = t("mcp.authorize.waiting", { tool: pending.tool });
+}
+
 function renderControls() {
+  renderAuthorization();
   const busy = busyReason();
   const banner = $("mcp-busy");
   banner.hidden = !busy || store.pending;
@@ -1721,13 +1749,15 @@ function buildCommands(box, end) {
     hand.id = "mcp-call-form";
     hand.append(sentence("mcp-note", text("by_hand_text")), sentence("mcp-note", text("call_help_text")));
     const toolField = field(t("mcp.call.tool"), select("mcp-call-tool", connect.tools.map((tool) => [tool.tool, tool.name])));
+    const policy = el("div", "mcp-tool-policy");
+    policy.id = "mcp-call-policy";
     const presetField = field(t("mcp.call.preset"), select("mcp-call-preset", []));
     const fields = el("div", "mcp-fields");
     fields.id = "mcp-call-fields";
     const run = el("button", "mcp-button-primary", t("mcp.call.run"));
     run.type = "submit";
     run.id = "mcp-call-run";
-    hand.append(toolField, presetField, fields, run);
+    hand.append(toolField, policy, presetField, fields, run);
     const byModel = el("form", "mcp-form");
     byModel.id = "mcp-ask-form";
     const question = el("textarea", "mcp-input");
@@ -1921,8 +1951,30 @@ function selectedTool(connect) {
   return connect.tools?.find((tool) => tool.tool === name) ?? null;
 }
 
+function renderToolPolicy(tool) {
+  // CAP-2: the selected tool's risk (fixed) and rule (Autoriser/Demander/Refuser, editable).
+  const box = $("mcp-call-policy");
+  if (!box) return;
+  box.replaceChildren();
+  if (!tool) return;
+  const risk = el("p", "mcp-note mcp-tool-risk", `${t("mcp.policy.risk_label")} : ${t(`mcp.policy.risk.${tool.risk}`)}`);
+  const label = el("span", "mcp-field-label", t("mcp.policy.rule_label"));
+  const switcher = segmented(
+    "mcp-tool-rule",
+    t("mcp.policy.rule_label"),
+    [["allow", t("mcp.policy.rule.allow")], ["ask", t("mcp.policy.rule.ask")], ["deny", t("mcp.policy.rule.deny")]],
+    () => tool.rule,
+    (value) => {
+      tool.rule = value;
+      post("/api/intentions/mcp_tool_rule", { tool: tool.name, rule: value });
+    },
+  );
+  box.append(risk, label, switcher);
+}
+
 function renderCallFields(connect) {
   const tool = selectedTool(connect);
+  renderToolPolicy(tool);
   const fields = $("mcp-call-fields");
   if (!fields) return;
   fields.replaceChildren();
@@ -2398,6 +2450,8 @@ async function main() {
   });
   $("mcp-connect").addEventListener("click", connect);
   $("mcp-stop").addEventListener("click", stop);
+  $("mcp-authorize-allow").addEventListener("click", () => authorize("allow_once"));
+  $("mcp-authorize-deny").addEventListener("click", () => authorize("deny"));
   document.body.dataset.mcpReady = "true";
   streamEvents();
 }

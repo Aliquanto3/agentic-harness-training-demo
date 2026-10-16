@@ -1340,6 +1340,7 @@ McpLabErrorKind = Literal[
     "unreachable",
     "timeout",
     "guard_blocked",
+    "policy_denied",  # CAP-2: the tool's rule is `deny`, or you refused an `ask`
     "lost",
     "stopped",
     "interrupted",
@@ -1414,6 +1415,8 @@ class McpLabTool(BaseModel):
     doc_tokens: int
     line_text: str  # its line in `load_tool_doc`'s catalog (lazy loading)
     line_tokens: int
+    risk: str  # CAP-2: low, mid or high (`mcp-tools.md`'s defaults)
+    rule: str  # CAP-2: allow, ask or deny (the session's, settable from the interface)
 
     model_config = {"populate_by_name": True, "serialize_by_alias": True}
 
@@ -1583,6 +1586,23 @@ class McpLabClosedPayload(BaseModel):
     cause: Literal["language", "reset", "session_close", "lost"]
 
 
+class McpLabAuthorizationRequestedPayload(BaseModel):
+    """CAP-2: the tool's rule is `ask` — the call waits here (`request_id`) until
+    `answer_mcp_authorization` resolves it; shown in the Séquence without a modal."""
+
+    server: str
+    tool: str
+    risk: str
+    request_id: str
+
+
+class McpLabAuthorizationResolvedPayload(BaseModel):
+    server: str
+    tool: str
+    request_id: str
+    decision: Literal["allow_once", "deny", "cancelled"]
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -1661,4 +1681,6 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "mcp_lab_model_ended": McpLabModelEndedPayload,
     "mcp_lab_ask_ended": McpLabAskEndedPayload,
     "mcp_lab_closed": McpLabClosedPayload,
+    "mcp_lab_authorization_requested": McpLabAuthorizationRequestedPayload,
+    "mcp_lab_authorization_resolved": McpLabAuthorizationResolvedPayload,
 }

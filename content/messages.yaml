@@ -556,6 +556,11 @@ session:
     closed: "La connexion de l'atelier MCP est fermée : reconnectez-vous au serveur."
     is_error: "Le serveur a répondu avec isError : l'outil signale une erreur, que le harnais réinjecte telle quelle au modèle. Le protocole a fonctionné, l'outil non."
     interrupted: L'atelier MCP s'est interrompu sur une erreur.
+    # CAP-2 : la règle de l'outil (mcp-tools.md), ou votre décision après un « Demander ».
+    policy_denied: "Refusé par la politique de sécurité : la règle de « {tool} » est sur Refuser. L'outil n'a pas été exécuté."
+    policy_allowed: "Autorisé par la politique de sécurité (règle de « {tool} »)."
+    policy_denied_by_user: "Refusé par vous : vous avez refusé l'appel de « {tool} ». L'outil n'a pas été exécuté."
+    policy_allowed_once: "Autorisé une fois par vous : vous avez autorisé l'appel de « {tool} »."
     # Lot 4 of 2026-10-04 (AD-27): the deduced arrow Hôte → Client of a connection.
     launch:
       stdio: "lance le serveur : {command}"
@@ -1289,6 +1294,8 @@ web:
     memory_entry: Entrée de mémoire inconnue.
     scenario: Scénario inconnu.
     download_target: Cible de téléchargement inconnue.
+    mcp_tool_rule: "Règle invalide : autoriser, demander ou refuser."
+    mcp_authorization: Aucune demande d'autorisation en attente avec cet identifiant.
 
 models:
   # `models/openai_chat.py` (AD-16): a cloud provider's refusal, its hints, a malformed call.

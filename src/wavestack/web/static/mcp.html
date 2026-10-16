@@ -76,6 +76,15 @@
       </header>
       <div class="pane-body" id="mcp-servers-body">
         <p class="mcp-busy" id="mcp-busy" hidden></p>
+        <!-- CAP-2 (vague 2, story 1): a tool whose rule is « Demander » waits here, without
+             a modal, until « Autoriser une fois » or « Refuser » is clicked. -->
+        <div class="mcp-authorize" id="mcp-authorize" hidden>
+          <p class="mcp-note" id="mcp-authorize-text"></p>
+          <div class="mcp-row-buttons">
+            <button type="button" class="mcp-button-primary" id="mcp-authorize-allow" data-i18n="mcp.authorize.allow_once">Autoriser une fois</button>
+            <button type="button" class="mcp-button-secondary" id="mcp-authorize-deny" data-i18n="mcp.authorize.deny">Refuser</button>
+          </div>
+        </div>
         <fieldset class="mcp-server-set">
           <legend class="mcp-legend" data-i18n="mcp.servers.legend">Serveur</legend>
           <ul class="mcp-server-list" id="mcp-servers"></ul>
