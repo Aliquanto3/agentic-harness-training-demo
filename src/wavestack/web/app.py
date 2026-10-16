@@ -768,6 +768,8 @@ def create_app(
                 "consumption_updated": app_session.consumption(),
                 # Finition V1 (#27): the session's cap, said in the spend's tooltip.
                 "max_session_usd": app_session.cfg.max_session_usd,
+                # Story 9 (CAP-3, CAP-9): the bar's « Journal » button, on every page.
+                "security_journal_preview": app_session.security_journal_preview(),
                 # Languages (1/5): `language`, `languages` and `language_locked`.
                 **app_session.language_state(),
                 "seq": seq,

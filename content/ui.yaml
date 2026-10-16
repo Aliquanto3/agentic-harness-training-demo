@@ -98,6 +98,49 @@ common:
     position: "Étape {n} / {total}"
     announce: "Étape {n} sur {total} : {name}"
   # Lot 4 (AD-28): the panes' mechanics (static/panes.js), shared by the workshops.
+  # Story 9 (CAP-7, CAP-9): the barre commune's two buttons (`bar.js`), shared by the five
+  # pages: « Dépense » (the session's spend and its economies) and « Journal » (its refusals
+  # and blocks, with a 5-event preview).
+  bar:
+    spend:
+      label: "Dépense"
+      saved: "économisé {amount}"
+      overcost: "surcoût du cache {amount}"
+      time_saved: "{seconds} s de calcul évitées"
+      panel_title: "Bilan de la séance"
+      detail_link: "Détail par appel"
+      without_optimization: "Sans optimisation"
+      real_cost: "Coût réel"
+      legend_input: "Entrée"
+      legend_output: "Sortie"
+      summary: "{percent} % économisés : {cache} grâce au cache de prompt, {compression} grâce à la compression."
+      summary_kv: "En local, le cache du modèle a évité {seconds} s de calcul."
+      summary_none: "Aucune économie mesurée pour l'instant."
+      summary_overcost: "Le cache de prompt a coûté {amount} de plus qu'il n'a fait économiser : ses écritures coûtent plus cher que ses relectures n'ont rapporté."
+    log:
+      label: "Journal"
+      panel_title: "Derniers événements"
+      all_link: "Tout le journal"
+      empty: "Aucun événement pour l'instant."
+      count:
+        one: "{count} refus"
+        other: "{count} refus"
+      aria_label:
+        one: "Journal, {count} refus ou blocage"
+        other: "Journal, {count} refus ou blocages"
+      aria_label_zero: "Journal, aucun refus ni blocage"
+      decisions:
+        allow: "Autorisé"
+        allow_once: "Autorisé une fois"
+        deny: "Refusé"
+        cancelled: "Annulé"
+        blocked: "Bloqué"
+        masked: "Masqué"
+        timeout: "Refusé (sans réponse)"
+        error: "Erreur"
+        flagged: "Signalé"
+        partial: "Rien détecté (en partie)"
+        passed: "Rien détecté"
   panes:
     focus: "Mode focus"
     hide_short: "Masquer le volet"
@@ -714,8 +757,6 @@ main:
     unavailable: "Empreinte estimée : indisponible"
     turn_label: "empreinte estimée "
   consumption:
-    spend_label: "Dépense estimée"
-    footprint_label: "Empreinte estimée"
     paid_calls:
       one: "{count} appel payant"
       other: "{count} appels payants"
@@ -797,6 +838,7 @@ main:
       mcp_lab_model_ended: "Atelier MCP : fin de l'appel au modèle"
       mcp_lab_ask_ended: "Atelier MCP : envoi au modèle terminé"
       mcp_lab_closed: "Atelier MCP : connexion fermée"
+      security_event: "Journal de sécurité : décision"
       consumption_updated: "Consommation mise à jour"
       context_reconciled: "Contexte réconcilié"
       context_window_state: "Fenêtre de contexte"

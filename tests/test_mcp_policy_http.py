@@ -79,6 +79,22 @@ def test_security_journal_http_json_and_csv(loop):  # noqa: F811
     session.close()
 
 
+def test_security_journal_preview_in_api_state_keeps_the_5_most_recent(loop):  # noqa: F811
+    """Story 9 (bar-flyout « Journal »): newest first, bounded to 5, without reading the
+    `/api/security_journal` route (a growing structure the preview never walks in full)."""
+    session = mcp_session(loop)
+    for i in range(7):
+        session._security_journal.record("mcp_tool", f"tool_{i}", "deny", f"refus {i}")
+    client = _client(session)
+
+    body = client.get("/api/state").json()
+
+    preview = body["security_journal_preview"]
+    assert preview["denied_count"] == 7
+    assert [e["name"] for e in preview["entries"]] == [f"tool_{i}" for i in (6, 5, 4, 3, 2)]
+    session.close()
+
+
 # ---------- story 3 (CAP-4): GitHub's device flow, the HTTP routes ----------
 
 

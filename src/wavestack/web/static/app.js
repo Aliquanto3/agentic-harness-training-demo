@@ -4,9 +4,10 @@
 
 // Languages (2/5): every text of the page comes from `content/ui.yaml` through `t()`, in the
 // session's language; the formats of numbers, amounts and dates follow it.
-import { dateTimeFormat, joinList, numberFormat as intlNumber, ready as textsReady, section, t } from "./i18n.js";
+import { dateTimeFormat, joinList, numberFormat as intlNumber, rangeText, ready as textsReady, section, t } from "./i18n.js";
 // Story 2 (2026-09-30): « Affichage ▾ » and the language picker, shared by the five pages.
 import { languageChanging, renderLanguagePicker as drawLanguagePicker, setDisplayMenu, useSessionState } from "./site-nav.js";
+import { feedBar } from "./bar.js";
 // Recette du 02/10: the final answer's Markdown, rendered in the Vue humain only.
 import { renderMarkdown } from "./markdown.js";
 // Lot 2 (2026-10-04): the shared diagram's primitives (blocks, halo, wires, layer).
@@ -86,10 +87,6 @@ const store = {
   // (AD-1); the drawer's unsaved texts, by entry id (UI state only).
   memory: null,
   memoryDrafts: new Map(),
-  // FinOps: the session's API spend, the last `consumption_updated` (or `/api/state`), as the
-  // session computed it (AD-1); `null` before the first paid call.
-  consumption: null,
-  maxSessionUsd: null, // finition V1 (#27): `[finops] max_session_usd`, from `/api/state`
   downloadError: null, // story 15: the last refusal of « Télécharger » (UI state only)
   // Story 15: the last failure of the RAG's download or build (`harness_error`), or a stopped
   // download (finition V1, #20): `{ text, error }`, `error` false for a stop (neutral).
@@ -199,20 +196,6 @@ const eur = (n) => t("common.format.eur", { amount: moneyFormat().format(n) });
 const quote = (text) => t("common.format.quote", { text });
 // « Outil : 3 », « Tool: 3 »: a label and its value, with the language's colon.
 const labelValue = (label, value) => t("common.format.label_value", { label, value });
-// GreenOps: energy and emissions, 2 significant digits, French comma; a range « 0,035–0,23 Wh »
-// when its bounds differ once formatted. Under the display's precision (a thousandth), a
-// positive value is « < 0,001 » and a range from under it « ≤ 0,0016 »; 0 is a true 0 (its
-// note says why). Formatting only (the figures are the session's).
-const footprintFormat = () => intlNumber({ maximumSignificantDigits: 2 });
-const FOOTPRINT_FLOOR = 0.001;
-const tiny = (n) => n > 0 && n < FOOTPRINT_FLOOR;
-function rangeText(low, high, unit) {
-  if (tiny(high) || (tiny(low) && high === low)) return `< ${footprintFormat().format(FOOTPRINT_FLOOR)} ${unit}`;
-  const b = footprintFormat().format(high);
-  if (tiny(low)) return `≤ ${b} ${unit}`;
-  const a = footprintFormat().format(low);
-  return a === b ? `${a} ${unit}` : `${a}–${b} ${unit}`;
-}
 
 // ---------- SSE: manual parsing, because the server names each event after
 // its `kind` and EventSource cannot listen for an unknown kind generically. ----------
@@ -311,7 +294,8 @@ const isLive = (envelope) => envelope.seq > store.liveFrom;
 function applyEnvelope(envelope) {
   store.journal.push(envelope);
   // FinOps: every paid call counts, the « LLM nu » screen's and the diagnostic's included.
-  if (envelope.kind === "consumption_updated" && isLive(envelope)) store.consumption = envelope.payload;
+  // Story 9 (CAP-3, CAP-7, CAP-9): the bar's « Dépense » and « Journal », live, in O(1).
+  feedBar(envelope);
   // Story 29: the « LLM nu » screen's events (context `llm`, no turn) go to the event log
   // only; no pane of the workshop shows them. Story 6 (2026-09-30): so do the MCP
   // workshop's (context `mcp_lab`), its outbound requests included: never the brick's.
@@ -1126,7 +1110,6 @@ function render() {
   renderMenu();
   renderPaneVisibility();
   renderGauge();
-  renderConsumption();
   renderWindowPicker();
   renderModelIndicator();
   renderChat();
@@ -2697,69 +2680,6 @@ function kvCacheNode(ended) {
     kv
   );
   return node;
-}
-
-// FinOps, the top bar's compact amounts: 4 decimals at most (a hundredth of a cent), « < 0,0001 $ »
-// under it; the 4 significant digits stay in the tooltip. Formatting only.
-const shortMoneyFormat = () => intlNumber({ minimumFractionDigits: 0, maximumFractionDigits: 4 });
-const shortUsd = (n) =>
-  n > 0 && n < 0.00005
-    ? t("common.format.usd_below", { amount: shortMoneyFormat().format(0.0001) })
-    : t("common.format.usd", { amount: shortMoneyFormat().format(n) });
-
-// FinOps: the session's API spend in the top bar, from the first paid call, on three lines
-// (lot 1 of 2026-10-04): « Dépense estimée », « 💰 entrée $ + sortie $ », « 🍃 a–b g CO₂e »;
-// the whole sentence (4 significant digits, the euros) in the tooltip and the accessible name
-// (every figure from the session, AD-1). Before any paid call (local calls only), two lines:
-// « Empreinte estimée » over the footprint.
-function renderConsumption() {
-  const node = document.getElementById("consumption");
-  const c = store.consumption;
-  node.hidden = !c;
-  if (!c) return;
-  const paid = c.calls > 0;
-  const green = (c.impact_calls ?? 0) > 0;
-  const guess = approx(c.approx);
-  const grams = green ? rangeText(c.gco2e_min, c.gco2e_max, "g CO₂e") : "";
-  setText(document.getElementById("consumption-label"), paid ? t("main.consumption.spend_label") : t("main.consumption.footprint_label"));
-  const money = document.getElementById("consumption-money");
-  setText(money, paid ? `💰 ${guess}${shortUsd(c.total_in_usd)} + ${shortUsd(c.total_out_usd)}` : "");
-  money.hidden = !paid;
-  const footprint = document.getElementById("consumption-footprint");
-  setText(footprint, green ? `🍃 ${grams}` : "");
-  footprint.hidden = !green;
-  const sentences = [];
-  if (paid) {
-    sentences.push(
-      t("main.consumption.spend_sentence", {
-        input: `${guess}${usd(c.total_in_usd)}`,
-        output: `${guess}${usd(c.total_out_usd)}`,
-        total: `${guess}${eur(c.total_eur)}`,
-        rate: moneyFormat().format(c.eur_per_usd),
-        calls: t("main.consumption.paid_calls", { count: c.calls }),
-      }),
-    );
-    // Finition V1 (#27): the session's cap, shown before it bites (no warning as it nears).
-    if (store.maxSessionUsd != null) {
-      sentences.push(t("main.consumption.cap_sentence", { total: `${guess}${usd(c.total_usd)}`, cap: usd(store.maxSessionUsd) }));
-    }
-  }
-  if (green) {
-    sentences.push(
-      t("main.consumption.footprint_sentence", {
-        energy: rangeText(c.energy_wh_min, c.energy_wh_max, "Wh"),
-        grams,
-        calls: t("common.count.call", { count: c.impact_calls }),
-      }),
-    );
-  }
-  // The totals shown (spend, footprint), never the cap's sentence (finition V1, #27).
-  sentences.push(paid && green ? t("main.consumption.reset_totals") : t("main.consumption.reset_total"));
-  const sentence = sentences.join(" ");
-  if (node.title !== sentence) {
-    node.title = sentence;
-    node.setAttribute("aria-label", sentence);
-  }
 }
 
 // The model indicator (EXPERIENCE.md model-indicator): tag, name; tooltip = the cloud warning.
@@ -6718,6 +6638,8 @@ function eventSummary(group) {
       return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
     case "guardrail_verdict":
       return `${p.guardrail_text} · ${p.direction_text} · ${p.verdict_text}`;
+    case "security_event": // story 9: the reason, already in the session's language
+      return p.reason_text;
     case "effect_applied":
       if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · ${quote(p.text)}`;
       if (["model_download", "model_download_stopped", "rag_index_write", "guardrails_extra_installed"].includes(p.effect)) return p.lines.join(" · ");
@@ -7694,8 +7616,6 @@ async function boot() {
     store.scenarios = body.scenario_changed;
     store.memory = body.memory_changed ?? null;
     store.windowState = body.context_window_state ?? null;
-    store.consumption = body.consumption_updated ?? null; // FinOps: kept across a reload
-    store.maxSessionUsd = body.max_session_usd ?? null;
     if (body.language) {
       store.language = {
         language: body.language,

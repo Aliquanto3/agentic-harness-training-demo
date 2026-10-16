@@ -493,6 +493,14 @@ class ConsumptionUpdatedPayload(BaseModel):
     gco2e_min: float = 0.0
     gco2e_max: float = 0.0
     impact_calls: int = 0
+    # Story 9 (CAP-7, bar-flyout « Bilan de la séance »): the session's running economies,
+    # summed as each is computed (never re-derived by walking the journal). `cache_saved_usd`:
+    # the cloud cache's net signed total (a write may cost more than a read saves).
+    # `kv_time_saved_s`: a local model's KV-cache reuse, in seconds of generation evited.
+    cache_saved_usd: float = 0.0
+    compression_saved_usd: float = 0.0
+    kv_time_saved_s: float = 0.0
+    saved_calls: int = 0  # priced economies counted above (0: nothing measured)
 
 
 class SpecialTokenNeutralizedPayload(BaseModel):
@@ -1708,6 +1716,19 @@ class McpLabAuthorizationResolvedPayload(BaseModel):
     decision: Literal["allow_once", "deny", "cancelled", "timeout"]
 
 
+class SecurityEventPayload(BaseModel):
+    """Story 9 (CAP-3, CAP-9): a security journal entry (an MCP tool decision or a
+    guardrail's verdict), notified live to the bar's « Journal » button on every page
+    (`JournalEntry`'s own fields, plus the journal's live `denied_count`)."""
+
+    ts: str
+    source: str
+    name: str
+    decision: str
+    reason_text: str
+    denied_count: int
+
+
 # Maps each kind to its payload model, so `Envelope` can validate it.
 PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "diagnostic_check": DiagnosticCheckPayload,
@@ -1789,4 +1810,5 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "mcp_lab_closed": McpLabClosedPayload,
     "mcp_lab_authorization_requested": McpLabAuthorizationRequestedPayload,
     "mcp_lab_authorization_resolved": McpLabAuthorizationResolvedPayload,
+    "security_event": SecurityEventPayload,
 }

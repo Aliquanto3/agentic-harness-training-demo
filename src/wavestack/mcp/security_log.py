@@ -12,6 +12,7 @@ import threading
 from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from itertools import islice
 
 _KEPT = 500  # a demo's journal, not a production log (shortcut: in memory, lost on restart)
 
@@ -35,11 +36,16 @@ class SecurityJournal:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._entries: deque[JournalEntry] = deque(maxlen=_KEPT)  # O(1) eviction
+        # The session's refusals and blocks, counted as recorded (O(1)), never lowered when
+        # an entry leaves the 500-entry window: the bar's count is the session's.
+        self._denied = 0
 
     def record(self, source: str, name: str, decision: str, reason_text: str) -> JournalEntry:
         entry = JournalEntry(datetime.now(UTC), source, name, decision, reason_text)
         with self._lock:
             self._entries.append(entry)
+            if decision in _DENIED:
+                self._denied += 1
         return entry
 
     def entries(self) -> list[JournalEntry]:
@@ -47,7 +53,13 @@ class SecurityJournal:
             return list(self._entries)
 
     def denied_count(self) -> int:
-        return sum(1 for e in self.entries() if e.decision in _DENIED)
+        with self._lock:
+            return self._denied
+
+    def recent(self, n: int) -> list[JournalEntry]:
+        """The `n` most recent entries, newest first (O(n), not a copy of the journal)."""
+        with self._lock:
+            return list(islice(reversed(self._entries), n))
 
     def to_csv(self) -> str:
         buf = io.StringIO()

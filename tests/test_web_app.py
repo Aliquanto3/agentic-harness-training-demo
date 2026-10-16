@@ -482,7 +482,8 @@ def test_the_session_spend_is_in_the_state_and_has_its_place_in_the_top_bar(monk
     assert spend["calls"] == 1 and spend["approx"] is False
     assert spend["total_eur"] == (0.001 + 0.002) * 0.86
     index = client.get("/").text
-    assert index.index('id="gauge-figures"') < index.index('id="consumption"')
+    # Story 9: the bar's « Dépense » replaces the former gauge `#consumption`.
+    assert 'id="consumption"' not in index and 'id="bar-spend-toggle"' in index
     assert 'section("models.columns")' in client.get("/diagnostic").text
     texts = client.get("/api/ui_texts").json()["texts"]
     assert texts["models"]["columns"]["price"] == "Prix"

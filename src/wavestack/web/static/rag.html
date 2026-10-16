@@ -5,6 +5,7 @@
   <script src="/static/theme.js"></script>
   <script type="module" src="/static/i18n.js"></script>
   <script type="module" src="/static/site-nav.js"></script>
+  <script type="module" src="/static/bar.js"></script>
   <title data-i18n="rag.page_title">WaveStack — Atelier RAG</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -23,6 +24,40 @@
     <a href="/rag" title="Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)" data-i18n-title="common.links.rag_title" aria-current="page">RAG</a>
     <a href="/mcp" title="Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)" data-i18n-title="common.links.mcp_title">MCP</a>
     <a href="/diagnostic">🛠️ Diagnostic</a>
+    <!-- Story 9 (CAP-7, CAP-9): the barre commune's two buttons and their flyouts (bar.js),
+         the same static HTML on the five pages. -->
+    <div class="bar-group">
+      <button type="button" id="bar-spend-toggle" class="bar-button" aria-haspopup="true" aria-expanded="false" aria-controls="bar-spend-panel" hidden>
+        <span class="bar-button-label" data-i18n="common.bar.spend.label">Dépense</span>
+        <span class="bar-spend-amount" id="bar-spend-amount"></span>
+        <span class="bar-spend-saved" id="bar-spend-saved" hidden></span>
+      </button>
+      <button type="button" id="bar-log-toggle" class="bar-button" aria-haspopup="true" aria-expanded="false" aria-controls="bar-log-panel">
+        <span class="bar-button-label" data-i18n="common.bar.log.label">Journal</span>
+        <span class="bar-log-count" id="bar-log-count" hidden></span>
+      </button>
+      <div class="bar-flyout" id="bar-spend-panel" role="group" aria-label="Bilan de la séance" data-i18n-aria-label="common.bar.spend.panel_title" hidden>
+        <div class="bar-flyout-head">
+          <h2 data-i18n="common.bar.spend.panel_title">Bilan de la séance</h2>
+          <button type="button" class="bar-flyout-link" data-href="/" data-i18n="common.bar.spend.detail_link">Détail par appel</button>
+        </div>
+        <div class="bar-savings-bars" id="bar-savings-bars"></div>
+        <div class="bar-savings-legend">
+          <span data-i18n="common.bar.spend.legend_input">Entrée</span>
+          <span data-i18n="common.bar.spend.legend_output">Sortie</span>
+        </div>
+        <p class="bar-flyout-note" id="bar-spend-summary"></p>
+        <p class="bar-flyout-note number" id="bar-spend-footprint" hidden></p>
+        <p class="bar-flyout-note" id="bar-spend-detail"></p>
+      </div>
+      <div class="bar-flyout" id="bar-log-panel" role="group" aria-label="Derniers événements" data-i18n-aria-label="common.bar.log.panel_title" hidden>
+        <div class="bar-flyout-head">
+          <h2 data-i18n="common.bar.log.panel_title">Derniers événements</h2>
+          <button type="button" class="bar-flyout-link" data-href="/security" data-i18n="common.bar.log.all_link">Tout le journal</button>
+        </div>
+        <ul class="bar-log-list" id="bar-log-list"></ul>
+      </div>
+    </div>
     <div class="display-menu" id="display-menu">
       <button type="button" id="display-menu-toggle" class="display-menu-toggle" aria-haspopup="true" aria-expanded="false" aria-controls="display-menu-panel" aria-label="Affichage" data-i18n-aria-label="common.display.menu"><span class="display-menu-symbol" data-theme-symbol aria-hidden="true">◐</span> <span class="display-menu-word" data-i18n="common.display.menu">Affichage</span> <span class="language-picker-code" id="language-picker-code" aria-hidden="true">FR</span> ▾</button>
       <div id="display-menu-panel" class="display-menu-panel" role="group" aria-label="Affichage" data-i18n-aria-label="common.display.menu" hidden>

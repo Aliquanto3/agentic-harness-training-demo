@@ -9,6 +9,7 @@
 
 import { createStepper, explain, light, svgEl } from "./diagram.js";
 import { locale, numberFormat, ready as textsReady, section, t } from "./i18n.js";
+import { feedBar } from "./bar.js";
 
 const $ = (id) => document.getElementById(id);
 const quote = (value) => t("common.format.quote", { text: value });
@@ -2242,6 +2243,8 @@ function hideCandidates() {
 
 function applyEnvelope(envelope) {
   store.lastSeq = envelope.seq;
+  // Story 9 (CAP-3, CAP-7, CAP-9): the bar's « Dépense » and « Journal », live, in O(1).
+  feedBar(envelope);
   const p = envelope.payload;
   if (envelope.kind === "session_state") {
     store.session = { state: p.state, reason_text: p.reason_text };

@@ -11337,6 +11337,22 @@ def _signature_replayed(r: Run, bodies: list[dict], calls: list[dict], what: str
     )
 
 
+def _spend_panel(r: Run) -> tuple[str, str]:
+    """Story 9: opens the « Dépense » flyout, reads its sentence (`#bar-spend-detail`) and its
+    footprint line (`#bar-spend-footprint`, '' when hidden), closes it again (Échap)."""
+    page = r.page
+    panel = page.locator("#bar-spend-panel")
+    if not panel.is_visible():
+        page.locator("#bar-spend-toggle").click()
+    expect(panel).to_be_visible(timeout=3000)
+    detail = page.locator("#bar-spend-detail").inner_text()
+    line = page.locator("#bar-spend-footprint")
+    footprint = line.inner_text() if line.is_visible() else ""
+    page.keyboard.press("Escape")
+    expect(panel).to_be_hidden(timeout=3000)
+    return detail, footprint
+
+
 def _gemini_costs(r: Run, calls: list[dict]) -> None:
     """FinOps: each call's cost (the fake gives `usage`), its line in the call's body, the
     turn's total in its head, the session's in the top bar, the same after a reload."""
@@ -11365,31 +11381,26 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
         head,
     )
     spend = r.state().get("consumption_updated") or {}
-    top = page.locator("#consumption")
+    # Story 9: the bar's « Dépense » replaces the former gauge `#consumption`; its tooltip and
+    # its panel keep the gauge's sentence (euros, cap, footprint, reset).
+    top = page.locator("#bar-spend-toggle")
     expect(top).to_be_visible(timeout=5000)
-    text = top.inner_text()
-    # Lot 1 of 2026-10-04: three lines, « Dépense estimée », « 💰 … $ + … $ », « 🍃 … g CO₂e »
-    # (two without a footprint measured).
-    lines = text.split("\n")
-    label, amounts = lines[0], lines[1] if len(lines) > 1 else ""
+    text = page.locator("#bar-spend-amount").inner_text()
     green = spend.get("impact_calls", 0) > 0
     title = top.get_attribute("title") or ""
+    detail, footprint = _spend_panel(r)
     r.check(
-        label == "Dépense estimée"
-        and amounts.startswith("💰 ")
-        and amounts.count(" $") == 2
-        and " + " in amounts
-        and len(lines) == (3 if green else 2)
-        and (not green or (lines[2].startswith("🍃 ") and lines[2].endswith(" g CO₂e")))
+        text.endswith(" $")
+        and (top.get_attribute("aria-label") or "").startswith(f"Dépense {text}")
         and spend.get("calls", 0) >= 2
         and title.startswith("Dépense API estimée de la séance : entrée ")
         and ", sortie " in title
         and " € au taux de " in title
-        and top.get_attribute("aria-label") == title,
-        "FinOps : « Dépense estimée » dans la barre de l'atelier, « 💰 entrée + sortie » sur sa "
-        "ligne (« 🍃 » sur la troisième), la phrase entière "
-        "(euros compris) en infobulle et en nom accessible",
-        f"{text!r} · {title} · {spend}",
+        and detail == title
+        and (not green or (footprint.startswith("🍃 ") and footprint.endswith(" g CO₂e"))),
+        "FinOps : « Dépense … $ » dans la barre commune, la phrase entière (euros compris) en "
+        "infobulle et dans son panneau « Bilan de la séance » (« 🍃 » avec une empreinte)",
+        f"{text!r} · {title} · {footprint!r} · {spend}",
     )
     cap = r.state().get("max_session_usd")
     cap_text = f"{cap:g}".replace(".", ",") if cap is not None else "?"
@@ -11416,11 +11427,11 @@ def _gemini_costs(r: Run, calls: list[dict]) -> None:
         detail,
     )
     r.reload_app()
-    again = page.locator("#consumption")
+    again = page.locator("#bar-spend-amount")
     expect(again).to_be_visible(timeout=5000)
     r.check(
         again.inner_text() == text,
-        "FinOps : après un rechargement, le même total dans la barre de l'atelier",
+        "FinOps : après un rechargement, le même total dans la barre commune",
         again.inner_text(),
     )
     # Finition V1 (#27): the diagnostic says the cap and the spend so far, under the cloud
@@ -11472,25 +11483,21 @@ def _session_footprint(r: Run, what: str) -> None:
     r.check(
         "empreinte estimée " in head, f"GreenOps ({what}) : la somme du tour dans son en-tête", head
     )
-    top = page.locator("#consumption")
+    top = page.locator("#bar-spend-toggle")
     expect(top).to_be_visible(timeout=5000)
     title = top.get_attribute("title") or ""
     spend = r.state().get("consumption_updated") or {}
-    shown = page.locator("#consumption-footprint")
-    grams = shown.inner_text() if shown.is_visible() else ""
-    lines = top.inner_text().split("\n")
+    detail, grams = _spend_panel(r)
     r.check(
         "Empreinte estimée de la séance : " in title
         and " g CO₂e" in title
-        and top.get_attribute("aria-label") == title
+        and detail == title
         and spend.get("impact_calls", 0) >= 1
         and grams.startswith("🍃 ")
-        and grams.endswith(" g CO₂e")
-        and lines[-1] == grams
-        and len(lines) == (3 if spend.get("calls") else 2),
-        f"GreenOps ({what}) : l'empreinte de la séance dans la barre de l'atelier, « 🍃 » sur sa "
-        "propre ligne (sa phrase en infobulle)",
-        f"{top.inner_text()!r} · {title} · {spend.get('impact_calls')}",
+        and grams.endswith(" g CO₂e"),
+        f"GreenOps ({what}) : l'empreinte de la séance dans le panneau « Bilan de la séance » du "
+        "bouton Dépense, « 🍃 » sur sa propre ligne (sa phrase en infobulle)",
+        f"{grams!r} · {title} · {spend.get('impact_calls')}",
     )
     # The bar whole with the session's block, at every width of the themes' check, in normal
     # and in projection mode, the footprint's line always shown.
@@ -11505,13 +11512,13 @@ def _session_footprint(r: Run, what: str) -> None:
                 time.sleep(0.3)
                 ok, detail = _bar_fits(r)
                 mode = "mode projection" if projection else "mode normal"
-                shown = page.locator("#consumption-footprint").is_visible()
+                shown = page.locator("#bar-spend-toggle").is_visible()
                 visible[f"{width} {mode}"] = shown
                 r.check(
                     ok and shown,
-                    f"GreenOps ({what}) : barre entière avec l'empreinte visible, "
+                    f"GreenOps ({what}) : barre entière avec le bouton Dépense visible, "
                     f"{width} × {height}, {mode}",
-                    detail if shown else "ligne d'empreinte masquée",
+                    detail if shown else "bouton Dépense masqué",
                 )
                 if projection:
                     _toggle_projection(page)
@@ -11522,7 +11529,8 @@ def _session_footprint(r: Run, what: str) -> None:
         time.sleep(0.3)
     r.check(
         all(visible.values()),
-        f"GreenOps ({what}) : l'empreinte visible dans la barre à chaque largeur, dans chaque mode",
+        f"GreenOps ({what}) : le bouton Dépense visible dans la barre à chaque largeur, dans "
+        "chaque mode",
         str(visible),
     )
 
@@ -11563,20 +11571,20 @@ def _local_footprint(r: Run, calls: list[dict]) -> None:
     )
     spend = r.state().get("consumption_updated") or {}
     if installed and not spend.get("calls"):
-        # Before any priced cloud call: « Empreinte estimée » over the footprint alone.
-        label = r.page.locator("#consumption-label").inner_text()
-        amounts = r.page.locator("#consumption-footprint").inner_text()
-        whole = r.page.locator("#consumption").inner_text()
+        # Before any priced cloud call: « Dépense 0 $ », the footprint alone in its panel.
+        amount = r.page.locator("#bar-spend-amount").inner_text()
+        title = r.page.locator("#bar-spend-toggle").get_attribute("title") or ""
+        detail, amounts = _spend_panel(r)
         r.check(
-            label == "Empreinte estimée"
+            amount == "0 $"
             and amounts.startswith("🍃 ")
             and amounts.endswith(" g CO₂e")
-            and "$" not in whole
-            and "💰" not in whole
-            and whole.split("\n") == [label, amounts],
-            "GreenOps : sans dépense, deux lignes, « Empreinte estimée » sur « 🍃 … g CO₂e » (ni "
-            "« $ », ni « · » en tête)",
-            f"{label!r} · {amounts!r}",
+            and title.startswith("Empreinte estimée de la séance : ")
+            and "$" not in title
+            and detail == title,
+            "GreenOps : sans dépense, « Dépense 0 $ » et l'empreinte seule dans le panneau "
+            "« Bilan de la séance » (ni « $ » dans sa phrase)",
+            f"{amount!r} · {amounts!r} · {title[:120]}",
         )
     notes = [c.get("impact_note_text") or "" for c in calls]
     text, title = _footprint_line(r)
@@ -11737,10 +11745,10 @@ def s_priced_estimate(r: Run) -> None:
             head,
         )
         spend = r.state().get("consumption_updated") or {}
-        money = r.page.locator("#consumption-money").inner_text()
+        money = r.page.locator("#bar-spend-amount").inner_text()
         r.check(
-            spend.get("approx") is True and money.startswith("💰 ≈ "),
-            "E135 : « ≈ » devant la dépense de la séance dans la barre de l'atelier",
+            spend.get("approx") is True and money.startswith("≈ "),
+            "E135 : « ≈ » devant la dépense de la séance dans le bouton Dépense de la barre",
             f"{money!r} · approx {spend.get('approx')}",
         )
     finally:
@@ -15739,6 +15747,112 @@ RAG_LAB_STAGES_KINDS = [
 ]
 
 
+# ---------- story 9 (V1.1 vague 2, CAP-7, CAP-9): the barre commune's two buttons ----------
+
+
+def _bar_open_close(r: Run, toggle_id: str, panel_id: str, what: str) -> None:
+    """Open at a click, close at a second click, reopen then Échap: closed, focus back on
+    the button (ux/EXPERIENCE.md bar-flyout)."""
+    page = r.page
+    toggle = page.locator(f"#{toggle_id}")
+    panel = page.locator(f"#{panel_id}")
+    expect(toggle).to_be_visible(timeout=5000)
+    toggle.click()
+    expect(panel).to_be_visible(timeout=3000)
+    r.check(toggle.get_attribute("aria-expanded") == "true", f"{what} : s'ouvre au clic")
+    toggle.click()
+    closed, _ = r.poll(lambda: not panel.is_visible(), 3)
+    r.check(
+        closed and toggle.get_attribute("aria-expanded") == "false",
+        f"{what} : se referme au clic (non modal)",
+    )
+    toggle.click()
+    expect(panel).to_be_visible(timeout=3000)
+    page.keyboard.press("Escape")
+    closed, _ = r.poll(lambda: not panel.is_visible(), 3)
+    focused = page.evaluate("() => document.activeElement && document.activeElement.id")
+    r.check(
+        closed and focused == toggle_id,
+        f"{what} : Échap ferme le panneau et rend le focus au bouton",
+        f"closed={closed} focus={focused}",
+    )
+
+
+# A session's spend as `/api/state` would give it after two cloud calls whose prompt cache
+# saved more than it cost (the maquette's « Dépense 0,033 $ · économisé 0,029 $ »).
+BAR_FAKE_SPEND = {
+    "total_in_usd": 0.013,
+    "total_out_usd": 0.02,
+    "total_usd": 0.033,
+    "calls": 2,
+    "approx": False,
+    "eur_per_usd": 0.86,
+    "total_eur": 0.033 * 0.86,
+    "energy_wh_min": 0.0,
+    "energy_wh_max": 0.0,
+    "gco2e_min": 0.0,
+    "gco2e_max": 0.0,
+    "impact_calls": 0,
+    "cache_saved_usd": 0.029,
+    "compression_saved_usd": 0.0,
+    "kv_time_saved_s": 0.0,
+    "saved_calls": 1,
+}
+
+
+def s_bar_panels(r: Run) -> None:
+    """Story 9 (CAP-7, CAP-9): the barre commune's « Dépense » and « Journal » buttons and
+    their flyouts, shared by the five pages (bar.js): open, close and Échap, on two of them
+    (Harnais and MCP). « Dépense » stays hidden before any paid or impactful call; then a
+    spend is injected into `/api/state` (the bar's own source), so the scenario never depends
+    on a cloud key or on GreenOps being installed."""
+    page = r.page
+    r.goto_app()
+    _bar_open_close(r, "bar-log-toggle", "bar-log-panel", "Journal (Harnais)")
+    spend_toggle = page.locator("#bar-spend-toggle")
+    if not (r.state().get("consumption_updated")):
+        r.check(
+            not spend_toggle.is_visible(),
+            "Dépense (Harnais) : masqué avant tout appel payant ou à empreinte",
+        )
+
+    def fake_spend(route) -> None:  # noqa: ANN001
+        response = route.fetch()
+        body = response.json() | {"consumption_updated": BAR_FAKE_SPEND}
+        route.fulfill(response=response, json=body)
+
+    page.route("**/api/state", fake_spend)
+    try:
+        r.goto_app()
+        expect(spend_toggle).to_be_visible(timeout=5000)
+        amount = page.locator("#bar-spend-amount").inner_text()
+        saved = page.locator("#bar-spend-saved").inner_text()
+        r.check(
+            amount == "0,033 $" and saved == "économisé 0,029 $",
+            "Dépense (Harnais) : « Dépense 0,033 $ · économisé 0,029 $ »",
+            f"{amount!r} · {saved!r}",
+        )
+        _bar_open_close(r, "bar-spend-toggle", "bar-spend-panel", "Dépense (Harnais)")
+        spend_toggle.click()
+        summary = page.locator("#bar-spend-summary").inner_text()
+        rows = page.locator("#bar-savings-bars .bar-savings-row").all_inner_texts()
+        page.keyboard.press("Escape")
+        # Without optimization = 0,033 + 0,029 = 0,062 $; 0,029 ÷ 0,062 ≈ 47 %.
+        r.check(
+            summary.startswith("47 % économisés : 0,029 $ grâce au cache de prompt")
+            and len(rows) == 2
+            and rows[0].endswith("0,062 $")
+            and rows[1].endswith("0,033 $"),
+            "Dépense (Harnais) : bilan « sans optimisation 0,062 $ / coût réel 0,033 $ », 47 %",
+            f"{summary!r} · {rows}",
+        )
+    finally:
+        page.unroute("**/api/state", fake_spend)
+    _goto_mcp(r)
+    _bar_open_close(r, "bar-log-toggle", "bar-log-panel", "Journal (MCP)")
+    r.goto_app()
+
+
 SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("diagnostic", s_diagnostic),
     ("programme", s_programme),
@@ -15796,6 +15910,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("llm_live", s_llm_live),  # restes du 2026-10-01: distribution and window, page side
     ("llm_loop", s_llm_loop),  # lot 6 of 2026-10-04: the model's loop in three stages
     ("relaunch", s_relaunch),
+    ("bar_panels", s_bar_panels),  # story 9 (V1.1 vague 2): the barre commune's two flyouts
 ]
 
 
