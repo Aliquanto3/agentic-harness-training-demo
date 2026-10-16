@@ -759,6 +759,8 @@ main:
       mcp_lab_message: "Atelier MCP : message JSON-RPC"
       mcp_lab_connect_ended: "Atelier MCP : poignée de main terminée"
       mcp_lab_call_ended: "Atelier MCP : appel terminé"
+      mcp_lab_authorization_requested: "Atelier MCP : autorisation demandée"
+      mcp_lab_authorization_resolved: "Atelier MCP : autorisation tranchée"
       mcp_lab_exchange_started: "Atelier MCP : échange ouvert"
       mcp_lab_read_ended: "Atelier MCP : lecture de ressource terminée"
       mcp_lab_prompt_ended: "Atelier MCP : prompt obtenu"

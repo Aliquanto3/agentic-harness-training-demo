@@ -748,6 +748,8 @@ main:
       mcp_lab_message: "MCP-Werkstatt: JSON-RPC-Nachricht"
       mcp_lab_connect_ended: "MCP-Werkstatt: Handshake beendet"
       mcp_lab_call_ended: "MCP-Werkstatt: Aufruf beendet"
+      mcp_lab_authorization_requested: "MCP-Werkstatt: Freigabe angefragt"
+      mcp_lab_authorization_resolved: "MCP-Werkstatt: Freigabe entschieden"
       mcp_lab_exchange_started: "MCP-Werkstatt: Austausch eröffnet"
       mcp_lab_read_ended: "MCP-Werkstatt: Ressource gelesen"
       mcp_lab_prompt_ended: "MCP-Werkstatt: Prompt erhalten"

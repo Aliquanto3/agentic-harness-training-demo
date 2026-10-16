@@ -748,6 +748,8 @@ main:
       mcp_lab_message: "MCP workshop: JSON-RPC message"
       mcp_lab_connect_ended: "MCP workshop: handshake ended"
       mcp_lab_call_ended: "MCP workshop: call ended"
+      mcp_lab_authorization_requested: "MCP workshop: approval requested"
+      mcp_lab_authorization_resolved: "MCP workshop: approval resolved"
       mcp_lab_exchange_started: "MCP workshop: exchange opened"
       mcp_lab_read_ended: "MCP workshop: resource read ended"
       mcp_lab_prompt_ended: "MCP workshop: prompt got"
