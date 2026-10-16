@@ -21,15 +21,20 @@ modèles (local, serveur, cloud), voir [Modèles](modeles.md).
 
 ![L'atelier après un tour avec la brique Outils : briques à gauche, Vue humain, Contexte LLM, Orchestration et Schéma d'architecture](assets/atelier.jpg)
 
-La barre de navigation, en haut de chaque page, mène aux cinq onglets ; le titre complet de
-chaque écran est celui de l'onglet du navigateur et de la page :
+La barre de navigation, en haut de chaque page, mène aux six onglets ; le titre complet de
+chaque écran est celui de l'onglet du navigateur et de la page. Elle porte aussi, à droite, deux
+boutons communs aux six pages : **Dépense** (coût et économies de la séance, voir
+[FinOps visible](securite.md#finops-visible-cache-compression-sous-agent-et-mémoire-de-contexte-locale))
+et **Journal** (compteur des refus et blocages, voir
+[Page Sécurité et bouton Journal](securite.md#page-sécurité-et-bouton-journal)).
 
 | Onglet | Écran | Adresse | À quoi il sert |
 |---|---|---|---|
 | **Harnais** | Atelier Harnais | `/` | L'écran principal : les briques, la conversation et ses quatre volets |
 | **LLM** | Atelier LLM | `/llm` | L'intérieur du modèle actif, sans aucune brique (voir [Atelier LLM](#atelier-llm)) |
 | **RAG** | Atelier RAG | `/rag` | Une chaîne RAG à monter et exécuter pièce par pièce (voir [Atelier RAG](#atelier-rag)) |
-| **MCP** | Atelier MCP | `/mcp` | Le protocole MCP entre le harnais et un serveur (voir [Atelier MCP](#atelier-mcp)) |
+| **MCP** | Atelier MCP | `/mcp` | Le protocole MCP entre le harnais et un serveur, dont le bloc GitHub (voir [Atelier MCP](#atelier-mcp) et [Sécurité](securite.md)) |
+| **Sécurité** | Page Sécurité | `/security` | La matrice de risques des outils, les contrôles actifs et le journal, pour un RSSI (voir [Sécurité, garde-fous et FinOps visible](securite.md)) |
 | **🛠️ Diagnostic** | Diagnostic et modèles | `/diagnostic` | Les vérifications du lancement, le choix du modèle et les clés API (voir [l'installation](installation.md#premier-lancement-et-diagnostic)) |
 
 Le tableau des modèles et de leurs capacités est la page Diagnostic elle-même (voir
@@ -44,7 +49,7 @@ Le menu **Affichage ▾**, à droite, règle le thème, la [langue](#langue) et 
 **L'atelier** se lit de gauche à droite :
 
 - **Panneau des briques** : chaque brique (raisonnement, prompt système, mémoires, outils, RAG,
-  MCP, skills, hooks, sous-agent, compression) s'allume par son interrupteur, avec sa catégorie
+  MCP, skills, hooks, garde-fous, sous-agent, compression) s'allume par son interrupteur, avec sa catégorie
   (prompt, context ou harness engineering), son hébergement (local ou réseau) et son bouton
   « ? ». « Afficher les actions forcées » révèle les boutons de secours qui déclenchent un outil
   ou un skill quand un petit modèle ne le fait pas seul.
@@ -62,9 +67,11 @@ Le menu **Affichage ▾**, à droite, règle le thème, la [langue](#langue) et 
   réseau, de part et d'autre de la frontière du poste.
 
 La **barre du bas** porte le sélecteur de scénario, la jauge de la fenêtre de contexte (tokens
-utilisés, par catégorie), la dépense et l'empreinte estimées, le réglage
+utilisés, par catégorie), le réglage
 [Fenêtre ▾](modeles.md#fenêtre-de-contexte), le menu « Volets » pour masquer ou réafficher un
-volet, le modèle actif avec « Changer de modèle… », et « Réinitialiser ».
+volet, le modèle actif avec « Changer de modèle… », et « Réinitialiser ». La dépense et
+l'empreinte estimées sont dans le bouton **Dépense** de la barre de navigation (voir
+[FinOps visible](securite.md#finops-visible-cache-compression-sous-agent-et-mémoire-de-contexte-locale)).
 
 ## Programme de formation
 
@@ -669,15 +676,16 @@ tout appel tarifé. Pour le relever, modifiez-le dans `settings.json`, par exemp
 revient à zéro qu'au relancement.
 
 **Affichage.** « Coût estimé : entrée … $ · sortie … $ » dans le détail de chaque appel
-(Orchestration), le total du tour dans son en-tête (« coût estimé … $ »), et « Dépense
-estimée » dans la barre du bas dès le premier appel payant : le total de la séance, entrée + sortie
-(arrondies au centième de cent), la phrase entière (4 chiffres significatifs, conversion en
-euros) dans l'infobulle. Ce total compte tous les appels payants : les tours, le sous-agent,
-« Tester » au diagnostic et l'Atelier LLM. Ni « Vider la conversation » ni « Réinitialiser »
-ne le remettent à zéro ; seul un relancement de WaveStack le fait (il n'est jamais écrit sur le
-disque). Les prix déclarés sont aussi sur la ligne « Prix » de la carte
-dépliée d'un modèle, page Diagnostic. Un modèle local n'a pas de coût, et une entrée sans `pricing` non
-plus.
+(Orchestration), le total du tour dans son en-tête (« coût estimé … $ »), et le bouton
+**Dépense** de la barre de navigation (« Dépense … $ · économisé … $ »,
+[détail](securite.md#finops-visible-cache-compression-sous-agent-et-mémoire-de-contexte-locale))
+dès le premier appel payant : le total de la séance, entrée + sortie (arrondies au centième de
+cent), la phrase entière (4 chiffres significatifs, conversion en euros) dans l'infobulle. Ce
+total compte tous les appels payants : les tours, le sous-agent, « Tester » au diagnostic et
+l'Atelier LLM. Ni « Vider la conversation » ni « Réinitialiser » ne le remettent à zéro ; seul
+un relancement de WaveStack le fait (il n'est jamais écrit sur le disque). Les prix déclarés
+sont aussi sur la ligne « Prix » de la carte dépliée d'un modèle, page Diagnostic. Un modèle
+local n'a pas de coût, et une entrée sans `pricing` non plus.
 
 **Mettre les prix à jour.** Relevez les prix sur la page du fournisseur, puis surchargez l'entrée
 dans `settings.json`, par exemple `{"id": "gemini", "pricing": {"input_usd_per_mtok": 0.3,
@@ -736,8 +744,7 @@ n'arrête jamais un tour : l'appel n'a pas d'empreinte, avec la raison.
 
 **Affichage.** « Empreinte estimée : 0,11 Wh · 0,046 g CO₂e » dans le détail de chaque appel
 (la méthode et ses limites dans l'infobulle), la somme du tour dans son en-tête, et l'empreinte
-de la séance dans la barre du bas : troisième ligne de « Dépense estimée », sous la dépense
-(« 🍃 0,12 g CO₂e »), la phrase entière dans l'infobulle ; « Empreinte estimée » sur deux lignes
-tant qu'aucun appel payant n'a eu lieu. Comme la dépense, ce total compte les tours, le sous-agent,
-« Tester » et l'Atelier LLM, et seul un relancement le remet à zéro. L'embedding et le
-reranker du RAG ne sont pas comptés.
+de la séance dans le panneau du bouton **Dépense** de la barre de navigation
+(« 🍃 0,12 g CO₂e »), la phrase entière dans l'infobulle. Comme la dépense, ce total compte les
+tours, le sous-agent, « Tester » et l'Atelier LLM, et seul un relancement le remet à zéro.
+L'embedding et le reranker du RAG ne sont pas comptés.

@@ -25,8 +25,8 @@ validation) :
   « Choisir ce modèle… » dans celle d'un modèle cloud (qui ouvre d'abord l'avertissement), ou
   « Choisir ce fichier » après un chemin saisi.
 
-**Lire le sélecteur.** Sa deuxième ligne est une légende : chaque option commence par où tourne
-le modèle, puis qui le sert :
+**Lire le sélecteur.** Chaque option commence par une icône, 🏠 (sur ce poste) ou ☁️ (réseau).
+Sa deuxième ligne est une légende, qui dit où tourne le modèle, puis qui le sert :
 - « Local · fichier » : un fichier GGUF chargé par WaveStack lui-même (blob Ollama compris) ;
 - « Local · Ollama », « Local · llama-server » : un serveur déjà lancé sur ce poste, processus
   distinct de WaveStack ;
