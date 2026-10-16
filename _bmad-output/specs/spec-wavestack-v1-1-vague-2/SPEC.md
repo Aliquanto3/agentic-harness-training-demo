@@ -45,7 +45,7 @@ La vague 1 rend WaveStack installable sans accompagnement. La vague 2 l'ouvre à
   - **intent:** Une page « Sécurité » de la barre commune présente la matrice de risques des outils, les contrôles actifs (autorisations, garde-fous, hooks, liste blanche réseau, connexion GitHub), le journal et les limites de ce que le harnais ne protège pas ; un bouton « Journal » de la barre, sur toutes les pages, compte les refus et ouvre un aperçu.
   - **success:** Un RSSI répond, depuis la page Sécurité, à « quels outils peuvent écrire, qui l'a autorisé, qu'est-ce qui a été bloqué, et qu'est-ce qui n'est pas couvert ? » ; depuis n'importe quelle page, le bouton Journal montre les 5 derniers événements.
 - **CAP-10**
-  - **intent:** Les textes des ateliers LLM, RAG et MCP sont réécrits pour un non-ingénieur ; le jargon passe dans le détail déplié.
+  - **intent:** Les consignes des briques du Harnais et les textes des ateliers LLM, RAG et MCP sont réécrits pour un non-ingénieur ; le jargon passe dans le détail déplié.
   - **success:** Une relecture par un non-ingénieur ne relève aucun terme technique non expliqué à sa première apparition dans chaque atelier.
 
 ## Constraints
@@ -57,7 +57,7 @@ La vague 1 rend WaveStack installable sans accompagnement. La vague 2 l'ouvre à
 - Démo GitHub sur un compte en lecture seule et un dépôt public.
 - Bac à sable : l'écriture est limitée à un dossier WaveStack ; tout chemin qui en sort une fois résolu est refusé. La capture d'écran n'est jamais envoyée au modèle et passe toujours par l'autorisation.
 - Chiffres tiers non vérifiés (multiplicateur multi-agents « 15× », prix de cache OpenAI et Gemini) absents de l'interface tant qu'une source primaire ne les confirme pas.
-- L'installation de la vague 1 reste sans accompagnement : rien de nouveau n'exige de compte ni de saisie pendant l'installeur.
+- L'installation de la vague 1 reste sans accompagnement : rien de nouveau n'exige de compte ni de saisie pendant l'installeur. Les garde-fous s'installent après coup, par un bouton « Installer » de la brique Garde-fous (extra optionnel et modèles, ~400 Mo).
 - Code en anglais ; textes d'interface en français, avec surcouche en et de sous `content/i18n/`.
 - Exécution autonome en lanes parallèles sur des fichiers disjoints, fusion automatique sur `main` après relecture et tests verts. Une suite pytest à la fois, en quarts ; E2E en série par tranches de 4 à 6.
 
