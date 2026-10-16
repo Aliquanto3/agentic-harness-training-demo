@@ -2564,6 +2564,12 @@ async function loadModelList() {
   renderModelPicker();
 }
 
+// CAP-5: the hosting emoji on each model option, and the optgroup's class for its background
+// (app.css), never on « Ajouter d'autres modèles… » or « Autre fichier… », which are neither.
+const hostingEmoji = (hosting) => (hosting === "network" ? "☁️ " : "🏠 ");
+const hostingGroupClass = (hosting) =>
+  hosting === "network" ? "model-optgroup-network" : "model-optgroup-local";
+
 function pickerOption(value, text, { disabled = false, title = "" } = {}) {
   const option = el("option", "", text);
   option.value = value;
@@ -2798,7 +2804,7 @@ function rebuildModelPicker(picker, active) {
   }
   const activeKey = modelKey(active);
   const groups = models.groups.map((group) => {
-    const optgroup = el("optgroup");
+    const optgroup = el("optgroup", hostingGroupClass(group.hosting));
     optgroup.label = group.label_text;
     for (const m of group.models) {
       const isActive = activeKey === `${m.kind}:${m.ref}`;
@@ -2811,7 +2817,7 @@ function rebuildModelPicker(picker, active) {
             : ` ${t("main.model.suffix_incompatible")}`
           : "";
       optgroup.append(
-        pickerOption(m.value, `${m.label_text}${suffix}`, {
+        pickerOption(m.value, `${hostingEmoji(m.hosting)}${m.label_text}${suffix}`, {
           disabled: isActive || unusable,
           title: unusable ? m.disabled_text ?? "" : m.title_text,
         })
@@ -2833,7 +2839,7 @@ function rebuildModelPicker(picker, active) {
 
 function rebuildModelPickerByKind(picker, active) {
   const list = store.modelList ?? { candidates: [], cloud: { models: [] } };
-  const local = el("optgroup");
+  const local = el("optgroup", hostingGroupClass("local"));
   local.label = t("main.model.group_local");
   const seen = new Set();
   for (const c of list.candidates ?? []) {
@@ -2843,7 +2849,7 @@ function rebuildModelPickerByKind(picker, active) {
       const unusable = c.status !== "server";
       const suffix = isActive ? ` ${t("main.model.suffix_active")}` : unusable ? ` ${t("main.model.suffix_incompatible")}` : "";
       local.append(
-        pickerOption(`server:${c.ref}`, `${t("main.hosting.local")} · ${c.provider} · ${c.name}${suffix}`, {
+        pickerOption(`server:${c.ref}`, `${hostingEmoji("local")}${t("main.hosting.local")} · ${c.provider} · ${c.name}${suffix}`, {
           disabled: isActive || unusable,
           title: unusable ? c.reason ?? "" : t("main.model.served_at", { provider: c.provider, url: c.server_url }),
         })
@@ -2855,19 +2861,19 @@ function rebuildModelPickerByKind(picker, active) {
     const isActive = active?.kind === "file" && active.ref === c.path;
     const size = c.size_label ? ` · ${c.size_label}` : "";
     local.append(
-      pickerOption(`file:${c.path}`, `${c.name}${size}${isActive ? ` ${t("main.model.suffix_active")}` : ""}`, {
+      pickerOption(`file:${c.path}`, `${hostingEmoji("local")}${c.name}${size}${isActive ? ` ${t("main.model.suffix_active")}` : ""}`, {
         disabled: isActive,
         title: c.path,
       })
     );
   }
-  const network = el("optgroup");
+  const network = el("optgroup", hostingGroupClass("network"));
   network.label = t("main.model.group_network");
   for (const m of list.cloud?.models ?? []) {
     const isActive = active?.kind === "cloud" && active.ref === m.id;
     const suffix = isActive ? ` ${t("main.model.suffix_active")}` : m.disabled_text ? ` ${t("main.model.suffix_unavailable")}` : "";
     network.append(
-      pickerOption(`cloud:${m.id}`, `${t("main.hosting.network")} · ${m.provider} · ${m.model}${suffix}`, {
+      pickerOption(`cloud:${m.id}`, `${hostingEmoji("network")}${t("main.hosting.network")} · ${m.provider} · ${m.model}${suffix}`, {
         disabled: isActive || Boolean(m.disabled_text),
         title: m.disabled_text ?? "",
       })

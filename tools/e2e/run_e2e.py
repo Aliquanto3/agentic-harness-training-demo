@@ -9603,8 +9603,8 @@ def s_model_switch(r: Run) -> None:
     """Story 17: the hot switch from the top bar (warning, stopwatch, conversation kept, model
     line, replay, compare), then back from the diagnostic, with no « relancez »."""
     page = r.page
-    a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
-    b_label = f"RÉSEAU · Faux fournisseur B (e2e) · {SECOND_MODEL}"
+    a_label = "☁️ RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+    b_label = f"☁️ RÉSEAU · Faux fournisseur B (e2e) · {SECOND_MODEL}"
     r.launch("short_memory")
     r.send("Je m'appelle Pascal.")
     options = _picker_options(r)
@@ -9877,9 +9877,9 @@ def _slow_probe_stopped(r: Run) -> None:
 
 
 LLAMA_FILE = "faux-llama-server.gguf"
-LLAMA_OPTION = f"Local · llama-server · {LLAMA_FILE}"
+LLAMA_OPTION = f"🏠 Local · llama-server · {LLAMA_FILE}"
 # Story 25: the fake Ollama's `details` give its size (and its publisher, Qwen).
-OLLAMA_OPTION = "Local · Ollama · faux-ollama:latest · 0.6B"
+OLLAMA_OPTION = "🏠 Local · Ollama · faux-ollama:latest · 0.6B"
 
 
 def s_local_server(r: Run) -> None:
@@ -10091,7 +10091,7 @@ def s_local_server(r: Run) -> None:
     # Back to the cloud fake model: `relaunch` expects it saved.
     r.wait_idle()
     seq = r.ev.mark()
-    page.select_option("#model-picker", label="RÉSEAU · Faux fournisseur (e2e) · wavestack-fake")
+    page.select_option("#model-picker", label="☁️ RÉSEAU · Faux fournisseur (e2e) · wavestack-fake")
     page.click("#model-picker-apply")
     page.click("#cloud-warning-confirm")
     ended = r.ev.wait("model_load_ended", seq, timeout=30)
@@ -10118,7 +10118,7 @@ def s_local_server(r: Run) -> None:
     expect(page.locator("#model-indicator")).to_contain_text("Local · llama-server", timeout=10_000)
     r.wait_idle()
     seq = r.ev.mark()
-    page.select_option("#model-picker", label="RÉSEAU · Faux fournisseur (e2e) · wavestack-fake")
+    page.select_option("#model-picker", label="☁️ RÉSEAU · Faux fournisseur (e2e) · wavestack-fake")
     page.click("#model-picker-apply")
     page.click("#cloud-warning-confirm")
     r.ev.wait("model_load_ended", seq, timeout=30)
@@ -10617,8 +10617,8 @@ def s_model_catalog(r: Run) -> None:
     )
     texts = [o["text"] for g in groups for o in g["options"]]
     r.check(
-        bool(texts) and all(t.startswith(("Local · ", "RÉSEAU · ")) for t in texts),
-        "sélecteur : chaque modèle commence par « Local · » ou « RÉSEAU · »",
+        bool(texts) and all(t.startswith(("🏠 Local · ", "☁️ RÉSEAU · ")) for t in texts),
+        "sélecteur : chaque modèle commence par « 🏠 Local · » ou « ☁️ RÉSEAU · »",
         str(texts),
     )
     r.check(
@@ -10749,9 +10749,9 @@ def s_model_catalog(r: Run) -> None:
     # One truth: the reasoning card after the load and the table say the same.
     r.goto_app()
     r.launch("bare_llm")
-    a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+    a_label = "☁️ RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
     try:
-        _pick_model(r, f"RÉSEAU · Faux fournisseur R (e2e) · {REASONING_MODEL}")
+        _pick_model(r, f"☁️ RÉSEAU · Faux fournisseur R (e2e) · {REASONING_MODEL}")
         card = r.card("Raisonnement")
         locked = card.locator(".brick-lock").count() == 1
         _open_models_page(r)
@@ -10873,7 +10873,7 @@ def _models_page_language(r: Run) -> None:
         r.check(r.state()["language"] == "fr", "nettoyage : retour au français")
 
 
-A_LABEL = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+A_LABEL = "☁️ RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
 
 
 def _window_panel(r: Run) -> None:
@@ -11188,9 +11188,9 @@ def s_reasoning_locked(r: Run) -> None:
     """Story 33: a model that always reasons locks the Reasoning card (🔒, « Imposé par ce
     modèle »); back on entry A, the lock goes."""
     r.launch("bare_llm")
-    a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+    a_label = "☁️ RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
     try:
-        _pick_model(r, f"RÉSEAU · Faux fournisseur R (e2e) · {REASONING_MODEL}")
+        _pick_model(r, f"☁️ RÉSEAU · Faux fournisseur R (e2e) · {REASONING_MODEL}")
         card = r.card("Raisonnement")
         toggle = card.locator(".brick-head input.brick-toggle")
         r.check(
@@ -11226,9 +11226,9 @@ def s_reasoning_dropped(r: Run) -> None:
     its figure « historique réécrit », at both levels; the log's summary « {reason} · {path} »."""
     page = r.page
     r.launch("subagent")
-    a_label = "RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
+    a_label = "☁️ RÉSEAU · Faux fournisseur (e2e) · wavestack-fake"
     try:
-        _pick_model(r, f"RÉSEAU · {ANTHROPIC_PROVIDER} · {ANTHROPIC_MODEL}")
+        _pick_model(r, f"☁️ RÉSEAU · {ANTHROPIC_PROVIDER} · {ANTHROPIC_MODEL}")
         seq = r.ev.mark()
         ended = r.send(_prompts("subagent")[0] + " [jeté]")
         r.check(
@@ -11291,7 +11291,7 @@ def s_reasoning_dropped(r: Run) -> None:
 
 # ---------- Gemini (Google AI Studio): the shape of its bodies ----------
 
-GEMINI_LABEL = f"RÉSEAU · {GEMINI_PROVIDER} · {GEMINI_MODEL}"
+GEMINI_LABEL = f"☁️ RÉSEAU · {GEMINI_PROVIDER} · {GEMINI_MODEL}"
 
 
 def _gemini_turn(r: Run, prompt: str, tool: str) -> tuple[list[dict], list[dict], dict]:
@@ -11678,7 +11678,7 @@ def s_gemini_shape(r: Run) -> None:
     )
 
 
-PRICED_LABEL = f"RÉSEAU · {PRICED_PROVIDER} · {PRICED_MODEL}"
+PRICED_LABEL = f"☁️ RÉSEAU · {PRICED_PROVIDER} · {PRICED_MODEL}"
 
 
 def s_priced_estimate(r: Run) -> None:
