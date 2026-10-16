@@ -6,14 +6,16 @@
 
 title_text: "Atelier MCP"
 intro_text: >-
-  Le protocole entre l'hôte et un serveur, message par message. Un bac à sable : la brique MCP
-  du harnais ne change pas.
+  Le protocole MCP (Model Context Protocol) entre l'hôte (l'application qui héberge le modèle)
+  et un serveur (un programme séparé qui propose des outils), message par message. Un bac à
+  sable : un espace d'essai sans effet réel ; la brique MCP du harnais ne change pas.
 busy_text: "Indisponible pour l'instant : {reason}"
 
 servers_help_text: >-
   Les trois serveurs de la brique MCP. Le glossaire est un processus Python que l'hôte lance sur
   ce poste et auquel il parle par l'entrée et la sortie standard ; les deux autres sont des
-  services publics joints en HTTP, avec la garde réseau de WaveStack.
+  services publics joints en HTTP (le protocole standard du web), avec la garde réseau de
+  WaveStack.
 handshake_help_text: >-
   Comme au restaurant : « Bonjour, je suis le serveur de salle de WaveStack » (initialize) ;
   « Bonjour, voici ce que nous servons : des plats à la carte, ce que nous posons sur la table,
@@ -29,7 +31,8 @@ tools_help_text: >-
 tools_empty_text: "Connectez-vous à un serveur : sa documentation d'outils et son poids s'afficheront ici."
 call_help_text: >-
   Un champ par paramètre du schéma de l'outil. L'hôte envoie tools/call par le client ; le
-  serveur répond par un résultat JSON-RPC, dont l'hôte tire le texte qu'il réinjecte au modèle.
+  serveur répond par un résultat JSON-RPC (le format des messages du protocole MCP), dont
+  l'hôte tire le texte qu'il réinjecte au modèle.
 by_hand_text: "Vous jouez le modèle : vous choisissez l'outil et ses arguments."
 by_model_text: >-
   Le modèle actif reçoit votre question et les outils, puis choisit lui-même. Lent sur CPU : 10 à

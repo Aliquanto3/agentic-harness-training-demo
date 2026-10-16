@@ -4,14 +4,17 @@
 
 title_text: "MCP-Werkstatt"
 intro_text: >-
-  Das Protokoll zwischen Host und Server, Nachricht für Nachricht. Eine Sandbox: Der MCP-Baustein
-  des Harness ändert sich nicht.
+  Das Protokoll MCP (Model Context Protocol) zwischen dem Host (der Anwendung, die das Modell
+  beherbergt) und einem Server (einem eigenen Programm, das Tools anbietet), Nachricht für
+  Nachricht. Eine Sandbox: ein Testraum ohne reale Auswirkung; der MCP-Baustein des Harness
+  ändert sich nicht.
 busy_text: "Derzeit nicht verfügbar: {reason}"
 
 servers_help_text: >-
   Die drei Server des MCP-Bausteins. Das Glossar ist ein Python-Prozess, den der Host auf diesem
   Arbeitsplatz startet und über Standardein- und -ausgabe anspricht; die beiden anderen sind
-  öffentliche Dienste, über HTTP erreicht, hinter dem Netzwerkschutz von WaveStack.
+  öffentliche Dienste, über HTTP (das Standardprotokoll des Webs) erreicht, hinter dem
+  Netzwerkschutz von WaveStack.
 handshake_help_text: >-
   Wie im Restaurant: „Guten Tag, ich bin die Bedienung von WaveStack“ (initialize); „Guten Tag,
   das servieren wir: Gerichte à la carte, was wir auf den Tisch stellen, Menüs“ (Fähigkeiten:
@@ -26,7 +29,8 @@ tools_help_text: >-
 tools_empty_text: "Verbinden Sie sich mit einem Server: Seine Tool-Dokumentation und ihr Gewicht erscheinen hier."
 call_help_text: >-
   Ein Feld pro Parameter des Tool-Schemas. Der Host sendet tools/call über den Client; der Server
-  antwortet mit einem JSON-RPC-Ergebnis, aus dem der Host den Text zieht, den er an das Modell
+  antwortet mit einem JSON-RPC-Ergebnis (dem Nachrichtenformat des MCP-Protokolls), aus dem der
+  Host den Text zieht, den er an das Modell
   zurückgibt.
 by_hand_text: "Sie spielen das Modell: Sie wählen das Tool und seine Argumente."
 by_model_text: >-

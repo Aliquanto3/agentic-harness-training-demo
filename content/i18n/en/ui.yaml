@@ -1215,13 +1215,13 @@ mcp:
     download: "Download the journal (CSV)"
   github:
     title: "GitHub"
-    intro: "Connect with your GitHub account (OAuth App WaveStack, device flow). WaveStack only gets the rights you accept."
+    intro: "Connect with your GitHub account by OAuth (a delegated authorization, without sharing your password), WaveStack app, device flow (a code to enter). WaveStack only gets the rights you accept."
     connect: "Connect to GitHub"
     reconnect: "Reconnect"
     disconnect: "Disconnect"
     waiting_text: "Open {uri} and enter this code:"
     connected_text: "Connected, read only · expires in {time}"
-    expired_text: "The token expired: reconnect."
+    expired_text: "The token (the proof of access received from GitHub) expired: reconnect."
     error_text: "Connection to GitHub refused."
     error:
       access_denied: "Connection refused on github.com: start it again if that was a mistake."

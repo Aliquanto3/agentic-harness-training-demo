@@ -1234,13 +1234,13 @@ mcp:
   # CAP-4 : bloc GitHub de l'atelier MCP (connexion par code, OAuth App WaveStack).
   github:
     title: "GitHub"
-    intro: "Connexion avec votre compte GitHub (OAuth App WaveStack, connexion par code). WaveStack n'obtient que les droits que vous acceptez."
+    intro: "Connexion avec votre compte GitHub par OAuth (une autorisation déléguée, sans partager votre mot de passe), application WaveStack, par un code à saisir. WaveStack n'obtient que les droits que vous acceptez."
     connect: "Se connecter à GitHub"
     reconnect: "Se reconnecter"
     disconnect: "Se déconnecter"
     waiting_text: "Ouvrez {uri} et saisissez ce code :"
     connected_text: "Connecté en lecture · expire dans {time}"
-    expired_text: "Le jeton a expiré : reconnectez-vous."
+    expired_text: "Le jeton (la preuve d'accès reçue de GitHub) a expiré : reconnectez-vous."
     error_text: "Connexion à GitHub refusée."
     error:
       access_denied: "Connexion refusée sur github.com : relancez-la si c'était une erreur."
