@@ -846,6 +846,11 @@ body.rag-page {
   gap: var(--spacing-3);
 }
 
+/* Recette CAP-6: moved into `#rag-seq` while expanded, out of `.rag-toolbar [hidden]`'s reach. */
+.rag-stepper-box[hidden] {
+  display: none;
+}
+
 .rag-stepper-caption {
   color: var(--color-ink-soft);
 }

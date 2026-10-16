@@ -125,3 +125,20 @@ Fichiers dans `_bmad-output/planning-artifacts/research/`.
   menus.
 - Mesurer le coût de la nuit avec `/agent-cost-kit:mesurer-couts`, et le comparer à la story
   médiane de la V1 (16,57 $).
+
+## Résultat de la recette (16/10)
+- **Validé par Anaël** :
+  - installation depuis GitHub en suivant le README ;
+  - menu des modèles 🏠/☁️ ;
+  - Séquence agrandie.
+- **Défaut** : en Séquence agrandie sur `/rag`, les commandes d'étapes ◀ ▶ étaient recouvertes,
+  alors que `/mcp` les garde. Corrigé dans la même PR que cet ajout, après second avis et
+  reviewer. Corrigés en plus à la relecture : le focus clavier, le masquage en mode « Composer »
+  et un garde contre une double ouverture.
+- **README** : il manquait comment ouvrir PowerShell. Ajouté par #44 (README, plus la section
+  « Ouvrir PowerShell » de `docs/installation.md`).
+- **Signal de succès de la spec non encore validé** : aucun collègue n'a encore installé
+  WaveStack seul sur son PC pro. La vague 1 n'est close qu'après ce test.
+- **Reste à faire** : refaire le GIF ou la vidéo du README (`tools/demo/drive.py`, puis
+  `compose.py`) et mettre à jour `docs/guide.md` après les changements d'interface (🏠/☁️,
+  « Ajouter d'autres modèles… », ⛶ sur la Séquence).
