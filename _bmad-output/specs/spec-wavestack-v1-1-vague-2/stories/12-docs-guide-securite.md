@@ -69,9 +69,8 @@ de ce lot : décrite ici d'après sa spec (CAP-9), sans dépendre de son code.
 - Le reste de la vague 1 à documenter : « Ajouter d'autres modèles… » et ⛶ sur la Séquence
   étaient déjà décrits (`docs/installation.md`, `docs/guide.md`) ; les icônes 🏠/☁️ du sélecteur
   de modèle manquaient, ajoutées dans `docs/modeles.md` (« Lire le sélecteur »).
-- La page Sécurité elle-même (story 10) n'est pas encore fusionnée : `docs/securite.md` décrit
-  son contrat (`ux/EXPERIENCE.md`, CAP-9) ; à relire une fois la story 10 fusionnée, au cas où
-  son code s'écarterait de la spec.
+- La page Sécurité (story 10) est fusionnée depuis (4c6b9cf) : `docs/securite.md` a été
+  réalignée sur son code et sa Revue lors de la relecture (voir ci-dessous).
 
 ## Tests
 
@@ -84,6 +83,24 @@ de ce lot : décrite ici d'après sa spec (CAP-9), sans dépendre de son code.
 - `python .claude/cost-kit/controle_rapide.py` : propre.
 - Aucun E2E (consigne de l'orchestrateur : documentation seulement).
 
-## Review Triage Log
+## Revue
 
-(pas encore de relecture)
+Revue Opus du 16/10, après rebase sur `origin/main` (4c6b9cf, story 10 fusionnée, sans
+conflit), avec la liste du second avis. Référence : Revue/Décisions des stories 1 à 13, code
+fusionné (`security.*`, `bar.js`, `content/`).
+
+- MEDIUM · second avis 1 · corrigé — page Sécurité décrite d'après sa spec : réalignée sur la story 10 (4 cartes calculées sur la séance, matrice à 7 lignes avec « Mixte (selon l'outil) », contrôles dépliables, journal à lignes dépliables, bouton réel « Télécharger (CSV) », 12 limites, mise à jour en direct, lien « Tout le journal »).
+- MEDIUM · second avis 2 · corrigé — « Demander » : dans la conversation il vaut refus journalisé (`policy_ask_outside_lab`) ; seul l'Atelier MCP demande l'accord (deux boutons, refus après 2 minutes).
+- MEDIUM · second avis 3 · corrigé — « les trois restent sous 1,5 Go » affirmé sans mesure : toxicité + données personnelles mesurées ~0,5 Go (story 4, ~486 Mo) ; avec injection « devraient rester sous 1,5 Go », mesure à faire sur le poste de référence (report de la story 13).
+- MEDIUM · second avis 4 · corrigé — 403 de GitHub : « Envoyé à GitHub : oui » (`github_refused`) ; « non » réservé au refus de la politique et au jeton expiré.
+- MEDIUM · revue · corrigé — niveau « lecture seule » présenté comme effectif : WaveStack n'envoie pas `X-MCP-Readonly` (`github_auth.py`), les outils d'écriture restent listés ; dit et marqué non vérifié en réel.
+- LOW · revue · corrigé — `guide.md` : boutons « communs aux cinq premières pages » ; ils sont sur les six (Sécurité comprise).
+- LOW · second avis · corrigé — cache sans prix déclaré (« prix du cache non déclaré », pas de faux 0 $), « surcoût du cache » du bouton Dépense, « Aucune économie mesurée » ; Prompt Guard sans interrupteur tant qu'il n'est pas installé ; plafonds du bac à sable (1 Mo, 20 captures).
+- LOW · second avis · corrigé — jargon expliqué (outil MCP, Séquence, Orchestration, token, jeton, OAuth App, Headroom, KV-cache, hooks, liste blanche, bac à sable, NIR → numéro de sécurité sociale) ; phrases longues coupées.
+- LOW · second avis · corrigé — limites : résumé marqué « brouillon, à valider » (`limites-harnais.md` n'est pas validé par Anaël).
+- Reporté — vérifications réelles déjà reportées par les stories 3, 10 et 13 (403 GitHub réel, mode lecture seule, RAM des trois garde-fous) : mettre `docs/securite.md` à jour selon leur résultat. GIF du README toujours à refaire (voir Hors périmètre).
+
+Tests de la revue : `tests/test_docs_links.py` 8, `tests/test_recette_docs.py` 4,
+`tests/test_content_language.py` 55, passés ; contrôle rapide propre ; README à 100 lignes.
+
+Complexité : 0 constat(s).

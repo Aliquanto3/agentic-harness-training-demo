@@ -23,7 +23,7 @@ modèles (local, serveur, cloud), voir [Modèles](modeles.md).
 
 La barre de navigation, en haut de chaque page, mène aux six onglets ; le titre complet de
 chaque écran est celui de l'onglet du navigateur et de la page. Elle porte aussi, à droite, deux
-boutons communs aux cinq premières pages : **Dépense** (coût et économies de la séance, voir
+boutons communs aux six pages : **Dépense** (coût et économies de la séance, voir
 [FinOps visible](securite.md#finops-visible-cache-compression-sous-agent-et-mémoire-de-contexte-locale))
 et **Journal** (compteur des refus et blocages, voir
 [Page Sécurité et bouton Journal](securite.md#page-sécurité-et-bouton-journal)).
