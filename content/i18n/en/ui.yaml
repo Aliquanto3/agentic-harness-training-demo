@@ -1139,9 +1139,9 @@ mcp:
       other: "{n} messages · {tokens}"
     is_error: "isError: the tool reports an error"
     rpc_error: "JSON-RPC error {code}: {message}"
-    not_sent: "not sent: the context exceeds the usable window"
+    not_sent: "not sent: the context exceeds the usable window (what the model can read, minus the room for its answer)"
     refused: "refused by the harness: {reason}"
-    cut: "answer cut at the output reserve"
+    cut: "answer cut at the output reserve (the maximum length planned for the answer)"
     stopped: "stopped"
   chips:
     question_tools: "question + tools"
@@ -1215,13 +1215,13 @@ mcp:
     download: "Download the journal (CSV)"
   github:
     title: "GitHub"
-    intro: "Connect with your GitHub account (OAuth App WaveStack, device flow). WaveStack only gets the rights you accept."
+    intro: "Connect with your GitHub account by OAuth (a delegated authorization, without sharing your password), WaveStack app, device flow (a code to enter). WaveStack only gets the rights you accept, as a token (a proof of access limited to those rights)."
     connect: "Connect to GitHub"
     reconnect: "Reconnect"
     disconnect: "Disconnect"
     waiting_text: "Open {uri} and enter this code:"
     connected_text: "Connected, read only · expires in {time}"
-    expired_text: "The token expired: reconnect."
+    expired_text: "The token (the proof of access received from GitHub) expired: reconnect."
     error_text: "Connection to GitHub refused."
     error:
       access_denied: "Connection refused on github.com: start it again if that was a mistake."

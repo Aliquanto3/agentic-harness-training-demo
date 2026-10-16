@@ -6,7 +6,8 @@ category_text: Harness Engineering
 hosting_text: Lokal
 explanation_text:
   - >-
-    Ein MCP-Server ist ein vom Harness getrenntes Programm, auf dem Arbeitsplatz oder im
+    Ein MCP-Server (Model Context Protocol, ein Standardprotokoll für den Austausch von
+    Tools) ist ein vom Harness getrenntes Programm, auf dem Arbeitsplatz oder im
     Internet, das eigene Tools bereitstellt. Wird ein Server aktiviert, verbindet sich der
     Harness mit ihm, fragt die Liste seiner Tools ab und beschreibt sie dem Modell wie seine
     eigenen Tools, unter dem Namen „server__tool“.
@@ -15,8 +16,8 @@ explanation_text:
       und die Füllstandsanzeige zeigt, was sie wiegt, Server für Server.
     - >-
       Mit Lazy Loading: Das Modell sieht nur eine Zeile pro Tool im Meta-Tool
-      load_tool_doc, und der Harness lädt eine Dokumentation erst, wenn das Modell sie
-      anfordert. Eine geladene Dokumentation beantwortet den Aufruf während der Runde. Bei
+      load_tool_doc (ein Tool, das die Dokumentation der anderen lädt), und der Harness
+      lädt eine Dokumentation erst, wenn das Modell sie anfordert. Eine geladene Dokumentation beantwortet den Aufruf während der Runde. Bei
       einem lokalen Modell bleibt sie danach im Verlauf, wie jedes Tool-Ergebnis, damit die
       Engine ihren Cache wiederverwendet; bei einem Cloud-Modell kommt sie ab dem nächsten
       Aufruf in die Liste der Tools (der Verlauf behält davon nur einen kurzen Platzhalter).

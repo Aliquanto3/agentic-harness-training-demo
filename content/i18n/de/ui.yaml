@@ -1139,9 +1139,9 @@ mcp:
       other: "{n} Nachrichten · {tokens}"
     is_error: "isError: Das Tool meldet einen Fehler"
     rpc_error: "JSON-RPC-Fehler {code}: {message}"
-    not_sent: "nicht gesendet: Der Kontext überschreitet das nutzbare Fenster"
+    not_sent: "nicht gesendet: Der Kontext überschreitet das nutzbare Fenster (was das Modell lesen kann, abzüglich des Platzes für seine Antwort)"
     refused: "vom Harness abgelehnt: {reason}"
-    cut: "Antwort an der Ausgabereserve abgeschnitten"
+    cut: "Antwort an der Ausgabereserve abgeschnitten (der für die Antwort vorgesehenen Höchstlänge)"
     stopped: "gestoppt"
   chips:
     question_tools: "Frage + Tools"
@@ -1215,13 +1215,13 @@ mcp:
     download: "Journal herunterladen (CSV)"
   github:
     title: "GitHub"
-    intro: "Verbindung mit Ihrem GitHub-Konto (OAuth-App WaveStack, Verbindung per Code). WaveStack erhält nur die Rechte, die Sie zulassen."
+    intro: "Verbindung mit Ihrem GitHub-Konto per OAuth (einer delegierten Berechtigung, ohne Ihr Passwort zu teilen), OAuth-App WaveStack, per Code. WaveStack erhält nur die Rechte, die Sie zulassen, in Form eines Tokens (eines auf diese Rechte begrenzten Zugangsnachweises)."
     connect: "Mit GitHub verbinden"
     reconnect: "Erneut verbinden"
     disconnect: "Verbindung trennen"
     waiting_text: "Öffnen Sie {uri} und geben Sie diesen Code ein:"
     connected_text: "Verbunden, nur Lesezugriff · läuft ab in {time}"
-    expired_text: "Das Token ist abgelaufen: Verbinden Sie sich erneut."
+    expired_text: "Das Token (der von GitHub erhaltene Zugangsnachweis) ist abgelaufen: Verbinden Sie sich erneut."
     error_text: "Verbindung zu GitHub abgelehnt."
     error:
       access_denied: "Verbindung auf github.com abgelehnt: Starten Sie sie erneut, falls das ein Versehen war."

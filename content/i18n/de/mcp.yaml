@@ -11,7 +11,7 @@ servers:
     sends_text: die gestellte Frage
   github:
     label_text: GitHub
-    sends_text: das aufgerufene Tool und seine Argumente, mit Ihrem Verbindungs-Token
+    sends_text: das aufgerufene Tool und seine Argumente, mit Ihrem Verbindungs-Token (dem von GitHub erhaltenen Zugangsnachweis)
 lazy_label_text: Lazy Loading
 load_tool_doc:
   label_text: Laden der Dokumentation
