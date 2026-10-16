@@ -123,6 +123,13 @@ class McpAuthorizationIntention(BaseModel):
     decision: str
 
 
+class GuardrailModeIntention(BaseModel):
+    """CAP-5: the mode (`block`, `flag` or `off`) of one guardrail (`toxicity`, `pii`)."""
+
+    guardrail: str
+    mode: str
+
+
 class RagRerankIntention(BaseModel):
     """Story 16: the RAG brick's reranking sub-option."""
 
@@ -1111,6 +1118,15 @@ def create_app(
             media_type="text/csv",
             headers={"Content-Disposition": 'attachment; filename="journal_securite.csv"'},
         )
+
+    @app.post("/api/intentions/guardrail_mode")
+    def guardrail_mode(intention: GuardrailModeIntention) -> dict[str, bool]:
+        """CAP-5, class (a): a guardrail's mode, effective from the next check."""
+        try:
+            app_session.set_guardrail_mode(intention.guardrail, intention.mode)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=t("web.unknown.guardrail_mode")) from None
+        return {"accepted": True}
 
     @app.post("/api/intentions/rag_rerank")
     def rag_rerank(intention: RagRerankIntention) -> dict[str, bool]:

@@ -36,18 +36,35 @@ class GuardrailsManager:
             classifier_factories if classifier_factories is not None else _default_classifiers()
         )
         self._instances: dict[GuardrailId, Classifier] = {}
+        # Story 5 (review of story 4): a failed first load (e.g. the 135 MB download) is
+        # cached here, never retried on every turn; cleared by `unload_idle` (a fresh brick
+        # restart is the only way back, as for a classify-time failure, AD-16).
+        self._load_errors: dict[GuardrailId, str] = {}
 
     def set_mode(self, guardrail: GuardrailId, mode: GuardrailMode) -> None:
         if guardrail not in DEFAULT_MODES:
             raise ValueError(f"unknown guardrail: {guardrail!r}")
         self.modes[guardrail] = mode
 
+    def withholds_output(self) -> bool:
+        """Story 5: whether an answer must be checked before it is shown (`block`, or `pii`
+        in `flag`, which masks): then it is never streamed live."""
+        return any(
+            m == "block" or (g == "pii" and m == "flag")
+            for g, m in self.modes.items()
+            if g != "injection"
+        )
+
     def _classifier(self, guardrail: GuardrailId) -> Classifier | None:
-        if guardrail not in self._factories:
+        if guardrail not in self._factories or guardrail in self._load_errors:
             return None
         instance = self._instances.get(guardrail)
         if instance is None:
-            instance = self._factories[guardrail]()
+            try:
+                instance = self._factories[guardrail]()
+            except Exception as exc:  # noqa: BLE001 - cached, never retried every turn
+                self._load_errors[guardrail] = str(exc)
+                return None
             self._instances[guardrail] = instance
         return instance
 
@@ -71,14 +88,22 @@ class GuardrailsManager:
     ) -> Verdict:
         classifier = self._classifier(guardrail)
         if classifier is None:
+            if guardrail in self._load_errors:
+                return Verdict(
+                    guardrail, direction, mode, "error", detail_text=self._load_errors[guardrail]
+                )
             return Verdict(guardrail, direction, mode, "not_installed")
+        masked = None
         try:
             result = classifier.classify(text)
+            if mode == "flag" and result.detected and result.entities:
+                masked = classifier.mask(text, result.entities)
         except Exception as exc:  # noqa: BLE001 - a missing/broken model never blocks the turn
+            # The real classifiers load (and download) inside `classify`: the failure is
+            # cached here, never retried on every turn, until `unload_idle`.
+            self._load_errors[guardrail] = str(exc)
+            self._instances.pop(guardrail, None)
             return Verdict(guardrail, direction, mode, "error", detail_text=str(exc))
-        masked = None
-        if mode == "flag" and result.detected and result.entities:
-            masked = classifier.mask(text, result.entities)
         return Verdict(
             guardrail,
             direction,
@@ -89,6 +114,7 @@ class GuardrailsManager:
             threshold=result.threshold,
             entities=tuple(e.label for e in result.entities),
             masked_text=masked,
+            partial=result.partial,
         )
 
     def unload_idle(self) -> None:
@@ -97,3 +123,4 @@ class GuardrailsManager:
         for classifier in self._instances.values():
             classifier.unload()
         self._instances.clear()
+        self._load_errors.clear()  # story 5: a fresh try next time (off, then on again)

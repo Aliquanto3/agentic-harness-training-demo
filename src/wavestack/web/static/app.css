@@ -628,6 +628,116 @@ body {
   font-weight: 600;
 }
 
+/* Story 5 (CAP-5), DESIGN verdict-banner: under the message, in Vue humain. */
+.verdict-banner {
+  margin-top: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--rounded-sm);
+  border-left: 3px solid transparent;
+  font-size: var(--typography-body-sm-font-size);
+}
+
+.verdict-banner.is-blocked {
+  background: var(--color-danger-soft);
+  border-left-color: var(--color-danger);
+  color: var(--color-ink);
+}
+
+.verdict-banner.is-masked,
+.verdict-banner.is-flagged {
+  background: var(--color-warning-soft);
+  border-left-color: var(--color-warning);
+  color: var(--color-ink);
+}
+
+.verdict-banner-text {
+  margin: 0;
+  font-weight: 600;
+}
+
+.verdict-banner-masked {
+  margin: var(--spacing-1) 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.verdict-mask-token {
+  background: var(--color-warning-soft);
+  border-radius: var(--rounded-sm);
+  padding: 0 2px;
+}
+
+/* Story 5 (CAP-5, CAP-6), `guardrails` brick: guard-mode-switch and « Essayer : … ». */
+.guardrail-list {
+  list-style: none;
+  margin: var(--spacing-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.guardrail-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.guardrail-name {
+  font-weight: 600;
+  font-size: var(--typography-body-sm-font-size);
+}
+
+.status-chip {
+  display: inline-flex;
+  align-self: flex-start;
+  font-family: var(--typography-label-font-family);
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+  border-radius: var(--rounded-full);
+  padding: 2px var(--spacing-2);
+  background: var(--color-surface);
+  color: var(--color-muted);
+}
+
+.guard-mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--color-line);
+  border-radius: var(--rounded-full);
+  overflow: hidden;
+}
+
+.guard-mode-option {
+  border: none;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font-size: var(--typography-body-sm-font-size);
+  padding: var(--spacing-1) var(--spacing-2);
+  cursor: pointer;
+  min-height: var(--spacing-hit-target-min);
+}
+
+.guard-mode-option.is-selected {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.guardrail-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+}
+
+.guardrail-try {
+  border: 1px solid var(--color-line);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border-radius: var(--rounded-full);
+  font-size: var(--typography-body-sm-font-size);
+  padding: 2px var(--spacing-2);
+  cursor: pointer;
+}
+
 /* D5 of 2026-10-01: the tools the turn consulted, each name a link to its step. */
 .answer-tools {
   margin: var(--spacing-1) 0 0;

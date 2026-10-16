@@ -20,4 +20,7 @@ explanation_text:
   - >-
     Beide Modelle zusammen bleiben unter 1,5 GB Speicher, werden nur bei der ersten
     Nutzung geladen und können wieder entladen werden; keines verteilt echten
-    gefährlichen Inhalt.
+    gefährlichen Inhalt. Sie filtern nur die Hauptunterhaltung: die Nachricht, die Sie
+    senden, und die endgültige Antwort. Werkzeugergebnisse, das Nachdenken,
+    Zwischenschritte, der Sub-Agent und die Werkstätten (nacktes LLM, RAG, MCP)
+    durchlaufen sie nicht; eine wiederholte Runde schon.

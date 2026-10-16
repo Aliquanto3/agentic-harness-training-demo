@@ -19,4 +19,7 @@ explanation_text:
   - >-
     Les deux modèles ensemble restent sous 1,5 Go de mémoire, chargés seulement à la
     première utilisation et déchargeables ; aucun des deux ne redistribue de contenu
-    dangereux réel.
+    dangereux réel. Ils filtrent seulement la conversation principale : le message que
+    vous envoyez et la réponse finale. Les résultats d'outils, le raisonnement, les
+    étapes intermédiaires, le sous-agent et les ateliers (LLM nu, RAG, MCP) ne passent
+    pas par eux ; un tour rejoué, si.

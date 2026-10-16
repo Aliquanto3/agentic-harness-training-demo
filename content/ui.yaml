@@ -155,6 +155,7 @@ main:
     status:
       imposed: "Imposé par ce modèle"
       unavailable: "Indisponible"
+      not_installed: "Non installé"
       switched_off: "Éteinte"
       waiting_model: "En attente du modèle"
       reserve: "Réserve de sortie : {tokens}"
@@ -266,6 +267,7 @@ main:
     stop_requested: "Arrêt demandé : il prend effet dès le premier token"
     preparing: "Préparation du contexte"
     empty_answer: "(réponse vide)"
+    guardrail_checking: "Vérification par les garde-fous…"
     nothing_to_replay: "Aucun prompt à rejouer : envoyez d'abord un message."
     compare_needs_two: "Il faut au moins deux tours pour comparer."
     waiting_model: "En attente du modèle…"
@@ -548,6 +550,11 @@ main:
       effect_tool: "Effet sur le tour : l'outil ne s'exécute pas ; le refus est réinjecté au modèle, qui reprend la main (ce n'est pas un nouvel essai)."
       effect_turn: "Effet sur le tour : le tour s'arrête ici."
       audit_lines: "Lignes ajoutées au journal d'audit"
+    guardrail:
+      direction: "Direction : {direction}"
+      mode: "Mode : {mode}"
+      decision: "Verdict : {verdict}. {detail}"
+      score: "Score {score} · seuil {threshold}"
     malformed:
       retry: "Réaction du harnais : erreur réinjectée au modèle, nouvel essai."
       stop: "Réaction du harnais : arrêt du tour, le modèle n'est plus rappelé (plus d'essai possible)."
@@ -734,6 +741,7 @@ main:
       mcp_connect_started: "Connexion MCP commencée"
       mcp_connect_ended: "Connexion MCP terminée"
       hook_decided: "Décision d'un hook"
+      guardrail_verdict: "Verdict d'un garde-fou"
       effect_applied: "Effet appliqué"
       approval_requested: "Validation demandée"
       approval_resolved: "Validation résolue"

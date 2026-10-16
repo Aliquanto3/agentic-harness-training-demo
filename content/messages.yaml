@@ -1287,6 +1287,60 @@ compression:
 guardrails:
   install: "Installez-les depuis le dossier de WaveStack avec `{command}`"
   missing: "Non installés : les bibliothèques des garde-fous (onnxruntime, Presidio, spaCy), dépendance optionnelle, ne sont pas installées. {install}, puis relancez WaveStack. Les autres briques fonctionnent sans elles."
+  # Story 5 (CAP-5, CAP-6): the turn loop's verdicts (`AppSession._guardrail_check`) and the
+  # brick's mode switches and « Essayer : … » buttons (`AppSession._guardrails_card`).
+  labels:
+    toxicity: Toxicité
+    pii: Données personnelles
+    injection: Injection de prompt
+  directions:
+    input: entrée
+    output: sortie
+  modes:
+    block: Bloquer
+    flag: Signaler
+    flag_pii: Masquer
+    "off": Désactivé
+  verdicts:
+    blocked: bloqué
+    masked: masqué
+    flagged: signalé
+    passed: "rien détecté"
+    error: erreur
+    partial: "rien détecté (analysé en partie)"
+  # Vue humain (verdict-banner): always names who decided and what did not go through.
+  banner:
+    blocked_input: "Bloqué par le garde-fou {guardrail}. Le modèle ne l'a pas reçu."
+    blocked_output: "Bloqué par le garde-fou {guardrail}. Vous n'avez pas reçu la réponse."
+    masked_input: "Masqué par le garde-fou {guardrail} avant l'envoi au modèle."
+    masked_output: "Masqué par le garde-fou {guardrail} avant l'affichage de la réponse."
+    partial: "Garde-fou {guardrail} : message trop long, seul le début a été analysé (rien détecté)."
+    flagged: "Signalé par le garde-fou {guardrail}."
+    error: "Le garde-fou {guardrail} a échoué : {detail}. Le tour continue."
+  # Journal de sécurité (CAP-3): one reason per decision, no secret.
+  decisions:
+    blocked_input: "{guardrail} : message bloqué, le modèle ne l'a pas reçu."
+    blocked_output: "{guardrail} : réponse bloquée, elle n'a pas été affichée."
+    masked_input: "{guardrail} : masqué avant l'envoi au modèle."
+    masked_output: "{guardrail} : masqué avant l'affichage de la réponse."
+    flagged: "{guardrail} : signalé, rien de changé."
+    error: "{guardrail} : erreur de chargement ({detail}), le tour continue."
+    passed: "{guardrail} : rien détecté."
+    partial: "{guardrail} : rien détecté, texte analysé en partie seulement (trop long)."
+  injection_not_installed: "Non installé : jeton Hugging Face requis (voir la story suivante)."
+  # CAP-6: neutral, fabricated examples (brouillon validé de guardrails.md), never real
+  # dangerous content; the button never shows the example's text, only its label.
+  examples:
+    toxicity:
+      trigger_label: "Essayer : message insultant"
+      trigger_text: "Franchement, t'es un abruti, ton tableau est nul."
+      pass_label: "Essayer : message neutre"
+      pass_text: "Ton tableau a une erreur en colonne C, je te propose une correction."
+    pii:
+      trigger_label: "Essayer : coordonnées"
+      trigger_text: "Je suis Camille Martin, joignable au 06 12 34 56 78 ou à camille.martin@example.com, IBAN FR76 3000 6000 0112 3456 7890 189."
+      pass_label: "Essayer : message sans coordonnées"
+      pass_text: "Le service client répond du lundi au vendredi, de 9 h à 18 h."
 
 # `cloud.py` (FinOps): what a declared price means.
 cloud:
@@ -1319,6 +1373,7 @@ web:
     download_target: Cible de téléchargement inconnue.
     mcp_tool_rule: "Règle invalide : autoriser, demander ou refuser."
     mcp_authorization: Aucune demande d'autorisation en attente avec cet identifiant.
+    guardrail_mode: "Garde-fou ou mode inconnu : bloquer, signaler ou désactivé, sur toxicité ou données personnelles."
 
 models:
   # `models/openai_chat.py` (AD-16): a cloud provider's refusal, its hints, a malformed call.

@@ -1278,6 +1278,54 @@ compression:
 guardrails:
   install: "Installieren Sie sie aus dem Ordner von WaveStack mit `{command}`"
   missing: "Nicht installiert: Die Bibliotheken der Garde-fous (onnxruntime, Presidio, spaCy), eine optionale Abhängigkeit, sind nicht installiert. {install}, und starten Sie WaveStack dann neu. Die anderen Bausteine funktionieren ohne sie."
+  labels:
+    toxicity: Toxizität
+    pii: Personenbezogene Daten
+    injection: Prompt-Injektion
+  directions:
+    input: Eingabe
+    output: Ausgabe
+  modes:
+    block: Blockieren
+    flag: Melden
+    flag_pii: Maskieren
+    "off": Deaktiviert
+  verdicts:
+    blocked: blockiert
+    masked: maskiert
+    flagged: gemeldet
+    passed: "nichts erkannt"
+    error: Fehler
+    partial: "nichts erkannt (teilweise analysiert)"
+  banner:
+    blocked_input: "Vom Garde-fou {guardrail} blockiert. Das Modell hat sie nicht erhalten."
+    blocked_output: "Vom Garde-fou {guardrail} blockiert. Sie haben die Antwort nicht erhalten."
+    masked_input: "Vom Garde-fou {guardrail} vor dem Versand an das Modell maskiert."
+    masked_output: "Vom Garde-fou {guardrail} vor der Anzeige der Antwort maskiert."
+    partial: "Garde-fou {guardrail}: Nachricht zu lang, nur ihr Anfang wurde analysiert (nichts erkannt)."
+    flagged: "Vom Garde-fou {guardrail} gemeldet."
+    error: "Der Garde-fou {guardrail} ist fehlgeschlagen: {detail}. Die Runde geht weiter."
+  decisions:
+    blocked_input: "{guardrail}: Nachricht blockiert, das Modell hat sie nicht erhalten."
+    blocked_output: "{guardrail}: Antwort blockiert, sie wurde nicht angezeigt."
+    masked_input: "{guardrail}: vor dem Versand an das Modell maskiert."
+    masked_output: "{guardrail}: vor der Anzeige der Antwort maskiert."
+    flagged: "{guardrail}: gemeldet, nichts geändert."
+    error: "{guardrail}: Ladefehler ({detail}), die Runde geht weiter."
+    passed: "{guardrail}: nichts erkannt."
+    partial: "{guardrail}: nichts erkannt, Text nur teilweise analysiert (zu lang)."
+  injection_not_installed: "Nicht installiert: Ein Hugging-Face-Token ist erforderlich (siehe die nächste Story)."
+  examples:
+    toxicity:
+      trigger_label: "Ausprobieren: beleidigende Nachricht"
+      trigger_text: "Ehrlich gesagt, du bist ein Idiot, deine Tabelle ist nutzlos."
+      pass_label: "Ausprobieren: neutrale Nachricht"
+      pass_text: "In Spalte C deiner Tabelle ist ein Fehler, hier ist eine Korrektur."
+    pii:
+      trigger_label: "Ausprobieren: Kontaktdaten"
+      trigger_text: "Ich bin Camille Martin, erreichbar unter 06 12 34 56 78 oder camille.martin@example.com, IBAN FR76 3000 6000 0112 3456 7890 189."
+      pass_label: "Ausprobieren: Nachricht ohne Kontaktdaten"
+      pass_text: "Der Kundendienst antwortet von Montag bis Freitag, 9 bis 18 Uhr."
 
 # `cloud.py` (FinOps): what a declared price means.
 cloud:
@@ -1310,6 +1358,7 @@ web:
     download_target: Unbekanntes Download-Ziel.
     mcp_tool_rule: "Ungültige Regel: Erlauben, Fragen oder Ablehnen."
     mcp_authorization: Keine ausstehende Autorisierungsanfrage mit dieser ID.
+    guardrail_mode: "Unbekannter Schutzmechanismus oder Modus: Blockieren, Melden oder Deaktiviert, für Toxizität oder personenbezogene Daten."
 
 models:
   # `models/openai_chat.py` (AD-16): a cloud provider's refusal, its hints, a malformed call.

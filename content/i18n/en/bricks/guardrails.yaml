@@ -18,3 +18,6 @@ explanation_text:
   - >-
     Both models together stay under 1.5 GB of memory, loaded only on first use and
     unloadable; neither redistributes any real dangerous content.
+    They filter the main conversation only: the message you send and the final
+    answer. Tool results, the reasoning, intermediate steps, the sub-agent and the
+    workshops (bare LLM, RAG, MCP) do not go through them; a replayed turn does.

@@ -107,6 +107,27 @@ def test_unknown_guardrail_rejected() -> None:
         m.set_mode("made_up", "block")  # type: ignore[arg-type]
 
 
+def test_failed_load_is_cached_never_retried_every_turn() -> None:
+    """Story 5 (review of story 4): a construction failure (e.g. a failed download) is
+    cached, reported as `error`, never retries the factory on the next `check`."""
+    attempts = 0
+
+    def broken() -> FakeClassifier:
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("download failed")
+
+    m = GuardrailsManager({"toxicity": broken, "pii": lambda: FakeClassifier("PII", "E-MAIL")})
+    m.set_mode("toxicity", "block")
+    [v1] = m.check("input", "t'es TOXIC")
+    [v2] = m.check("input", "t'es TOXIC")
+    assert v1.status == "error" and v2.status == "error"
+    assert attempts == 1  # not retried on the second turn
+    m.unload_idle()
+    m.check("input", "t'es TOXIC")
+    assert attempts == 2  # a fresh try after the brick is switched off and on again
+
+
 def test_unload_idle_clears_instances_and_calls_unload() -> None:
     fake = FakeClassifier()
     m = manager(toxicity=fake)
@@ -164,3 +185,31 @@ def test_real_presidio_masks_the_guardrails_md_example() -> None:
         "Mon numéro fiscal est 1234567890123.",
         pii.classify("Mon numéro fiscal est 1234567890123.").entities,
     )
+
+
+def test_classify_failure_is_cached_and_mask_failure_fails_open() -> None:
+    """Review of story 5 (MEDIUM): the real classifiers load inside `classify`; a failure
+    there is cached (never 135 MB retried every turn), and a failing `mask` is an `error`
+    verdict, never an exception that breaks the turn."""
+
+    class Broken(FakeClassifier):
+        calls = 0
+
+        def classify(self, text: str):  # type: ignore[override]
+            Broken.calls += 1
+            raise RuntimeError("download failed")
+
+    m = manager(toxicity=Broken())
+    m.set_mode("toxicity", "block")
+    assert m.check("input", "x")[0].status == "error"
+    assert m.check("input", "x")[0].status == "error"
+    assert Broken.calls == 1
+
+    class BadMask(FakeClassifier):
+        def mask(self, text, entities):  # type: ignore[override]
+            raise RuntimeError("mask failed")
+
+    m = GuardrailsManager({"pii": lambda: BadMask("PII", "E-MAIL"), "toxicity": FakeClassifier})
+    m.set_mode("pii", "flag")
+    [v] = m.check("output", "PII")
+    assert v.status == "error" and not v.blocks and not v.masks

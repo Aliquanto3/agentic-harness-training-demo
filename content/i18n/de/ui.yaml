@@ -144,6 +144,7 @@ main:
     status:
       imposed: "Von diesem Modell vorgegeben"
       unavailable: "Nicht verfügbar"
+      not_installed: "Nicht installiert"
       switched_off: "Ausgeschaltet"
       waiting_model: "Warten auf das Modell"
       reserve: "Ausgabereserve: {tokens}"
@@ -255,6 +256,7 @@ main:
     stop_requested: "Stopp angefordert: Er greift ab dem ersten Token"
     preparing: "Kontext wird vorbereitet"
     empty_answer: "(leere Antwort)"
+    guardrail_checking: "Prüfung durch die Garde-fous…"
     nothing_to_replay: "Kein Prompt zum Wiederholen: Senden Sie zuerst eine Nachricht."
     compare_needs_two: "Zum Vergleichen braucht es mindestens zwei Runden."
     waiting_model: "Warten auf das Modell…"
@@ -537,6 +539,11 @@ main:
       effect_tool: "Wirkung auf die Runde: Das Tool wird nicht ausgeführt; die Ablehnung wird beim Modell wieder eingespeist, das weitermacht (das ist kein neuer Versuch)."
       effect_turn: "Wirkung auf die Runde: Die Runde endet hier."
       audit_lines: "Ins Audit-Protokoll eingetragene Zeilen"
+    guardrail:
+      direction: "Richtung: {direction}"
+      mode: "Modus: {mode}"
+      decision: "Verdikt: {verdict}. {detail}"
+      score: "Score {score} · Schwelle {threshold}"
     malformed:
       retry: "Reaktion des Harness: Fehler wird beim Modell wieder eingespeist, neuer Versuch."
       stop: "Reaktion des Harness: Die Runde endet, das Modell wird nicht mehr aufgerufen (kein Versuch mehr möglich)."
@@ -723,6 +730,7 @@ main:
       mcp_connect_started: "MCP-Verbindung begonnen"
       mcp_connect_ended: "MCP-Verbindung beendet"
       hook_decided: "Entscheidung eines Hooks"
+      guardrail_verdict: "Verdikt eines Garde-fou"
       effect_applied: "Wirkung angewendet"
       approval_requested: "Freigabe angefordert"
       approval_resolved: "Freigabe entschieden"

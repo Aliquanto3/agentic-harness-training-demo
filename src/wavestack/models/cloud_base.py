@@ -908,6 +908,7 @@ def run_call(
     eur_per_usd: float = DEFAULT_EUR_PER_USD,
     lang: str = "fr",
     max_session_usd: float | None = None,
+    withhold: bool = False,
 ) -> ChatCall:
     """One streamed call under the caller's scope: `model_call_started`, `model_first_token`,
     `model_delta` (grouped), `model_call_ended`. Raises `ProviderError` after ending the call
@@ -921,7 +922,9 @@ def run_call(
     cause `max_session_usd`), checked before the spacing wait (a refused call takes no
     slot) and again after it (a concurrent call may have ended during the wait); calls
     already under way are never stopped, so the total may exceed the cap by the cost of
-    each of them. `None` checks nothing."""
+    each of them. `None` checks nothing. `withhold` (story 5): an answer the guardrails
+    check before it is shown is never streamed (no `model_delta` of its text) and its final
+    text stays out of `model_call_ended`; the caller emits the checked text."""
     entry = getattr(engine, "entry", None)
     if isinstance(entry, CloudModel):
         if (refused := session_cap_error(entry, max_session_usd)) is not None:
@@ -937,6 +940,8 @@ def run_call(
     started_payload: dict[str, Any] = {"phase_label": phase_label}
     if sampling_trace is not None:  # story 29: what sampling the call carries, and whose
         started_payload["sampling"] = sampling_trace
+    if withhold:
+        started_payload["withheld"] = True
     journal.emit("model_call_started", started_payload)
     out = ChatCall()
     channels: dict[str, list[str]] = {"reasoning": [], "text": [], "tool_call": []}
@@ -1014,6 +1019,8 @@ def run_call(
             if cache is not None:
                 payload |= cache
         # GreenOps: nor has it a footprint; EcoLogits' latency is `duration_ms`.
+        if withhold and not out.calls:  # story 5: the final answer, before its check
+            payload["text"] = payload["raw_output"] = ""
         if isinstance(entry, CloudModel) and produced:
             out.impact = cloud_impacts(entry, out.output_tokens, payload["duration_ms"] / 1000)
             payload |= out.impact.fields(lang)
@@ -1040,7 +1047,8 @@ def run_call(
             last_at = now
             out.channel = channel
             channels[channel].append(text)
-            pending.append(item)
+            if not (withhold and channel == "text"):
+                pending.append(item)
             if now - last_flush >= DELTA_INTERVAL_S:
                 flush()
         flush()

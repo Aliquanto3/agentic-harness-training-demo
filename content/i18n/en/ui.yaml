@@ -144,6 +144,7 @@ main:
     status:
       imposed: "Imposed by this model"
       unavailable: "Unavailable"
+      not_installed: "Not installed"
       switched_off: "Off"
       waiting_model: "Waiting for the model"
       reserve: "Output reserve: {tokens}"
@@ -255,6 +256,7 @@ main:
     stop_requested: "Stop requested: it takes effect from the first token"
     preparing: "Preparing the context"
     empty_answer: "(empty answer)"
+    guardrail_checking: "Checking with the guardrails…"
     nothing_to_replay: "No prompt to replay: send a message first."
     compare_needs_two: "At least two turns are needed to compare."
     waiting_model: "Waiting for the model…"
@@ -537,6 +539,11 @@ main:
       effect_tool: "Effect on the turn: the tool does not run; the refusal is reinjected into the model, which takes over again (this is not a retry)."
       effect_turn: "Effect on the turn: the turn stops here."
       audit_lines: "Lines added to the audit log"
+    guardrail:
+      direction: "Direction: {direction}"
+      mode: "Mode: {mode}"
+      decision: "Verdict: {verdict}. {detail}"
+      score: "Score {score} · threshold {threshold}"
     malformed:
       retry: "Harness reaction: error reinjected into the model, new attempt."
       stop: "Harness reaction: the turn stops, the model is not called again (no attempts left)."
@@ -723,6 +730,7 @@ main:
       mcp_connect_started: "MCP connection started"
       mcp_connect_ended: "MCP connection ended"
       hook_decided: "Hook decision"
+      guardrail_verdict: "A guardrail's verdict"
       effect_applied: "Effect applied"
       approval_requested: "Approval requested"
       approval_resolved: "Approval resolved"
