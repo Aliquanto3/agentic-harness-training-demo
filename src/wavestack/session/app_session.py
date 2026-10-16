@@ -29,6 +29,7 @@ from itertools import accumulate
 from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
 
+import httpx
 from mcp.shared.exceptions import MCPError
 
 from wavestack import config
@@ -101,6 +102,7 @@ from wavestack.hooks import (
     host,
     load_hooks_content,
 )
+from wavestack.mcp import github_auth
 from wavestack.mcp import lab as mcp_lab
 from wavestack.mcp import snapshot as mcp_snapshot
 from wavestack.mcp.connection import (
@@ -1002,6 +1004,8 @@ class AppSession:
         # a pending `ask`, by its `request_id` (`_await_mcp_authorization`, answered from the UI).
         self._mcp_policy = ToolPolicy()
         self._security_journal = SecurityJournal()
+        # Story 3 (CAP-4): GitHub's device flow and token; own module, own storage.
+        self._github = github_auth.GithubAuth()
         self._mcp_authorizations: dict[str, tuple[threading.Event, dict[str, str | None]]] = {}
         self._mcp_authorizations_seq = 0
         # Story 6b: documentation complète by default; the documentations loaded belong to
@@ -1431,6 +1435,9 @@ class AppSession:
                 else None,
             }
             for server in self._mcp_servers.values()
+            # Story 3 (CAP-4): GitHub is an Atelier MCP server only, never a Harnais brick
+            # sub-option (its own OAuth block lives on the MCP page, not here).
+            if server.id != "github"
         ]
 
     def _mcp_call_option(self, name: str) -> dict[str, Any]:
@@ -5595,7 +5602,7 @@ class AppSession:
     def set_mcp_server(self, server_id: str, enabled: bool) -> None:
         """Class (a): an MCP server sub-option. Enabled with the brick wanted, the server is
         contacted now; disabled, its connection closes. `KeyError` if unknown."""
-        if server_id not in self._mcp_servers:
+        if server_id not in self._mcp_servers or server_id == "github":  # CAP-4: lab only
             raise KeyError(server_id)
         with self._lock:
             if (server_id in self._mcp_enabled) == enabled:
@@ -5650,9 +5657,38 @@ class AppSession:
             box["decision"] = decision
         event.set()
 
+    def github_connect(self) -> dict[str, str]:
+        """CAP-4: starts (or restarts) GitHub's device flow; a network failure: `SendRefused`."""
+        try:
+            return self._github.start()
+        except (httpx.HTTPError, ValueError) as exc:  # ValueError: a proxy's page, not GitHub
+            raise SendRefused(Message("session.mcp_lab.github_start_failed")) from exc
+
+    def github_disconnect(self) -> None:
+        """CAP-4: drops the token and any open connection that used it."""
+        self._github.disconnect()
+        self._mcp_disconnect("github")
+
+    def _github_state(self) -> dict[str, Any]:
+        """`GET /api/mcp_lab`'s `github`: advances a pending device flow (cheap, rate-limited
+        by its own interval), refreshes an expired access token (once, then every 30 s at most
+        on a network failure), never the token itself."""
+        self._github.poll()
+        self._github.access_token()
+        return self._github.state()
+
     def _mcp_connect(self, server_id: str) -> None:
         """Start contacting `server_id` on the loop; `_mcp_connected` applies the outcome."""
         server = self._mcp_servers[server_id]
+        # Story 3 (CAP-4): GitHub needs a fresh bearer token; without one, the attempt never
+        # leaves (the same « no loop » error path, a clear state rather than a 401).
+        github_blocked = False
+        if server_id == "github":
+            headers = self._github.headers()
+            if headers is None:
+                github_blocked = True
+            else:
+                server = replace(server, headers=headers, auth=self._github.bearer)
         applied = threading.Event()  # #5: set by `_mcp_apply`, waited for by `_start`
         with self._lock:
             if server_id in self._mcp_conns:
@@ -5668,7 +5704,7 @@ class AppSession:
                     call_timeout=self.cfg.mcp_call_timeout_s,
                     language=self._language,
                 )
-                if loop is not None
+                if loop is not None and not github_blocked
                 else None
             )
             if conn is not None:
@@ -5686,7 +5722,11 @@ class AppSession:
             )
         started = time.monotonic()
         if conn is None:
-            reason = Message("session.mcp.no_loop")
+            reason = (
+                Message("session.mcp.github_not_connected")
+                if github_blocked
+                else Message("session.mcp.no_loop")
+            )
             self._executor.submit(
                 self._mcp_apply,
                 server_id,
@@ -10518,6 +10558,7 @@ class AppSession:
             "session_state": {"state": state, "reason_text": reason_text},
             "ask": self._mcp_lab_ask_info(),
             "tool_rules": self._mcp_policy.rules(),  # CAP-2: changed since the connection
+            "github": self._github_state(),  # CAP-4
             "seq": tip,
         }
 
@@ -10691,6 +10732,12 @@ class AppSession:
             if loop is None:
                 end["error_text"] = Message("session.mcp.no_loop")
                 return
+            if server_id == "github":
+                headers = self._github.headers()
+                if headers is None:
+                    end["error_text"] = Message("session.mcp_lab.github_not_connected")
+                    return
+                server = replace(server, headers=headers, auth=self._github.bearer)
 
             def emit(payload: dict[str, Any], step: str) -> int | None:
                 return self._mcp_lab_emit("mcp_lab_message", payload, step, server_id)
@@ -11132,6 +11179,17 @@ class AppSession:
                 }
                 self._mcp_lab_after(conn, payload, cancel)
                 return payload
+        if server_id == "github" and self._github.access_token() is None:
+            # Flow 4 (EXPERIENCE.md): the token expired or was dropped while the connection
+            # stayed open; said plainly, nothing sent (never GitHub's obscure 401).
+            payload |= {
+                "status": "error",
+                "error_kind": "unreachable",
+                "error_text": Message("session.mcp_lab.github_expired_call"),
+                "raw": None,
+            }
+            self._mcp_lab_after(conn, payload, cancel)
+            return payload
         try:
             result = conn.call_result(tool, arguments)
         except Exception as exc:  # noqa: BLE001 - AD-16: said in the Séquence

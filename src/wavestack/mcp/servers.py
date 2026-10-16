@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from wavestack import config
+from wavestack.mcp import github_auth
 
 LOCAL = "local"
 # `{name}`: a variable the local server's prompt fills (`str.format`), lot 4 of 2026-10-04.
@@ -20,6 +21,12 @@ _VARIABLE = re.compile(r"\{([a-z_]+)\}")
 class McpServer:
     id: str
     url: str | None  # None: the local server, a child process over stdio
+    # Story 3 (CAP-4): extra default headers for this connection (GitHub's bearer token and
+    # toolsets); filled at connect time (`AppSession._mcp_connect`, `_run_mcp_lab_connect`), never
+    # kept in `mcp_servers()`'s own entry. `auth` sets the bearer again on each request (an
+    # `httpx2.Auth`): a connection outlives the 8 h access token.
+    headers: dict[str, str] | None = None
+    auth: Any = None
 
     @property
     def network(self) -> bool:
@@ -41,6 +48,10 @@ def mcp_servers(cfg: config.Config) -> dict[str, McpServer]:
         LOCAL: McpServer(LOCAL, None),
         "datagouv": McpServer("datagouv", urls["datagouv"]),
         "mslearn": McpServer("mslearn", urls["mslearn"]),
+        # Story 3 (CAP-4): the Atelier MCP's 4th server, never a Harnais brick sub-option
+        # (`AppSession._mcp_options` excludes it on purpose; its own OAuth block lives on
+        # the MCP page). `headers` stays `None` here: no token until `GithubAuth` gives one.
+        "github": McpServer("github", github_auth.MCP_URL),
     }
 
 

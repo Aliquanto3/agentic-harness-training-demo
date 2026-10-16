@@ -25,6 +25,36 @@ def test_an_unlisted_tool_defaults_to_low_allow():
     )
 
 
+# ---------- story 3 of the V1.1 vague 2 (CAP-4): GitHub's read/write defaults ----------
+
+
+def test_github_read_tools_default_to_mid_allow():
+    policy = ToolPolicy()
+    for tool in (
+        "github__list_secret_scanning_alerts",
+        "github__list_dependabot_alerts",
+        "github__get_file_contents",
+        "github__list_issues",
+    ):
+        assert (policy.risk_of(tool), policy.rule_of(tool)) == ("mid", "allow")
+
+
+def test_github_write_tools_default_to_high_deny():
+    policy = ToolPolicy()
+    for tool in ("github__merge_pull_request", "github__create_pull_request"):
+        assert (policy.risk_of(tool), policy.rule_of(tool)) == ("high", "deny")
+
+
+def test_an_unknown_github_tool_is_presumed_to_write():
+    """The orchestrator's prudent default: a GitHub tool this table does not name is refused,
+    not silently allowed like an ordinary unlisted tool."""
+    policy = ToolPolicy()
+    assert (policy.risk_of("github__some_new_tool"), policy.rule_of("github__some_new_tool")) == (
+        "high",
+        "deny",
+    )
+
+
 def test_set_rule_overrides_then_back_to_default_is_still_reported():
     policy = ToolPolicy()
     policy.set_rule("local__define_term", "deny")

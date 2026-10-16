@@ -315,6 +315,7 @@ session:
     connecting: "Connecting to the MCP server {server}"
     no_loop: "Connection impossible: WaveStack's asyncio loop has not started."
     abandoned: "Connection abandoned: the server was disabled."
+    github_not_connected: "Connect to GitHub first, in the MCP workshop: the connection cannot open without a token."
     # AD-9 (E089): the live tools/list against content/mcp_snapshots/, beyond the threshold.
     drift:
       message: "{server} drifts from its snapshot by {gap}% (threshold: {threshold}%): {changes}. The gauge planned for its scenarios may no longer hold; run scripts/snapshot_mcp.py again to update the snapshot."
@@ -560,6 +561,9 @@ session:
     policy_ask_outside_lab: "Denied by the security policy: the rule for « {tool} » is Ask, and only the MCP page can ask for your consent. The tool was not run."
     policy_ask_timeout: "Denied for lack of an answer: nobody authorized the call to « {tool} » in time. The tool was not run."
     policy_ask_cancelled: "Cancelled: the exchange stopped before your decision on « {tool} ». The tool was not run."
+    github_not_connected: "Connect to GitHub first (the GitHub block below): the connection cannot open without a token."
+    github_start_failed: "Could not reach GitHub: the network did not answer. Try again."
+    github_expired_call: "Refused: the GitHub connection expired or was closed. Reconnect in the GitHub block. Sent to GitHub: no."
     launch:
       stdio: "launches the server: {command}"
       http: "opens an HTTP session with {host}"

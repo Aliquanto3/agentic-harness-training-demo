@@ -1199,6 +1199,26 @@ mcp:
     deny: "Ablehnen"
   security_journal:
     download: "Journal herunterladen (CSV)"
+  github:
+    title: "GitHub"
+    intro: "Verbindung mit Ihrem GitHub-Konto (OAuth-App WaveStack, Verbindung per Code). WaveStack erhält nur die Rechte, die Sie zulassen."
+    connect: "Mit GitHub verbinden"
+    reconnect: "Erneut verbinden"
+    disconnect: "Verbindung trennen"
+    waiting_text: "Öffnen Sie {uri} und geben Sie diesen Code ein:"
+    connected_text: "Verbunden, nur Lesezugriff · läuft ab in {time}"
+    expired_text: "Das Token ist abgelaufen: Verbinden Sie sich erneut."
+    error_text: "Verbindung zu GitHub abgelehnt."
+    error:
+      access_denied: "Verbindung auf github.com abgelehnt: Starten Sie sie erneut, falls das ein Versehen war."
+      expired_token: "Der Code ist abgelaufen (15 Min.), bevor er eingegeben wurde: Starten Sie die Verbindung erneut."
+      network: "Netzwerkfehler: GitHub hat auf die Erneuerung des Tokens nicht geantwortet. Neuer Versuch in 30 s."
+    state:
+      disconnected: "nicht verbunden"
+      waiting: "wartet"
+      connected: "verbunden"
+      expired: "abgelaufen"
+      error: "Fehler"
   outcomes:
     no_tool: "Antwort ohne Tool"
     answer: "Antwort"
