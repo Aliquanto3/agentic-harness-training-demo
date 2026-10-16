@@ -764,6 +764,13 @@ hooks:
 mcp:
   glossary:
     unknown_term: "Term not in the glossary: “{term}”. Available terms: {known}."
+  system:
+    info: "Total RAM: {total}; available RAM: {available} ({percent}% used); CPU cores: {cpu}; platform: {platform}."
+  sandbox:
+    file_created: "File created in the sandbox: {path}."
+    folder_created: "Folder created in the sandbox: {path}."
+  screenshot:
+    saved: "Screenshot saved in the sandbox: {path} ({size} bytes)."
   # `load_tool_doc` (AD-25), the lazy loading's meta-tool.
   doc:
     already_loaded: "The documentation of “{tool}” is already loaded."

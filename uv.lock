@@ -1060,6 +1060,15 @@ wheels = [
 ]
 
 [[package]]
+name = "mss"
+version = "9.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/b5/6a72edca03a4066475eb4b4e296b5635de64cf15bd1c4e58c2d86087bd6e/mss-9.0.2.tar.gz", hash = "sha256:c96a4ec73224da7db22bc07ef3cfaa18f8b86900d1872e29113bbcef0093a21e", size = 82514, upload-time = "2024-09-01T10:33:44.842Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/ce/a27f12f03decd8e6d30d3c595671b8dba32e9c33255749eb59a163e8c95c/mss-9.0.2-py3-none-any.whl", hash = "sha256:685fa442cc96d8d88b4eb7aadbcccca7b858e789c9259b603e1ef0e435b60425", size = 23867, upload-time = "2024-09-01T10:33:42.968Z" },
+]
+
+[[package]]
 name = "multidict"
 version = "6.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2143,6 +2152,7 @@ dependencies = [
     { name = "llama-cpp-python" },
     { name = "mcp" },
     { name = "mcp-types" },
+    { name = "mss" },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -2194,6 +2204,7 @@ requires-dist = [
     { name = "llama-cpp-python", specifier = ">=0.3.35,<0.4", index = "https://abetlen.github.io/llama-cpp-python/whl/cpu" },
     { name = "mcp", specifier = ">=2.2,<2.3" },
     { name = "mcp-types", specifier = ">=2.2,<2.3" },
+    { name = "mss", specifier = ">=9.0.2,<10" },
     { name = "onnxruntime", marker = "extra == 'guardrails'", specifier = "==1.23.2" },
     { name = "presidio-analyzer", marker = "extra == 'guardrails'", specifier = "==2.2.360" },
     { name = "presidio-anonymizer", marker = "extra == 'guardrails'", specifier = "==2.2.360" },

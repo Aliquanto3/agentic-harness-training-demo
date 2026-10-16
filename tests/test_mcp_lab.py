@@ -407,7 +407,7 @@ def test_local_handshake_lists_the_three_primitives_and_leaves_the_brick(loop):
     summaries = [m.payload["summary_text"] for m in messages if m.payload["summary_text"]]
     assert summaries == [
         "capacités : tools · resources · prompts",
-        "2 outils",
+        "5 outils",
         "1 ressource",
         "1 prompt",
     ]
@@ -423,7 +423,13 @@ def test_local_handshake_lists_the_three_primitives_and_leaves_the_brick(loop):
     assert prompt["name"] == "explain_term"
     assert [(a["name"], a["required"]) for a in prompt["arguments"]] == [("term", True)]
     names = [t["name"] for t in ended["tools"]]
-    assert names == ["local__list_terms", "local__define_term"]
+    assert names == [
+        "local__list_terms",
+        "local__define_term",
+        "local__system_info",
+        "local__create_path",
+        "local__take_screenshot",
+    ]
     for tool in ended["tools"]:  # fake engine: one token per byte, counted, not estimated
         assert tool["doc_tokens"] == len(tool["definition_text"].encode())
         assert tool["line_text"] in ended["lazy_definition_text"]
@@ -956,6 +962,9 @@ def test_german_page_texts_and_the_local_tools_in_german(loop):
         assert [t["description"] for t in ended["tools"]] == [
             german.list_terms,
             german.define_term,
+            german.system_info,
+            german.create_path,
+            german.take_screenshot,
         ]
         assert ended["resources"][0]["title"] == "Begriffe des Glossars"
         assert [m.payload["method"] for m in messages][0] == "initialize"

@@ -16,7 +16,13 @@ from wavestack.context.render import render_context
 from wavestack.context.segments import Joined, Part, SegmentKind
 from wavestack.trace.journal import get_journal
 
-LOCAL = ("local__list_terms", "local__define_term")
+LOCAL = (
+    "local__list_terms",
+    "local__define_term",
+    "local__system_info",
+    "local__create_path",
+    "local__take_screenshot",
+)
 DEFINE = "local__define_term"
 
 
@@ -66,7 +72,7 @@ def test_toggle_swaps_the_documentation_for_one_line_per_tool(loop):  # noqa: F8
     assert session.build_turn_state().tools == ("load_tool_doc",)
     assert session.build_turn_state().loadable == LOCAL
     lines = [s for s in _segments(lazy, "tool_catalog") if s["text"].startswith("- local__")]
-    assert [(s["brick"], s["component"]) for s in lines] == [("mcp", "mcp.local")] * 2
+    assert [(s["brick"], s["component"]) for s in lines] == [("mcp", "mcp.local")] * len(LOCAL)
     assert lines[0]["text"].startswith("- local__list_terms : Liste les termes")
     assert {s["brick"] for s in _segments(lazy, "tool_catalog")} == {"mcp"}  # AC: MCP brick
     assert lazy["used"] < full["used"]
@@ -219,7 +225,7 @@ def test_everything_loaded_keeps_the_meta_tool_then_clearing_unloads(loop):  # n
 
     state = session.build_turn_state()
     assert state.tools == ("load_tool_doc",) and state.loadable == LOCAL
-    assert state.documented == LOCAL
+    assert state.documented == LOCAL[:2]
     mark = get_journal().last_seq()
 
     session.clear_conversation()
@@ -469,9 +475,8 @@ def test_chat_mode_everything_loaded_in_the_turn_drops_the_meta_tool(loop):  # n
         return sse(delta(tool_calls=[tool_call]), delta("tool_calls"))
 
     provider = Provider(
-        loading("local__list_terms"),
-        loading("local__define_term"),
-        sse(delta(content="Deux outils documentés."), delta("stop")),
+        *[loading(name) for name in LOCAL],
+        sse(delta(content="Tous les outils documentés."), delta("stop")),
     )
     cfg = config.load_config()
     entry = cfg.cloud_model("groq")
@@ -483,14 +488,14 @@ def test_chat_mode_everything_loaded_in_the_turn_drops_the_meta_tool(loop):  # n
     session.set_mcp_mode(True)
     session.join()
 
-    session.send("Documente les deux outils du glossaire.")
+    session.send("Documente tous les outils du glossaire.")
     session.join()
 
     bodies = [json.loads(r.content) for r in provider.requests]
     names = [[t["function"]["name"] for t in b.get("tools", [])] for b in bodies]
-    assert names == [
-        ["load_tool_doc"],
-        ["local__list_terms", "load_tool_doc"],
-        ["local__list_terms", "local__define_term"],
-    ]
+    expected = [["load_tool_doc"]]
+    for i in range(1, len(LOCAL)):
+        expected.append([*LOCAL[:i], "load_tool_doc"])
+    expected.append(list(LOCAL))  # everything documented: the meta-tool is dropped
+    assert names == expected
     session.close()
