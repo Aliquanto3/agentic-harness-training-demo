@@ -40,7 +40,9 @@ async def _tools(server, timeout: float) -> list[dict]:  # noqa: ANN001
 
 def main(argv: list[str] | None = None) -> int:
     cfg = config.load_config()
-    public = {i: s for i, s in mcp_servers(cfg).items() if s.network}
+    # GitHub is authenticated (OAuth device flow, story 3/CAP-4): no public, unauthenticated
+    # snapshot is possible for it, unlike data.gouv.fr and Microsoft Learn.
+    public = {i: s for i, s in mcp_servers(cfg).items() if s.network and i != "github"}
     parser = argparse.ArgumentParser(
         description="Enregistre les définitions d'outils des serveurs MCP publics (AD-9)."
     )

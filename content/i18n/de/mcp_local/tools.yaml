@@ -1,16 +1,11 @@
 # German translation of content/mcp_local/tools.yaml (languages 1/5, AD-19): the local MCP
 # server's tool descriptions, seen by the model.
-list_terms: Listet die Begriffe des Glossars des WaveStack-Demonstrators auf, einen pro Zeile.
+list_terms: Listet die Begriffe des WaveStack-Glossars auf, einen pro Zeile.
 define_term: >-
   Gibt die Definition eines Begriffs des WaveStack-Demonstrators (Harness, Kontext, Tool,
   MCP, Skill, Hook, RAG…). list_terms aufrufen, um die Begriffe zu kennen.
-system_info: >-
-  Liest den RAM (gesamt und verfügbar) und den Systemzustand (CPU-Kerne, Plattform) des
-  Rechners, auf dem WaveStack läuft.
-create_path: >-
-  Erstellt eine Datei oder einen Ordner in der Sandbox von WaveStack (nie anderswo auf dem
-  Rechner). Parameter: path (relativ zur Sandbox), kind ("file" oder "folder", Standard
-  "file"), content (der Dateitext, optional).
-take_screenshot: >-
-  Macht einen Screenshot des Hauptbildschirms und speichert ihn in der Sandbox von
-  WaveStack; nur Pfad und Größe werden zurückgegeben, niemals das Bild selbst.
+# Korrektur V1.1v2: Beschreibungen bewusst kurz (AD-9) ; die Sandbox wird bereits von
+# sandbox.resolve erzwungen, nichts hier schreibt anderswo auf dem Rechner.
+system_info: RAM, CPU.
+create_path: Erstellt eine Datei/einen Ordner.
+take_screenshot: Macht einen Screenshot.

@@ -212,3 +212,17 @@ Relecture du 16/10 (Opus), après rebase sur `origin/main` (277567b, sans confli
 - LOW · second avis · corrigé · écriture atomique de `github_token.json` (`os.replace`) ; `OSError` toujours avalé (le jeton reste en mémoire, choix conservé) ; limite « jeton stocké en clair » ajoutée à `limites-harnais.md` (11 limites, à reporter dans l'affichage de la story 9).
 - LOW · relecture · corrigé · `POST /api/intentions/mcp_server` acceptait `github` (sous-option cachée de la brique Harnais) ; refusé en 404.
 - Reporté · essai réel avec Anaël : device flow derrière le proxy, renouvellement sans client secret accepté par GitHub (non vérifiable sans compte), 401/403 réels, page MCP rejouée (E2E `mcp_lab_page`, `mcp_lab`).
+
+## Correctif après fusion
+
+Correctif du 16/10 (branche `fix/v1-1-v2-test-program`, base 998729f) : GitHub reste un
+serveur authentifié de l'Atelier MCP, sans instantané public possible (`scripts/snapshot_mcp.py`
+échouait par `KeyError: 'api.githubcopilot.com'`, le filtre `s.network` de `mcp_servers()`
+incluant GitHub comme les deux vrais serveurs publics). Deux endroits manquaient encore
+l'exclusion explicite déjà faite ailleurs (`AppSession._mcp_options`, `server.id != "github"`) :
+`scripts/snapshot_mcp.py` (liste des serveurs « publics » à instantanéifier) et
+`AppSession._outbound_fr` (la ligne « Peuvent sortir du poste », qui énumérait GitHub comme
+un serveur MCP public de la brique Harnais). Les deux excluent maintenant `github` par id,
+comme `_mcp_options`. Testé : `tests/test_program.py::test_snapshot_script_writes_each_public_servers_tools`,
+`tests/test_bricks.py::test_outbound_line_without_network_tool_or_public_server`, et les
+suites `tests/test_mcp*.py`, `tests/test_bricks.py` complètes, verts.
