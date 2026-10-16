@@ -115,7 +115,7 @@ from wavestack.mcp.connection import (
     describe_error,
     result_text,
 )
-from wavestack.mcp.policy import MATRIX_ROWS, RULES, ToolPolicy
+from wavestack.mcp.policy import RULES, ToolPolicy
 from wavestack.mcp.security_log import JournalEntry, SecurityJournal
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
 from wavestack.messages import (
@@ -10871,6 +10871,7 @@ class AppSession:
             "label_text": self._security_label_text(e.source, e.name),
             "decision": e.decision,
             "reason_text": e.reason_text,
+            "n": e.n,
         }
 
     def security_journal_entries(self) -> list[dict[str, Any]]:
@@ -10888,8 +10889,10 @@ class AppSession:
         live `denied_count`, O(1) besides it)."""
         self._journal().emit(
             "security_event",
-            self._journal_entry_dict(entry)
-            | {"denied_count": self._security_journal.denied_count()},
+            # Story 10: the session's counters and the two cards they move (O(1)).
+            (counts := self._security_journal.counts())
+            | {"questions": self._security_movable_questions(counts)}
+            | self._journal_entry_dict(entry),
         )
 
     def security_journal_preview(self) -> dict[str, Any]:
@@ -10911,72 +10914,91 @@ class AppSession:
         """`GET /api/security` (CAP-9): the 4 question cards, the risk matrix, the active
         controls and the limits count, each read from the policy, the guardrails and the
         session's journal — never a duplicated figure. The journal itself and its CSV stay
-        on their own routes (CAP-3, already there since story 1)."""
-        policy, j = self._mcp_policy, self._security_journal
+        on their own routes (CAP-3, already there since story 1). `counts` are the session's
+        (O(1), past the 500-entry window), which a live `security_event` carries too."""
+        counts = self._security_journal.counts()
+        rows = self._mcp_policy.matrix()
         matrix = [
             {
-                "id": row_id,
-                "label_text": self._t(f"security.matrix.{row_id}.label"),
-                "nature_text": self._t(f"security.matrix.{row_id}.nature"),
-                "risk": policy.risk_of(tool),
-                "rule": policy.rule_of(tool),
-                "write": write,
+                "id": row["id"],
+                "label_text": self._t(f"security.matrix.{row['id']}.label"),
+                "nature_text": self._t(f"security.matrix.{row['id']}.nature"),
+                "risk": row["risk"],
+                "rule": row["rule"],
+                "write": row["write"],
             }
-            for row_id, tool, write in MATRIX_ROWS
+            for row in rows
         ]
-        write_rows = [row for row in matrix if row["write"]]
-        tool_denied, guardrail_blocked = j.tool_denied_count(), j.guardrail_blocked_count()
-        allow_once = j.allow_once_count()
+        # The write tools themselves (named, or set from the MCP page), each on its own rule.
+        write_rules = [rule for row in rows if row["write"] for rule in row["rules"].values()]
+        by_rule = join(
+            [
+                self._t(f"security.questions.write_{rule}", count=write_rules.count(rule))
+                for rule in RULES
+                if rule in write_rules
+            ],
+            self._language,
+        )
         limits = [self._limit_dict(limit_id) for limit_id in _LIMIT_IDS]
         return {
+            "counts": counts,
             "questions": {
                 "can_write": {
-                    "count": len(write_rows),
-                    "detail_text": join([row["label_text"] for row in write_rows], self._language),
+                    "count": len(write_rules),
+                    "detail_text": self._t("security.questions.can_write_detail", rules=by_rule),
                 },
-                "authorized_by_you": {
-                    "count": allow_once,
-                    "detail_text": self._t(
-                        "security.questions.authorized_by_you", count=allow_once
-                    ),
-                },
-                "blocked": {
-                    "count": tool_denied + guardrail_blocked,
-                    "detail_text": ", ".join(
-                        filter(
-                            None,
-                            [
-                                self._t("security.questions.tool_denied", count=tool_denied)
-                                if tool_denied
-                                else None,
-                                self._t(
-                                    "security.questions.guardrail_blocked", count=guardrail_blocked
-                                )
-                                if guardrail_blocked
-                                else None,
-                            ],
-                        )
-                    )
-                    or self._t("security.questions.nothing_blocked"),
-                },
+                **self._security_movable_questions(counts),
                 "not_covered": {
                     "count": len(limits),
                     "detail_text": self._t("security.questions.not_covered", count=len(limits)),
                 },
             },
             "risk_matrix": matrix,
-            "controls": self._security_controls(),
+            "controls": self._security_controls(rows),
             "limits": limits,
         }
 
-    def _security_controls(self) -> dict[str, Any]:
-        """CAP-9's « Contrôles actifs »: autorisations (local tool rules), the 3 guardrails
-        (`_guardrails_card`, story 5), the hooks (`_hook_options`, story 8), the network
-        allowlist (`cfg.allowed_hosts`) and the GitHub connection — each read from its own
-        existing source, nothing duplicated."""
+    def _security_movable_questions(self, counts: dict[str, int]) -> dict[str, Any]:
+        """The two cards a journal entry moves (« qui a autorisé », « bloqué »), from the
+        session's counters: `GET /api/security` and every `security_event` carry them."""
+        tool_denied, guardrail_blocked = (
+            counts["tool_denied_count"],
+            counts["guardrail_blocked_count"],
+        )
+        allow_once = counts["allow_once_count"]
+        return {
+            "authorized_by_you": {
+                "count": allow_once,
+                "detail_text": self._t("security.questions.authorized_by_you", count=allow_once),
+            },
+            "blocked": {
+                "count": tool_denied + guardrail_blocked,
+                "detail_text": ", ".join(
+                    filter(
+                        None,
+                        [
+                            self._t("security.questions.tool_denied", count=tool_denied)
+                            if tool_denied
+                            else None,
+                            self._t("security.questions.guardrail_blocked", count=guardrail_blocked)
+                            if guardrail_blocked
+                            else None,
+                        ],
+                    )
+                )
+                or self._t("security.questions.nothing_blocked"),
+            },
+        }
+
+    def _security_controls(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """CAP-9's « Contrôles actifs »: autorisations (every local tool's rule), the 3
+        guardrails (`_guardrails_card`, story 5), the hooks (`_hook_options`, story 8), the
+        network allowlist (`cfg.allowed_hosts`) and the GitHub connection — each read from
+        its own existing source, nothing duplicated."""
         local_rules = [
-            self._mcp_policy.rule_of(tool)
-            for _, tool, _ in MATRIX_ROWS
+            rule
+            for row in rows
+            for tool, rule in row["rules"].items()
             if tool.startswith("local__")
         ]
         ask_count, deny_count = local_rules.count("ask"), local_rules.count("deny")
@@ -11669,11 +11691,16 @@ class AppSession:
             }
             self._mcp_lab_after(conn, payload, cancel)
             return payload
+        mark = get_journal().last_seq()
         try:
             result = conn.call_result(tool, arguments)
         except Exception as exc:  # noqa: BLE001 - AD-16: said in the Séquence
             payload |= self._mcp_lab_failure(exc, cancel, self.cfg.mcp_call_timeout_s)
             payload["raw"] = conn.capture.received("tools/call", step_id)
+            if server_id == "github" and (status := self._refused_status(mark, step_id)):
+                # mcp-tools.md's third refusal level: GitHub's own 401/403, the call left.
+                reason = self._t("session.mcp_lab.github_refused", tool=name, status=status)
+                self._emit_security(self._security_journal.record("mcp_tool", name, "deny", reason))
         else:
             payload["raw"] = conn.capture.received("tools/call", step_id)
             text = result_text(result, self._language)
@@ -11695,6 +11722,19 @@ class AppSession:
             }
         self._mcp_lab_after(conn, payload, cancel)
         return payload
+
+    @staticmethod
+    def _refused_status(mark: int, step_id: str) -> int | None:
+        """Story 10: a 401/403 answered to this step's request, read on the network
+        factory's `outbound_response` (the MCP client keeps only a generic JSON-RPC error)."""
+        for e in get_journal().events_since(mark):
+            if (
+                e.kind == "outbound_response"
+                and e.step_id == step_id
+                and e.payload.get("status") in (401, 403)
+            ):
+                return e.payload["status"]
+        return None
 
     def _mcp_lab_read_resource(
         self, step_id: str, conn: mcp_lab.LabConnection, uri: str, cancel: CancelToken

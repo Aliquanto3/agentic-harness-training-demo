@@ -1543,16 +1543,6 @@ security:
     authorized_by_you: "Who authorized what?"
     blocked: "What got blocked?"
     not_covered: "What is not covered?"
-    authorized_detail:
-      one: "{count} authorization you granted, once"
-      other: "{count} authorizations you granted, once each"
-    tool_denied:
-      one: "{count} tool call refused"
-      other: "{count} tool calls refused"
-    guardrail_blocked:
-      one: "{count} message blocked"
-      other: "{count} messages blocked"
-    nothing_blocked: "No refusal nor block for now."
   matrix:
     title: "Risk matrix"
     subtitle: "The rule applied to every tool call."
@@ -1560,6 +1550,7 @@ security:
     column_tool: "Tool"
     column_nature: "Nature"
     column_risk: "Risk"
+    rule_mixed: "Mixed (per tool)"
     column_rule: "Rule"
   controls:
     title: "Active controls"

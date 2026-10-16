@@ -1564,19 +1564,6 @@ security:
     authorized_by_you: "Qui a autorisé quoi ?"
     blocked: "Qu'est-ce qui a été bloqué ?"
     not_covered: "Qu'est-ce qui n'est pas couvert ?"
-    # shortcut: les mêmes textes qu'en français de `content/messages.yaml` (`security.questions.*`),
-    # dupliqués ici pour que security.js recalcule les deux cartes-questions mobiles sur un
-    # événement en direct sans aller-retour serveur ; si le texte change, le changer aux deux endroits.
-    authorized_detail:
-      one: "{count} autorisation donnée par vous, une fois"
-      other: "{count} autorisations données par vous, une fois chacune"
-    tool_denied:
-      one: "{count} appel d'outil refusé"
-      other: "{count} appels d'outil refusés"
-    guardrail_blocked:
-      one: "{count} message bloqué"
-      other: "{count} messages bloqués"
-    nothing_blocked: "Aucun refus ni blocage pour l'instant."
   matrix:
     title: "Matrice des risques"
     subtitle: "Règle appliquée à chaque appel d'outil."
@@ -1584,6 +1571,7 @@ security:
     column_tool: "Outil"
     column_nature: "Nature"
     column_risk: "Risque"
+    rule_mixed: "Mixte (selon l'outil)"
     column_rule: "Règle"
   controls:
     title: "Contrôles actifs"

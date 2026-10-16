@@ -8,7 +8,7 @@ the envelope.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -1731,6 +1731,15 @@ class SecurityEventPayload(BaseModel):
     decision: str
     reason_text: str
     denied_count: int
+    # Story 10 (CAP-9): the entry's rank and the session's counters as recorded, so the page
+    # Sécurité drops an entry it already shows and its cards read the session's figures.
+    n: int
+    total: int
+    allow_once_count: int
+    tool_denied_count: int
+    guardrail_blocked_count: int
+    # The two cards an event moves, rendered here: one source for their texts.
+    questions: dict[str, dict[str, Any]]
 
 
 # Maps each kind to its payload model, so `Envelope` can validate it.

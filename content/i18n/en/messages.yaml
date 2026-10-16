@@ -554,8 +554,9 @@ session:
     closed: "The MCP workshop's connection is closed: connect to the server again."
     is_error: "The server answered with isError: the tool reports an error, which the harness reinjects to the model as it is. The protocol worked, the tool did not."
     interrupted: The MCP workshop stopped on an error.
-    policy_denied: "Denied by the security policy: the rule for « {tool} » is Deny. The tool was not run."
+    policy_denied: "Denied by the security policy: the rule for “{tool}” is Deny. The tool was not run."
     policy_denied_github: "Denied by the security policy: the rule for « {tool} » is Deny. Sent to GitHub: no."
+    github_refused: "Refused by GitHub ({status}): the connected account may not call “{tool}”. Sent to GitHub: yes; WaveStack had allowed it."
     policy_allowed: "Allowed by the security policy (the rule for « {tool} »)."
     policy_denied_by_user: "Denied by you: you refused the call to « {tool} ». The tool was not run."
     policy_allowed_once: "Allowed once by you: you authorized the call to « {tool} »."
@@ -1651,6 +1652,16 @@ security:
       label: "GitHub: merging and creating PRs"
       nature: "write, OAuth"
   questions:
+    can_write_detail: "{rules}; any other GitHub write is denied by default."
+    write_allow:
+      one: "{count} allowed"
+      other: "{count} allowed"
+    write_ask:
+      one: "{count} on request"
+      other: "{count} on request"
+    write_deny:
+      one: "{count} denied"
+      other: "{count} denied"
     authorized_by_you:
       one: "{count} authorization you granted, once"
       other: "{count} authorizations you granted, once each"
@@ -1711,5 +1722,5 @@ security:
       production: "Authentication and per-user isolation, outside the demo's scope."
     costs_estimated:
       statement: "Costs are estimates."
-      reason: "Prices declared in the configuration; « ≈ » when usage is not measured by the provider."
+      reason: "Prices declared in the configuration; “≈” when usage is not measured by the provider."
       production: "Reconciliation with the provider's invoice."

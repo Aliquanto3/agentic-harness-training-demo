@@ -1543,16 +1543,6 @@ security:
     authorized_by_you: "Wer hat was autorisiert?"
     blocked: "Was wurde blockiert?"
     not_covered: "Was ist nicht abgedeckt?"
-    authorized_detail:
-      one: "{count} von Ihnen einmal erteilte Autorisierung"
-      other: "{count} von Ihnen jeweils einmal erteilte Autorisierungen"
-    tool_denied:
-      one: "{count} abgelehnter Werkzeugaufruf"
-      other: "{count} abgelehnte Werkzeugaufrufe"
-    guardrail_blocked:
-      one: "{count} blockierte Nachricht"
-      other: "{count} blockierte Nachrichten"
-    nothing_blocked: "Bisher keine Ablehnung und keine Blockierung."
   matrix:
     title: "Risikomatrix"
     subtitle: "Die bei jedem Werkzeugaufruf angewendete Regel."
@@ -1560,6 +1550,7 @@ security:
     column_tool: "Werkzeug"
     column_nature: "Art"
     column_risk: "Risiko"
+    rule_mixed: "Gemischt (je nach Werkzeug)"
     column_rule: "Regel"
   controls:
     title: "Aktive Kontrollen"

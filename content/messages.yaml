@@ -566,6 +566,7 @@ session:
     # un outil GitHub, dit explicitement ce qui n'est pas parti vers GitHub (ux/EXPERIENCE.md
     # > Voice and Tone), lu déplié dans le journal (flux 1, étape 7).
     policy_denied_github: "Refusé par la politique de sécurité : la règle de « {tool} » est sur Refuser. Envoyé à GitHub : non."
+    github_refused: "Refusé par GitHub ({status}) : le compte connecté n'a pas le droit d'appeler « {tool} ». Envoyé à GitHub : oui ; WaveStack l'avait autorisé."
     policy_allowed: "Autorisé par la politique de sécurité (règle de « {tool} »)."
     policy_denied_by_user: "Refusé par vous : vous avez refusé l'appel de « {tool} ». L'outil n'a pas été exécuté."
     policy_allowed_once: "Autorisé une fois par vous : vous avez autorisé l'appel de « {tool} »."
@@ -1687,6 +1688,16 @@ security:
   # Les 4 cartes-questions de la page Sécurité (CAP-9), calculées sur la politique et le
   # journal de la séance, jamais des chiffres figés.
   questions:
+    can_write_detail: "{rules} ; toute autre écriture GitHub est refusée par défaut."
+    write_allow:
+      one: "{count} autorisé"
+      other: "{count} autorisés"
+    write_ask:
+      one: "{count} sur demande"
+      other: "{count} sur demande"
+    write_deny:
+      one: "{count} refusé"
+      other: "{count} refusés"
     authorized_by_you:
       one: "{count} autorisation donnée par vous, une fois"
       other: "{count} autorisations données par vous, une fois chacune"

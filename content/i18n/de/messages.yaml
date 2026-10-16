@@ -557,8 +557,9 @@ session:
     closed: "Die Verbindung der MCP-Werkstatt ist geschlossen: Verbinden Sie sich erneut mit dem Server."
     is_error: "Der Server hat mit isError geantwortet: Das Tool meldet einen Fehler, den der Harness unverändert an das Modell zurückgibt. Das Protokoll hat funktioniert, das Tool nicht."
     interrupted: Die MCP-Werkstatt wurde durch einen Fehler unterbrochen.
-    policy_denied: "Von der Sicherheitsrichtlinie abgelehnt: Die Regel für « {tool} » steht auf Ablehnen. Das Tool wurde nicht ausgeführt."
+    policy_denied: "Von der Sicherheitsrichtlinie abgelehnt: Die Regel für „{tool}“ steht auf Ablehnen. Das Tool wurde nicht ausgeführt."
     policy_denied_github: "Von der Sicherheitsrichtlinie abgelehnt: Die Regel für « {tool} » steht auf Ablehnen. An GitHub gesendet: nein."
+    github_refused: "Von GitHub abgelehnt ({status}): Das verbundene Konto darf „{tool}“ nicht aufrufen. An GitHub gesendet: ja; WaveStack hatte es erlaubt."
     policy_allowed: "Von der Sicherheitsrichtlinie erlaubt (Regel für « {tool} »)."
     policy_denied_by_user: "Von Ihnen abgelehnt: Sie haben den Aufruf von « {tool} » abgelehnt. Das Tool wurde nicht ausgeführt."
     policy_allowed_once: "Von Ihnen einmalig erlaubt: Sie haben den Aufruf von « {tool} » genehmigt."
@@ -1654,6 +1655,16 @@ security:
       label: "GitHub: PRs zusammenführen und erstellen"
       nature: "Schreiben, OAuth"
   questions:
+    can_write_detail: "{rules}; jeder andere Schreibzugriff auf GitHub ist standardmäßig abgelehnt."
+    write_allow:
+      one: "{count} erlaubt"
+      other: "{count} erlaubt"
+    write_ask:
+      one: "{count} auf Nachfrage"
+      other: "{count} auf Nachfrage"
+    write_deny:
+      one: "{count} abgelehnt"
+      other: "{count} abgelehnt"
     authorized_by_you:
       one: "{count} von Ihnen einmal erteilte Autorisierung"
       other: "{count} von Ihnen jeweils einmal erteilte Autorisierungen"

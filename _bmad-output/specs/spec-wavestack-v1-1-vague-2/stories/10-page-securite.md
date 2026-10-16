@@ -106,3 +106,26 @@ companions:
   `uv run --with playwright==1.56.0 python tools/e2e/run_e2e.py --channel msedge --only security_page`.
 - À rejouer avec lui, par prudence (barre commune et libellés du journal touchés) :
   `bar_panels`, `mcp_lab_page`.
+
+## Revue
+
+Revue Opus du 16/10 (base 39672a2, commit ce73934), avec la liste du second avis. Décisions
+ci-dessus corrigées par la revue : la matrice ne lit plus un outil représentatif
+(`ToolPolicy.matrix`), les textes des deux cartes mobiles ne sont plus dupliqués (le serveur
+les rend dans `security_event`), le 403 GitHub est journalisé (niveau 3).
+
+- HIGH · revue · corrigé — le flux `/api/diagnostic/stream` s'ouvre sans `Last-Event-ID` et rejoue la séance depuis 0 : chaque `security_event` déjà chargé était ajouté une 2e fois au journal et recompté dans les cartes. Chaque entrée porte son rang `n` ; la page ignore `n` ≤ dernier rang affiché.
+- HIGH · second avis 1 · corrigé — au-delà de 500 entrées, les cartes recomptaient la fenêtre. `SecurityJournal.counts()` (O(1)) ; `/api/security` et chaque `security_event` portent les compteurs de séance et les deux cartes rendues ; la page ne recompte rien.
+- MEDIUM · second avis 2 · corrigé — clés `guardrails.modes.*` absentes de ui.yaml : la puce lit le libellé du mode fourni par `_guardrails_card`, sinon `main.bricks.status.*`, jamais une clé brute.
+- MEDIUM · second avis 3 · corrigé — « Autorisations des outils » compte les 5 outils locaux (`define_term` compris).
+- MEDIUM · second avis 4 · corrigé — `MATRIX_ROWS` liste les outils de chaque ligne ; `ToolPolicy.matrix()` lit la règle de chacun, plus les outils réglés dans MCP qui relèvent de la ligne, plus la règle par défaut des outils non nommés (réseau, « toute écriture GitHub ») ; « Mixte (selon l'outil) » quand elles divergent.
+- MEDIUM · second avis 5 · corrigé — « Quels outils peuvent écrire ? » compte les outils d'écriture (3 nommés et ceux réglés dans MCP) et dit combien sont autorisés, sur demande, refusés, plus « toute autre écriture GitHub est refusée par défaut ».
+- MEDIUM · second avis 6 · corrigé — un 401/403 de GitHub (lu sur l'`outbound_response` de la fabrique réseau, le SDK MCP ne garde qu'une erreur JSON-RPC générique) est journalisé `deny`, « Refusé par GitHub (403) … Envoyé à GitHub : oui », compté dans « bloqué » ; test avec un faux serveur 403.
+- MEDIUM · second avis 7 · corrigé — aucun événement perdu entre le chargement et le flux : le flux rejoue la séance, le rang `n` déduplique (voir le HIGH ci-dessus).
+- MEDIUM · revue · corrigé — `bar.js` affichait encore le nom technique (`entry.name`) contrairement à « Ce qui est livré » : il lit `label_text`.
+- LOW · second avis · déjà couvert — texte « Envoyé à GitHub : non » produit par le serveur : `test_github_write_refusal_names_what_did_not_reach_github`.
+- LOW · second avis · corrigé — `aria-controls` sur les replis ; cellules CSV commençant par = + - @ tab CR préfixées d'une apostrophe ; liste du DOM bornée à 500 ; guillemets “ ” (en) et „ “ (de) dans les textes de la story.
+- LOW · second avis · corrigé — textes dupliqués ui.yaml/messages.yaml : une seule source (messages.yaml, rendus par le serveur).
+- LOW · second avis · rejeté — GET `/api/security` qui appelle `poll()`/`access_token()` : même lecture que `GET /api/mcp_lab`, limitée par l'intervalle du device flow et `_RETRY_S` ; sans elle un jeton juste expiré s'afficherait « erreur réseau ».
+- Reporté — 403 GitHub réel (compte sans droit) : vérifier avec Anaël que le serveur distant répond bien en HTTP 403 et pas en résultat `isError` ; dans ce cas, le refus n'est pas encore distingué (le texte d'erreur reste dans la Séquence).
+- E2E à rejouer : `security_page`, `bar_panels`, `mcp_lab_page`.

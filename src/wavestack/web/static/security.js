@@ -1,19 +1,21 @@
 // Story 10 (CAP-3, CAP-8, CAP-9): the page Sécurité. A single read of `/api/security` (the
 // question cards, the risk matrix, the active controls) and of `/api/security_journal` (the
 // full journal) at load; after that, each `security_event` of the shared stream is applied
-// in O(1) (a new row prepended, the two decision-based question cards' counts bumped), never
-// a re-fetch nor a walk of the growing journal.
+// in O(1) (a new row prepended, the two decision-based question cards replaced by the ones the
+// event carries, rendered by the server from the session's counters), never a re-fetch nor a
+// walk of the growing journal. The stream replays the session from its start, so nothing
+// recorded between the load and its opening is lost; an entry's rank `n` drops the ones the
+// loaded journal already shows.
 
 import { dateTimeFormat, has, ready, t } from "./i18n.js";
 import { feedBar } from "./bar.js";
 
 const $ = (id) => document.getElementById(id);
 
-// The two counters a live `security_event` can move (CAP-9's question cards); the other two
-// (« peut écrire », « non couvert ») come from the policy and the content, never from events.
-let toolDenied = 0;
-let guardrailBlocked = 0;
-let allowOnce = 0;
+const KEPT = 500; // the server journal's window (`security_log._KEPT`): the list never grows past it
+let cardsTotal = 0; // the session's entry count the two movable cards reflect
+let lastN = 0; // the rank of the newest journal row shown
+let discIds = 0;
 
 function chipClass(level) {
   return level === "low" ? "" : ` status-chip-${level}`;
@@ -55,29 +57,15 @@ function renderQuestions(q) {
   );
 }
 
-// Rebuilds only the « qui a autorisé » and « bloqué » cards from the counters a live event
-// just moved (O(1): the other two cards, from the policy and the content, never change
-// from an event).
-function renderMovableQuestions() {
+// Replaces only the « qui a autorisé » and « bloqué » cards by the ones a live event carries
+// (O(1): the other two cards, from the policy and the content, never change from an event).
+function renderMovableQuestions(q) {
   const box = $("sec-questions");
   if (!box || box.children.length < 4) return;
   box.children[1].replaceWith(
-    questionCard(
-      t("security.questions.authorized_by_you"),
-      allowOnce,
-      t("security.questions.authorized_detail", { count: allowOnce }),
-      false,
-    ),
+    questionCard(t("security.questions.authorized_by_you"), q.authorized_by_you.count, q.authorized_by_you.detail_text, false),
   );
-  const blocked = toolDenied + guardrailBlocked;
-  box.children[2].replaceWith(questionCard(t("security.questions.blocked"), blocked, blockedDetailText(), blocked > 0));
-}
-
-function blockedDetailText() {
-  const parts = [];
-  if (toolDenied) parts.push(t("security.questions.tool_denied", { count: toolDenied }));
-  if (guardrailBlocked) parts.push(t("security.questions.guardrail_blocked", { count: guardrailBlocked }));
-  return parts.length ? parts.join(", ") : t("security.questions.nothing_blocked");
+  box.children[2].replaceWith(questionCard(t("security.questions.blocked"), q.blocked.count, q.blocked.detail_text, q.blocked.count > 0));
 }
 
 // ---------- the risk matrix ----------
@@ -95,7 +83,7 @@ function renderMatrix(rows) {
       const risk = document.createElement("td");
       risk.append(chip(t(`mcp.policy.risk.${row.risk}`), row.risk));
       const rule = document.createElement("td");
-      rule.textContent = t(`mcp.policy.rule.${row.rule}`);
+      rule.textContent = row.rule === "mixed" ? t("security.matrix.rule_mixed") : t(`mcp.policy.rule.${row.rule}`);
       tr.append(tool, nature, risk, rule);
       return tr;
     }),
@@ -121,7 +109,9 @@ function discRow(label, badge, bodyNodes) {
   if (badge) button.append(badge);
   const body = document.createElement("div");
   body.className = "disclosure-row-body";
+  body.id = `sec-disc-${++discIds}`;
   body.hidden = true;
+  button.setAttribute("aria-controls", body.id);
   body.append(...bodyNodes);
   button.addEventListener("click", () => {
     body.hidden = !body.hidden;
@@ -167,12 +157,10 @@ function renderControls(controls) {
 
   for (const g of controls.guardrails) {
     const level = g.status === "active" ? (g.mode === "block" ? "high" : "mid") : "off";
-    const text =
-      g.status === "active"
-        ? t(`guardrails.modes.${g.mode === "flag" && g.id === "pii" ? "flag_pii" : g.mode}`)
-        : has(`main.bricks.status.${g.status}`)
-          ? t(`main.bricks.status.${g.status}`)
-          : g.status;
+    // The mode's own label from the card (`_guardrails_card`), else the brick's status text:
+    // never a raw key.
+    const statusKey = has(`main.bricks.status.${g.status}`) ? `main.bricks.status.${g.status}` : "main.bricks.status.unavailable";
+    const text = (g.modes ?? []).find((m) => m.id === g.mode)?.label_text ?? t(statusKey);
     rows.push(discRow(g.label_text, chip(text, level), g.install_text ? kv([[t("security.limits.reason_label"), g.install_text]]) : []));
   }
 
@@ -189,7 +177,7 @@ function renderControls(controls) {
     discRow(
       t("security.controls.network_whitelist"),
       sub(t("security.controls.domain_count", { count: controls.network_whitelist.length })),
-      kv([[t("security.matrix.column_tool"), controls.network_whitelist.join(" · ")]]),
+      kv([[t("security.controls.network_whitelist"), controls.network_whitelist.join(" · ")]]),
     ),
   );
 
@@ -253,6 +241,7 @@ function prependJournalRow(entry) {
   if (!list) return;
   if (list.firstElementChild?.classList.contains("sec-empty")) list.replaceChildren();
   list.prepend(journalRow(entry));
+  if (list.children.length > KEPT) list.lastElementChild.remove();
 }
 
 // ---------- the limits ----------
@@ -282,11 +271,9 @@ async function load() {
   renderControls(security.controls);
   renderLimits(security.limits);
   renderJournal(journal.entries.slice().reverse()); // newest first
-  // The two counters a live event may move, read back from the entries already in hand
-  // (O(n) once, at load only; never repeated per event).
-  toolDenied = journal.entries.filter((e) => e.source === "mcp_tool" && e.decision === "deny").length;
-  guardrailBlocked = journal.entries.filter((e) => e.source === "guardrail" && e.decision === "blocked").length;
-  allowOnce = journal.entries.filter((e) => e.decision === "allow_once").length;
+  // The session's own counters (past the journal's 500-entry window), never a recount.
+  cardsTotal = security.counts.total;
+  lastN = journal.entries.at(-1)?.n ?? 0;
 }
 
 function openStream() {
@@ -296,11 +283,14 @@ function openStream() {
     const envelope = JSON.parse(event.data);
     feedBar(envelope);
     const entry = envelope.payload;
-    prependJournalRow(entry);
-    if (entry.source === "mcp_tool" && entry.decision === "deny") toolDenied += 1;
-    if (entry.source === "guardrail" && entry.decision === "blocked") guardrailBlocked += 1;
-    if (entry.decision === "allow_once") allowOnce += 1;
-    renderMovableQuestions();
+    if (entry.n > lastN) {
+      lastN = entry.n;
+      prependJournalRow(entry);
+    }
+    if (entry.total > cardsTotal) {
+      cardsTotal = entry.total;
+      renderMovableQuestions(entry.questions);
+    }
   });
 }
 
