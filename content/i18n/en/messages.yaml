@@ -551,6 +551,13 @@ session:
     closed: "The MCP workshop's connection is closed: connect to the server again."
     is_error: "The server answered with isError: the tool reports an error, which the harness reinjects to the model as it is. The protocol worked, the tool did not."
     interrupted: The MCP workshop stopped on an error.
+    policy_denied: "Denied by the security policy: the rule for « {tool} » is Deny. The tool was not run."
+    policy_allowed: "Allowed by the security policy (the rule for « {tool} »)."
+    policy_denied_by_user: "Denied by you: you refused the call to « {tool} ». The tool was not run."
+    policy_allowed_once: "Allowed once by you: you authorized the call to « {tool} »."
+    policy_ask_outside_lab: "Denied by the security policy: the rule for « {tool} » is Ask, and only the MCP page can ask for your consent. The tool was not run."
+    policy_ask_timeout: "Denied for lack of an answer: nobody authorized the call to « {tool} » in time. The tool was not run."
+    policy_ask_cancelled: "Cancelled: the exchange stopped before your decision on « {tool} ». The tool was not run."
     launch:
       stdio: "launches the server: {command}"
       http: "opens an HTTP session with {host}"
@@ -1279,6 +1286,8 @@ web:
     memory_entry: Unknown memory entry.
     scenario: Unknown scenario.
     download_target: Unknown download target.
+    mcp_tool_rule: "Invalid rule: allow, ask or deny."
+    mcp_authorization: No pending authorization request with this id.
 
 models:
   # `models/openai_chat.py` (AD-16): a cloud provider's refusal, its hints, a malformed call.

@@ -787,6 +787,8 @@ KINDS = (
     "mcp_lab_model_ended",
     "mcp_lab_ask_ended",
     "mcp_lab_closed",
+    "mcp_lab_authorization_requested",
+    "mcp_lab_authorization_resolved",
     "model_call_started",
     "model_call_ended",
     "outbound_request",

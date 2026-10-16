@@ -1156,10 +1156,28 @@ mcp:
     unreachable: "server unreachable"
     timeout: "delay exceeded"
     guard_blocked: "blocked by the network guard"
+    policy_denied: "denied by the security policy"
     lost: "connection lost"
     stopped: "stopped by the user"
     interrupted: "interrupted on an error"
     provider: "provider error"
+  policy:
+    risk_label: "Risk"
+    rule_label: "Rule"
+    risk:
+      low: "low"
+      mid: "medium"
+      high: "high"
+    rule:
+      allow: "Allow"
+      ask: "Ask"
+      deny: "Deny"
+  authorize:
+    waiting: "« {tool} » is waiting for your decision (rule: Ask)."
+    allow_once: "Allow once"
+    deny: "Deny"
+  security_journal:
+    download: "Download the journal (CSV)"
   outcomes:
     no_tool: "answer without a tool"
     answer: "answer"

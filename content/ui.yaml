@@ -1173,10 +1173,29 @@ mcp:
     unreachable: "serveur injoignable"
     timeout: "délai dépassé"
     guard_blocked: "bloqué par la garde réseau"
+    policy_denied: "refusé par la politique de sécurité"
     lost: "connexion perdue"
     stopped: "arrêté par l'utilisateur"
     interrupted: "interrompu sur une erreur"
     provider: "erreur du fournisseur"
+  # CAP-2 : niveau de risque et règle autoriser / demander / refuser, par outil.
+  policy:
+    risk_label: "Risque"
+    rule_label: "Règle"
+    risk:
+      low: "faible"
+      mid: "moyen"
+      high: "élevé"
+    rule:
+      allow: "Autoriser"
+      ask: "Demander"
+      deny: "Refuser"
+  authorize:
+    waiting: "« {tool} » attend votre décision (règle : Demander)."
+    allow_once: "Autoriser une fois"
+    deny: "Refuser"
+  security_journal:
+    download: "Télécharger le journal (CSV)"
   outcomes:
     no_tool: "réponse sans outil"
     answer: "réponse"

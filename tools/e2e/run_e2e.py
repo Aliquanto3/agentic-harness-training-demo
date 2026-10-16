@@ -7792,6 +7792,8 @@ def _mcp_fake_session(seq: int) -> list[dict[str, Any]]:
                         "doc_tokens": 120,
                         "line_text": "- datagouv__search_datasets: Search datasets",
                         "line_tokens": 12,
+                        "risk": "low",  # CAP-2: mcp-tools.md's default for a public read tool
+                        "rule": "allow",
                     }
                 ],
                 "full_tokens": 120,
@@ -7898,6 +7900,8 @@ def _mcp_fake_failures(seq: int) -> list[dict[str, Any]]:
         "doc_tokens": 98,
         "line_text": "- local__define_term : Donne la définition d'une notion",
         "line_tokens": 14,
+        "risk": "low",  # CAP-2: mcp-tools.md's default for the local glossary
+        "rule": "allow",
     }
     caps = {"capabilities": {"tools": {}, "resources": {}, "prompts": {}}}
     too_long = "Non envoyé : le contexte compte 5 000 tokens pour 3 584 utilisables."
