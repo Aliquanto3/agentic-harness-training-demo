@@ -2532,6 +2532,9 @@ function renderModelIndicator() {
 // ---------- story 17: model picker (EXPERIENCE.md model-picker), hot switch ----------
 
 const PICK_OTHER = "other";
+// CAP-4: on demand only, the Hugging Face cache and LM Studio's folders (never read at
+// launch, to spare a testing machine with many GGUF files elsewhere).
+const PICK_SEARCH_MORE = "search_more";
 // Story 25: the table of the models and their capabilities, just before PICK_OTHER; lot 3 of
 // 2026-10-04: merged into « Diagnostic et modèles » (`/diagnostic`).
 const PICK_MODELS = "models";
@@ -2602,9 +2605,11 @@ function renderModelPicker() {
       ? t("main.model.open_diagnostic")
       : pending === PICK_MODELS
         ? t("main.model.open_table")
-        : pending.startsWith("cloud:")
-          ? t("main.model.choose")
-          : t("main.model.load")
+        : pending === PICK_SEARCH_MORE
+          ? t("main.model.search_more_apply")
+          : pending.startsWith("cloud:")
+            ? t("main.model.choose")
+            : t("main.model.load")
   );
 }
 
@@ -2821,6 +2826,7 @@ function rebuildModelPicker(picker, active) {
     legend,
     ...groups.filter((g) => g.children.length),
     pickerOption(PICK_MODELS, t("main.model.picker_table")),
+    pickerOption(PICK_SEARCH_MORE, t("main.model.picker_search_more")),
     pickerOption(PICK_OTHER, t("main.model.picker_other"))
   );
 }
@@ -2869,7 +2875,12 @@ function rebuildModelPickerByKind(picker, active) {
   }
   const head = pickerOption("", t("main.model.picker_head"));
   const groups = [local, network].filter((g) => g.children.length);
-  picker.replaceChildren(head, ...groups, pickerOption(PICK_OTHER, t("main.model.picker_other")));
+  picker.replaceChildren(
+    head,
+    ...groups,
+    pickerOption(PICK_SEARCH_MORE, t("main.model.picker_search_more")),
+    pickerOption(PICK_OTHER, t("main.model.picker_other"))
+  );
 }
 
 // `change` only notes the choice: « Charger » (or « Choisir… », « Ouvrir le diagnostic »)
@@ -2893,6 +2904,10 @@ async function applyPick() {
     window.location.href = "/diagnostic";
     return;
   }
+  if (value === PICK_SEARCH_MORE) {
+    await searchMore();
+    return;
+  }
   const at = value.indexOf(":");
   const kind = value.slice(0, at);
   const ref = value.slice(at + 1);
@@ -2901,6 +2916,24 @@ async function applyPick() {
     return;
   }
   await selectModel({ kind, ref }); // a file, or a served model (story 18)
+}
+
+// CAP-4: « Ajouter d'autres modèles… » turns on, for the rest of the session, the search
+// of the Hugging Face cache and LM Studio's folders (never read at launch); the next
+// `/api/diagnostic` lists what it found, so the picker is simply rebuilt from it.
+async function searchMore() {
+  store.topStatus = null;
+  try {
+    const response = await postIntention("/api/intentions/search_more", {});
+    if (!response.ok) {
+      const answer = await response.json().catch(() => ({}));
+      store.topStatus = answer.detail || t("main.model.switch_refused");
+    }
+  } catch (error) {
+    store.topStatus = t("main.request_failed", { error: error.message });
+  }
+  await loadModelList();
+  render();
 }
 
 async function selectModel(body) {

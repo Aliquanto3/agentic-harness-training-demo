@@ -169,6 +169,9 @@ class DiagnosticSession:
         self.language: Callable[[], str] = lambda: cfg.language
         self.state = "diagnostic"
         self.last_result: DiagnosticResult | None = None
+        # CAP-4: off at launch (`discovery.discover` skips the Hugging Face cache and LM
+        # Studio); turned on once, by `search_more`, for the rest of the session.
+        self._extended = False
         self._lock = threading.Lock()
         self._tests = 0  # « Tester » runs, for their `diag.{n}` ids (AD-21)
         # model id -> its last « Tester » outcome, for the page opened after it
@@ -417,6 +420,36 @@ class DiagnosticSession:
             except Exception as exc:  # noqa: BLE001 - AD-16: never let the thread die silently
                 return self._handle_unexpected(exc)
 
+    def search_more(self) -> DiagnosticResult:
+        """CAP-4: the « Ajouter d'autres modèles » button. Turns the Hugging Face cache and
+        LM Studio's folders on for discovery, once for the rest of the session, and
+        refreshes the candidates of the last result without changing what is ready or
+        blocking."""
+        with self._lock:
+            try:
+                self._extended = True
+                # No probe here: a probe loads full weights, possibly beside the active
+                # model, and many files may be found; the chosen one is probed when chosen.
+                candidates = self._discover(self.selected_model_path, probe_only=set())
+                previous = self.last_result or DiagnosticResult(
+                    ready=False, blocking_checks=["model"]
+                )
+                known = {  # keep earlier probe failures, as `_select_model_locked`
+                    c.path: c for c in previous.candidates if c.status == "incompatible" and c.path
+                }
+                for candidate in candidates:
+                    if candidate.path in known and candidate.status == "found":
+                        candidate.status = "incompatible"
+                        candidate.reason = known[candidate.path].reason
+                self.last_result = DiagnosticResult(
+                    ready=previous.ready,
+                    blocking_checks=previous.blocking_checks,
+                    candidates=candidates,
+                )
+                return self.last_result
+            except Exception as exc:  # noqa: BLE001 - AD-16: never let the thread die silently
+                return self._handle_unexpected(exc)
+
     def _discover(
         self,
         explicit_path: str | None,
@@ -436,7 +469,7 @@ class DiagnosticSession:
         probes actually needed), then one after each probe. Several Ollama tags sharing one
         blob are probed once; the others take its outcome. R1: their headers are read for
         the model table in the background (`catalog.warm_headers`)."""
-        candidates = discovery.discover(explicit_path)
+        candidates = discovery.discover(explicit_path, extended=self._extended)
         # R1: the model table's headers read now, beside the probes, not by the first
         # `/api/diagnostic` after the search.
         catalog.warm_headers(candidates)

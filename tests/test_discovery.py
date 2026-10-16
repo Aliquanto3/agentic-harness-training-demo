@@ -51,6 +51,45 @@ def test_file_candidates_carry_their_size(monkeypatch, tmp_path):
     assert dumped["size_bytes"] == 5 and "server_template" not in dumped
 
 
+def test_launch_skips_hf_cache_and_lm_studio(monkeypatch, tmp_path):
+    """CAP-4: at launch (no `extended`), the Hugging Face cache and LM Studio's folders are
+    never read, so a testing machine with many GGUF files elsewhere is not scanned."""
+    monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path))
+    hf_cache = tmp_path / "hf-cache"
+    hf_cache.mkdir()
+    (hf_cache / "other.gguf").write_bytes(b"fake")
+    lm_studio = tmp_path / "lmstudio"
+    lm_studio.mkdir()
+    (lm_studio / "other.gguf").write_bytes(b"fake")
+    monkeypatch.setenv("HF_HUB_CACHE", str(hf_cache))
+    monkeypatch.setattr(discovery, "_lm_studio_dirs", lambda: [lm_studio])
+    monkeypatch.setenv("OLLAMA_MODELS", str(tmp_path / "ollama-empty"))
+    monkeypatch.setattr(discovery, "_server_candidates", lambda cfg: [])
+
+    candidates = discovery.discover()
+
+    assert not [c for c in candidates if c.source in ("hf_cache", "lm_studio")]
+
+
+def test_extended_search_reads_hf_cache_and_lm_studio(monkeypatch, tmp_path):
+    """CAP-4: `extended=True` (the « Ajouter d'autres modèles » button) reads them."""
+    monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path))
+    hf_cache = tmp_path / "hf-cache"
+    hf_cache.mkdir()
+    (hf_cache / "other.gguf").write_bytes(b"fake")
+    lm_studio = tmp_path / "lmstudio"
+    lm_studio.mkdir()
+    (lm_studio / "other.gguf").write_bytes(b"fake")
+    monkeypatch.setenv("HF_HUB_CACHE", str(hf_cache))
+    monkeypatch.setattr(discovery, "_lm_studio_dirs", lambda: [lm_studio])
+    monkeypatch.setenv("OLLAMA_MODELS", str(tmp_path / "ollama-empty"))
+    monkeypatch.setattr(discovery, "_server_candidates", lambda cfg: [])
+
+    candidates = discovery.discover(extended=True)
+
+    assert {c.source for c in candidates if c.status == "found"} == {"hf_cache", "lm_studio"}
+
+
 def test_no_candidates_when_nothing_present(monkeypatch, tmp_path):
     monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hf-empty"))

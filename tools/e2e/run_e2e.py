@@ -10608,9 +10608,13 @@ def s_model_catalog(r: Run) -> None:
         str(texts),
     )
     r.check(
-        [o[0] for o in options[-2:]] == [PICK_MODELS_LABEL, "Autre fichier ou clé API…"],
-        "sélecteur : « Tableau des modèles… » puis « Autre fichier ou clé API… » en dernier",
-        str([o[0] for o in options[-2:]]),
+        [o[0] for o in options[-3:]]
+        == [PICK_MODELS_LABEL, "Ajouter d'autres modèles…", "Autre fichier ou clé API…"],
+        # CAP-4: between the two, the on-demand search of the Hugging Face cache and LM
+        # Studio's folders, skipped at launch.
+        "sélecteur : « Tableau des modèles… », « Ajouter d'autres modèles… » puis « Autre "
+        "fichier ou clé API… » en dernier",
+        str([o[0] for o in options[-3:]]),
     )
     # The list as it opens: a native list cannot be captured open, shown as a list box.
     page.evaluate(
