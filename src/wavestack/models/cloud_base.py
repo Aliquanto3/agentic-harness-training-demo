@@ -314,18 +314,29 @@ def call_cost(
     )
 
 
+# CAP-7: where each API reports its cached input tokens (the « Source » of the cache line).
+_CACHE_SOURCE = {
+    "openai_chat": "usage.prompt_tokens_details.cached_tokens",
+    "openai_responses": "usage.input_tokens_details.cached_tokens",
+    "anthropic_messages": "usage.cache_read_input_tokens, usage.cache_creation_input_tokens",
+}
+
+
 def cache_savings(
     pricing: CloudPricing,
     prompt_tokens: int,
     cached_read: int,
     cached_write: int,
     paid_input_usd: float,
+    api: str = "openai_chat",
 ) -> dict[str, Any] | None:
     """CAP-7: the cache's own line in `model_call_ended` (absent when there is no cache on
     this call). `cache_full_usd`: the input at the plain price, with no cache at all.
     `cache_write_usd`: this call's write, at its own price (the write price, or the plain
     one when the entry declares none) — a distinct line (CAP-7), never a saving.
-    `cache_saved_usd`: what the cache read spared, net of that write, never negative."""
+    `cache_saved_usd`: the signed net, full price − paid (a write costs, a read saves), so
+    that a session's sum is exact. `cache_priced`: False when a cached part has no declared
+    price (billed at the input price, so the net is unknown, never a third-party figure)."""
     cached_read = max(0, min(cached_read, prompt_tokens))
     cached_write = max(0, min(cached_write, prompt_tokens - cached_read))
     if not cached_read and not cached_write:
@@ -334,12 +345,17 @@ def cache_savings(
     write_price = pricing.cache_write_usd_per_mtok
     full_usd = prompt_tokens * price_in / 1_000_000
     write_usd = cached_write * (price_in if write_price is None else write_price) / 1_000_000
+    priced = (not cached_read or pricing.cache_read_usd_per_mtok is not None) and (
+        not cached_write or write_price is not None
+    )
     return {
         "cache_read_tokens": cached_read,
         "cache_write_tokens": cached_write,
         "cache_full_usd": full_usd,
         "cache_write_usd": write_usd,
-        "cache_saved_usd": max(0.0, full_usd - paid_input_usd),
+        "cache_saved_usd": full_usd - paid_input_usd,
+        "cache_priced": priced,
+        "cache_source": _CACHE_SOURCE.get(api, _CACHE_SOURCE["openai_chat"]),
     }
 
 
@@ -993,7 +1009,7 @@ def run_call(
                 "cost_source": source,
             }
             cache = cache_savings(
-                pricing, prompt_tokens, cached_read, cached_write, out.cost.input_usd
+                pricing, prompt_tokens, cached_read, cached_write, out.cost.input_usd, entry.api
             )
             if cache is not None:
                 payload |= cache

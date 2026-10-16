@@ -439,12 +439,17 @@ class ModelCallEndedPayload(BaseModel):
     cost_source: Literal["api", "estimate"] | None = None
     # CAP-7: the cloud cache's own line, absent when this call read or wrote no cache.
     # `cache_full_usd`: the input at the plain price, with no cache at all. `cache_write_usd`:
-    # this call's write, a distinct line, never a saving. `cache_saved_usd`: the net saving.
+    # this call's write, a distinct line, never a saving. `cache_saved_usd`: the signed net
+    # (full − paid: negative when the write costs more than the read saves), summable by
+    # session. `cache_priced`: False when a cached part has no declared price (net unknown).
+    # `cache_source`: the provider's usage field(s) the cached tokens come from.
     cache_read_tokens: int | None = None
     cache_write_tokens: int | None = None
     cache_full_usd: float | None = None
     cache_write_usd: float | None = None
     cache_saved_usd: float | None = None
+    cache_priced: bool | None = None
+    cache_source: str | None = None
     # GreenOps: the call's estimated footprint, in Wh and g CO₂e, as a range (min = max for
     # a single value): EcoLogits for a cloud call whose entry declares `impacts`, CodeCarbon
     # for a local one. `impact_note_text`: the method and its limits, or why there is none.

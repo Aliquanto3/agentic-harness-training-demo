@@ -588,6 +588,8 @@ main:
       write_tokens: "{tokens} tokens · {cost}"
       write_none: "0 token sur ce tour"
       source: "Source"
+      cost: "Cache de prompt : {read} tokens relus · {cost} de surcoût (écriture)"
+      unpriced: "Cache de prompt : {read} tokens relus · prix du cache non déclaré"
     rows:
       overflow: "Contexte dépassé"
       sub_overflow: "Contexte du sous-agent dépassé"

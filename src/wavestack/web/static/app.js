@@ -2447,7 +2447,17 @@ function footprintNode(ended) {
 // calc unfolds on place (native `<details>`, same pattern as `compressionBody`'s before/after).
 function cacheNode(ended) {
   if (ended?.cache_saved_usd == null) return null;
-  const guess = approx(ended.cost_source === "estimate");
+  // « ≈ »: an estimated usage, or a cached part without a declared price (billed at the input one).
+  const guess = approx(ended.cost_source === "estimate" || ended.cache_priced === false);
+  const net = ended.cache_saved_usd;
+  const read = fmt(ended.cache_read_tokens);
+  // The signed net (a write costs, a read saves); never a saving the declared prices do not give.
+  const line =
+    ended.cache_priced === false
+      ? t("main.orch.cache.unpriced", { read })
+      : net < 0
+        ? t("main.orch.cache.cost", { read, cost: `${guess}${usd(-net)}` })
+        : t("main.orch.cache.line", { read, saved: `${guess}${usd(net)}` });
   const node = el("details", "token-counter number saving disclosure-row");
   const kv = el("dl", "kv");
   kv.append(
@@ -2464,16 +2474,9 @@ function cacheNode(ended) {
         : t("main.orch.cache.write_none")
     ),
     el("dt", "", t("main.orch.cache.source")),
-    el("dd", "code", "usage.prompt_tokens_details.cached_tokens")
+    el("dd", "code", ended.cache_source ?? "usage.prompt_tokens_details.cached_tokens")
   );
-  node.append(
-    el(
-      "summary",
-      "",
-      t("main.orch.cache.line", { read: fmt(ended.cache_read_tokens), saved: `${guess}${usd(ended.cache_saved_usd)}` })
-    ),
-    kv
-  );
+  node.append(el("summary", "", line), kv);
   return node;
 }
 
@@ -5049,7 +5052,7 @@ function compressionFigure(p) {
   const mark = approx(p.estimated);
   const figure = t("main.orch.compression.figure", { before: `${mark}${fmt(p.tokens_before)}`, after: `${mark}${fmt(p.tokens_after)}`, percent: String(percent) });
   // CAP-7, finops.md: $ on a cloud model with a declared price; zero on a local one (tokens only).
-  return p.saved_usd == null ? figure : `${figure} · ${t("main.orch.compression.saved_usd", { amount: `${approx(true)}${usd(p.saved_usd)}` })}`;
+  return p.saved_usd == null ? figure : `${figure} · ${t("main.orch.compression.saved_usd", { amount: `${mark}${usd(p.saved_usd)}` })}`;
 }
 
 function compressionBody(step) {

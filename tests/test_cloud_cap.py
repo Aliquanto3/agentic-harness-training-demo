@@ -376,11 +376,39 @@ def test_the_cache_line_names_the_full_price_the_write_apart_and_the_net_saving(
     assert line["cache_saved_usd"] > 0
 
 
-def test_the_cache_line_never_turns_negative():
+def test_the_cache_net_is_signed_so_a_session_sum_is_exact():
+    # Anthropic: a first call writes 900 tokens (1.25 × the input price), the next reads them
+    # (0.10 ×). Hand-computed: write net = 900 × (1 − 1.25) = −225 µ$, read net = 900 × 0.9 =
+    # +810 µ$, so the session saved 585 µ$, not the 810 a floor at zero would claim.
     pricing = _pricing(cache_read_usd_per_mtok=0.10, cache_write_usd_per_mtok=1.25)
-    # A paid cost higher than the full price (an inconsistent usage): the saving floors at 0.
-    line = cache_savings(pricing, 1000, 800, 100, 1.0)
-    assert line["cache_saved_usd"] == 0.0
+    nets = []
+    for read, write in ((0, 900), (900, 0)):
+        paid = call_cost(pricing, 1000, 0, "api", cached_read=read, cached_write=write).input_usd
+        nets.append(cache_savings(pricing, 1000, read, write, paid)["cache_saved_usd"])
+    assert nets[0] == pytest.approx(-225e-6)
+    assert sum(nets) == pytest.approx(585e-6)
+
+
+def test_a_cached_part_without_a_declared_price_is_flagged_unpriced():
+    # Gemini declares no cache price: the read tokens cost the input price, the net is unknown.
+    line = cache_savings(_pricing(), 1000, 800, 0, 1000 * 1 / 1e6)
+    assert line["cache_priced"] is False and line["cache_saved_usd"] == 0
+    # OpenAI declares a read price only: a read-only call stays priced.
+    pricing = _pricing(cache_read_usd_per_mtok=0.10)
+    assert cache_savings(pricing, 1000, 800, 0, 0.0)["cache_priced"] is True
+    assert cache_savings(pricing, 1000, 0, 100, 0.0)["cache_priced"] is False
+
+
+@pytest.mark.parametrize(
+    ("api", "field"),
+    [
+        ("openai_chat", "usage.prompt_tokens_details.cached_tokens"),
+        ("openai_responses", "usage.input_tokens_details.cached_tokens"),
+        ("anthropic_messages", "usage.cache_read_input_tokens"),
+    ],
+)
+def test_the_cache_line_names_the_provider_field(api, field):
+    assert field in cache_savings(_pricing(), 1000, 800, 0, 0.0, api)["cache_source"]
 
 
 @pytest.mark.parametrize("field", ["cache_read_usd_per_mtok", "cache_write_usd_per_mtok"])
@@ -423,3 +451,4 @@ def test_a_call_reads_the_cached_tokens_of_its_usage():
     assert ended["cache_full_usd"] == pytest.approx(1000 * 1 / 1e6)
     assert ended["cache_write_usd"] == pytest.approx(100 * 1.25 / 1e6)
     assert ended["cache_saved_usd"] == pytest.approx(ended["cache_full_usd"] - ended["cost_in_usd"])
+    assert ended["cache_priced"] is True and ended["cache_source"]

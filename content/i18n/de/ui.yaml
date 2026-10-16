@@ -577,6 +577,8 @@ main:
       write_tokens: "{tokens} Tokens · {cost}"
       write_none: "0 Tokens in diesem Durchgang"
       source: "Quelle"
+      cost: "Prompt-Cache: {read} Tokens wiedergelesen · {cost} Mehrkosten (Schreiben)"
+      unpriced: "Prompt-Cache: {read} Tokens wiedergelesen · Cache-Preis nicht angegeben"
     rows:
       overflow: "Kontext überschritten"
       sub_overflow: "Kontext des Sub-Agenten überschritten"

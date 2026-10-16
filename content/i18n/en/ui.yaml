@@ -577,6 +577,8 @@ main:
       write_tokens: "{tokens} tokens · {cost}"
       write_none: "0 token this turn"
       source: "Source"
+      cost: "Prompt cache: {read} tokens reread · {cost} extra cost (write)"
+      unpriced: "Prompt cache: {read} tokens reread · cache price not declared"
     rows:
       overflow: "Context exceeded"
       sub_overflow: "Sub-agent context exceeded"
