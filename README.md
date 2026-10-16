@@ -31,42 +31,41 @@ en réinjecte les résultats, jusqu'à la réponse. WaveStack montre cette boucl
 
 Pour Windows 10 ou 11 x64, sans droits administrateur ; prévoyez 3 Go de disque (5,9 Go avec
 tous les modèles du RAG) et 4 Go de RAM libre. Sous macOS ou Linux, ou si une étape bloque
-(politique du poste, proxy), suivez [l'installation détaillée](docs/installation.md).
-**Sur un réseau d'entreprise**, tapez d'abord `$env:UV_SYSTEM_CERTS = "1"` dans le terminal et
-faites autoriser les domaines de [Derrière un proxy d'entreprise](docs/installation.md#derrière-un-proxy-dentreprise).
+(proxy, politique du poste), suivez [l'installation détaillée](docs/installation.md).
 
-1. **Installez `uv`** dans un terminal PowerShell, puis rouvrez le terminal (refusé ? voir [Windows](docs/installation.md#windows)) :
+**Une seule commande**, dans PowerShell (pas CMD) : elle installe `uv` si besoin, récupère
+WaveStack dans `Documents\WaveStack`, dépose le modèle Qwen (1,3 Go), puis lance l'appli ;
+relancée plus tard, elle rouvre WaveStack sans rien retélécharger. **Sur un réseau
+d'entreprise**, tapez d'abord `$env:UV_SYSTEM_CERTS = "1"` dans ce même terminal et faites
+autoriser les domaines de [Derrière un proxy d'entreprise](docs/installation.md#derrière-un-proxy-dentreprise) :
 
-   ```powershell
-   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-   ```
+```powershell
+irm https://raw.githubusercontent.com/Aliquanto3/agentic-harness-training-demo/main/install.ps1 | iex
+```
 
-2. **Récupérez WaveStack** et entrez dans son dossier (zip : décompressez-le, puis `cd agentic-harness-training-demo-main`) :
+Depuis un clone ou un zip décompressé, double-cliquez plutôt sur `install.bat` : il installe sur place.
 
-   ```powershell
-   git clone https://github.com/Aliquanto3/agentic-harness-training-demo.git
-   cd agentic-harness-training-demo
-   ```
+Au premier lancement, la page de diagnostic s'ouvre sans scanner tout le poste : seuls le
+dossier des modèles, les chemins explicites et Ollama sont lus. Si plusieurs modèles sont
+trouvés, cliquez sur « Choisir ce modèle » en face de Qwen3.5-2B, puis sur le lien « Harnais ».
+Pour y ajouter des modèles déjà téléchargés ailleurs (cache Hugging Face, LM Studio), choisissez
+« Ajouter d'autres modèles… », en bas du menu des modèles de l'Atelier Harnais.
 
-3. **Déposez le modèle** (1,28 Go) dans `%LOCALAPPDATA%\WaveStack\models`, hors du dossier cloné :
+**Si vous préférez les étapes à la main**, ou si l'installeur échoue : dans PowerShell (pas CMD),
+installez `uv`, récupérez WaveStack, puis déposez le modèle Qwen (1,28 Go), hors du dossier cloné :
 
-   ```powershell
-   New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\WaveStack\models" | Out-Null
-   $ProgressPreference = "SilentlyContinue"
-   Invoke-WebRequest -UseBasicParsing "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" -OutFile "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf"
-   ```
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+git clone https://github.com/Aliquanto3/agentic-harness-training-demo.git
+cd agentic-harness-training-demo
+New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\WaveStack\models" | Out-Null
+$ProgressPreference = "SilentlyContinue"
+Invoke-WebRequest -UseBasicParsing "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf" -OutFile "$env:LOCALAPPDATA\WaveStack\models\Qwen3.5-2B-Q4_K_M.gguf"
+uv run wavestack
+```
 
-   En cas d'échec, prenez [le fichier](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf) avec le navigateur et copiez-le dans ce dossier.
-
-4. **Facultatif : ajoutez les extras** (compression Headroom, FAISS et LanceDB, CodeCarbon), tous dans la même commande :
-
-   ```powershell
-   uv sync --extra compression --extra rag-alt --extra greenops
-   ```
-
-5. **Lancez** avec `uv run wavestack`. Le premier lancement télécharge Python 3.13 et les
-   dépendances (quelques minutes), puis ouvre le diagnostic. Si plusieurs modèles sont trouvés,
-   cliquez sur « Choisir ce modèle » en face de Qwen3.5-2B, puis sur le lien « Harnais ».
+En cas d'échec du téléchargement, prenez [le fichier](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf)
+avec le navigateur. Détails, extras et macOS/Linux : [installation détaillée](docs/installation.md#windows).
 
 **Modèles du RAG.** Les modèles d'embedding et de reranking (121 à 639 Mo) se téléchargent depuis
 l'interface : carte RAG de l'Atelier Harnais pour la brique RAG, bouton « Télécharger » de
@@ -88,7 +87,7 @@ et ne part que vers l'hôte du fournisseur. Plans gratuits, proxy et conditions 
 
 | Document | Contenu |
 |---|---|
-| [Installation détaillée](docs/installation.md) | Pas à pas Windows, macOS et Linux, premier lancement, proxy, mise à jour, extras |
+| [Installation détaillée](docs/installation.md) | Installeur, pas à pas manuel Windows/macOS/Linux, premier lancement, proxy, mise à jour, extras |
 | [Guide d'utilisation](docs/guide.md) | L'interface, le programme de formation, les ateliers, le RAG, la compression, FinOps et GreenOps |
 | [Modèles](docs/modeles.md) | Changer de modèle, fenêtre de contexte, Ollama et llama-server, modèles cloud |
 | [Contribuer](CONTRIBUTING.md) | Environnement de développement, conventions, tests, ajout de scénarios |
