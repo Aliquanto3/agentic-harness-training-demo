@@ -6389,6 +6389,11 @@ function eventSummary(group) {
       return [labelValue(mcpServerLabel(p.server), p.tool), seconds(p.duration_ms), p.error_text]
         .filter(Boolean)
         .join(" · ");
+    // V1.1 vague 2, story 1: the tool policy's "ask" rule, in the log only.
+    case "mcp_lab_authorization_requested":
+      return [labelValue(mcpServerLabel(p.server), p.tool), p.risk].filter(Boolean).join(" · ");
+    case "mcp_lab_authorization_resolved":
+      return [labelValue(mcpServerLabel(p.server), p.tool), p.decision].filter(Boolean).join(" · ");
     // Lot 4 of 2026-10-04 (AD-27): the workshop's other exchanges, in the log only.
     case "mcp_lab_exchange_started":
       return [labelValue(mcpServerLabel(p.server), p.exchange), p.tool ?? p.uri ?? p.prompt ?? p.question]
