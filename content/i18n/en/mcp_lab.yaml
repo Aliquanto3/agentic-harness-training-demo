@@ -11,8 +11,10 @@ busy_text: "Unavailable for now: {reason}"
 
 servers_help_text: >-
   The three servers of the MCP brick. The glossary is a Python process the host launches on this
-  workstation and talks to through standard input and output; the other two are public services
-  reached over HTTP (the standard web protocol), behind WaveStack's network guard.
+  workstation and talks to through standard input and output (the text channels a program reads
+  and writes through); the other two are public services reached over HTTP (the standard web
+  protocol), behind WaveStack's network guard (the filter that blocks any address outside the
+  allowed list).
 handshake_help_text: >-
   As in a restaurant: “Hello, I am WaveStack's waiter” (initialize); “Hello, here is what we
   serve: dishes à la carte, what we put on the table, set menus” (capabilities: tools,
@@ -20,14 +22,17 @@ handshake_help_text: >-
   resources/list, prompts/list). Only then does one order.
 handshake_empty_text: "Connect to a server: the handshake will show here, message by message."
 tools_help_text: >-
-  What the server says of each tool, and what it costs in the context. With full documentation,
-  each tool enters whole (name, description, schema); with lazy loading, it leaves only a line in
-  load_tool_doc's description, and its documentation enters only if the model asks for it.
+  What the server says of each tool, and what it costs in the context, in tokens (the pieces of
+  words the model counts). With full documentation, each tool enters whole (name, description,
+  schema: the list of its parameters and their types); with lazy loading, it leaves only a line
+  in the description of load_tool_doc (the harness's tool that loads a documentation on
+  demand), and its documentation enters only if the model asks for it.
 tools_empty_text: "Connect to a server: its tool documentation and its weight will show here."
 call_help_text: >-
-  One field per parameter of the tool's schema. The host sends tools/call through the client;
-  the server answers with a JSON-RPC (the MCP protocol's message format) result, from which the
-  host takes the text it reinjects to the model.
+  One field per parameter of the tool's schema (the list of its parameters and their types); a
+  complex value is typed in JSON (a text data format, for example [1, 2]). The host sends
+  tools/call through the client; the server answers with a JSON-RPC result (the MCP protocol's
+  message format), from which the host takes the text it reinjects to the model.
 by_hand_text: "You play the model: you choose the tool and its arguments."
 by_model_text: >-
   The active model receives your question and the tools, then chooses by itself. Slow on CPU:
@@ -36,8 +41,8 @@ reinjected_help_text: >-
   The text the harness hands back to the model: the result's text blocks, bounded by the cap on
   network and MCP tool results.
 context_help_text: >-
-  The “tools” block as the host sends it to the model: the JSON definitions, without the
-  wrapping the model's template adds. This is what the model reads before choosing a tool.
+  The “tools” block as the host sends it to the model: the JSON definitions (a text data
+  format), without the wrapping the model's template (its own way of laying out messages) adds. This is what the model reads before choosing a tool.
 outside_text: "Resources and prompts do not enter it: they wait for a choice of the application or of the user."
 arch_empty_text: "The pieces will appear here, one by one, as they come into play."
 ask_resource_text: |-
@@ -51,21 +56,24 @@ transports:
   stdio:
     label_text: "stdio (child process)"
     explain_text: >-
-      The host launches the server on this workstation and the client exchanges with it through
-      standard input and output: one JSON line per message. Nothing leaves the workstation.
+      The host launches the server on this workstation, as a program it drives (a child
+      process), and the client exchanges with it through standard input and output (the text
+      channels a program reads and writes through): one JSON line per message. Nothing leaves
+      the workstation.
   streamable_http:
     label_text: "Streamable HTTP"
     explain_text: >-
-      The client sends each message as a POST to the server's address, which answers in JSON or
-      as an event stream. The request leaves the workstation: it is traced as outgoing data.
+      The client sends each message as a POST (a web request that carries data) to the
+      server's address, which answers in JSON or as an event stream (messages sent as they
+      come). The request leaves the workstation: it is traced as outgoing data.
 
 methods:
-  initialize: "The client introduces itself: protocol version, client capabilities, name and version. The server answers with the version kept, its name and its capabilities: the primitives it offers."
+  initialize: "The client introduces itself: protocol version, client capabilities, name and version. The server answers with the version kept, its name and its capabilities: the primitives it offers (its kinds of services: tools, resources, prompts)."
   "notifications/initialized": "A notification, with neither answer nor id: the client confirms the session is open."
   "tools/list": "The client asks for the list of tools. Each tool comes with its name, its description and the schema of its arguments: this is what the host puts in the model's context."
   "resources/list": "The server announced resources: the client asks for their list. Each resource has an address (URI), a name and a type; nothing enters the context."
   "prompts/list": "The server announced prompts: the client asks for their list. Each prompt has a name, a description and its arguments; the host offers them to the user, as commands."
-  "tools/call": "The client asks the server to run a tool with its arguments; the server answers with content blocks and isError."
+  "tools/call": "The client asks the server to run a tool with its arguments; the server answers with content blocks (pieces of text or image) and isError (true if the tool reports an error). A JSON-RPC error, for its part, says the request itself did not go through."
   "resources/read": "The client asks for a resource's content by its address; the server sends it back with its address and type."
   "prompts/get": "The client asks for a prompt with its arguments; the server sends back messages ready to enter the conversation."
 
@@ -77,7 +85,7 @@ columns:
   model:
     name_text: "Local SLM"
     sub_text: ""
-    explain_text: "The model never talks to the MCP server. It reads the tools in its context and asks the host for a call, which goes through the client."
+    explain_text: "An SLM (small language model) running on this workstation. The model never talks to the MCP server. It reads the tools in its context and asks the host for a call, which goes through the client."
   host:
     name_text: "WaveStack host"
     sub_text: "the harness"
@@ -99,7 +107,8 @@ phases:
   connect:
     why_label_text: "Why a handshake?"
     why_text: >-
-      As in a restaurant: “Hello, I am WaveStack's waiter” (initialize); “Hello, here is what we
+      The handshake is the opening exchange in which the client and the server introduce
+      themselves. As in a restaurant: “Hello, I am WaveStack's waiter” (initialize); “Hello, here is what we
       serve: dishes à la carte, what we put on the table, set menus” (capabilities: tools,
       resources, prompts); “Noted” (notifications/initialized); “The menu, please” (tools/list,
       resources/list, prompts/list). Only then does one order.
@@ -139,7 +148,7 @@ servers:
   datagouv:
     source_label_text: "data.gouv.fr API"
     source_action_text: "calls the data.gouv.fr API"
-    source_explain_text: "The data.gouv.fr API, called by the server. This exchange happens at the server's: the workstation does not see it."
+    source_explain_text: "The data.gouv.fr API (the interface through which a program queries a service), called by the server. This exchange happens at the server's: the workstation does not see it."
   mslearn:
     source_label_text: "Microsoft docs"
     source_action_text: "reads the Microsoft documentation"
@@ -178,9 +187,9 @@ before:
   banner_text: "Schema of principle: nothing is captured"
   integrations:
     local: "Code to read glossary.yaml"
-    datagouv: "Code for the data.gouv.fr API (REST, its format)"
+    datagouv: "Code for the data.gouv.fr API (its own format)"
     mslearn: "Code for the Microsoft API (another format, another authentication)"
   captions:
-    - "One integration to write and maintain per tool."
+    - "One integration (the code that links the application to an API, a service's interface for programs) to write and maintain per tool."
     - "An API that changes breaks its integration, until the code catches up."
   after_caption_text: "One protocol: the same client for every server; each server follows its API's changes."

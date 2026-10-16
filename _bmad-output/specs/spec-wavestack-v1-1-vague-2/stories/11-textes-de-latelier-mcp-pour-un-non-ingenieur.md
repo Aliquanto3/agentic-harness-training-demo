@@ -2,7 +2,7 @@
 title: 'Story 11 : textes de l''atelier MCP pour un non-ingénieur'
 type: 'content'
 created: '2026-10-16'
-status: 'review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 1
 baseline_commit: '4d5442b'
@@ -84,4 +84,23 @@ context:
 
 ## Revue
 
-(à compléter)
+Revue du 2026-10-16 (Opus), après rebase sur `origin/main` (998729f). Corrections en fr, en et de, avec les mêmes clés et les mêmes `{placeholders}`. Aucun fichier Python ou JS touché.
+
+- MEDIUM, second avis : « primitives » (`methods.initialize`). Corrigé : « (ses types de services : outils, ressources, prompts) ».
+- MEDIUM, second avis : « jeton » glosé seulement à l'expiration. Corrigé : glose dans `mcp.github.intro` (toujours visible dans le bloc GitHub) et dans `servers.github.sends_text` de `mcp.yaml` (détails du serveur). `error.network` est couvert par l'intro.
+- MEDIUM, second avis : « schéma » de l'outil. Corrigé dans `tools_help_text` et `call_help_text` (la liste de ses paramètres et de leur type).
+- MEDIUM, second avis : « JSON » dans `mcp.call.invalid_json`. Corrigé sans toucher le message, que `run_e2e.py` vérifie tel quel : glose dans `call_help_text`, affiché au-dessus des champs, et dans `context_help_text`.
+- MEDIUM, second avis : « SLM local » en titre de colonne. Corrigé dans le dépli `columns.model.explain_text` (petit modèle de langage sur ce poste). `sub_text` reste vide : le JS le remplace par le nom du modèle.
+- MEDIUM, second avis : « stdio (processus enfant) », « entrée et sortie standard ». Corrigé dans `servers_help_text` et `transports.stdio.explain_text`.
+- MEDIUM, second avis : « token » des compteurs. Corrigé dans `tools_help_text`, l'aide du volet qui affiche les poids.
+- MEDIUM, second avis : « fenêtre utile », « réserve de sortie » (`mcp.arrow.not_sent`, `mcp.arrow.cut`). Corrigé par une parenthèse dans le message.
+- LOW, second avis : load_tool_doc dans `tools_help_text`. Corrigé.
+- LOW, second avis : « garde réseau ». Corrigé dans `servers_help_text` ; `error_kinds.guard_blocked` reste une étiquette courte.
+- LOW, second avis : « poignée de main » en titre. Corrigé en tête de `phases.connect.why_text`, le dépli sous le titre. `handshake_help_text` n'est rendu par aucun écran : non retouché.
+- LOW, second avis : gabarit, POST, flux d'événements, API. Corrigés (`context_help_text`, `transports.streamable_http`, `servers.datagouv.source_explain_text`, `before.captions`). « REST » retiré du libellé `before.integrations.datagouv` (« son propre format »), sans perte de sens.
+- LOW, second avis : sigles MFA, PIM, IAM, Entra ID des préréglages (`call_presets` de `mcp.yaml`). Rejeté : `content/scenarios.yaml` et `tests/test_program.py` citent les libellés mot pour mot, et « Entra ID » fait partie de la requête envoyée à Microsoft Learn. Les gloser sort du périmètre de la story ; à reprendre avec les scénarios IAM et Souveraineté si besoin.
+- LOW, second avis : « erreur JSON-RPC », « isError », « blocs de contenu ». Corrigé dans `methods.tools/call`.
+- LOW, revue : anglais de `call_help_text` (« a JSON-RPC (…) result »). Corrigé en « a JSON-RPC result (…) ».
+- Info, revue : `tests/test_program.py` a 2 tests en échec (`mcp_full` déborde la fenêtre, snapshot GitHub en `KeyError`), aussi avec le contenu d'`origin/main`. Préexistant, hors story, non corrigé.
+
+Tests passés : `test_i18n` 137, `test_ui_texts` 39, `test_mcp_lab` 38, `test_backend_messages` 3699. Le contrôle rapide ne signale rien. E2E à rejouer : `mcp_lab_page,mcp_lab`, pour le rendu des gloses ; aucun texte vérifié à l'identique n'a changé.
