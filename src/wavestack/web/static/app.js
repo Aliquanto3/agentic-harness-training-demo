@@ -1473,6 +1473,7 @@ function downloadParts(brick) {
   if (jobs[state]) {
     const progress = el("p", "brick-download-progress", store.sessionState.reason_text || t("common.in_progress"));
     progress.setAttribute("role", "status");
+    if (store.sessionState.stoppable === false) return [progress]; // story 13: `uv sync`
     const stop = el("button", "brick-edit brick-download-stop", jobs[state]);
     stop.type = "button";
     stop.dataset.focusKey = `download-stop:${brick.id}`;
@@ -1548,15 +1549,22 @@ function rerankParts(brick, offReason = null) {
 }
 
 // Story 5 (CAP-5, CAP-6): the `guardrails` brick's rows — a guard-mode-switch per installed
-// guardrail (`injection` stays « non installé », story 13) and its « Essayer : … » buttons.
+// guardrail and its « Essayer : … » buttons. Story 13: a real « Installer » for the brick's
+// extra (`brick.installable`), and `injection`'s own token field until it has a model.
 function guardrailsParts(brick) {
+  const parts = [];
+  const idle = store.sessionState?.state === "idle";
+  if (brick.installable) parts.push(...installExtraParts());
   const list = el("ul", "guardrail-list");
   for (const guardrail of brick.guardrails || []) {
     const row = el("li", "guardrail-row");
     row.appendChild(el("span", "guardrail-name", guardrail.label_text));
-    if (guardrail.status === "not_installed") {
-      row.appendChild(el("span", "status-chip is-off", t("main.bricks.status.not_installed")));
+    if (guardrail.status !== "active" && guardrail.status !== "off") {
+      const chip = { not_installed: "is-off", loading: "is-off", error: "is-flagged" }[guardrail.status] || "is-off";
+      row.appendChild(el("span", `status-chip ${chip}`, t(`main.bricks.status.${guardrail.status}`)));
       if (guardrail.install_text) row.appendChild(el("p", "brick-reason", guardrail.install_text));
+      if (guardrail.status === "loading" && store.sessionState?.state === "download") row.append(...jobProgressParts("install-stop:injection"));
+      else if (guardrail.needs_token) row.appendChild(tokenForm(idle));
       list.appendChild(row);
       continue;
     }
@@ -1591,9 +1599,78 @@ function guardrailsParts(brick) {
       examples.appendChild(button);
     }
     row.appendChild(examples);
+    if (guardrail.note_text) row.appendChild(el("p", "brick-note", guardrail.note_text));
     list.appendChild(row);
   }
-  return [list];
+  parts.push(list);
+  return parts;
+}
+
+// Story 13: the brick's own « Installer » (the `guardrails` extra), while `state === "download"`
+// shows the same global progress line and « Arrêter » as a RAG model download (reused, AD-1).
+// Review: « Arrêter » only when the job can stop (`stoppable`, false for `uv sync`).
+function jobProgressParts(focusKey) {
+  const progress = el("p", "brick-download-progress", store.sessionState?.reason_text || t("common.in_progress"));
+  progress.setAttribute("role", "status");
+  if (store.sessionState?.stoppable === false) return [progress];
+  const stop = el("button", "brick-edit brick-download-stop", t("main.bricks.stop_download"));
+  stop.type = "button";
+  stop.dataset.focusKey = focusKey;
+  stop.addEventListener("click", () => postIntention("/api/intentions/stop", {}).catch(() => {}));
+  return [progress, stop];
+}
+
+function installExtraParts() {
+  const state = store.sessionState?.state;
+  if (state === "download") return jobProgressParts("install-stop:guardrails");
+  const button = el("button", "brick-edit brick-install", t("main.bricks.guardrails_install"));
+  button.type = "button";
+  button.disabled = state !== "idle";
+  button.dataset.focusKey = "install-extra:guardrails";
+  button.addEventListener("click", () => ragAction("/api/intentions/install_guardrails_extra", {}));
+  const parts = [button];
+  if (store.downloadError) parts.push(el("p", "force-error", store.downloadError));
+  return parts;
+}
+
+// Story 13: `injection`'s own token field, shown instead of the brick's plain command while
+// it has no model yet (`needs_token`); « Installer » saves it and downloads Prompt Guard 2.
+function tokenForm(idle) {
+  const form = el("form", "guardrail-token-form");
+  const input = el("input", "guardrail-token-input");
+  input.type = "password";
+  input.placeholder = t("main.bricks.guardrails_token_placeholder");
+  input.setAttribute("aria-label", t("main.bricks.guardrails_token_placeholder"));
+  input.disabled = !idle;
+  // Review (licence): Meta's page and an explicit acceptance before « Installer » acts.
+  const link = el("a", "guardrail-licence-link", t("main.bricks.guardrails_licence_link"));
+  link.href = "https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-22M";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  const accept = el("label", "guardrail-licence-accept");
+  const box = el("input");
+  box.type = "checkbox";
+  box.checked = Boolean(store.licenceAccepted);
+  box.disabled = !idle;
+  box.dataset.focusKey = "licence:injection";
+  accept.append(box, el("span", null, t("main.bricks.guardrails_licence_accept")));
+  const button = el("button", "brick-edit brick-install", t("main.bricks.guardrails_install"));
+  button.type = "submit";
+  button.disabled = !idle || !box.checked;
+  box.addEventListener("change", () => {
+    store.licenceAccepted = box.checked;
+    button.disabled = !idle || !box.checked;
+  });
+  form.append(link, accept, input, button);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const token = input.value.trim();
+    if (!token || !box.checked) return;
+    ragAction("/api/intentions/install_prompt_guard", { token, licence_accepted: true });
+    input.value = "";
+  });
+  if (store.downloadError) form.appendChild(el("p", "force-error", store.downloadError));
+  return form;
 }
 
 async function ragAction(path, body) {
@@ -6643,7 +6720,7 @@ function eventSummary(group) {
       return `${p.guardrail_text} · ${p.direction_text} · ${p.verdict_text}`;
     case "effect_applied":
       if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · ${quote(p.text)}`;
-      if (["model_download", "model_download_stopped", "rag_index_write"].includes(p.effect)) return p.lines.join(" · ");
+      if (["model_download", "model_download_stopped", "rag_index_write", "guardrails_extra_installed"].includes(p.effect)) return p.lines.join(" · ");
       if (p.effect === "audit_append") return t("main.log.audit_lines", { lines: plural(p.lines.length, "line") });
       return p.key ?? p.id ?? p.effect;
     case "memory_changed":

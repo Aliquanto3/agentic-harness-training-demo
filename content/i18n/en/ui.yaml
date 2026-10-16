@@ -138,6 +138,10 @@ main:
     mcp_workshop: "See the protocol in the MCP workshop →"
     help_label: "What the {brick} brick adds"
     edit_prompt: "Edit the prompt"
+    guardrails_install: Install
+    guardrails_token_placeholder: "Paste your Hugging Face token…"
+    guardrails_licence_link: "Llama 4 Community licence and model page (Meta)"
+    guardrails_licence_accept: "I have accepted the Llama 4 Community licence on Hugging Face"
     groups:
       reads: "What the model reads"
       acts: "What the harness does"
@@ -145,6 +149,8 @@ main:
       imposed: "Imposed by this model"
       unavailable: "Unavailable"
       not_installed: "Not installed"
+      loading: "Loading…"
+      error: "Load error"
       switched_off: "Off"
       waiting_model: "Waiting for the model"
       reserve: "Output reserve: {tokens}"

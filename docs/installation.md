@@ -331,3 +331,25 @@ uv sync --extra compression --extra rag-alt --extra greenops
 | `rag-alt` | FAISS et LanceDB dans l'Atelier RAG | ≈ 390 Mo | [FAISS et LanceDB](guide.md#faiss-et-lancedb-extra-rag-alt) |
 | `greenops` | L'empreinte des modèles locaux (CodeCarbon) | ≈ 150 Mo | [GreenOps](guide.md#greenops-empreinte-estimée-des-appels-au-modèle) |
 | `guardrails` | La brique Garde-fous (toxicité ONNX, Presidio et spaCy français) ; le modèle de toxicité (≈ 140 Mo) se télécharge depuis Hugging Face à la première utilisation | ≈ 500 Mo | Le modèle spaCy `fr_core_news_sm` vient des releases GitHub de spaCy : autoriser `github.com`, `objects.githubusercontent.com` et `release-assets.githubusercontent.com` derrière un proxy |
+
+Depuis la brique Garde-fous, un bouton **Installer** lance cette même commande (`uv sync
+--extra guardrails --inexact --no-install-project`) dans l'environnement de WaveStack et
+affiche la progression ; cette étape ne s'interrompt pas (pas de bouton « Arrêter » : un `uv
+sync` coupé en route laisserait l'environnement à moitié installé). Si l'installation réussit,
+la brique s'utilise sans relancer WaveStack, sauf message contraire affiché par le bouton.
+
+**Garde-fou injection (Prompt Guard 2, optionnel)** : un poids ONNX quantifié (≈ 70 Mo, repris
+de `gravitee-io/Llama-Prompt-Guard-2-22M-onnx`, sans torch) protégé par la licence Llama 4
+Community. Dans la brique Garde-fous, dépliez « Comment l'installer » : créez un compte sur
+[huggingface.co](https://huggingface.co), acceptez la licence sur la fiche de
+`meta-llama/Llama-Prompt-Guard-2-22M`, générez un jeton d'accès (lecture suffit), cochez « J'ai
+accepté la licence Llama 4 Community sur Hugging Face », collez le jeton et cliquez sur
+**Installer**. Avant tout téléchargement, WaveStack demande avec ce jeton un petit fichier du
+dépôt officiel de Meta (`config.json`, sans les poids) : si Hugging Face refuse l'accès (licence
+non acceptée par ce compte, ou jeton invalide), rien n'est téléchargé. Une fois installé, la
+brique affiche « Built with Llama », comme l'exige la licence. Derrière un proxy, le
+téléchargement passe par `huggingface.co` puis par ses serveurs de fichiers sous `*.hf.co`
+(par exemple `cas-bridge.xethub.hf.co`), déjà dans la liste blanche de WaveStack : le proxy
+doit autoriser les deux. Le jeton est enregistré hors du dépôt
+(`<dossier de données WaveStack>/hf_token.json`) ; supprimez ce fichier pour le retirer. Il
+n'apparaît jamais dans le journal, la trace ni les journaux.

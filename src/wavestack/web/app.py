@@ -124,10 +124,21 @@ class McpAuthorizationIntention(BaseModel):
 
 
 class GuardrailModeIntention(BaseModel):
-    """CAP-5: the mode (`block`, `flag` or `off`) of one guardrail (`toxicity`, `pii`)."""
+    """CAP-5: the mode (`block`, `flag` or `off`) of one guardrail (`toxicity`, `pii`,
+    `injection` once story 13's `install_prompt_guard` has given it a model)."""
 
     guardrail: str
     mode: str
+
+
+class InstallPromptGuardIntention(BaseModel):
+    """Story 13, CAP-5: the Hugging Face token Prompt Guard 2's download needs; never
+    echoed back (AD-15)."""
+
+    token: str
+    # Story 13 review: the brick's « J'ai accepté la licence » box; Meta's gated repo is then
+    # asked with the token before any download (`injection.check_licence`).
+    licence_accepted: bool = False
 
 
 class RagRerankIntention(BaseModel):
@@ -1143,6 +1154,38 @@ def create_app(
         except ValueError:
             raise HTTPException(status_code=422, detail=t("web.unknown.guardrail_mode")) from None
         return {"accepted": True}
+
+    @app.post("/api/intentions/install_guardrails_extra")
+    def install_guardrails_extra() -> dict[str, object]:
+        """Story 13, class (b): `uv sync --extra guardrails --inexact` in the running
+        environment, no restart required when it can activate the brick live."""
+        _diagnostic_class_b()
+        try:
+            message_text = app_session.install_guardrails_extra()
+        except KeyError:
+            raise HTTPException(status_code=404, detail=t("web.unknown.brick")) from None
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
+        return shown({"message_text": message_text})
+
+    @app.post("/api/intentions/install_prompt_guard")
+    def install_prompt_guard(intention: InstallPromptGuardIntention) -> dict[str, object]:
+        """Story 13, class (b): saves the Hugging Face token (AD-15: never in the answer, the
+        journal or the trace) and downloads Prompt Guard 2's ONNX weights."""
+        _diagnostic_class_b()
+        if not intention.licence_accepted:
+            raise HTTPException(status_code=409, detail=t("guardrails.injection.licence_unchecked"))
+        try:
+            message_text = app_session.install_prompt_guard(intention.token)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=t("web.unknown.brick")) from None
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
+        return shown({"message_text": message_text})
 
     @app.post("/api/intentions/rag_rerank")
     def rag_rerank(intention: RagRerankIntention) -> dict[str, bool]:

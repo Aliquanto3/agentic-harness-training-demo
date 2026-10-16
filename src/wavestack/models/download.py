@@ -108,10 +108,14 @@ def download_files(
     on_progress: Callable[[int, int], None],
     *,
     transport: httpx.BaseTransport | None = None,
+    headers: dict[str, str] | None = None,
 ) -> None:
     """Download `files` into `dest` (their `path` under it). `on_progress(done, total)` in
     bytes, for all the files. Returns each file's sha256, by `path`. Raises `DownloadError`
-    (`cancelled` when `cancel` fired)."""
+    (`cancelled` when `cancel` fired). `headers` (story 13: a gated model's Hugging Face
+    token): never logged here — the factory masks any header outside its public allow-list
+    before it reaches the journal (AD-15), and httpx itself drops `Authorization` on a
+    cross-host redirect (the CDN leg a resolve URL redirects to needs none)."""
     total = sum(f.size for f in files)
     done = 0
     digests: dict[str, str] = {}
@@ -123,7 +127,7 @@ def download_files(
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             done, digests[file.path] = _download_one(
-                file, part, cancel, on_progress, done, total, transport
+                file, part, cancel, on_progress, done, total, transport, headers
             )
             os.replace(part, target)
         except DownloadError:
@@ -148,13 +152,14 @@ def _download_one(
     done: int,
     total: int,
     transport: httpx.BaseTransport | None,
+    headers: dict[str, str] | None = None,
 ) -> tuple[int, str]:
     digest = hashlib.sha256()
     written = 0
     try:
         with scoped(origin="download"), create_client(timeout=TIMEOUT, transport=transport) as c:
             c.event_hooks["request"].insert(0, _check_hop)
-            with c.stream("GET", file.url, follow_redirects=True) as response:
+            with c.stream("GET", file.url, follow_redirects=True, headers=headers) as response:
                 if isinstance(cancel, StopToken):
                     cancel.watch(response)
                 if response.status_code >= 400:

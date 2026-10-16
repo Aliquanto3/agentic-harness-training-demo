@@ -177,6 +177,28 @@ def test_sha256_mismatch_fails_and_a_declared_one_passes(tmp_path):
     assert progress[-1] == (MODEL_SIZE, MODEL_SIZE)
 
 
+def test_download_files_sends_the_given_headers(tmp_path):
+    """Story 13: Prompt Guard's `Authorization: Bearer …` reaches the request, not just the
+    declared `headers` dict (a gated model's token, never logged by this test either)."""
+    seen: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["authorization"] = request.headers.get("authorization")
+        return httpx.Response(200, content=b"hello")
+
+    file = ModelFile(url=URL, path="f.bin", size=5)
+    download_files(
+        [file],
+        tmp_path,
+        CancelToken(),
+        lambda *p: None,
+        transport=httpx.MockTransport(handler),
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    assert seen["authorization"] == "Bearer secret-token"
+    assert (tmp_path / "f.bin").read_bytes() == b"hello"
+
+
 def test_download_is_refused_outside_idle_with_the_reason(index):
     gate = threading.Event()
     engine = FakeEngine(output="Bonjour.", gate=gate)

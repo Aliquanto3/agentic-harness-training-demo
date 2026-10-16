@@ -29,6 +29,26 @@ def test_settings_json_overrides_wavestack_toml(monkeypatch, tmp_path):
     assert "huggingface.co" in cfg.allowed_hosts
 
 
+def test_hf_token_file_first_then_env_then_none(monkeypatch, tmp_path):
+    """Story 13: the file `write_hf_token` writes, else `HF_TOKEN`, else `None` — never the
+    repository, always under `data_dir()` (erasable by deleting the file)."""
+    from pydantic import SecretStr
+
+    monkeypatch.setenv("WAVESTACK_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    assert config.hf_token() is None
+
+    monkeypatch.setenv("HF_TOKEN", "hf_env_token")
+    assert config.hf_token().get_secret_value() == "hf_env_token"
+
+    config.write_hf_token(SecretStr("hf_file_token"))
+    assert config.hf_token().get_secret_value() == "hf_file_token"  # the file wins over HF_TOKEN
+    assert config.hf_token_path() == tmp_path / "hf_token.json"
+
+    config.hf_token_path().unlink()
+    assert config.hf_token().get_secret_value() == "hf_env_token"  # erased: back to the env var
+
+
 def test_default_config_has_expected_defaults():
     cfg = config.load_config()
     assert cfg.context_window == 4096

@@ -1379,6 +1379,36 @@ def write_api_key(model_id: str, host: str, key: SecretStr) -> None:
     os.replace(tmp, path)
 
 
+def hf_token_path() -> Path:
+    """Story 13 (CAP-5): the Hugging Face token Prompt Guard 2's download needs, outside the
+    repository and erasable (delete the file), same shape and atomicity as `api_keys.json`
+    (AD-20). Never read back by anything that traces or journals (AD-15: the download's
+    `Authorization` header is masked before it reaches the journal, like any other secret
+    header)."""
+    return data_dir() / "hf_token.json"
+
+
+def hf_token() -> SecretStr | None:
+    """The file first, else `HF_TOKEN` (the variable `huggingface_hub` itself reads): `None`
+    when neither gives one, which is what keeps the injection guardrail `not_installed`."""
+    try:
+        saved = json.loads(hf_token_path().read_text(encoding="utf-8"))
+        key = saved.get("key") if isinstance(saved, dict) else None
+    except (OSError, ValueError):
+        key = None
+    key = (key or os.environ.get("HF_TOKEN", "")).strip()
+    return SecretStr(key) if key else None
+
+
+def write_hf_token(key: SecretStr) -> None:
+    """The only writer of `hf_token.json`: an atomic replace. Raises OSError on failure."""
+    path = hf_token_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"key": key.get_secret_value()}), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def rag_lab_dir() -> Path:
     """Story 30 (AD-20): the RAG workshop's vectors and indexes, built on demand, never in
     the repository; the folder can be deleted, WaveStack stopped."""

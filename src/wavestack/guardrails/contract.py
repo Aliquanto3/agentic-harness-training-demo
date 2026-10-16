@@ -40,6 +40,14 @@ class Classification:
     partial: bool = False
 
 
+class NotInstalled(Exception):
+    """Story 13: raised by `classify` when the guardrail cannot run yet for a reason the user
+    fixes themselves (injection without a Hugging Face token) — distinct from `error` (a real
+    failure): the manager reports `not_installed`, with this message as the marche-à-suivre,
+    and never caches it in `_load_errors` (checking a token file back is cheap; it does not
+    need the "never retried every turn" guard a model download does)."""
+
+
 class Classifier(Protocol):
     """What `ToxicityGuardrail` and `PiiGuardrail` both implement; a test fake needs only
     this, never a real model (story 4: no pytest downloads one)."""
