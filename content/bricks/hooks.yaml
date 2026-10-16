@@ -11,13 +11,13 @@ explanation_text:
     Orchestration.
   - - >-
       Le garde-fou empêche la lecture du dossier confidentiel même quand le
-      modèle la demande (sécurité, DLP).
+      modèle la demande (sécurité, DLP : la prévention de fuite de données).
     - "La journalisation écrit un journal d'audit que le modèle ne voit pas."
     - "L'injection de contexte ajoute la date et les règles de la mission avant chaque message."
     - >-
       La validation humaine, à cocher dans la carte, suspend le tour avant
       l'appel d'un outil réseau et vous montre la requête exacte, qui ne part
-      que si vous l'autorisez (human in the loop).
+      que si vous l'autorisez (human in the loop : un humain décide avant que l'outil agisse).
   - >-
     Comparez avec l'outil « Heure et date » : pour le même besoin, l'outil
     laisse le modèle choisir de demander l'heure, le hook la lui donne à chaque tour,

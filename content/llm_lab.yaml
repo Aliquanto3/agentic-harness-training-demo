@@ -31,8 +31,11 @@ sections:
     intro_text: >-
       À chaque pas, le modèle donne une probabilité à chaque token du vocabulaire. Ces
       réglages décident comment le token suivant est tiré parmi eux. L'ordre décrit ici est
-      celui de llama.cpp (moteur de WaveStack, llama-server, Ollama) : top-k, puis top-p, puis
-      min-p, puis la température ; un fournisseur cloud peut appliquer les siens autrement.
+      celui de llama.cpp (moteur de WaveStack, llama-server, Ollama) : top-k (ne garder que
+      les tokens les plus probables), puis top-p (ne garder qu'un groupe de tokens qui totalise
+      une probabilité donnée), puis min-p (écarter les tokens trop improbables), puis la
+      température (resserre ou étale les probabilités) ; un fournisseur cloud peut appliquer
+      les siens autrement.
     questions_text:
       - "Pourquoi le même prompt donne-t-il deux réponses différentes ?"
       - "La température change-t-elle les probabilités du modèle, ou seulement le tirage ?"

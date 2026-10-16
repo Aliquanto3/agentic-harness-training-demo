@@ -5,7 +5,8 @@
 title_text: "Atelier RAG : l'architecture RAG à manipuler"
 intro_text: >-
   Un RAG en deux temps : l'indexation (build) range une fois pour toutes les chunks du corpus
-  dans un vector store ; la requête (run), à chaque question, y cherche les chunks utiles et les
+  dans un vector store (une base qui range les vecteurs et retrouve vite les plus proches) ;
+  la requête (run), à chaque question, y cherche les chunks utiles et les
   place dans le prompt du modèle. Lancez la chaîne sur une question pour voir ce que chaque
   étape reçoit, produit, et ce qu'elle coûte. C'est un bac à sable : la brique RAG de l'atelier
   ne change pas.
@@ -242,7 +243,8 @@ steps:
     action_text: "Construire l'index lexical (BM25) des chunks"
     explain_text: >-
       BM25 n'a pas de modèle appris : c'est un algorithme statistique. À l'indexation, il
-      découpe chaque chunk en termes (casse, accents et mots vides ignorés, sigles gardés),
+      découpe chaque chunk en termes (casse — majuscules et minuscules —, accents et mots
+      vides ignorés, sigles gardés),
       compte combien de fois chaque terme y paraît et la longueur du chunk, puis, pour chaque
       terme, combien de
       chunks le contiennent (sa fréquence documentaire) : c'est l'index inversé, comme celui

@@ -29,8 +29,11 @@ sections:
     intro_text: >-
       At each step, the model gives a probability to every token in the vocabulary. These
       settings decide how the next token is drawn from them. The order described here is
-      llama.cpp's (the engine of WaveStack, llama-server and Ollama): top-k, then top-p, then
-      min-p, then temperature; a cloud provider may apply its own differently.
+      llama.cpp's (the engine of WaveStack, llama-server and Ollama): top-k (keep only the
+      most probable tokens), then top-p (keep a group of tokens that adds up to a given
+      probability), then min-p (drop tokens that are too unlikely), then temperature
+      (flattens or sharpens the probabilities); a cloud provider may apply its own
+      differently.
     questions_text:
       - "Why does the same prompt give two different answers?"
       - "Does the temperature change the model's probabilities, or only the draw?"

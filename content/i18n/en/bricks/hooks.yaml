@@ -11,13 +11,13 @@ explanation_text:
     and each decision is shown in Orchestration.
   - - >-
       The guard prevents reading the confidential folder even when the model asks for it
-      (security, DLP).
+      (security, DLP: data loss prevention).
     - "Logging writes an audit log that the model does not see."
     - "Context injection adds the date and the mission's rules before each message."
     - >-
       Human approval, to tick in the card, suspends the turn before a network tool is
       called and shows you the exact request, which is only sent if you allow it (human
-      in the loop).
+      in the loop: a human decides before the tool acts).
   - >-
     Compare with the “Time and date” tool: for the same need, the tool lets the model
     choose to ask for the time, the hook gives it the time at every turn, whether it needs

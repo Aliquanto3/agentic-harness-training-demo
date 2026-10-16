@@ -19,8 +19,9 @@ explanation_text:
       pour qu'un agent récupère la suite, mais WaveStack ne fournit pas cet outil de
       récupération : c'est une limite à montrer.
     - >-
-      Données : Headroom tourne dans le processus du harnais, hors ligne, sans télémétrie ;
-      rien ne quitte le poste pour compresser.
+      Données : Headroom tourne dans le processus du harnais, hors ligne, sans télémétrie
+      (aucune information technique envoyée à un serveur extérieur) ; rien ne quitte le
+      poste pour compresser.
   - >-
     Un texte déjà lu par le modèle n'est jamais réécrit : chaque résultat d'outil est
     compressé une seule fois, juste avant l'appel qui le lit, et l'historique garde la

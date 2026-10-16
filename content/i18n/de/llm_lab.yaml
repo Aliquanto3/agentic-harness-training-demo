@@ -30,8 +30,11 @@ sections:
       Bei jedem Schritt gibt das Modell jedem Token des Vokabulars eine Wahrscheinlichkeit.
       Diese Einstellungen entscheiden, wie das nächste Token unter ihnen gezogen wird. Die
       hier beschriebene Reihenfolge ist die von llama.cpp (Engine von WaveStack,
-      llama-server, Ollama): Top-k, dann Top-p, dann Min-p, dann die Temperatur; ein
-      Cloud-Anbieter kann seine eigenen anders anwenden.
+      llama-server, Ollama): Top-k (nur die wahrscheinlichsten Tokens behalten), dann Top-p
+      (eine Gruppe von Tokens behalten, deren Wahrscheinlichkeit zusammen einen Wert
+      erreicht), dann Min-p (zu unwahrscheinliche Tokens verwerfen), dann die Temperatur
+      (staucht oder streckt die Wahrscheinlichkeiten); ein Cloud-Anbieter kann seine eigenen
+      anders anwenden.
     questions_text:
       - "Warum gibt derselbe Prompt zwei verschiedene Antworten?"
       - "Ändert die Temperatur die Wahrscheinlichkeiten des Modells oder nur das Ziehen?"

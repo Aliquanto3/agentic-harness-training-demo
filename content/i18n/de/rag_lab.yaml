@@ -4,7 +4,8 @@
 title_text: "RAG-Werkstatt: die RAG-Architektur zum Ausprobieren"
 intro_text: >-
   Ein RAG in zwei Phasen: Die Indexierung (Build) legt die Chunks des Korpus ein für alle Mal
-  in einem Vector Store ab; die Anfrage (Run) sucht darin bei jeder Frage die nützlichen Chunks
+  in einem Vector Store ab (eine Datenbank, die Vektoren speichert und die nächstgelegenen
+  schnell findet); die Anfrage (Run) sucht darin bei jeder Frage die nützlichen Chunks
   und setzt sie in den Prompt des Modells. Starten Sie die Kette mit einer Frage, um zu sehen,
   was jeder Schritt erhält, was er erzeugt und was er kostet. Das ist eine Spielwiese: Der
   RAG-Baustein der Werkstatt ändert sich nicht.

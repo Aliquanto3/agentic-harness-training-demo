@@ -11,9 +11,10 @@ explanation_text:
   - >-
     Die Suche ist semantisch: Ein kleines, lokales Embedding-Modell wandelt die Frage in
     einen Vektor um, und der Index (rag_index.sqlite) liefert die Auszüge, deren Vektor am
-    nächsten liegt. Der Score reicht von 0 bis 1 (1 minus die Kosinus-Distanz, auf 0
-    gesetzt, wenn die Vektoren entgegengesetzt sind); es gilt keine Schwelle: Die Auszüge
-    gehen mit, auch wenn sie die Frage nicht beantworten.
+    nächsten liegt. Der Score reicht von 0 bis 1: Je näher an 1, desto ähnlicher ist der
+    Auszug der Frage (er misst den Winkel zwischen den beiden Vektoren, ein Maß namens
+    Kosinus-Distanz); es gilt keine Schwelle: Die Auszüge gehen mit, auch wenn sie die
+    Frage nicht beantworten.
   - - "Nutzen: Das Modell antwortet anhand von Dokumenten, die es im Training nie gesehen hat."
     - >-
       Kosten: Die Auszüge belegen in jeder Runde Kontext, und ein Embedding-Modell wird

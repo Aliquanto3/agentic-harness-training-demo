@@ -18,8 +18,9 @@ explanation_text:
       agent can fetch the rest, but WaveStack does not provide that retrieval tool: a
       limit worth showing.
     - >-
-      Data: Headroom runs inside the harness process, offline, without telemetry; nothing
-      leaves the workstation to be compressed.
+      Data: Headroom runs inside the harness process, offline, without telemetry (no
+      technical information sent to an outside server); nothing leaves the workstation to
+      be compressed.
   - >-
     A text the model has already read is never rewritten: each tool result is compressed
     only once, just before the call that reads it, and the history keeps the version the

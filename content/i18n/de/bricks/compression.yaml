@@ -19,8 +19,9 @@ explanation_text:
       „Retrieve more“, damit ein Agent den Rest abrufen kann, aber WaveStack stellt dieses
       Abruf-Tool nicht bereit: eine Grenze, die es zu zeigen gilt.
     - >-
-      Daten: Headroom läuft im Prozess des Harness, offline, ohne Telemetrie; zum
-      Komprimieren verlässt nichts den Arbeitsplatz.
+      Daten: Headroom läuft im Prozess des Harness, offline, ohne Telemetrie (keine
+      technischen Informationen gehen an einen externen Server); zum Komprimieren verlässt
+      nichts den Arbeitsplatz.
   - >-
     Ein vom Modell bereits gelesener Text wird nie umgeschrieben: Jedes Tool-Ergebnis wird
     nur einmal komprimiert, unmittelbar vor dem Aufruf, der es liest, und der Verlauf behält

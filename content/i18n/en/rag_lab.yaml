@@ -3,8 +3,9 @@
 
 title_text: "RAG workshop: the RAG architecture to handle"
 intro_text: >-
-  A RAG in two phases: indexing (build) stores the corpus's chunks in a vector store once and
-  for all; the query (run), for each question, searches it for the useful chunks and places
+  A RAG in two phases: indexing (build) stores the corpus's chunks in a vector store (a
+  database that stores vectors and quickly finds the closest ones) once and for all; the
+  query (run), for each question, searches it for the useful chunks and places
   them in the model's prompt. Run the pipeline on a question to see what each step receives,
   produces and costs. This is a sandbox: the workshop's RAG brick does not change.
 busy_text: "Unavailable for now: {raison}"
@@ -238,7 +239,7 @@ steps:
     action_text: "Build the chunks' lexical index (BM25)"
     explain_text: >-
       BM25 has no learned model: it is a statistical algorithm. At indexing time, it splits each
-      chunk into terms (case, accents and stop words ignored, acronyms kept), counts how often
+      chunk into terms (letter case, accents and stop words ignored, acronyms kept), counts how often
       each term occurs in it and the chunk's length, then, for each term, how many chunks
       contain it (its document
       frequency): this is the inverted index, like a search engine's (Elasticsearch, Lucene).

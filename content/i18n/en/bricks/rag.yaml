@@ -11,9 +11,10 @@ explanation_text:
   - >-
     The search is semantic: a small local embedding model turns the question into a
     vector, and the index (rag_index.sqlite) returns the excerpts whose vector is closest.
-    The score ranges from 0 to 1 (1 minus the cosine distance, brought back to 0 when the
-    vectors point in opposite directions); no threshold is applied: the excerpts are sent
-    even when they do not answer.
+    The score ranges from 0 to 1: the closer to 1, the more the excerpt resembles the
+    question (it measures the angle between the two vectors, a measure called cosine
+    distance); no threshold is applied: the excerpts are sent even when they do not
+    answer.
   - - "Gain: the model answers from documents it never saw during training."
     - >-
       Cost: the excerpts take up context at every turn, and an embedding model is loaded
