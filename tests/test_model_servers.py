@@ -127,6 +127,8 @@ class FakeServer:
         self.bodies: list[tuple[str, dict]] = []  # (path, JSON body) of every POST
         self.completions = 0
         self.down = False  # the server stopped: every request refused
+        # Story 7 (CAP-7): llama-server's own `(cache_n, prompt_per_second)`, set per test.
+        self.cache_timings: tuple[int, float] | None = None
         self.fail_status: int | None = None  # a 5xx on the next completion
         self.generate_error: str | None = None  # Ollama's `/api/generate` answers 500 with it
         self.streams: list[Lines] = []
@@ -194,6 +196,9 @@ class FakeServer:
             lines = [f"data: {json.dumps({'content': c, 'stop': False})}" for c in output]
             end = {"content": "", "stop": True, "stop_type": self.stop_type}
             end["timings"] = {"prompt_n": len(body["prompt"]) + self.extra_prompt_tokens}
+            if self.cache_timings is not None:
+                cache_n, pps = self.cache_timings
+                end["timings"] |= {"cache_n": cache_n, "prompt_per_second": pps}
             lines.append(f"data: {json.dumps(end | {'tokens_predicted': len(output)})}")
             return self._stream(lines)
         return httpx.Response(404)
@@ -1043,6 +1048,46 @@ def test_llama_server_evaluated_tokens_are_its_timings(fake):
 
     used = events["context_rendered"][0]["used"]
     assert events["model_call_ended"][0]["evaluated_tokens"] == used - 7
+    assert _errors(events) == []
+
+
+def test_llama_server_kv_cache_reuse_in_model_call_ended(fake):
+    """Story 7 (CAP-7): llama-server's `timings.cache_n`/`prompt_per_second` join
+    `model_call_ended` as `kv_cache_tokens`/`kv_prompt_per_second`."""
+    fake.cache_timings = (1820, 85.0)
+    fake.extra_prompt_tokens = 100  # a read long enough for its rate to mean something
+    session = _booted("llama_server")
+    events = _run(session, "Bonjour")
+
+    ended = events["model_call_ended"][0]
+    assert (ended["kv_cache_tokens"], ended["kv_prompt_per_second"]) == (1820, 85.0)
+    assert _errors(events) == []
+
+
+@pytest.mark.parametrize("pps", [0, 85.0])
+def test_llama_server_prompt_almost_wholly_reused_keeps_its_tokens_not_its_rate(fake, pps):
+    """Story 7 (review): a prompt almost wholly reused reads a handful of tokens (or none,
+    rate 0): its `cache_n` still shows, the rate measured on them never (overhead, not a
+    read rate: an absurd « time saved »)."""
+    fake.cache_timings = (1820, pps)
+    session = _booted("llama_server")
+    events = _run(session, "Bonjour")
+
+    ended = events["model_call_ended"][0]
+    assert ended["kv_cache_tokens"] == 1820
+    assert "kv_prompt_per_second" not in ended
+    assert _errors(events) == []
+
+
+def test_llama_server_no_kv_cache_timings_is_absent(fake):
+    """Story 7: an older llama-server that sends no `cache_n` leaves the fields out, not a
+    false zero (EXPERIENCE.md, « Lignes FinOps »)."""
+    session = _booted("llama_server")
+    events = _run(session, "Bonjour")
+
+    ended = events["model_call_ended"][0]
+    assert "kv_cache_tokens" not in ended
+    assert "kv_prompt_per_second" not in ended
     assert _errors(events) == []
 
 

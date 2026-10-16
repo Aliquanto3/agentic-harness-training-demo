@@ -586,6 +586,15 @@ main:
       source: "Quelle"
       cost: "Prompt-Cache: {read} Tokens wiedergelesen · {cost} Mehrkosten (Schreiben)"
       unpriced: "Prompt-Cache: {read} Tokens wiedergelesen · Cache-Preis nicht angegeben"
+    kv:
+      line: "Kontextgedächtnis: {reused} Tokens ohne Neuberechnung wiederverwendet · etwa {saved} eingespart"
+      line_no_rate: "Kontextgedächtnis: {reused} Tokens ohne Neuberechnung wiederverwendet"
+      tokens_value: "{tokens} Tokens"
+      recalculated: "Neu berechnet"
+      recalculated_value: "{tokens} Tokens mit {rate} Tokens/s ({time})"
+      without_cache: "Ohne Cache"
+      without_cache_value: "{tokens} Tokens mit {rate} Tokens/s ({time})"
+      source: "Quelle"
     rows:
       overflow: "Kontext überschritten"
       sub_overflow: "Kontext des Sub-Agenten überschritten"
@@ -651,6 +660,11 @@ main:
       result: "Ergebnis (kommt als Einziges in den Hauptkontext zurück)"
       error_instead: "Statt des Ergebnisses eingespeister Fehler"
       show_context: "Kontext des Sub-Agenten anzeigen"
+      cost_line: "Sub-Agent: {detail}"
+      cost_tokens: "{tokens} Tokens"
+      cost_input: "Eingabe"
+      cost_output: "Ausgabe"
+      cost_footprint: "Fußabdruck"
   outbound:
     label: "Ausgehende Daten"
     request: "Anfrage"

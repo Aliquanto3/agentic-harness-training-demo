@@ -3,6 +3,7 @@ AD-11, AD-25). One test per row of the I/O matrix, then the contract around it."
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
 
@@ -515,6 +516,101 @@ def test_cloud_sub_model_is_drawn_in_the_network_zone_and_keeps_its_own_ratio():
     ended = of(events, "subagent_ended")[0].payload
     assert ended["context_tokens"] == reconciled["used"] == 100000
     assert status(events) == "completed"
+    session.close()
+
+
+def test_cloud_sub_agent_has_its_own_tokens_and_cost_line():
+    """Story 7 (CAP-7, finops.md): the delegation's own tokens and cost, apart from the
+    main turn's calls (`delegate`'s own usage stays out)."""
+    delegate = sse(
+        delta(
+            tool_calls=[
+                {
+                    "index": 0,
+                    "id": "c1",
+                    "function": {"name": "delegate", "arguments": '{"task": "R"}'},
+                }
+            ]
+        ),
+        {**delta("tool_calls"), "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+    )
+    sub_answer = sse(
+        delta(content="Résultat."),
+        {**delta("stop"), "usage": {"prompt_tokens": 2900, "completion_tokens": 310}},
+    )
+    final = sse(
+        delta(content="Voilà."),
+        {**delta("stop"), "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+    )
+    pricing = {"input_usd_per_mtok": 3, "output_usd_per_mtok": 15, "checked": "2026-10-03"}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(
+        json.dumps({"cloud": {"models": [{"id": "groq", "pricing": pricing}]}}), encoding="utf-8"
+    )
+    session = _cloud_session("groq", Provider(delegate, sub_answer, final), bricks=("subagent",))
+
+    events = run(session, "Résume.")
+
+    ended = of(events, "subagent_ended")[0].payload
+    assert (ended["input_tokens"], ended["output_tokens"]) == (2900, 310)
+    assert ended["cost_in_usd"] == pytest.approx(2900 * 3 / 1e6)
+    assert ended["cost_out_usd"] == pytest.approx(310 * 15 / 1e6)
+    assert ended["cost_source"] == "api"
+    # The main turn's own `delegate` call (1 + 1 tokens) stays out of the sub-agent's line.
+    assert ended["input_tokens"] != 1
+    session.close()
+
+
+def test_cloud_sub_agent_billed_then_failed_keeps_its_cost_without_tokens():
+    """Story 7 (review): the sub-agent's only call fails after its output: billed (an
+    estimate), no `usage` so no tokens; the line keeps the cost, never a false 0 token."""
+    delegate = sse(
+        delta(
+            tool_calls=[
+                {
+                    "index": 0,
+                    "id": "c1",
+                    "function": {"name": "delegate", "arguments": '{"task": "R"}'},
+                }
+            ]
+        ),
+        {**delta("tool_calls"), "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+    )
+    failed = sse(
+        delta(content="Résultat partiel"), {"error": {"message": "Internal error", "code": 500}}
+    )
+    final = sse(
+        delta(content="Voilà."),
+        {**delta("stop"), "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+    )
+    pricing = {"input_usd_per_mtok": 3, "output_usd_per_mtok": 15, "checked": "2026-10-03"}
+    config.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    config.settings_path().write_text(
+        json.dumps({"cloud": {"models": [{"id": "groq", "pricing": pricing}]}}), encoding="utf-8"
+    )
+    session = _cloud_session("groq", Provider(delegate, failed, final), bricks=("subagent",))
+
+    events = run(session, "Résume.")
+
+    ended = of(events, "subagent_ended")[0].payload
+    assert ended["status"] == "error"
+    assert ended["cost_in_usd"] > 0 and ended["cost_source"] == "estimate"
+    assert "input_tokens" not in ended and "output_tokens" not in ended
+    session.close()
+
+
+def test_local_sub_agent_has_tokens_but_no_cost_line():
+    """Story 7: a local sub-agent's own tokens, with no `cost_*`/footprint keys at all
+    (never a false 0 $, EXPERIENCE.md « Lignes FinOps »)."""
+    outputs = [delegation(), call("read_file", path="notes_reunion.txt"), RESULT, "Voilà."]
+    engine, session = sub_session(outputs)
+
+    events = run(session, "Quelles décisions ?")
+
+    ended = of(events, "subagent_ended")[0].payload
+    assert ended["input_tokens"] > 0 and ended["output_tokens"] > 0
+    for key in ("cost_in_usd", "cost_out_usd", "cost_source", "energy_wh_min", "gco2e_min"):
+        assert key not in ended
     session.close()
 
 

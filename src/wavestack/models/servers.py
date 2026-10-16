@@ -364,6 +364,10 @@ class LlamaServerEngine:
         self._client = _client(connect_timeout_s, read_timeout_s, transport)
         self._pieces: dict[int, bytes] = {}  # id -> bytes, filled by `tokenize`
         self._last_evaluated: int | None = None
+        # Story 7 (CAP-7): the server's own prompt-cache reuse on the last call, from its
+        # final `timings` chunk; `None` when the server did not send one.
+        self._last_cache_n: int | None = None
+        self._last_prompt_per_second: float | None = None
         # Story 29: what `/v1/models` and `/props` say of the model's sizes and file.
         self._sizes: dict[str, Any] = {}
         self._model_path: str | None = None
@@ -442,6 +446,16 @@ class LlamaServerEngine:
         """The prompt tokens the server says it evaluated in the last call, if it said."""
         return self._last_evaluated
 
+    @property
+    def last_cache_reuse(self) -> tuple[int, float | None] | None:
+        """Story 7 (CAP-7, « Mémoire de contexte »): `(cache_n, prompt_per_second)` from the
+        server's own prompt-cache `timings` on the last call, the rate `None` when it gave
+        none (a prompt wholly reused); `None` when it sent no `cache_n` (an older server,
+        or a call that never reached `/completion`'s last chunk)."""
+        if self._last_cache_n is None:
+            return None
+        return self._last_cache_n, self._last_prompt_per_second
+
     def tokenize(self, text: str) -> list[int]:
         body = {"content": text, "add_special": False, "parse_special": True, "with_pieces": True}
         data = _json(self._client, self.url, "POST", "/tokenize", body)
@@ -498,6 +512,8 @@ class LlamaServerEngine:
         count = 0
         reason: StopReason | None = None
         self._last_evaluated = None
+        self._last_cache_n = None
+        self._last_prompt_per_second = None
         with _stream(self._client, self.url, "/completion", body, cancel) as response:
             for data in _lines(response, self.url, cancel, prefix="data:"):
                 if cancel.cancelled:
@@ -520,6 +536,12 @@ class LlamaServerEngine:
                     timings = data.get("timings")  # its last chunk: `prompt_n` evaluated
                     if isinstance(timings, dict) and isinstance(timings.get("prompt_n"), int):
                         self._last_evaluated = timings["prompt_n"]
+                    if isinstance(timings, dict):
+                        cache_n, pps = timings.get("cache_n"), timings.get("prompt_per_second")
+                        if isinstance(cache_n, int) and not isinstance(cache_n, bool):
+                            self._last_cache_n = cache_n
+                            if isinstance(pps, (int, float)) and pps > 0:
+                                self._last_prompt_per_second = float(pps)
                     break
         if cancel.cancelled:
             reason = "cancelled"

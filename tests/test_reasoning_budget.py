@@ -445,3 +445,43 @@ def test_a_relaunch_after_a_cut_stays_one_call_and_the_next_call_reads_it_again(
     assert any(s["kind"] == "tool_result" and not s["seen"] for s in second["sections"])
     assert events["turn_ended"][0]["status"] == "completed"
     session.close()
+
+
+class _Cached(_Tokenizing):
+    """Story 7: a server-like engine whose prompt cache says, per generation, `reuse[i]`."""
+
+    def __init__(self, reuse: list, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.reuse = reuse
+
+    @property
+    def last_cache_reuse(self):
+        return self.reuse[len(self.calls) - 1]
+
+
+@pytest.mark.parametrize(
+    ("reuse", "expected"),
+    [
+        # The relaunch after the cut re-reads its own cache: the first generation's figures.
+        ([(100, 50.0), (5000, 900.0)], {"kv_cache_tokens": 100, "kv_prompt_per_second": 50.0}),
+        # The first generation said nothing: never the relaunch's figures in its place.
+        ([None, (5000, 900.0)], {}),
+    ],
+)
+def test_the_kv_cache_line_is_the_first_generations_own(reuse, expected):
+    engine = _Cached(
+        reuse,
+        outputs=[LONG_REASONING, ANSWER],
+        template=QWEN.decode("utf-8"),
+        architecture="qwen35",
+    )
+    session = booted_session(engine, window=16384)
+    session.set_brick("reasoning", True)
+    session.join()
+
+    events = _run(session, "À quelle heure arrive le train ?")
+
+    (ended,) = events["model_call_ended"]
+    assert len(engine.calls) == 2 and engine.evaluated[0] >= 64
+    assert {k: v for k, v in ended.items() if k.startswith("kv_")} == expected
+    session.close()
