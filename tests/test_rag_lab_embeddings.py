@@ -561,7 +561,9 @@ def test_an_embedding_gguf_in_the_hf_cache_is_incompatible_never_chosen(monkeypa
     embedding = _embedding_gguf(hf / "models--Qwen--Qwen3-Embedding-0.6B-GGUF" / "q.gguf")
     result = session.check_model()
     assert result.ready and result.model_path == str(config.models_dir() / "chat.gguf")
-    candidate = next(c for c in result.candidates if c.path == str(embedding))
+    # V1.1 CAP-4: the HF cache is only read after « Ajouter d'autres modèles ».
+    assert all(c.path != str(embedding) for c in result.candidates)
+    candidate = next(c for c in session.search_more().candidates if c.path == str(embedding))
     assert candidate.status == "incompatible" and candidate.source == "hf_cache"
     assert discovery.reason_message(candidate.reason) == Message("models.capabilities.pooling")
     [entry] = [
