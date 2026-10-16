@@ -87,6 +87,43 @@ common:
     live: "Follow live"
     position: "Step {n} / {total}"
     announce: "Step {n} of {total}: {name}"
+  # Story 9 (CAP-7, CAP-9): the barre commune's two buttons (`bar.js`), shared by the five
+  # pages: « Dépense » (the session's spend and its economies) and « Journal » (its refusals
+  # and blocks, with a 5-event preview).
+  bar:
+    spend:
+      label: "Spend"
+      saved: "saved {amount}"
+      footprint_label: "Estimated footprint"
+      panel_title: "Session summary"
+      detail_link: "Detail per call"
+      without_optimization: "Without optimization"
+      real_cost: "Real cost"
+      legend_input: "Input"
+      legend_output: "Output"
+      summary: "{percent} % saved: {cache} from the prompt cache, {compression} from compression."
+      summary_kv: "Locally, the model's cache evited {seconds} s of computing."
+      summary_none: "No savings measured yet."
+    log:
+      label: "Log"
+      panel_title: "Latest events"
+      all_link: "Whole log"
+      empty: "No event yet."
+      count:
+        one: "{count} refusal"
+        other: "{count} refusals"
+      aria_label:
+        one: "Log, {count} refusal or block"
+        other: "Log, {count} refusals or blocks"
+      aria_label_zero: "Log, no refusal or block"
+      decisions:
+        allow: "Allowed"
+        allow_once: "Allowed once"
+        deny: "Refused"
+        cancelled: "Cancelled"
+        blocked: "Blocked"
+        masked: "Masked"
+        timeout: "Refused (no answer)"
   # Lot 4 (AD-28): the panes' mechanics (static/panes.js), shared by the workshops.
   panes:
     focus: "Focus mode"
@@ -785,6 +822,7 @@ main:
       mcp_lab_model_ended: "MCP workshop: model call ended"
       mcp_lab_ask_ended: "MCP workshop: sending to the model ended"
       mcp_lab_closed: "MCP workshop: connection closed"
+      security_event: "Security journal: decision"
       consumption_updated: "Consumption updated"
       context_reconciled: "Context reconciled"
       context_window_state: "Context window"

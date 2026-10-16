@@ -15739,6 +15739,61 @@ RAG_LAB_STAGES_KINDS = [
 ]
 
 
+# ---------- story 9 (V1.1 vague 2, CAP-7, CAP-9): the barre commune's two buttons ----------
+
+
+def _bar_open_close(r: Run, toggle_id: str, panel_id: str, what: str) -> None:
+    """Open at a click, close at a second click, reopen then Échap: closed, focus back on
+    the button (ux/EXPERIENCE.md bar-flyout)."""
+    page = r.page
+    toggle = page.locator(f"#{toggle_id}")
+    panel = page.locator(f"#{panel_id}")
+    expect(toggle).to_be_visible(timeout=5000)
+    toggle.click()
+    expect(panel).to_be_visible(timeout=3000)
+    r.check(toggle.get_attribute("aria-expanded") == "true", f"{what} : s'ouvre au clic")
+    toggle.click()
+    closed, _ = r.poll(lambda: not panel.is_visible(), 3)
+    r.check(
+        closed and toggle.get_attribute("aria-expanded") == "false",
+        f"{what} : se referme au clic (non modal)",
+    )
+    toggle.click()
+    expect(panel).to_be_visible(timeout=3000)
+    page.keyboard.press("Escape")
+    closed, _ = r.poll(lambda: not panel.is_visible(), 3)
+    focused = page.evaluate("() => document.activeElement && document.activeElement.id")
+    r.check(
+        closed and focused == toggle_id,
+        f"{what} : Échap ferme le panneau et rend le focus au bouton",
+        f"closed={closed} focus={focused}",
+    )
+
+
+def s_bar_panels(r: Run) -> None:
+    """Story 9 (CAP-7, CAP-9): the barre commune's « Dépense » and « Journal » buttons and
+    their flyouts, shared by the five pages (bar.js): open, close and Échap, on two of them
+    (Harnais and MCP). « Dépense » stays hidden before any paid or impactful call: a bare
+    local message, which shows it only with GreenOps installed (best effort, noted rather
+    than failed on a poste without it)."""
+    page = r.page
+    r.goto_app()
+    _bar_open_close(r, "bar-log-toggle", "bar-log-panel", "Journal (Harnais)")
+    r.send("Bonjour")
+    spend_toggle = page.locator("#bar-spend-toggle")
+    visible, _ = r.poll(lambda: spend_toggle.is_visible(), 3)
+    if visible:
+        _bar_open_close(r, "bar-spend-toggle", "bar-spend-panel", "Dépense (Harnais)")
+    else:
+        r.check(
+            True,
+            "Dépense (Harnais) : bouton resté masqué (pas de GreenOps sur ce poste), non testé",
+        )
+    _goto_mcp(r)
+    _bar_open_close(r, "bar-log-toggle", "bar-log-panel", "Journal (MCP)")
+    r.goto_app()
+
+
 SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("diagnostic", s_diagnostic),
     ("programme", s_programme),
@@ -15796,6 +15851,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("llm_live", s_llm_live),  # restes du 2026-10-01: distribution and window, page side
     ("llm_loop", s_llm_loop),  # lot 6 of 2026-10-04: the model's loop in three stages
     ("relaunch", s_relaunch),
+    ("bar_panels", s_bar_panels),  # story 9 (V1.1 vague 2): the barre commune's two flyouts
 ]
 
 

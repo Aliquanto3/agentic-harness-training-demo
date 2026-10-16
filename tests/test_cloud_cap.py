@@ -399,6 +399,24 @@ def test_a_cached_part_without_a_declared_price_is_flagged_unpriced():
     assert cache_savings(pricing, 1000, 0, 100, 0.0)["cache_priced"] is False
 
 
+# ---------- Story 9: the session's running economies (bar-flyout bilan) ----------
+
+
+def test_the_sessions_economies_sum_across_calls_and_reset():
+    from wavestack.models.openai_chat import reset_spend, session_spend
+
+    reset_spend()
+    record_spend(CallCost(0.01, 0.02, "api"), 0.86, cache_saved_usd=0.002)
+    record_spend(None, 0.86, cache_saved_usd=0.001, compression_saved_usd=0.0005)
+    record_spend(None, 0.86, kv_time_saved_s=1.5)
+    spend = session_spend(0.86)
+    assert spend["cache_saved_usd"] == pytest.approx(0.003)
+    assert spend["compression_saved_usd"] == pytest.approx(0.0005)
+    assert spend["kv_time_saved_s"] == pytest.approx(1.5)
+    reset_spend()
+    assert session_spend(0.86) is None
+
+
 @pytest.mark.parametrize(
     ("api", "field"),
     [

@@ -116,7 +116,7 @@ from wavestack.mcp.connection import (
     result_text,
 )
 from wavestack.mcp.policy import RULES, ToolPolicy
-from wavestack.mcp.security_log import SecurityJournal
+from wavestack.mcp.security_log import JournalEntry, SecurityJournal
 from wavestack.mcp.servers import McpContent, load_mcp_content, mcp_servers
 from wavestack.messages import (
     KeyedError,
@@ -6197,7 +6197,9 @@ class AppSession:
             "deny": "session.mcp_lab.policy_denied",
         }[rule]
         decision = "allow" if rule == "allow" else "deny"
-        self._security_journal.record("mcp_tool", name, decision, self._t(key, tool=name))
+        self._emit_security(
+            self._security_journal.record("mcp_tool", name, decision, self._t(key, tool=name))
+        )
         if decision == "deny":
             raise ToolError(key, tool=name)
 
@@ -7383,6 +7385,15 @@ class AppSession:
                         "duration_ms": _ms(time.monotonic() - started),
                     },
                 )
+                # Story 9 (CAP-7, bilan de séance): joins the running total only when priced
+                # (a local model's `saved_usd` is `None`, no dollar figure to add).
+                if saved_usd is not None:
+                    record_spend(
+                        None,
+                        self.cfg.eur_per_usd,
+                        lambda spend: journal.emit("consumption_updated", spend),
+                        compression_saved_usd=saved_usd,
+                    )
         if first and state.rag_excerpts:
             state = replace(state, rag_excerpts=tuple(excerpts), rag_compressed=tuple(was))
         return step, state
@@ -7501,16 +7512,18 @@ class AppSession:
                         "banner_text": banner_text,
                     },
                 )
-            self._security_journal.record(
-                "guardrail",
-                f"guardrails.{v.guardrail}",
-                decision,
-                self._t(
-                    f"guardrails.decisions.{decision}"
-                    + (f"_{v.direction}" if decision in ("blocked", "masked") else ""),
-                    guardrail=label,
-                    detail=v.detail_text,
-                ),
+            self._emit_security(
+                self._security_journal.record(
+                    "guardrail",
+                    f"guardrails.{v.guardrail}",
+                    decision,
+                    self._t(
+                        f"guardrails.decisions.{decision}"
+                        + (f"_{v.direction}" if decision in ("blocked", "masked") else ""),
+                        guardrail=label,
+                        detail=v.detail_text,
+                    ),
+                )
             )
         return text, blocked
 
@@ -8518,6 +8531,7 @@ class AppSession:
                 impact = Impact(impact.method)  # as a cloud call refused before any
             # Story 5: the final answer stays out of the trace until its guardrails' check.
             hidden = withhold and not tool_calls
+            kv_fields = self._kv_fields(kv_reuse, evaluations[0])
             journal.emit(
                 "model_call_ended",
                 {
@@ -8535,11 +8549,17 @@ class AppSession:
                     "usage_source": "engine",
                     "evaluated_tokens": evaluated,
                 }
-                | self._kv_fields(kv_reuse, evaluations[0])
+                | kv_fields
                 | impact.fields(self._language),
                 actor="model",
             )
-            self._count_impact(impact)
+            # Story 9 (CAP-7, bilan de séance): time this call's own KV-cache reuse evited,
+            # from the same two fields the « Mémoire de contexte » line already shows.
+            kv_time_saved_s = None
+            rate = kv_fields.get("kv_prompt_per_second")
+            if rate:
+                kv_time_saved_s = kv_fields["kv_cache_tokens"] / rate
+            self._count_impact(impact, kv_time_saved_s)
             # Story 7 (CAP-7): this call's own tokens, for the sub-agent's dedicated line
             # (within a turn only, like `_count_impact`: the labs have none).
             if current().turn_id is not None:
@@ -8769,20 +8789,23 @@ class AppSession:
             "gco2e_max": sum(i.gco2e_max for i in impacts),
         }
 
-    def _count_impact(self, impact: Impact) -> None:
+    def _count_impact(self, impact: Impact, kv_time_saved_s: float | None = None) -> None:
         """GreenOps: a local call's estimated footprint joins the session's registry (then
         `consumption_updated`) and, within a turn, the turn's sums; a local call costs
-        nothing."""
-        if not impact.estimated:
+        nothing. Story 9 (CAP-7): `kv_time_saved_s` (the call's own KV-cache reuse, when the
+        engine said one) joins the running total too, even without an estimated footprint."""
+        estimated = impact.estimated
+        if not estimated and kv_time_saved_s is None:
             return
-        if current().turn_id is not None:  # the « LLM nu » screen has no turn
+        if estimated and current().turn_id is not None:  # the « LLM nu » screen has no turn
             self._turn_impacts.append(impact)
         journal = self._journal()
         record_spend(
             None,
             self.cfg.eur_per_usd,
             lambda spend: journal.emit("consumption_updated", spend),
-            impact=impact,
+            impact=impact if estimated else None,
+            kv_time_saved_s=kv_time_saved_s,
         )
 
     def consumption(self) -> dict[str, Any] | None:
@@ -10817,6 +10840,33 @@ class AppSession:
     def security_journal_denied_count(self) -> int:
         return self._security_journal.denied_count()
 
+    def _emit_security(self, entry: JournalEntry) -> None:
+        """Story 9 (CAP-3, CAP-9, the bar's « Journal »): every page's own `/api/stream`
+        reader forwards this to the bar, so its red count and its 5-event preview update
+        live, without ever re-reading the whole journal (`entry`'s own fields plus the
+        live `denied_count`, O(1) besides it)."""
+        self._journal().emit(
+            "security_event",
+            {
+                "ts": entry.ts.isoformat(timespec="seconds"),
+                "source": entry.source,
+                "name": entry.name,
+                "decision": entry.decision,
+                "reason_text": entry.reason_text,
+                "denied_count": self._security_journal.denied_count(),
+            },
+        )
+
+    def security_journal_preview(self) -> dict[str, Any]:
+        """Story 9, the bar's « Journal » button and its flyout: the count (its red badge)
+        and the 5 most recent entries, newest first (bounded by the journal's own cap, never
+        a growing walk)."""
+        entries = self.security_journal_entries()
+        return {
+            "denied_count": self._security_journal.denied_count(),
+            "entries": list(reversed(entries[-5:])),
+        }
+
     def security_journal_csv(self) -> str:
         """CAP-3: the journal as a downloadable CSV, never a secret (nothing recorded is)."""
         return self._security_journal.to_csv()
@@ -11434,14 +11484,16 @@ class AppSession:
             decision = self._await_mcp_authorization(step_id, server_id, tool)
             if decision == "cancelled":
                 reason = self._t("session.mcp_lab.policy_ask_cancelled", tool=name)
-                self._security_journal.record("mcp_tool", name, "cancelled", reason)
+                self._emit_security(
+                    self._security_journal.record("mcp_tool", name, "cancelled", reason)
+                )
                 payload |= self._mcp_lab_failure(ConnectionError("stopped"), cancel, 0)
                 self._mcp_lab_after(conn, payload, cancel)
                 return payload
             if decision in ("deny", "timeout"):
                 key = "policy_denied_by_user" if decision == "deny" else "policy_ask_timeout"
                 reason = self._t(f"session.mcp_lab.{key}", tool=name)
-                self._security_journal.record("mcp_tool", name, "deny", reason)
+                self._emit_security(self._security_journal.record("mcp_tool", name, "deny", reason))
                 payload |= {
                     "status": "error",
                     "error_kind": "policy_denied",
@@ -11451,7 +11503,9 @@ class AppSession:
                 self._mcp_lab_after(conn, payload, cancel)
                 return payload
             reason = self._t("session.mcp_lab.policy_allowed_once", tool=name)
-            self._security_journal.record("mcp_tool", name, "allow_once", reason)
+            self._emit_security(
+                self._security_journal.record("mcp_tool", name, "allow_once", reason)
+            )
         else:
             reason = self._t(
                 "session.mcp_lab.policy_denied"
@@ -11459,7 +11513,7 @@ class AppSession:
                 else "session.mcp_lab.policy_allowed",
                 tool=name,
             )
-            self._security_journal.record("mcp_tool", name, rule, reason)
+            self._emit_security(self._security_journal.record("mcp_tool", name, rule, reason))
             if rule == "deny":
                 payload |= {
                     "status": "error",

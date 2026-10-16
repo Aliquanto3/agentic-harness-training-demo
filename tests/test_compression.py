@@ -692,6 +692,9 @@ def test_chat_mode_sends_the_compressed_reply_with_estimated_tokens():
     assert ended["estimated"] and ended["items"][0]["changed"]
     # CAP-7, finops.md: on a cloud model, the saved tokens × its input price.
     assert ended["saved_usd"] == pytest.approx(ended["saved_tokens"] * 0.15 / 1_000_000)
+    # Story 9 (bilan de séance): joins the session's running total too.
+    spends = [e for e in events["consumption_updated"] if e.get("compression_saved_usd")]
+    assert spends[-1]["compression_saved_usd"] == pytest.approx(ended["saved_usd"])
     second = json.loads(provider.requests[1].content)["messages"]
     reply = next(m for m in second if m["role"] == "tool")
     assert reply["content"] == ended["items"][0]["text_after"] and LOG not in reply["content"]

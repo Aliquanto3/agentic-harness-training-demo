@@ -87,6 +87,43 @@ common:
     live: "Live folgen"
     position: "Schritt {n} / {total}"
     announce: "Schritt {n} von {total}: {name}"
+  # Story 9 (CAP-7, CAP-9): the barre commune's two buttons (`bar.js`), shared by the five
+  # pages: « Dépense » (the session's spend and its economies) and « Journal » (its refusals
+  # and blocks, with a 5-event preview).
+  bar:
+    spend:
+      label: "Ausgaben"
+      saved: "gespart {amount}"
+      footprint_label: "Geschätzter Fußabdruck"
+      panel_title: "Bilanz der Sitzung"
+      detail_link: "Detail je Aufruf"
+      without_optimization: "Ohne Optimierung"
+      real_cost: "Tatsächliche Kosten"
+      legend_input: "Eingabe"
+      legend_output: "Ausgabe"
+      summary: "{percent} % gespart: {cache} durch den Prompt-Cache, {compression} durch Kompression."
+      summary_kv: "Lokal hat der Modell-Cache {seconds} s Rechenzeit gespart."
+      summary_none: "Noch keine Einsparung gemessen."
+    log:
+      label: "Protokoll"
+      panel_title: "Letzte Ereignisse"
+      all_link: "Gesamtes Protokoll"
+      empty: "Noch kein Ereignis."
+      count:
+        one: "{count} Ablehnung"
+        other: "{count} Ablehnungen"
+      aria_label:
+        one: "Protokoll, {count} Ablehnung oder Blockierung"
+        other: "Protokoll, {count} Ablehnungen oder Blockierungen"
+      aria_label_zero: "Protokoll, keine Ablehnung oder Blockierung"
+      decisions:
+        allow: "Erlaubt"
+        allow_once: "Einmal erlaubt"
+        deny: "Abgelehnt"
+        cancelled: "Abgebrochen"
+        blocked: "Blockiert"
+        masked: "Maskiert"
+        timeout: "Abgelehnt (keine Antwort)"
   # Lot 4 (AD-28): the panes' mechanics (static/panes.js), shared by the workshops.
   panes:
     focus: "Fokusmodus"
@@ -785,6 +822,7 @@ main:
       mcp_lab_model_ended: "MCP-Werkstatt: Modellaufruf beendet"
       mcp_lab_ask_ended: "MCP-Werkstatt: Senden an das Modell beendet"
       mcp_lab_closed: "MCP-Werkstatt: Verbindung geschlossen"
+      security_event: "Sicherheitsprotokoll: Entscheidung"
       consumption_updated: "Verbrauch aktualisiert"
       context_reconciled: "Kontext abgeglichen"
       context_window_state: "Kontextfenster"

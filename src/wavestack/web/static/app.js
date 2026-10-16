@@ -7,6 +7,7 @@
 import { dateTimeFormat, joinList, numberFormat as intlNumber, ready as textsReady, section, t } from "./i18n.js";
 // Story 2 (2026-09-30): « Affichage ▾ » and the language picker, shared by the five pages.
 import { languageChanging, renderLanguagePicker as drawLanguagePicker, setDisplayMenu, useSessionState } from "./site-nav.js";
+import { feedConsumption, feedSecurityEvent } from "./bar.js";
 // Recette du 02/10: the final answer's Markdown, rendered in the Vue humain only.
 import { renderMarkdown } from "./markdown.js";
 // Lot 2 (2026-10-04): the shared diagram's primitives (blocks, halo, wires, layer).
@@ -311,7 +312,12 @@ const isLive = (envelope) => envelope.seq > store.liveFrom;
 function applyEnvelope(envelope) {
   store.journal.push(envelope);
   // FinOps: every paid call counts, the « LLM nu » screen's and the diagnostic's included.
-  if (envelope.kind === "consumption_updated" && isLive(envelope)) store.consumption = envelope.payload;
+  if (envelope.kind === "consumption_updated" && isLive(envelope)) {
+    store.consumption = envelope.payload;
+    feedConsumption(envelope.payload);
+  }
+  // Story 9 (CAP-3, CAP-9): the bar's « Journal » live, without re-reading the journal.
+  if (envelope.kind === "security_event" && isLive(envelope)) feedSecurityEvent(envelope.payload);
   // Story 29: the « LLM nu » screen's events (context `llm`, no turn) go to the event log
   // only; no pane of the workshop shows them. Story 6 (2026-09-30): so do the MCP
   // workshop's (context `mcp_lab`), its outbound requests included: never the brick's.

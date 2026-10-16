@@ -485,3 +485,26 @@ def test_the_kv_cache_line_is_the_first_generations_own(reuse, expected):
     assert len(engine.calls) == 2 and engine.evaluated[0] >= 64
     assert {k: v for k, v in ended.items() if k.startswith("kv_")} == expected
     session.close()
+
+
+def test_the_kv_cache_time_saved_joins_the_sessions_running_total():
+    """Story 9 (CAP-7, bilan de séance): 100 tokens ÷ 50/s = 2 s evited, in the session's
+    running total (`consumption_updated`), from the same two fields as the line above."""
+    from wavestack.models.openai_chat import reset_spend
+
+    reset_spend()
+    engine = _Cached(
+        [(100, 50.0), (5000, 900.0)],
+        outputs=[LONG_REASONING, ANSWER],
+        template=QWEN.decode("utf-8"),
+        architecture="qwen35",
+    )
+    session = booted_session(engine, window=16384)
+    session.set_brick("reasoning", True)
+    session.join()
+
+    events = _run(session, "À quelle heure arrive le train ?")
+
+    spends = [e for e in events.get("consumption_updated", []) if e.get("kv_time_saved_s")]
+    assert spends and spends[-1]["kv_time_saved_s"] == pytest.approx(2.0)
+    session.close()
