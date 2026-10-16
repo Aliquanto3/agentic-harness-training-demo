@@ -224,6 +224,22 @@ BRICKS = [
             )
         ],
     ),
+    # Story 4 (vague 2, CAP-5): toxicity and personal-data filters, in and out of the model;
+    # `guardrails.injection` has no model yet (story 5: Prompt Guard, "non installé").
+    BrickDeclaration(
+        id="guardrails",
+        category="harness",
+        group="acts",
+        components=[
+            Component(
+                id=f"guardrails.{name}",
+                kind="guardrail",
+                hosting="local_process",
+                edges_to=["core.harness"],
+            )
+            for name in ("toxicity", "pii", "injection")
+        ],
+    ),
     # Story 20 (AD-22): Headroom compresses tool results and RAG excerpts, in the harness's
     # own process (a library); main context only.
     BrickDeclaration(

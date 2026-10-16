@@ -87,6 +87,8 @@ from wavestack.context.window import (
     window_for,
 )
 from wavestack.greenops import Impact, LocalMeter, Measure
+from wavestack.guardrails import availability as guardrails_availability
+from wavestack.guardrails.manager import GuardrailsManager
 from wavestack.hooks import (
     ALLOWED,
     AUDIT,
@@ -921,6 +923,10 @@ class AppSession:
         self._compression_missing = (
             headroom_adapter.missing_fr() if compressor_factory is None else None
         )
+        # Story 4 (CAP-5): the guardrails brick, an optional dependency checked once; its two
+        # models (toxicity, personal data) load lazily, at the manager's first `check`.
+        self._guardrails_missing = guardrails_availability.missing_fr()
+        self._guardrails = GuardrailsManager()
         self._compression_content: CompressionContent | None = None
         self._compressor: Compressor | None = None
         self._compression_loading = False
@@ -3654,6 +3660,8 @@ class AppSession:
             return False, reason
         if brick_id == "compression" and (reason := self._compression_unavailable()) is not None:
             return False, reason
+        if brick_id == "guardrails" and self._guardrails_missing is not None:
+            return False, self._guardrails_missing
         return True, None
 
     def _capability_reason(self, brick_id: str) -> str | None:

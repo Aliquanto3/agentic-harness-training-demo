@@ -1,0 +1,22 @@
+# Brique « Garde-fous » (story 4, vague 2, AD-12, AD-19, CAP-5).
+label_text: Garde-fous
+category_text: harnais
+hosting_text: Local
+explanation_text:
+  - >-
+    Avant et après l'appel au modèle, le harnais passe le message (en entrée) puis la
+    réponse (en sortie) à des modèles spécialisés, hors ligne : un pour la toxicité, un
+    pour les données personnelles en français. Chacun a trois réglages : bloquer (le
+    message n'est pas envoyé, ou la réponse n'est pas montrée), signaler (le verdict
+    s'affiche, rien n'est changé) ou désactivé.
+  - >-
+    Pour les données personnelles, « signaler » devient « masquer » : le texte est
+    remplacé avant d'être lu, par exemple « [TÉLÉPHONE] » ou « [E-MAIL] », et le verdict
+    dit ce qui a été masqué.
+  - - "Toxicité : « gravitee-io/distilbert-multilingual-toxicity-classifier », un modèle ONNX quantifié, sans torch."
+    - "Données personnelles : Microsoft Presidio, avec un modèle spaCy pour le français et quelques motifs propres à la France (NIR, SIRET, plaque)."
+    - "Injection de prompt : pas encore installé, voir la story suivante."
+  - >-
+    Les deux modèles ensemble restent sous 1,5 Go de mémoire, chargés seulement à la
+    première utilisation et déchargeables ; aucun des deux ne redistribue de contenu
+    dangereux réel.
