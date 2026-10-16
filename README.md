@@ -7,9 +7,8 @@ interface en français, en anglais et en allemand.
 
 ![Démonstration de WaveStack : le LLM nu ne connaît pas l'heure ; avec la brique Outils, le modèle appelle get_datetime et chaque étape s'affiche ; puis les ateliers LLM, RAG et MCP](docs/assets/wavestack-demo.gif)
 
-*Même question, sans puis avec outils : le LLM nu avoue ne pas connaître l'heure ; avec les
-outils, il appelle `get_datetime` et chaque étape s'affiche. Puis l'Atelier LLM (tokens, vecteurs,
-tirage du token suivant), l'Atelier RAG et l'Atelier MCP. [Version vidéo (MP4)](docs/assets/wavestack-demo.mp4).*
+*Même question, sans puis avec outils : le LLM nu avoue ne pas connaître l'heure ; avec les outils,
+il appelle `get_datetime` et chaque étape s'affiche. Puis l'Atelier LLM, l'Atelier RAG et l'Atelier MCP. [Version vidéo (MP4)](docs/assets/wavestack-demo.mp4).*
 
 ## Comment ça marche
 
@@ -91,6 +90,7 @@ et ne part que vers l'hôte du fournisseur. Plans gratuits, proxy et conditions 
 | [Installation détaillée](docs/installation.md) | Installeur, pas à pas manuel Windows/macOS/Linux, premier lancement, proxy, mise à jour, extras |
 | [Guide d'utilisation](docs/guide.md) | L'interface, le programme de formation, les ateliers, le RAG, la compression, FinOps et GreenOps |
 | [Modèles](docs/modeles.md) | Changer de modèle, fenêtre de contexte, Ollama et llama-server, modèles cloud |
+| [Sécurité](docs/securite.md) | Page Sécurité, autorisations MCP, connexion GitHub, garde-fous, FinOps visible |
 | [Contribuer](CONTRIBUTING.md) | Environnement de développement, conventions, tests, ajout de scénarios |
 
 ## Licence

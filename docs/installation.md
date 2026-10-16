@@ -51,6 +51,9 @@ commandes près.
 - Pour l'extra `guardrails` (modèle spaCy français) et pour llama-server, facultatif (voir [Obtenir llama-server sans droits d'administrateur](modeles.md#obtenir-llama-server-sans-droits-dadministrateur-windows)) :
   `api.github.com`, et les hôtes de téléchargement des releases GitHub,
   `objects.githubusercontent.com` et `release-assets.githubusercontent.com`.
+- Pour l'Atelier MCP, serveur GitHub (connexion par code, device flow) : `github.com` (déjà
+  listé ci-dessus) et `api.githubcopilot.com` (serveur MCP distant de GitHub). Voir
+  [Sécurité, garde-fous et FinOps visible](securite.md#connexion-à-github).
 - Pendant les séances, selon les briques utilisées : les modèles cloud (voir
   [Hôtes à autoriser](modeles.md#hôtes-à-autoriser)) et les serveurs MCP publics,
   `learn.microsoft.com` et `mcp.data.gouv.fr` (voir le
