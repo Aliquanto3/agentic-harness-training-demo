@@ -33,7 +33,8 @@ Pour Windows 10 ou 11 x64, sans droits administrateur ; prévoyez 3 Go de disque
 tous les modèles du RAG) et 4 Go de RAM libre. Sous macOS ou Linux, ou si une étape bloque
 (proxy, politique du poste), suivez [l'installation détaillée](docs/installation.md).
 
-**Une seule commande**, dans PowerShell (pas CMD) : elle installe `uv` si besoin, récupère
+**Une seule commande**, dans PowerShell (pas CMD) : touche Windows, tapez `PowerShell`, Entrée, puis
+collez la commande ([Ouvrir PowerShell](docs/installation.md#ouvrir-powershell)). Elle installe `uv` si besoin, récupère
 WaveStack dans `Documents\WaveStack`, dépose le modèle Qwen (1,3 Go), puis lance l'appli ;
 relancée plus tard, elle rouvre WaveStack sans rien retélécharger. **Sur un réseau
 d'entreprise**, tapez d'abord `$env:UV_SYSTEM_CERTS = "1"` dans ce même terminal et faites
