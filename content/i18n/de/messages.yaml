@@ -242,6 +242,7 @@ session:
       hooks: Die Texte der Hooks sind ungültig.
       subagent: Die Texte des Sub-Agenten sind ungültig.
       compression: Die Texte der Kompression sind ungültig.
+      guardrails: Die Texte der Garde-fous sind ungültig.
       system_prompt: Der Standard-System-Prompt ist unlesbar.
       global_memory: Die Texte des globalen Gedächtnisses sind ungültig.
       rag: Die Texte des RAG-Bausteins sind ungültig.
@@ -252,6 +253,7 @@ session:
       hooks: "Der Baustein „Hooks“ ist nicht verfügbar; der Rest von WaveStack funktioniert."
       subagent: "Der Baustein „Sub-Agent“ ist nicht verfügbar; der Rest von WaveStack funktioniert."
       compression: "Der Baustein „Kompression“ ist nicht verfügbar; der Rest funktioniert."
+      guardrails: "Der Baustein „Garde-fous“ ist nicht verfügbar; der Rest funktioniert."
       system_prompt: "Der Baustein „System-Prompt“ ist nicht verfügbar; der Rest funktioniert."
       global_memory: "Der Baustein „Globales Gedächtnis“ ist nicht verfügbar; der Rest von WaveStack funktioniert."
       rag: "Der Baustein „RAG“ ist nicht verfügbar; der Rest von WaveStack funktioniert."
@@ -1259,6 +1261,11 @@ compression:
   wrong_version: "Nicht verfügbar: headroom-ai {version} ist installiert, während WaveStack offline nur mit der Version {pinned} geprüft wurde. {install}, und starten Sie WaveStack dann neu."
   tiktoken_missing: "Nicht verfügbar: Die Zähltabelle von Headroom (tiktoken cl100k_base), die mit WaveStack geliefert wird, fehlt ({path}). WaveStack lädt sie nicht herunter: Stellen Sie diese Datei aus dem Repository von WaveStack (git checkout -- src/wavestack/compression/tiktoken) oder seinem Archiv wieder her und starten Sie WaveStack dann neu. Die anderen Bausteine funktionieren ohne sie."
   tiktoken_altered: "Nicht verfügbar: Die Zähltabelle von Headroom (tiktoken cl100k_base), die mit WaveStack geliefert wird, ist verändert (anderer sha256-Fingerabdruck, oft umgewandelte Zeilenenden): {path}. WaveStack lädt sie nicht herunter: Stellen Sie diese Datei aus dem Repository von WaveStack (git checkout -- src/wavestack/compression/tiktoken) oder seinem Archiv wieder her und starten Sie WaveStack dann neu. Die anderen Bausteine funktionieren ohne sie."
+
+# `guardrails/availability.py` (story 4, CAP-5): why the brick cannot be used yet.
+guardrails:
+  install: "Installieren Sie sie aus dem Ordner von WaveStack mit `{command}`"
+  missing: "Nicht installiert: Die Bibliotheken der Garde-fous (onnxruntime, Presidio, spaCy), eine optionale Abhängigkeit, sind nicht installiert. {install}, und starten Sie WaveStack dann neu. Die anderen Bausteine funktionieren ohne sie."
 
 # `cloud.py` (FinOps): what a declared price means.
 cloud:

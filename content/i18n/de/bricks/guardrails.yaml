@@ -1,0 +1,23 @@
+# German translation of content/bricks/guardrails.yaml (languages 3/5, AD-19): same
+# fields, same paragraphs and lists.
+label_text: Schutzmechanismen
+category_text: Harness
+hosting_text: Lokal
+explanation_text:
+  - >-
+    Vor und nach dem Modellaufruf übergibt der Harness die Nachricht (Eingabe) und dann
+    die Antwort (Ausgabe) an spezialisierte, offline laufende Modelle: eines für
+    Toxizität, eines für personenbezogene Daten auf Französisch. Jedes hat drei
+    Einstellungen: blockieren (die Nachricht wird nicht gesendet oder die Antwort nicht
+    angezeigt), melden (das Urteil wird angezeigt, nichts ändert sich) oder aus.
+  - >-
+    Bei personenbezogenen Daten wird „melden“ zu „maskieren“: Der Text wird vor dem Lesen
+    ersetzt, zum Beispiel durch „[TELEFON]“ oder „[E-MAIL]“, und das Urteil nennt, was
+    maskiert wurde.
+  - - "Toxizität: `gravitee-io/distilbert-multilingual-toxicity-classifier`, ein quantisiertes ONNX-Modell, ohne torch."
+    - "Personenbezogene Daten: Microsoft Presidio, mit einem spaCy-Modell für Französisch und einigen frankreichspezifischen Mustern (Sozialversicherungsnummer, Unternehmens-ID, Kennzeichen)."
+    - "Prompt-Injection: noch nicht installiert, siehe die nächste Story."
+  - >-
+    Beide Modelle zusammen bleiben unter 1,5 GB Speicher, werden nur bei der ersten
+    Nutzung geladen und können wieder entladen werden; keines verteilt echten
+    gefährlichen Inhalt.

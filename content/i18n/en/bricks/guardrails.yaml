@@ -1,0 +1,20 @@
+# English translation of content/bricks/guardrails.yaml (languages 3/5, AD-19): same
+# fields, same number of paragraphs and bullets.
+label_text: Guardrails
+category_text: harness
+hosting_text: Local
+explanation_text:
+  - >-
+    Before and after the model call, the harness passes the message (input) then the
+    answer (output) to specialized, offline models: one for toxicity, one for personal
+    data in French. Each has three settings: block (the message is not sent, or the
+    answer is not shown), flag (the verdict is shown, nothing changes) or off.
+  - >-
+    For personal data, "flag" becomes "mask": the text is replaced before it is read,
+    for example "[PHONE]" or "[EMAIL]", and the verdict says what was masked.
+  - - "Toxicity: `gravitee-io/distilbert-multilingual-toxicity-classifier`, a quantized ONNX model, no torch."
+    - "Personal data: Microsoft Presidio, with a spaCy model for French and a few France-specific patterns (social security number, company id, licence plate)."
+    - "Prompt injection: not installed yet, see the next story."
+  - >-
+    Both models together stay under 1.5 GB of memory, loaded only on first use and
+    unloadable; neither redistributes any real dangerous content.

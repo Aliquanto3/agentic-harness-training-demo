@@ -240,6 +240,7 @@ session:
       hooks: The hook texts are invalid.
       subagent: The sub-agent texts are invalid.
       compression: The compression texts are invalid.
+      guardrails: The guardrails texts are invalid.
       system_prompt: The default system prompt is unreadable.
       global_memory: The global memory texts are invalid.
       rag: The RAG brick texts are invalid.
@@ -250,6 +251,7 @@ session:
       hooks: "The “Hooks” brick is unavailable; the rest of WaveStack works."
       subagent: "The “Sub-agent” brick is unavailable; the rest of WaveStack works."
       compression: "The “Compression” brick is unavailable; the rest works."
+      guardrails: "The “Guardrails” brick is unavailable; the rest works."
       system_prompt: "The “System prompt” brick is unavailable; the rest works."
       global_memory: "The “Global memory” brick is unavailable; the rest of WaveStack works."
       rag: "The “RAG” brick is unavailable; the rest of WaveStack works."
@@ -1256,6 +1258,11 @@ compression:
   wrong_version: "Unavailable: headroom-ai {version} is installed, whereas WaveStack was checked offline with version {pinned} only. {install}, then restart WaveStack."
   tiktoken_missing: "Unavailable: Headroom's counting table (tiktoken cl100k_base), shipped with WaveStack, is missing ({path}). WaveStack does not download it: restore this file from WaveStack's repository (git checkout -- src/wavestack/compression/tiktoken) or archive, then restart WaveStack. The other bricks work without it."
   tiktoken_altered: "Unavailable: Headroom's counting table (tiktoken cl100k_base), shipped with WaveStack, is altered (different sha256 fingerprint, often converted line endings): {path}. WaveStack does not download it: restore this file from WaveStack's repository (git checkout -- src/wavestack/compression/tiktoken) or archive, then restart WaveStack. The other bricks work without it."
+
+# `guardrails/availability.py` (story 4, CAP-5): why the brick cannot be used yet.
+guardrails:
+  install: "Install them from the WaveStack folder with `{command}`"
+  missing: "Not installed: the guardrails' libraries (onnxruntime, Presidio, spaCy), an optional dependency, are not installed. {install}, then restart WaveStack. The other bricks work without them."
 
 # `cloud.py` (FinOps): what a declared price means.
 cloud:

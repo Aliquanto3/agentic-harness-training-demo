@@ -357,6 +357,7 @@ def test_boot_emits_bare_llm_cards_without_any_toggle():
             "hooks": False,
             "subagent": False,
             "rag": False,
+            "guardrails": False,
             "compression": False,
         }
         assert cards["system_prompt"]["is_default"] is True
@@ -482,6 +483,7 @@ def test_reasoning_card_comes_first_and_the_ids_are_unchanged():
         "hooks",
         "subagent",
         "rag",
+        "guardrails",
         "compression",
     }
     assert [b.id for b in BRICKS] == [b["id"] for b in cards]
@@ -507,6 +509,7 @@ def test_cards_come_in_two_groups_in_the_story_order():
         ("skills", "acts"),
         ("hooks", "acts"),
         ("subagent", "acts"),
+        ("guardrails", "acts"),
         ("compression", "acts"),
     ]
     # The categories do not change: skills and compression are context engineering.
@@ -521,6 +524,7 @@ def test_cards_come_in_two_groups_in_the_story_order():
         "skills": "context",
         "hooks": "harness",
         "subagent": "harness",
+        "guardrails": "harness",
         "compression": "context",
     }
 
