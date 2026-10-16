@@ -464,6 +464,10 @@ class ModelCallEndedPayload(BaseModel):
     gco2e_max: float | None = None
     impact_method: Literal["ecologits", "codecarbon"] | None = None
     impact_note_text: str | None = None
+    # Story 7 (CAP-7, « Mémoire de contexte »): the first generation's own prompt-cache reuse
+    # on a `llama-server` engine (finops.md); absent when the server sent no `timings`.
+    kv_cache_tokens: int | None = None
+    kv_prompt_per_second: float | None = None
 
 
 class ConsumptionUpdatedPayload(BaseModel):
@@ -1044,6 +1048,17 @@ class SubagentEndedPayload(BaseModel):
     # copy) and restored after it (ms); `None` when the engine cannot, or it failed.
     state_saved_bytes: int | None = None
     state_restore_ms: int | None = None
+    # Story 7 (CAP-7): this delegation's own tokens, cost and footprint (finops.md), absent
+    # when it made no call that had one (e.g. a local model has no `cost_*`).
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_in_usd: float | None = None
+    cost_out_usd: float | None = None
+    cost_source: Literal["api", "estimate"] | None = None
+    energy_wh_min: float | None = None
+    energy_wh_max: float | None = None
+    gco2e_min: float | None = None
+    gco2e_max: float | None = None
 
 
 # ---------- story 15: simple RAG (AD-2, AD-22) ----------

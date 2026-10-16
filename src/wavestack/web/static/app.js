@@ -2549,6 +2549,63 @@ function cacheNode(ended) {
   return node;
 }
 
+// FinOps (CAP-7, disclosure-row): the sub-agent's own line, « Sous-agent : 3 210 tokens ·
+// 0,0134 $ · 0,3 Wh », tokens, cost and footprint of its own calls alone (finops.md);
+// absent when it made none that had one (e.g. a delegation that failed before any call).
+function subCostNode(done) {
+  const tokens = (done.input_tokens ?? 0) + (done.output_tokens ?? 0);
+  const guess = approx(done.cost_source === "estimate");
+  const parts = [];
+  if (done.cost_in_usd != null) parts.push(`${guess}${usd(done.cost_in_usd + done.cost_out_usd)}`);
+  if (done.energy_wh_min != null) parts.push(rangeText(done.energy_wh_min, done.energy_wh_max, "Wh"));
+  if (!tokens || !parts.length) return null;
+  const node = el("details", "token-counter number disclosure-row");
+  const kv = el("dl", "kv");
+  if (done.cost_in_usd != null) {
+    kv.append(
+      el("dt", "", t("main.orch.sub.cost_input")),
+      el("dd", "", `${fmt(done.input_tokens ?? 0)} · ${guess}${usd(done.cost_in_usd)}`),
+      el("dt", "", t("main.orch.sub.cost_output")),
+      el("dd", "", `${fmt(done.output_tokens ?? 0)} · ${guess}${usd(done.cost_out_usd)}`)
+    );
+  }
+  if (done.energy_wh_min != null) {
+    kv.append(
+      el("dt", "", t("main.orch.sub.cost_footprint")),
+      el("dd", "", `${rangeText(done.energy_wh_min, done.energy_wh_max, "Wh")} · ${rangeText(done.gco2e_min, done.gco2e_max, "g CO₂e")}`)
+    );
+  }
+  node.append(el("summary", "", t("main.orch.sub.cost_line", { tokens: fmt(tokens), detail: parts.join(" · ") })), kv);
+  return node;
+}
+
+// FinOps (CAP-7, disclosure-row): the local KV-cache's own line, « Mémoire de contexte :
+// 1 820 tokens repris sans recalcul · environ 21 s évitées », absent when the server sent no
+// `timings` (an older llama-server, or no engine access at all: Ollama, the in-process one).
+function kvCacheNode(ended) {
+  if (ended?.kv_cache_tokens == null) return null;
+  const reused = ended.kv_cache_tokens;
+  const pps = ended.kv_prompt_per_second;
+  const recalculated = ended.evaluated_tokens ?? Math.max(0, ended.prompt_tokens - reused);
+  const node = el("details", "token-counter number saving disclosure-row");
+  node.open = true; // flux 3: arrives déplié (sa seule ligne nouvelle, la saving la plus utile)
+  const kv = el("dl", "kv");
+  const rate = fmt(Math.round(pps));
+  kv.append(
+    el("dt", "", t("main.orch.kv.recalculated")),
+    el("dd", "", t("main.orch.kv.recalculated_value", { tokens: fmt(recalculated), rate, time: seconds(Math.round((recalculated / pps) * 1000)) })),
+    el("dt", "", t("main.orch.kv.without_cache")),
+    el("dd", "", t("main.orch.kv.without_cache_value", { tokens: fmt(ended.prompt_tokens), rate, time: seconds(Math.round((ended.prompt_tokens / pps) * 1000)) })),
+    el("dt", "", t("main.orch.kv.source")),
+    el("dd", "code", `timings.cache_n = ${reused} · timings.prompt_per_second = ${rate}`)
+  );
+  node.append(
+    el("summary", "", t("main.orch.kv.line", { reused: fmt(reused), saved: seconds(Math.round((reused / pps) * 1000)) })),
+    kv
+  );
+  return node;
+}
+
 // FinOps, the top bar's compact amounts: 4 decimals at most (a hundredth of a cent), « < 0,0001 $ »
 // under it; the 4 significant digits stay in the tooltip. Formatting only.
 const shortMoneyFormat = () => intlNumber({ minimumFractionDigits: 0, maximumFractionDigits: 4 });
@@ -4858,6 +4915,9 @@ function callBody(turn, step) {
   // FinOps (CAP-7): the cloud cache's own line, absent when this call had no cache.
   const cache = cacheNode(ended);
   if (cache) nodes.push(cache);
+  // FinOps (CAP-7): the local KV-cache's own line, absent when the server sent no `timings`.
+  const kv = kvCacheNode(ended);
+  if (kv) nodes.push(kv);
   // GreenOps: its footprint (cloud: EcoLogits, local: CodeCarbon), or « indisponible ».
   const footprint = footprintNode(ended);
   if (footprint) nodes.push(footprint);
@@ -5853,6 +5913,9 @@ function delegateBody(turn, step) {
     ),
     el("p", "subagent-saving", `${subSaving(done)} ${t("main.orch.sub.full_context", { tokens: context })}`)
   );
+  // FinOps (CAP-7): this delegation's own tokens, cost and footprint, absent when it had none.
+  const cost = subCostNode(done);
+  if (cost) nodes.push(cost);
   if (!cancelled) {
     nodes.push(
       el("p", "label", done.status === "completed" ? t("main.orch.sub.result") : t("main.orch.sub.error_instead")),

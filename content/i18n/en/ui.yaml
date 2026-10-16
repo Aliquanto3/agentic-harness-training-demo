@@ -586,6 +586,13 @@ main:
       source: "Source"
       cost: "Prompt cache: {read} tokens reread · {cost} extra cost (write)"
       unpriced: "Prompt cache: {read} tokens reread · cache price not declared"
+    kv:
+      line: "Context memory: {reused} tokens reused without recompute · about {saved} saved"
+      recalculated: "Recomputed"
+      recalculated_value: "{tokens} tokens at {rate} tokens/s ({time})"
+      without_cache: "Without the cache"
+      without_cache_value: "{tokens} tokens at {rate} tokens/s ({time})"
+      source: "Source"
     rows:
       overflow: "Context exceeded"
       sub_overflow: "Sub-agent context exceeded"
@@ -651,6 +658,10 @@ main:
       result: "Result (the only thing that comes back to the main context)"
       error_instead: "Error reinjected in place of the result"
       show_context: "See the sub-agent's context"
+      cost_line: "Sub-agent: {tokens} tokens · {detail}"
+      cost_input: "Input"
+      cost_output: "Output"
+      cost_footprint: "Footprint"
   outbound:
     label: "Outbound data"
     request: "Request"

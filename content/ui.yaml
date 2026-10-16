@@ -597,6 +597,13 @@ main:
       source: "Source"
       cost: "Cache de prompt : {read} tokens relus · {cost} de surcoût (écriture)"
       unpriced: "Cache de prompt : {read} tokens relus · prix du cache non déclaré"
+    kv:
+      line: "Mémoire de contexte : {reused} tokens repris sans recalcul · environ {saved} évitées"
+      recalculated: "Recalculés"
+      recalculated_value: "{tokens} tokens à {rate} tokens/s ({time})"
+      without_cache: "Sans cache"
+      without_cache_value: "{tokens} tokens à {rate} tokens/s ({time})"
+      source: "Source"
     rows:
       overflow: "Contexte dépassé"
       sub_overflow: "Contexte du sous-agent dépassé"
@@ -662,6 +669,10 @@ main:
       result: "Résultat (seul à revenir dans le contexte principal)"
       error_instead: "Erreur réinjectée à la place du résultat"
       show_context: "Voir le contexte du sous-agent"
+      cost_line: "Sous-agent : {tokens} tokens · {detail}"
+      cost_input: "Entrée"
+      cost_output: "Sortie"
+      cost_footprint: "Empreinte"
   outbound:
     label: "Données sortantes"
     request: "Requête"

@@ -713,6 +713,18 @@ def _evaluated(engine: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _kv_reuse(engine: Any) -> tuple[int, float] | None:
+    """Story 7 (CAP-7): `(cache_n, prompt_per_second)` of the engine's own prompt cache on
+    its last call; `None` when it does not say (not a `llama-server` engine, or no call yet)."""
+    try:
+        value = getattr(engine, "last_cache_reuse", None)
+    except Exception:  # noqa: BLE001 - AD-16: unknown
+        return None
+    if isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], int):
+        return value
+    return None
+
+
 def _fr(n: int) -> str:
     return f"{n:,}".replace(",", "\u202f")  # narrow no-break space, French style
 
@@ -1054,6 +1066,9 @@ class AppSession:
         self._turn_called = False  # the running turn made a main call (`abandoned`)
         # FinOps: the running turn's cloud calls' costs (main and sub-agent), for `turn_ended`.
         self._turn_costs: list[CallCost] = []
+        # Story 7 (CAP-7): each call's own (prompt_tokens, output_tokens), same order as
+        # `_turn_costs`/`_turn_impacts` (main and sub-agent), for the sub-agent's own line.
+        self._turn_call_tokens: list[tuple[int, int]] = []
         # GreenOps: the running turn's estimated footprints (cloud and local, sub-agent
         # included), for `turn_ended`; CodeCarbon around each local call, counted by the
         # memory budget at its first use.
@@ -5069,6 +5084,13 @@ class AppSession:
         # `estimated`: chat mode, the context's figures not reconciled by `usage` (AD-4).
         figures = {"calls": 0, "context_tokens": 0, "kept_tokens": 0, "estimated": 0}
         outcome = _SubOutcome("error", message_text=Message("delegation.interrupted"))
+        # Story 7 (CAP-7): this delegation's own slice of the turn's costs, footprints and
+        # tokens, taken by their length before and after (bounded by `subagent_max_calls`).
+        cost_at, impact_at, tokens_at = (
+            len(self._turn_costs),
+            len(self._turn_impacts),
+            len(self._turn_call_tokens),
+        )
         saved = self._save_main_state()  # AD-11 (N2): the main context's cache, kept
         # AD-11: every event of the sub-agent hangs on the step of `delegate`; the trigger
         # (model or user) is inherited.
@@ -5104,6 +5126,9 @@ class AppSession:
                 # stayed in the sub-agent, errors and refusals included) against the result it
                 # reads instead; none when the delegation failed.
                 kept = figures["kept_tokens"]
+                # Story 7 (CAP-7): tokens, cost and footprint of this delegation alone
+                # (finops.md), absent when the sub-agent made no call that had one.
+                sub_tokens = self._turn_call_tokens[tokens_at:]
                 journal.emit(
                     "subagent_ended",
                     {
@@ -5119,7 +5144,17 @@ class AppSession:
                         "duration_ms": _ms(time.monotonic() - started),
                         "state_saved_bytes": saved.size_bytes if saved else None,
                         "state_restore_ms": restore_ms,
-                    },
+                    }
+                    | (
+                        {
+                            "input_tokens": sum(t[0] for t in sub_tokens),
+                            "output_tokens": sum(t[1] for t in sub_tokens),
+                        }
+                        if sub_tokens
+                        else {}
+                    )
+                    | self._turn_cost(self._turn_costs[cost_at:])
+                    | self._turn_impact(self._turn_impacts[impact_at:]),
                 )
         if failure is not None:
             raise failure
@@ -6727,6 +6762,7 @@ class AppSession:
         self._turn_called = False  # lot A: set by `_keep_cache`
         self._turn_costs = []
         self._turn_impacts = []
+        self._turn_call_tokens = []
         self._hooks_off.clear()
         self._call_ids.clear()
         steps: list[dict[str, Any]] = []
@@ -8217,6 +8253,9 @@ class AppSession:
         last_flush = started
         output_tokens = 0
         reasoning_tokens = 0
+        # Story 7 (CAP-7): the first generation's own prompt-cache reuse, as its engine says
+        # (a later generation of the same call mostly re-reads what the first one just left).
+        kv_reuse: tuple[int, float] | None = None
         # The prompt tokens each generation evaluated, as its engine says (AD-4).
         evaluations: list[int | None] = []
         stop_reason = "stop"
@@ -8270,16 +8309,23 @@ class AppSession:
                     "usage_source": "engine",
                     "evaluated_tokens": evaluated,
                 }
+                | (
+                    {"kv_cache_tokens": kv_reuse[0], "kv_prompt_per_second": kv_reuse[1]}
+                    if kv_reuse is not None
+                    else {}
+                )
                 | impact.fields(self._language),
                 actor="model",
             )
             self._count_impact(impact)
+            # Story 7 (CAP-7): this call's own tokens, for the sub-agent's dedicated line.
+            self._turn_call_tokens.append((len(rendered.ids), output_tokens))
 
         def generate(ids: list[int], max_tokens: int, cut_at: int | None) -> str:
             """One generation of the engine, its tokens counted after the ones before it;
             `cut`: the reasoning reached `cut_at` tokens without closing, the generation is
             stopped there (lot C)."""
-            nonlocal first_at, output_tokens, reasoning_tokens
+            nonlocal first_at, output_tokens, reasoning_tokens, kv_reuse
             assert self._engine is not None and self._caps is not None
             base, reason = output_tokens, "stop"
             pieces = False  # the engine gives each token's bytes (story 29)
@@ -8330,6 +8376,8 @@ class AppSession:
             finally:
                 fragments.close()  # stops the engine's generation when cut (lot C)
                 evaluations.append(_evaluated(self._engine))
+                if kv_reuse is None:  # the first generation only (AD-4's own `evaluations[0]`)
+                    kv_reuse = _kv_reuse(self._engine)
             return reason
 
         try:
@@ -8457,10 +8505,11 @@ class AppSession:
                 pass
         return list(prompt_ids) + self._engine.tokenize(produced + closure)
 
-    def _turn_cost(self) -> dict[str, Any]:
+    def _turn_cost(self, costs: list[CallCost] | None = None) -> dict[str, Any]:
         """FinOps: `turn_ended`'s cost fields, the sums of the turn's cloud calls (sub-agent
-        included); none when no call of the turn had a price."""
-        costs = self._turn_costs
+        included); none when no call of the turn had a price. Story 7: also used on a slice
+        of `_turn_costs` for the sub-agent's own line."""
+        costs = self._turn_costs if costs is None else costs
         if not costs:
             return {}
         return {
@@ -8469,10 +8518,11 @@ class AppSession:
             "cost_source": "estimate" if any(c.source == "estimate" for c in costs) else "api",
         }
 
-    def _turn_impact(self) -> dict[str, Any]:
+    def _turn_impact(self, impacts: list[Impact] | None = None) -> dict[str, Any]:
         """GreenOps: `turn_ended`'s footprint fields, the sums of the turn's estimated
-        footprints (min and max, sub-agent included); none when no call of the turn had one."""
-        impacts = [i for i in self._turn_impacts if i.estimated]
+        footprints (min and max, sub-agent included); none when no call of the turn had one.
+        Story 7: also used on a slice of `_turn_impacts` for the sub-agent's own line."""
+        impacts = [i for i in (self._turn_impacts if impacts is None else impacts) if i.estimated]
         if not impacts:
             return {}
         return {
@@ -8549,6 +8599,8 @@ class AppSession:
         if call.impact is not None and call.impact.estimated:  # GreenOps
             self._turn_impacts.append(call.impact)
         prompt_tokens = int((call.usage or {}).get("prompt_tokens") or 0)
+        # Story 7 (CAP-7): this call's own tokens, for the sub-agent's dedicated line.
+        self._turn_call_tokens.append((prompt_tokens, call.output_tokens))
         if prompt_tokens:  # AD-4: `usage` is the total; the ratio learns from real calls only
             payload = self._chat_gauge(rendered, prompt_tokens, "api", reserve)
             journal.emit("context_reconciled", payload | {"call_id": scope.call_id or ""})
