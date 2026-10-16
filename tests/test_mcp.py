@@ -218,7 +218,13 @@ def test_local_server_lifecycle_call_and_shutdown(loop):
     (started,) = [e.payload for e in since(mark, "mcp_connect_started")]
     assert started["server"] == "local" and "Glossaire" in started["phase_label"]
     assert ended["status"] == "ok" and ended["error_text"] is None
-    assert ended["tools"] == ["local__list_terms", "local__define_term"]
+    assert ended["tools"] == [
+        "local__list_terms",
+        "local__define_term",
+        "local__system_info",
+        "local__create_path",
+        "local__take_screenshot",
+    ]
     assert since(mark, "outbound_request") == []
     assert local_servers()  # the venv launcher may add a second process
     local = node(session, "mcp.local")
@@ -233,8 +239,8 @@ def test_local_server_lifecycle_call_and_shutdown(loop):
     assert node(session, "mcp.datagouv") is None  # drawn only once its sub-option is on
     preview = since(mark, "context_preview")[-1].payload
     catalog = _segments(preview, "tool_catalog")
-    assert [(s["brick"], s["component"]) for s in catalog] == [("mcp", "mcp.local")] * 2
-    assert session.build_turn_state().tools == ("local__list_terms", "local__define_term")
+    assert [(s["brick"], s["component"]) for s in catalog] == [("mcp", "mcp.local")] * 5
+    assert session.build_turn_state().tools == tuple(ended["tools"])
 
     events = _run(session, "Que veut dire MCP ?")
 

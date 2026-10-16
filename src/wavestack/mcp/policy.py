@@ -20,6 +20,10 @@ RULES = ("allow", "ask", "deny")
 _DEFAULTS: dict[str, tuple[str, str]] = {
     "local__list_terms": ("low", "allow"),
     "local__define_term": ("low", "allow"),
+    # Story 2 (CAP-1), defaults validated in `mcp-tools.md`.
+    "local__system_info": ("low", "allow"),
+    "local__create_path": ("mid", "ask"),
+    "local__take_screenshot": ("high", "ask"),
 }
 _FALLBACK = ("low", "allow")
 

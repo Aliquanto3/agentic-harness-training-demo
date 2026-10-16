@@ -87,6 +87,10 @@ class LocalToolsText(BaseModel):
 
     list_terms: str = Field(min_length=1)
     define_term: str = Field(min_length=1)
+    # Story 2 (CAP-1): RAM/system, create a file or a folder in the sandbox, a screenshot.
+    system_info: str = Field(min_length=1)
+    create_path: str = Field(min_length=1)
+    take_screenshot: str = Field(min_length=1)
 
 
 def load_local_tools(lang: str | None = None) -> LocalToolsText:

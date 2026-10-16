@@ -4,3 +4,13 @@ list_terms: Lists the terms of the WaveStack demonstrator's glossary, one per li
 define_term: >-
   Gives the definition of a notion of the WaveStack demonstrator (harness, context, tool,
   MCP, skill, hook, RAG…). Call list_terms to know the terms.
+system_info: >-
+  Reads the RAM (total and available) and the state of the system (CPU cores, platform)
+  of the workstation WaveStack runs on.
+create_path: >-
+  Creates a file or a folder in WaveStack's sandbox (never elsewhere on the workstation).
+  Parameters: path (relative to the sandbox), kind ("file" or "folder", "file" by
+  default), content (the file's text, optional).
+take_screenshot: >-
+  Takes a screenshot of the main monitor and saves it in WaveStack's sandbox; only its
+  path and its size are returned, never the image itself.

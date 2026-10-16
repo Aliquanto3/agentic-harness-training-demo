@@ -764,6 +764,18 @@ hooks:
 mcp:
   glossary:
     unknown_term: "Term not in the glossary: “{term}”. Available terms: {known}."
+  system:
+    info: "Total RAM: {total}; available RAM: {available} ({percent}% used); CPU cores: {cpu}; platform: {platform}."
+  sandbox:
+    file_created: "File created in the sandbox: {path}."
+    folder_created: "Folder created in the sandbox: {path}."
+    empty: "Empty path: give a path relative to the sandbox."
+    reserved: "Name refused: “{path}” names a Windows device or an NTFS stream."
+    outside: "Path refused: “{path}” leads out of the sandbox."
+    too_large: "Content refused: more than {limit}."
+    failed: "Cannot create “{path}”: {reason}."
+  screenshot:
+    saved: "Screenshot saved in the sandbox: {path} ({size} bytes)."
   # `load_tool_doc` (AD-25), the lazy loading's meta-tool.
   doc:
     already_loaded: "The documentation of “{tool}” is already loaded."

@@ -1,8 +1,13 @@
 """The local MCP server: the demo's glossary, over stdio, offline (story 6).
 
-Lot 4 of 2026-10-04 (AD-27): it announces the three primitives, its two tools, the static
+Lot 4 of 2026-10-04 (AD-27): it announces the three primitives, its tools, the static
 resource `glossary://terms` and the prompt `explain_term(term)`, their texts in
 `content/mcp_local/` in its language.
+
+Story 2 (CAP-1) adds three concrete tools: `system_info` (RAM and the OS, read-only),
+`create_path` (a file or a folder in the sandbox, `wavestack.mcp.sandbox`) and
+`take_screenshot` (the sandbox only; the model receives its path and its size, never its
+pixels).
 
 Launched by the session as `python -m wavestack.mcp.local_server` when its
 sub-option is enabled. The network guard is installed first, loopback only,
@@ -15,8 +20,12 @@ from wavestack.net.guard import install
 
 install([])
 
-from typing import Annotated  # noqa: E402
+import platform  # noqa: E402
+import time  # noqa: E402
+from typing import Annotated, Literal  # noqa: E402
 
+import mss  # noqa: E402
+import psutil  # noqa: E402
 import yaml  # noqa: E402
 from mcp.server.mcpserver import MCPServer  # noqa: E402
 from mcp.server.mcpserver.prompts.base import UserMessage  # noqa: E402
@@ -24,6 +33,7 @@ from mcp_types import CallToolResult, TextContent  # noqa: E402
 from pydantic import Field  # noqa: E402
 
 from wavestack import config  # noqa: E402
+from wavestack.mcp import sandbox  # noqa: E402
 from wavestack.mcp.servers import load_local_primitives, load_local_tools  # noqa: E402
 from wavestack.messages import msg  # noqa: E402
 
@@ -67,6 +77,78 @@ def define_term(term: str) -> CallToolResult:
     known = ", ".join(glossary)
     text = msg("mcp.glossary.unknown_term", LANGUAGE, term=term, known=known)
     return CallToolResult(content=[TextContent(type="text", text=text)], is_error=True)
+
+
+@server.tool(description=_TOOLS.system_info)
+def system_info() -> str:
+    total, available = config.system_memory()
+    used_percent = round((total - available) / total * 100) if total else 0
+    return msg(
+        "mcp.system.info",
+        LANGUAGE,
+        total=config.size_fr(total, LANGUAGE),
+        available=config.size_fr(available, LANGUAGE),
+        percent=used_percent,
+        cpu=psutil.cpu_count() or 0,
+        platform=platform.platform(),
+    )
+
+
+# Caps against filling the disk (review): a file's text, and the captures kept.
+MAX_CONTENT_BYTES = 1_000_000
+MAX_SCREENSHOTS = 20
+
+
+def _error(text: str) -> CallToolResult:
+    return CallToolResult(content=[TextContent(type="text", text=text)], is_error=True)
+
+
+@server.tool(description=_TOOLS.create_path)
+def create_path(
+    path: str, kind: Literal["file", "folder"] = "file", content: str = ""
+) -> CallToolResult:
+    try:
+        target = sandbox.resolve(path)
+    except sandbox.SandboxError as exc:
+        return _error(msg(f"mcp.sandbox.{exc.key}", LANGUAGE, path=exc.part or path))
+    data = content.encode("utf-8")
+    if len(data) > MAX_CONTENT_BYTES:
+        limit = config.size_fr(MAX_CONTENT_BYTES, LANGUAGE)
+        return _error(msg("mcp.sandbox.too_large", LANGUAGE, limit=limit))
+    try:
+        if kind == "folder":
+            target.mkdir(parents=True, exist_ok=True)
+            text = msg("mcp.sandbox.folder_created", LANGUAGE, path=path)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("xb") as file:  # never overwrites an existing file or folder
+                file.write(data)
+            text = msg("mcp.sandbox.file_created", LANGUAGE, path=path)
+    except OSError as exc:
+        return _error(msg("mcp.sandbox.failed", LANGUAGE, path=path, reason=exc.strerror))
+    return CallToolResult(content=[TextContent(type="text", text=text)])
+
+
+@server.tool(description=_TOOLS.take_screenshot)
+def take_screenshot() -> CallToolResult:
+    """A capture of the main monitor, saved in the sandbox; never sent to the model, which
+    receives only its path and its byte size (CAP-1's constraint). Only the last
+    `MAX_SCREENSHOTS` captures are kept."""
+    target = sandbox.resolve(f"screenshots/{time.time_ns()}.png")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with mss.mss() as shot:
+        image = shot.grab(shot.monitors[1] if len(shot.monitors) > 1 else shot.monitors[0])
+        mss.tools.to_png(image.rgb, image.size, output=str(target))
+    # Bounded: at most MAX_SCREENSHOTS + 1 files listed per capture.
+    for old in sorted(target.parent.glob("*.png"))[:-MAX_SCREENSHOTS]:
+        old.unlink(missing_ok=True)
+    text = msg(
+        "mcp.screenshot.saved",
+        LANGUAGE,
+        path=target.relative_to(sandbox.sandbox_dir()).as_posix(),
+        size=target.stat().st_size,
+    )
+    return CallToolResult(content=[TextContent(type="text", text=text)])
 
 
 @server.resource(

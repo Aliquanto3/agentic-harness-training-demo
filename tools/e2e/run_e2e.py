@@ -7212,10 +7212,10 @@ def _mcp_lab(r: Run, errors: list[str]) -> None:
     )
     tabs = [page.locator(f"#mcp-tab-{k}").inner_text() for k in ("tools", "resources", "prompts")]
     r.check(
-        tabs[0].endswith("Outils 2")
+        tabs[0].endswith("Outils 5")
         and tabs[1].endswith("Ressources 1")
         and tabs[2].endswith("Prompts 1"),
-        "onglets des primitives : 🔧 Outils 2 · 📄 Ressources 1 · 💬 Prompts 1",
+        "onglets des primitives : 🔧 Outils 5 · 📄 Ressources 1 · 💬 Prompts 1",
         str(tabs),
     )
     full = page.locator("#mcp-model-body .mcp-total-number").inner_text()
