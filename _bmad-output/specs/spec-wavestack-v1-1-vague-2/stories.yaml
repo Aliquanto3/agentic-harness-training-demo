@@ -45,15 +45,26 @@
     verdict-banner et dépli d'Orchestration (ux/DESIGN.md, écran Harnais de la maquette). Ne pas écrire dans le
     journal de sécurité (story 5). Pas de pytest qui télécharge un modèle : faux classifieur.
 - id: "5"
-  title: Prompt Guard 2 optionnel, exemples neutres et verdicts journalisés
+  title: Garde-fous branchés dans le tour, verdicts et brique interactive
   description: >-
-    CAP-5 et CAP-6 : garde-fou injection actif avec un jeton Hugging Face, sinon « non
-    installé » avec la marche à suivre ; exemples qui déclenchent ou passent ; verdicts au journal.
+    CAP-5 et CAP-6 : le moteur de la story 4 filtre réellement l'entrée et la sortie (bloquer,
+    masquer, signaler) ; verdict-banner dans Vue humain, étape dépliable dans Orchestration ; modes
+    réglables et boutons « Essayer : … » dans la brique ; verdicts au journal de sécurité.
   invoke_dev_with: >-
-    Lane B, après les stories 1 et 4. Trancher et consigner torch CPU ou conversion ONNX pour
-    Prompt Guard 2 (86M si la RAM le permet, sinon 22M). Exemples neutres et fabriqués, jamais
-    de contenu dangereux réel (dépôt public). L'utilisateur télécharge le modèle sous sa propre
-    acceptation de la licence Llama 4 Community.
+    Lane B, après les stories 1 et 4. Report explicite de la story 4 (stories/4-*.md). Toucher la
+    boucle de tour (app_session.py) avec des tests de bout en bout sur faux classifieurs. UI :
+    ux/DESIGN.md (verdict-banner, guard-mode-switch, disclosure-row), écran Harnais de la maquette.
+    Exemples neutres de guardrails.md, jamais de contenu dangereux réel.
+- id: "13"
+  title: Installation des garde-fous depuis la brique et Prompt Guard 2 optionnel
+  description: >-
+    CAP-5 : bouton « Installer » de la brique (extra optionnel et modèles à la demande, état
+    « installation en cours ») ; garde-fou injection actif avec un jeton Hugging Face, sinon « non
+    installé » avec la marche à suivre.
+  invoke_dev_with: >-
+    Lane B, après la story 5. Trancher et consigner torch CPU ou conversion ONNX pour Prompt Guard 2
+    (86M si la RAM le permet, sinon 22M). L'utilisateur télécharge le modèle sous sa propre
+    acceptation de la licence Llama 4 Community. Installation sans droits admin, derrière le proxy.
 - id: "6"
   title: FinOps visible, économie du cache cloud et gain de la compression
   description: >-
@@ -73,10 +84,10 @@
     KV-cache : timings.cache_n, prompt_per_second (models/servers.py:520 lit déjà prompt_n).
     Pas de mention « 15× » tant qu'aucune source primaire Anthropic n'est trouvée.
 - id: "8"
-  title: Textes des ateliers LLM et RAG pour un non-ingénieur
+  title: Textes des briques du Harnais et des ateliers LLM et RAG pour un non-ingénieur
   description: >-
-    CAP-10 (partie 1) : réécrire content/llm_lab.yaml et rag_lab.yaml pour qu'aucun terme
-    technique ne reste inexpliqué à sa première apparition.
+    CAP-10 (partie 1) : réécrire content/bricks/*.yaml, content/llm_lab.yaml et rag_lab.yaml pour
+    qu'aucun terme technique ne reste inexpliqué à sa première apparition.
   invoke_dev_with: >-
     Lane D, première story. Contenu seulement, plus les surcouches content/i18n/en et de. Garder
     les clés existantes. Ne pas toucher à mcp_lab.yaml (story 11).
@@ -109,3 +120,12 @@
     pour un non-ingénieur.
   invoke_dev_with: >-
     Lane D, dernière story, après la story 3. Contenu seulement, plus les surcouches en et de.
+- id: "12"
+  title: Docs, guide et GIF du README à jour de la V1.1
+  description: >-
+    Documenter la vague 2 (page Sécurité, garde-fous et leur installation, connexion GitHub,
+    FinOps) dans docs/guide.md et docs/, et refaire le GIF du README après toutes les fusions.
+  invoke_dev_with: >-
+    Dernière story, après toutes les autres. Reste de la vague 1 inclus (🏠/☁️, « Ajouter
+    d'autres modèles… », ⛶ sur la Séquence). GIF : tools/demo/drive.py puis compose.py. README de
+    100 lignes au plus, tests/test_docs_links.py vert, pas d'ancre avec « -- ».
