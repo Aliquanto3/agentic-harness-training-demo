@@ -15112,7 +15112,21 @@ def _rag_lab_views(r: Run) -> None:
         and end["live_button"]
         and not end["flowing"],
         "fin de run : dernière image Generation « terminée », légende « rejouez avec ◀ ▶ »",
-        str({k: end[k] for k in ("focus", "pill", "legend", "position")}),
+        str(
+            {
+                k: end[k]
+                for k in (
+                    "focus",
+                    "pill",
+                    "legend",
+                    "position",
+                    "rows",
+                    "next",
+                    "live_button",
+                    "flowing",
+                )
+            }
+        ),
     )
     # Lot 5c-3: the focus shows the prompt sent (folded) and the answer; the Réponse tile, the
     # answer's first lines (the whole in its tooltip).
