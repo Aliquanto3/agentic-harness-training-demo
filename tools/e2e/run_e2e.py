@@ -3016,8 +3016,8 @@ def _design_rgb(key: str) -> str:
     return "rgb({}, {}, {})".format(*(int(value[i : i + 2], 16) for i in (0, 2, 4)))
 
 
-# Story 2 (2026-09-30): each control of the shared bar, the brand, the five links and
-# « Affichage ▾ », whole, inside the bar, on one line.
+# Story 2 (2026-09-30): each control of the shared bar, the brand, the six links (story 10:
+# /security) and « Affichage ▾ », whole, inside the bar, on one line.
 _SITE_NAV_PROBLEMS_JS = """() => {
   const nav = document.querySelector('nav.site-nav');
   if (!nav) return ['barre commune absente'];
@@ -3033,7 +3033,7 @@ _SITE_NAV_PROBLEMS_JS = """() => {
   const items = [...nav.children].filter(e => e.checkVisibility());
   const links = items.filter(e => e.tagName === 'A').map(e => e.getAttribute('href'));
   const order = links.join(' ');
-  if (order !== '/ / /llm /rag /mcp /diagnostic') problems.push(`liens ${order}`);
+  if (order !== '/ / /llm /rag /mcp /security /diagnostic') problems.push(`liens ${order}`);
   if (!items.some(e => e.id === 'display-menu')) problems.push('« Affichage ▾ » absent');
   for (const e of [...items, document.getElementById('display-menu-toggle')]) {
     if (!e) continue;
@@ -7149,7 +7149,7 @@ def _mcp_lab(r: Run, errors: list[str]) -> None:
         link.inner_text() if link.count() else "absent",
     )
     ok, detail = _bar_fits(r)
-    r.check(ok, "barre commune entière avec cinq onglets, sur une ligne, à 1600 × 1000", detail)
+    r.check(ok, "barre commune entière avec six onglets, sur une ligne, à 1600 × 1000", detail)
     r.check(
         page.locator('a.brick-workshop-link[href="/mcp"]').count() == 1,
         "la carte de la brique MCP renvoie à l'atelier MCP",
