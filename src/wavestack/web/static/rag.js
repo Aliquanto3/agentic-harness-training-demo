@@ -1697,9 +1697,23 @@ async function refresh() {
 
 // Story 3 (V1.1, CAP-6): the Séquence grown to almost the whole window (no `.pane`/panes.js
 // here, so its own toggle; Echap closes it, wired in `main`).
+// Recette (fix CAP-6): the stepper (◀ ▶, legend) lives in the bar ABOVE `#rag-views`, so once
+// `#rag-seq` goes `position: fixed` it is covered. Moved into the panel while expanded, put
+// back at its own spot (remembered by `stepperHome`) on close.
+const stepperHome = { parent: null, next: null };
 function setSeqExpanded(on) {
-  $("rag-seq").classList.toggle("is-expanded", on);
+  const seq = $("rag-seq");
+  const stepperBox = $("rag-stepper");
+  seq.classList.toggle("is-expanded", on);
   $("rag-seq-expand").setAttribute("aria-pressed", String(on));
+  if (on) {
+    stepperHome.parent = stepperBox.parentElement;
+    stepperHome.next = stepperBox.nextElementSibling;
+    seq.querySelector(".rag-seq-view-head").after(stepperBox);
+  } else if (stepperHome.parent) {
+    stepperHome.parent.insertBefore(stepperBox, stepperHome.next);
+    stepperHome.parent = null;
+  }
 }
 
 async function main() {

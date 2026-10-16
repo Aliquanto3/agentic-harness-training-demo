@@ -14525,12 +14525,23 @@ def _rag_lab(r: Run, errors: list[str]) -> None:
         " return b.width / innerWidth > 0.9 && b.height / innerHeight > 0.9; }"
     )
     pressed = seq_expand.get_attribute("aria-pressed")
+    # Recette (fix CAP-6) : le pas-à-pas (◀ ▶) reste visible et utilisable en Séquence
+    # agrandie (il était recouvert, hérité de /mcp avant le correctif).
+    position = page.locator("#rag-seq .diagram-step-position")
+    before = position.inner_text()
+    page.locator("#rag-seq .diagram-step-next").click()
+    advanced, _ = r.poll(lambda: position.inner_text() != before)
     page.keyboard.press("Escape")
     expect(page.locator("#rag-seq")).not_to_have_class(re.compile(r"\bis-expanded\b"))
     r.check(
         grown and pressed == "true" and seq_expand.get_attribute("aria-pressed") == "false",
         "Séquence RAG : ⛶ l'agrandit à la fenêtre (aria-pressed), Echap referme",
         f"{grown} · {pressed}",
+    )
+    r.check(
+        advanced,
+        "Séquence RAG agrandie : ▶ du pas-à-pas reste visible et fait avancer d'une étape",
+        f"{before} → {position.inner_text()}",
     )
     _rag_mode(r, "compose")
     names = page.locator("#rag-seq .rag-seq-name").all_inner_texts()
