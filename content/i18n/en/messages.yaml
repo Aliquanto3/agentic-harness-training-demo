@@ -555,6 +555,9 @@ session:
     policy_allowed: "Allowed by the security policy (the rule for « {tool} »)."
     policy_denied_by_user: "Denied by you: you refused the call to « {tool} ». The tool was not run."
     policy_allowed_once: "Allowed once by you: you authorized the call to « {tool} »."
+    policy_ask_outside_lab: "Denied by the security policy: the rule for « {tool} » is Ask, and only the MCP page can ask for your consent. The tool was not run."
+    policy_ask_timeout: "Denied for lack of an answer: nobody authorized the call to « {tool} » in time. The tool was not run."
+    policy_ask_cancelled: "Cancelled: the exchange stopped before your decision on « {tool} ». The tool was not run."
     launch:
       stdio: "launches the server: {command}"
       http: "opens an HTTP session with {host}"

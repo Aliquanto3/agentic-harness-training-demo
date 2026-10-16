@@ -331,6 +331,43 @@ body.mcp-page {
   margin: 0 0 var(--spacing-1);
 }
 
+/* DESIGN vague 2: status-chip (risk in a word and a colour) and rule-switch (the chosen
+   segment takes its level's colour). */
+.mcp-risk-chip {
+  display: inline-block;
+  padding: 0 var(--spacing-2);
+  border-radius: var(--rounded-full);
+  color: var(--color-ink);
+  background: var(--color-accent-soft);
+  font: var(--typography-label-font-weight) var(--typography-label-font-size) /
+    var(--typography-label-line-height) var(--typography-label-font-family);
+}
+
+.mcp-risk-chip[data-level="mid"] {
+  background: var(--color-warning-soft);
+  box-shadow: inset 0 0 0 var(--spacing-stroke-min) var(--color-warning);
+}
+
+.mcp-risk-chip[data-level="high"] {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.mcp-rule-switch button[data-value="allow"][aria-checked="true"] {
+  background: var(--color-accent);
+  color: var(--color-on-vivid);
+}
+
+.mcp-rule-switch button[data-value="ask"][aria-checked="true"] {
+  background: var(--color-warning);
+  color: var(--color-on-vivid);
+}
+
+.mcp-rule-switch button[data-value="deny"][aria-checked="true"] {
+  background: var(--color-danger);
+  color: var(--color-on-vivid);
+}
+
 .mcp-server-set,
 .mcp-resource-set {
   margin: 0 0 var(--spacing-2);

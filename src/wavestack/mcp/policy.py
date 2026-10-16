@@ -48,7 +48,11 @@ class ToolPolicy:
         if rule not in RULES:
             raise ValueError(rule)
         with self._lock:
-            if rule == self.default_rule(name):
-                self._overrides.pop(name, None)  # back to the default: nothing to remember
-            else:
-                self._overrides[name] = rule
+            # Kept even when back to the default: `rules()` must tell a reloaded page that a
+            # tool's rule changed since its connection listed it.
+            self._overrides[name] = rule
+
+    def rules(self) -> dict[str, str]:
+        """The rules set from the interface this session, by exposed name."""
+        with self._lock:
+            return dict(self._overrides)

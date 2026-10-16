@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import threading
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -23,7 +24,7 @@ class JournalEntry:
     ts: datetime
     source: str  # "mcp_tool" today; "guardrail" once story 5 calls `record`
     name: str  # the tool's or guardrail's name
-    decision: str  # "allow" | "allow_once" | "ask" | "deny" | "blocked" | "masked" | ...
+    decision: str  # "allow" | "allow_once" | "cancelled" | "deny" | "blocked" | "masked" | ...
     reason_text: str
 
 
@@ -33,13 +34,12 @@ class SecurityJournal:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._entries: list[JournalEntry] = []
+        self._entries: deque[JournalEntry] = deque(maxlen=_KEPT)  # O(1) eviction
 
     def record(self, source: str, name: str, decision: str, reason_text: str) -> JournalEntry:
         entry = JournalEntry(datetime.now(UTC), source, name, decision, reason_text)
         with self._lock:
             self._entries.append(entry)
-            del self._entries[:-_KEPT]
         return entry
 
     def entries(self) -> list[JournalEntry]:

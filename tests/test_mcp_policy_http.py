@@ -22,9 +22,16 @@ def test_mcp_tool_rule_http(loop):  # noqa: F811
         headers=HEADERS,
     )
 
+    garbage = client.post(  # not an exposed name: never stored in the session
+        "/api/intentions/mcp_tool_rule",
+        json={"tool": "x" * 5000, "rule": "deny"},
+        headers=HEADERS,
+    )
+
     assert ok.status_code == 200
     assert bad.status_code == 422
-    assert session._mcp_policy.rule_of("local__define_term") == "deny"
+    assert garbage.status_code == 422
+    assert session._mcp_policy.rules() == {"local__define_term": "deny"}
     session.close()
 
 

@@ -58,6 +58,8 @@ const store = {
   lastSeq: 0,
   first: 0, // the current series: the number of its connection's exchange (`mcp{first}`)
   envelopes: [], // the current series, in the order of their `seq`
+  authorizations: new Map(), // CAP-2: request_id -> the series' pending « Demander », kept on push
+  toolRules: {}, // CAP-2: exposed name -> rule set since the connection listed its tools
   model: null, // `frames(envelopes)`, the last one drawn
   failures: new Map(), // server -> the reason of its last failed connection (the page's memory)
   pending: false, // an intention posted, not answered yet
@@ -1605,14 +1607,11 @@ function lastOk(kind) {
 }
 
 // CAP-2: the tool whose rule is « Demander » the Séquence's connection is waiting on, if
-// any (the last request not yet resolved, from the current series' envelopes).
+// any (the last request not yet resolved; one at a time in practice).
 function pendingAuthorization() {
-  const open = new Map();
-  for (const envelope of store.envelopes) {
-    if (envelope.kind === "mcp_lab_authorization_requested") open.set(envelope.payload.request_id, envelope.payload);
-    else if (envelope.kind === "mcp_lab_authorization_resolved") open.delete(envelope.payload.request_id);
-  }
-  return [...open.values()].at(-1) ?? null;
+  let last = null;
+  for (const payload of store.authorizations.values()) last = payload;
+  return last;
 }
 
 function authorize(decision) {
@@ -1626,7 +1625,14 @@ function renderAuthorization() {
   box.hidden = !pending;
   if (!pending) return;
   box.dataset.requestId = pending.request_id;
-  $("mcp-authorize-text").textContent = t("mcp.authorize.waiting", { tool: pending.tool });
+  const waiting = t("mcp.authorize.waiting", { tool: pending.tool });
+  $("mcp-authorize-text").textContent = waiting;
+  // EXPERIENCE: said in the polite live region (#mcp-status), once per request.
+  const key = `authorize:${pending.request_id}`;
+  if (!store.announced.has(key)) {
+    store.announced.add(key);
+    if (!store.restoring) say(waiting);
+  }
 }
 
 function renderControls() {
@@ -1957,18 +1963,22 @@ function renderToolPolicy(tool) {
   if (!box) return;
   box.replaceChildren();
   if (!tool) return;
-  const risk = el("p", "mcp-note mcp-tool-risk", `${t("mcp.policy.risk_label")} : ${t(`mcp.policy.risk.${tool.risk}`)}`);
+  const risk = el("p", "mcp-note mcp-tool-risk", `${t("mcp.policy.risk_label")} : `);
+  const chip = el("span", "mcp-risk-chip", t(`mcp.policy.risk.${tool.risk}`));
+  chip.dataset.level = tool.risk;
+  risk.append(chip);
   const label = el("span", "mcp-field-label", t("mcp.policy.rule_label"));
   const switcher = segmented(
     "mcp-tool-rule",
     t("mcp.policy.rule_label"),
     [["allow", t("mcp.policy.rule.allow")], ["ask", t("mcp.policy.rule.ask")], ["deny", t("mcp.policy.rule.deny")]],
-    () => tool.rule,
+    () => store.toolRules[tool.name] ?? tool.rule,
     (value) => {
-      tool.rule = value;
+      store.toolRules[tool.name] = value;
       post("/api/intentions/mcp_tool_rule", { tool: tool.name, rule: value });
     },
   );
+  switcher.classList.add("mcp-rule-switch");
   box.append(risk, label, switcher);
 }
 
@@ -2188,6 +2198,7 @@ function redraw({ restoring = false } = {}) {
 function newSeries(first) {
   store.first = first;
   store.envelopes = [];
+  store.authorizations = new Map();
   store.model = null;
   clearSequence();
   stepper.clear();
@@ -2212,8 +2223,15 @@ function applyEnvelope(envelope) {
   const opens = envelope.kind === "mcp_lab_exchange_started" && envelope.payload.exchange === "connect" && !envelope.step_id.includes(".");
   if (opens && n >= store.first) newSeries(n);
   if (n < store.first || !store.first) return null;
-  store.envelopes.push(envelope);
+  keep(envelope);
   return "redraw";
+}
+
+// An envelope joins the series; a « Demander » request is tracked here, not re-scanned per render.
+function keep(envelope) {
+  store.envelopes.push(envelope);
+  if (envelope.kind === "mcp_lab_authorization_requested") store.authorizations.set(envelope.payload.request_id, envelope.payload);
+  else if (envelope.kind === "mcp_lab_authorization_resolved") store.authorizations.delete(envelope.payload.request_id);
 }
 
 let scheduled = null;
@@ -2328,6 +2346,7 @@ async function refresh() {
   store.openServer = body.open_server;
   store.session = body.session_state;
   store.ask = body.ask;
+  store.toolRules = body.tool_rules || {};
   if (body.open_server) store.selected = body.open_server;
   const alert = $("mcp-content-error");
   alert.hidden = !body.content_error_text;
@@ -2340,7 +2359,7 @@ async function refresh() {
   newSeries(first);
   for (const envelope of body.last_session) {
     const n = stepNumber(envelope.step_id);
-    if (n !== null && n >= first) store.envelopes.push(envelope);
+    if (n !== null && n >= first) keep(envelope);
   }
   if (!store.envelopes.length && first) store.first = first;
   if (store.model === null && store.envelopes[0]) {

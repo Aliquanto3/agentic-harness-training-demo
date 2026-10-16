@@ -558,6 +558,9 @@ session:
     policy_allowed: "Von der Sicherheitsrichtlinie erlaubt (Regel für « {tool} »)."
     policy_denied_by_user: "Von Ihnen abgelehnt: Sie haben den Aufruf von « {tool} » abgelehnt. Das Tool wurde nicht ausgeführt."
     policy_allowed_once: "Von Ihnen einmalig erlaubt: Sie haben den Aufruf von « {tool} » genehmigt."
+    policy_ask_outside_lab: "Von der Sicherheitsrichtlinie abgelehnt: Die Regel für « {tool} » steht auf Fragen, und nur die MCP-Seite kann Ihre Zustimmung einholen. Das Tool wurde nicht ausgeführt."
+    policy_ask_timeout: "Mangels Antwort abgelehnt: Niemand hat den Aufruf von « {tool} » rechtzeitig genehmigt. Das Tool wurde nicht ausgeführt."
+    policy_ask_cancelled: "Abgebrochen: Der Austausch endete vor Ihrer Entscheidung über « {tool} ». Das Tool wurde nicht ausgeführt."
     launch:
       stdio: "startet den Server: {command}"
       http: "öffnet eine HTTP-Sitzung mit {host}"

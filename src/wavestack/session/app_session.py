@@ -234,6 +234,7 @@ from wavestack.ui_texts import UiTexts, load_ui_texts
 
 DELTA_INTERVAL_S = 0.05  # AD-2: model_delta grouped every 50 ms at most
 LOAD_TOOL_DOC = "load_tool_doc"  # the harness meta-tool of the lazy loading mode (AD-25)
+MCP_ASK_TIMEOUT_S = 120.0  # CAP-2: an unanswered « Demander » (tab closed) refuses after this
 DOC_LINE_MAX = 120  # characters of a tool's first description line in `load_tool_doc`
 LOAD_SKILL = "load_skill"  # the harness meta-tool of the skills brick (AD-25)
 REMEMBER = "remember"  # the harness meta-tool of the global memory brick (AD-25)
@@ -5780,9 +5781,13 @@ class AppSession:
             body_text = json.dumps(body, ensure_ascii=False)
             return {"method": "POST", "url": server.url, "body": body_text}
 
+        def run(**arguments: Any) -> str:
+            self._mcp_conversation_policy(f"{server.id}__{name}")  # CAP-2: raises if refused
+            return conn.call(name, arguments, self._language)
+
         return ToolSpec(
             name=name,
-            run=lambda **arguments: conn.call(name, arguments, self._language),
+            run=run,
             preview=preview if server.network else None,
             params=params,
             component=server.component,
@@ -5793,6 +5798,21 @@ class AppSession:
             schema=schema,
             required=tuple(schema.get("required") or ()),
         )
+
+    def _mcp_conversation_policy(self, name: str) -> None:
+        """CAP-2, CAP-3: the rule of an MCP tool the conversation's model calls, journalled.
+        `ask` has no « Autoriser une fois » outside the workshop, so it refuses there.
+        `ToolError` (reinjected to the model by the executor) unless allowed."""
+        rule = self._mcp_policy.rule_of(name)
+        key = {
+            "allow": "session.mcp_lab.policy_allowed",
+            "ask": "session.mcp_lab.policy_ask_outside_lab",
+            "deny": "session.mcp_lab.policy_denied",
+        }[rule]
+        decision = "allow" if rule == "allow" else "deny"
+        self._security_journal.record("mcp_tool", name, decision, self._t(key, tool=name))
+        if decision == "deny":
+            raise ToolError(key, tool=name)
 
     def _mcp_disconnect(self, server_id: str) -> None:
         """Close the connection (the local process stops); tools leave from the next turn."""
@@ -10290,6 +10310,7 @@ class AppSession:
             "last_session": mcp_lab.last_session(events, first),
             "session_state": {"state": state, "reason_text": reason_text},
             "ask": self._mcp_lab_ask_info(),
+            "tool_rules": self._mcp_policy.rules(),  # CAP-2: changed since the connection
             "seq": tip,
         }
 
@@ -10805,7 +10826,8 @@ class AppSession:
     def _await_mcp_authorization(self, step_id: str, server_id: str, tool: str) -> str:
         """CAP-2: the tool's rule is `ask` — waits here for `answer_mcp_authorization`
         (« Autoriser une fois » or « Refuser »), shown in the Séquence without a modal, or
-        for the turn to stop. Returns `allow_once`, `deny` or `cancelled`.
+        for the turn to stop, at most `MCP_ASK_TIMEOUT_S`. Returns `allow_once`, `deny`,
+        `cancelled` or `timeout`.
 
         shortcut: polls the cancel token every 0.5 s rather than a composite wait; fine for
         a demo's single pending request, not for many concurrent ones."""
@@ -10824,12 +10846,15 @@ class AppSession:
             server_id,
         )
         decision: str | None = None
+        deadline = time.monotonic() + MCP_ASK_TIMEOUT_S
         while decision is None:
             if event.wait(timeout=0.5):
                 with self._lock:
                     decision = box["decision"]
             elif cancel is not None and cancel.cancelled:
                 decision = "cancelled"
+            elif time.monotonic() > deadline:
+                decision = "timeout"
         with self._lock:
             self._mcp_authorizations.pop(request_id, None)
         self._mcp_lab_emit(
@@ -10864,11 +10889,14 @@ class AppSession:
         if rule == "ask":
             decision = self._await_mcp_authorization(step_id, server_id, tool)
             if decision == "cancelled":
+                reason = self._t("session.mcp_lab.policy_ask_cancelled", tool=name)
+                self._security_journal.record("mcp_tool", name, "cancelled", reason)
                 payload |= self._mcp_lab_failure(ConnectionError("stopped"), cancel, 0)
                 self._mcp_lab_after(conn, payload, cancel)
                 return payload
-            if decision == "deny":
-                reason = self._t("session.mcp_lab.policy_denied_by_user", tool=name)
+            if decision in ("deny", "timeout"):
+                key = "policy_denied_by_user" if decision == "deny" else "policy_ask_timeout"
+                reason = self._t(f"session.mcp_lab.{key}", tool=name)
                 self._security_journal.record("mcp_tool", name, "deny", reason)
                 payload |= {
                     "status": "error",

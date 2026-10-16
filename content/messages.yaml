@@ -561,6 +561,9 @@ session:
     policy_allowed: "Autorisé par la politique de sécurité (règle de « {tool} »)."
     policy_denied_by_user: "Refusé par vous : vous avez refusé l'appel de « {tool} ». L'outil n'a pas été exécuté."
     policy_allowed_once: "Autorisé une fois par vous : vous avez autorisé l'appel de « {tool} »."
+    policy_ask_outside_lab: "Refusé par la politique de sécurité : la règle de « {tool} » est sur Demander, et seule la page MCP peut demander votre accord. L'outil n'a pas été exécuté."
+    policy_ask_timeout: "Refusé faute de réponse : personne n'a autorisé l'appel de « {tool} » à temps. L'outil n'a pas été exécuté."
+    policy_ask_cancelled: "Annulé : l'échange s'est arrêté avant votre décision sur « {tool} ». L'outil n'a pas été exécuté."
     # Lot 4 of 2026-10-04 (AD-27): the deduced arrow Hôte → Client of a connection.
     launch:
       stdio: "lance le serveur : {command}"

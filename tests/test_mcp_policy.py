@@ -25,13 +25,13 @@ def test_an_unlisted_tool_defaults_to_low_allow():
     )
 
 
-def test_set_rule_overrides_then_back_to_default_forgets_it():
+def test_set_rule_overrides_then_back_to_default_is_still_reported():
     policy = ToolPolicy()
     policy.set_rule("local__define_term", "deny")
     assert policy.rule_of("local__define_term") == "deny"
-    policy.set_rule("local__define_term", "allow")  # the default: no override kept
+    policy.set_rule("local__define_term", "allow")  # the default, still told to a reloaded page
     assert policy.rule_of("local__define_term") == "allow"
-    assert policy._overrides == {}
+    assert policy.rules() == {"local__define_term": "allow"}
 
 
 def test_set_rule_refuses_an_unknown_value():

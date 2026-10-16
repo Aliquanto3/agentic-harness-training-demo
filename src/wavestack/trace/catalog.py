@@ -1600,7 +1600,7 @@ class McpLabAuthorizationResolvedPayload(BaseModel):
     server: str
     tool: str
     request_id: str
-    decision: Literal["allow_once", "deny", "cancelled"]
+    decision: Literal["allow_once", "deny", "cancelled", "timeout"]
 
 
 # Maps each kind to its payload model, so `Envelope` can validate it.

@@ -112,7 +112,7 @@ class McpModeIntention(BaseModel):
 class McpToolRuleIntention(BaseModel):
     """CAP-2: the rule of an MCP tool (exposed name `{server}__{tool}`)."""
 
-    tool: str
+    tool: str = Field(pattern=r"^[A-Za-z0-9_-]+__[A-Za-z0-9_.-]+$", max_length=128)
     rule: str
 
 

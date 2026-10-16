@@ -96,4 +96,12 @@ context:
 
 ## Revue
 
-(pas encore de relecture)
+Relecture Opus (2026-10-16), sur af975ac, avec la liste du second avis.
+
+- HIGH, second avis 1 — corrigé : la conversation (brique MCP, `_mcp_spec.run` via `ToolExecutor`) exécutait un outil réglé sur Refuser, sans journal. `_mcp_conversation_policy` applique la règle à chaque appel de la conversation et journalise ; `ask` y refuse (aucun « Autoriser une fois » hors de la page MCP, `policy_ask_outside_lab`). Tests `test_the_conversation_enforces_the_rule_too[deny|ask]`, `test_the_conversation_journals_an_allowed_call`.
+- MEDIUM, second avis 3 — corrigé : « Demander » sans réponse (onglet fermé) bloquait l'échange ; délai `MCP_ASK_TIMEOUT_S` = 120 s, puis refus journalisé (`policy_ask_timeout`, décision `timeout` dans `mcp_lab_authorization_resolved`). Test `test_ask_unanswered_is_refused_after_the_delay`.
+- MEDIUM, second avis 2 — corrigé : risque en pastille colorée (`.mcp-risk-chip`, status-chip low/mid/high) et segment choisi du sélecteur de règle en vert/jaune/rouge (`.mcp-rule-switch`), jetons existants seulement.
+- MEDIUM, second avis 4 — corrigé en partie : la demande d'autorisation est dite une fois dans la région polie existante (`#mcp-status`, `role="status"`). Écarté : `aria-pressed` ; le sélecteur réutilise `segmented()`, `radiogroup`/`aria-checked`, comme les autres sélecteurs de la page MCP (mode, vue) — sémantique correcte pour un choix exclusif, cohérence gardée.
+- MEDIUM, revue — corrigé : après un rechargement, le sélecteur relisait la règle figée à la connexion (`last_session`) et pouvait montrer Autoriser alors que la règle était Refuser. `GET /api/mcp_lab` expose `tool_rules` (règles posées depuis l'interface, conservées même revenues au défaut).
+- LOW, second avis 5 — corrigé : « ask » annulé journalisé (`cancelled`) ; nom d'outil validé à l'entrée HTTP (motif `{server}__{tool}`, 128 caractères au plus) ; `pendingAuthorization` suit une Map tenue à l'ajout (plus de parcours des envelopes à chaque rendu) ; journal en `deque(maxlen=500)` (éviction O(1)). `denied_count` reste un parcours de 500 entrées au plus, à la lecture seulement : gardé.
+- Reporté : E2E `mcp_lab_page`, `mcp_lab` (consigne : pas d'E2E dans cette revue) ; vérifier à l'écran la pastille, les couleurs du sélecteur (thèmes clair et sombre) et l'annonce de la demande au lecteur d'écran.
