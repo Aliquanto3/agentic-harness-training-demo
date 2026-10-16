@@ -1,0 +1,49 @@
+- id: "1"
+  title: Installeurs en une commande (install.bat, install.ps1, install.sh)
+  description: >-
+    CAP-1 et CAP-2 : installer uv, le projet et Qwen sans droits admin, puis lancer l'appli ;
+    idempotent, respect du proxy, dossier Documents\WaveStack hors clone.
+  invoke_dev_with: >-
+    Lane A, première story. Fichiers : install.bat, install.ps1, install.sh à la racine, plus
+    un test pytest léger (par exemple, la même URL Qwen que le README et un mode à blanc s'il
+    est simple). install.bat appelle install.ps1 avec powershell -NoProfile -ExecutionPolicy Bypass.
+    Le dossier Documents s'obtient par [Environment]::GetFolderPath('MyDocuments'), car il peut
+    être redirigé par OneDrive. L'environnement virtuel, les caches et les modèles restent sous
+    %LOCALAPPDATA%\WaveStack (UV_PROJECT_ENVIRONMENT ou équivalent). Prévoir un moyen simple de
+    relancer l'appli ensuite. Ne pas toucher au README ni à docs/ (story 2).
+- id: "2"
+  title: README et docs d'installation orientés testeur
+  description: >-
+    CAP-3 : l'installeur en premier, chaque bloc manuel en « dans PowerShell (pas CMD) », et la
+    doc qui décrit aussi le démarrage sans scan et le bouton « Ajouter d'autres modèles » (CAP-4).
+  invoke_dev_with: >-
+    Lane A, après la story 1. Fichiers : README.md, docs/installation.md (et docs/modeles.md si
+    besoin), plus les surcouches i18n si ces docs en ont. README de 100 lignes au plus,
+    tests/test_docs_links.py vert. Pour CAP-4, s'appuyer sur SPEC.md, pas sur le code de la lane B.
+- id: "3"
+  title: Agrandir le panneau Séquence
+  description: >-
+    CAP-6 : un bouton agrandit la Séquence à la quasi-totalité de la fenêtre sur les pages MCP
+    et RAG ; Échap ou le même bouton le referme.
+  invoke_dev_with: >-
+    Lane A, après la story 2. Fichiers : web/static/mcp.*, rag.*, et une feuille de style
+    partagée si le panneau en a une ; ne pas toucher à app.js (lane B). Libellés en fr, en et de.
+    Bouton accessible au clavier (aria-pressed). E2E : s_mcp_lab_page, plus un scénario RAG si
+    le coût est faible.
+- id: "4"
+  title: Démarrage sans scan du disque et bouton « Ajouter d'autres modèles »
+  description: >-
+    CAP-4 : au démarrage, discover() ne lit que models_dir, les chemins explicites et Ollama ;
+    la recherche dans le cache HF et LM Studio ne se fait qu'à la demande.
+  invoke_dev_with: >-
+    Lane B, première story. Fichiers : models/discovery.py, l'API qui l'expose, app.js pour le
+    bouton, tests/test_discovery.py. Vérifier les appelants de discover() (dont
+    session/diagnostic.py:439). Ne pas toucher à docs/ (story 2). E2E : s_model_catalog.
+- id: "5"
+  title: Menu des modèles 🏠 local / ☁️ cloud
+  description: >-
+    CAP-5 : emoji d'hébergement sur chaque option et fonds distincts pour les deux groupes du
+    menu de l'atelier, contrastés en thème clair et sombre.
+  invoke_dev_with: >-
+    Lane B, après la story 4 (même fichier app.js). S'appuyer sur hosting/kind, déjà présents
+    (app.js rebuildModelPicker). E2E : s_model_switch, s_model_catalog.
