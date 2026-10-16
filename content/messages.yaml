@@ -562,6 +562,11 @@ session:
     interrupted: L'atelier MCP s'est interrompu sur une erreur.
     # CAP-2 : la règle de l'outil (mcp-tools.md), ou votre décision après un « Demander ».
     policy_denied: "Refusé par la politique de sécurité : la règle de « {tool} » est sur Refuser. L'outil n'a pas été exécuté."
+    # Story 10 (CAP-9, mcp-tools.md « trois niveaux de refus GitHub ») : le même refus, pour
+    # un outil GitHub, dit explicitement ce qui n'est pas parti vers GitHub (ux/EXPERIENCE.md
+    # > Voice and Tone), lu déplié dans le journal (flux 1, étape 7).
+    policy_denied_github: "Refusé par la politique de sécurité : la règle de « {tool} » est sur Refuser. Envoyé à GitHub : non."
+    github_refused: "Refusé par GitHub ({status}) : le compte connecté n'a pas le droit d'appeler « {tool} ». Envoyé à GitHub : oui ; WaveStack l'avait autorisé."
     policy_allowed: "Autorisé par la politique de sécurité (règle de « {tool} »)."
     policy_denied_by_user: "Refusé par vous : vous avez refusé l'appel de « {tool} ». L'outil n'a pas été exécuté."
     policy_allowed_once: "Autorisé une fois par vous : vous avez autorisé l'appel de « {tool} »."
@@ -1637,3 +1642,123 @@ net:
   host_refused: "Hôte réseau non autorisé : {host}"
   address_refused: "Adresse réseau non autorisée : {host}"
   loopback_refused: "Hôte hors boucle locale refusé : {host}"
+
+# Story 10 (CAP-3, CAP-8, CAP-9): la page Sécurité (`AppSession.security_state`) et le
+# journal (`_security_label_text`, repris par la barre, story 9).
+security:
+  # Le nom technique du journal, en libellé RSSI (`guardrails.pii`, `local__create_path`).
+  guardrail_name: "Garde-fou {guardrail}"
+  tools:
+    local__list_terms: Glossaire
+    local__define_term: Glossaire
+    local__system_info: RAM et système
+    local__create_path: Créer fichier ou dossier
+    local__take_screenshot: Capture d'écran
+    datagouv__search_datasets: data.gouv.fr
+    mslearn__microsoft_docs_search: Microsoft Learn
+    github__list_secret_scanning_alerts: "GitHub : alertes de sécurité exposées"
+    github__list_dependabot_alerts: "GitHub : alertes Dependabot"
+    github__get_file_contents: "GitHub : contenu d'un fichier"
+    github__list_issues: "GitHub : tickets"
+    github__merge_pull_request: "GitHub : fusion de PR"
+    github__create_pull_request: "GitHub : création de PR"
+  # Les 7 lignes de la matrice des risques (`mcp-tools.md`), une par catégorie.
+  matrix:
+    glossary:
+      label: Glossaire
+      nature: lecture
+    system:
+      label: RAM et système
+      nature: lecture
+    create_path:
+      label: Créer fichier ou dossier
+      nature: "écriture, bac à sable"
+    screenshot:
+      label: "Capture d'écran"
+      nature: "lecture sensible"
+    network:
+      label: "data.gouv.fr, Microsoft Learn"
+      nature: "lecture, réseau"
+    github_read:
+      label: "GitHub : alertes, fichiers, tickets"
+      nature: "lecture, OAuth"
+    github_write:
+      label: "GitHub : fusion et création de PR"
+      nature: "écriture, OAuth"
+  # Les 4 cartes-questions de la page Sécurité (CAP-9), calculées sur la politique et le
+  # journal de la séance, jamais des chiffres figés.
+  questions:
+    can_write_detail: "{rules} ; toute autre écriture GitHub est refusée par défaut."
+    write_allow:
+      one: "{count} autorisé"
+      other: "{count} autorisés"
+    write_ask:
+      one: "{count} sur demande"
+      other: "{count} sur demande"
+    write_deny:
+      one: "{count} refusé"
+      other: "{count} refusés"
+    authorized_by_you:
+      one: "{count} autorisation donnée par vous, une fois"
+      other: "{count} autorisations données par vous, une fois chacune"
+    tool_denied:
+      one: "{count} appel d'outil refusé"
+      other: "{count} appels d'outil refusés"
+    guardrail_blocked:
+      one: "{count} message bloqué"
+      other: "{count} messages bloqués"
+    nothing_blocked: "Aucun refus ni blocage pour l'instant."
+    not_covered:
+      one: "{count} limite connue, en bas de page"
+      other: "{count} limites connues, en bas de page"
+  # Les 12 lignes de « Ce que le harnais ne protège pas » (limites-harnais.md), à dire au
+  # client ; chaque id dans l'ordre de `AppSession._LIMIT_IDS`.
+  limits:
+    guardrails_wrong:
+      statement: "Les garde-fous se trompent."
+      reason: "Ce sont des classifieurs : faux positifs et faux négatifs. Ils sont plus faibles hors de l'anglais (Llama Guard : 38 % de violations évitées en français contre 75 % en anglais, selon Meta)."
+      production: "Plusieurs couches, des seuils calibrés sur ses propres données, une revue humaine des cas limites."
+    guardrails_scope:
+      statement: "Les garde-fous ne voient que la conversation principale."
+      reason: "Ils contrôlent le message envoyé et la réponse finale. Les résultats d'outils, le raisonnement, les étapes intermédiaires, le sous-agent et les ateliers (LLM nu, RAG, MCP) ne passent pas par eux. Un très long message n'est analysé qu'en partie par la toxicité et par l'injection (Prompt Guard 2 : les 512 premiers tokens seulement ; le verdict le dit)."
+      production: "Un contrôle sur chaque entrée et chaque sortie du modèle, sous-agents et outils compris."
+    injection_indirect:
+      statement: "L'injection indirecte passe si le détecteur est absent."
+      reason: "Un document du RAG ou un résultat d'outil peut contenir des consignes. Sans Prompt Guard (optionnel), rien ne les détecte."
+      production: "Détection sur tout contenu entrant, pas seulement sur le message de l'utilisateur."
+    tool_name_only:
+      statement: "L'autorisation porte sur le nom de l'outil, pas sur ce qu'il fait."
+      reason: "Un serveur MCP peut décrire un outil de façon trompeuse ou changer son comportement côté serveur."
+      production: "Serveurs MCP approuvés et épinglés, revue de leurs descriptions, journal côté serveur."
+    github_token_scope:
+      statement: "Le jeton GitHub donne tous les droits accordés."
+      reason: "Les droits d'une OAuth App sont larges ; WaveStack filtre les outils, mais le jeton reste valable 8 h pour tout ce qu'il couvre, et son renouvellement 6 mois."
+      production: "GitHub App à permissions fines, jetons courts, révocation centralisée."
+    github_token_storage:
+      statement: "Le jeton GitHub est stocké en clair sur le poste."
+      reason: "Il est écrit dans le profil utilisateur (`github_token.json`, dossier de données de WaveStack), protégé seulement par les droits du compte Windows : tout programme lancé sous ce compte peut le lire."
+      production: "Coffre de secrets du système (DPAPI, Gestionnaire d'identification Windows) ou jeton gardé en mémoire seulement."
+    sandbox_not_isolated:
+      statement: "Le bac à sable n'isole pas le processus."
+      reason: "C'est un contrôle de chemin dans l'application, pas un conteneur ni un compte système dédié."
+      production: "Exécution des outils dans un conteneur ou une VM, sous un compte sans privilège."
+    screenshot_whole_screen:
+      statement: "La capture d'écran voit tout l'écran."
+      reason: "Les autres fenêtres ouvertes y figurent. Elle reste sur le poste, mais elle existe."
+      production: "Interdire l'outil, ou le limiter à une fenêtre précise."
+    journal_not_audit:
+      statement: "Le journal n'a pas de valeur d'audit."
+      reason: "Il est local, non signé, et modifiable par l'utilisateur du poste."
+      production: "Envoi vers un SIEM, horodatage et intégrité garantis."
+    cloud_provider:
+      statement: "Le harnais ne contrôle pas ce que fait le fournisseur cloud."
+      reason: "Les messages envoyés à un modèle cloud sont soumis à ses conditions de conservation et d'usage. Presidio détecte des données personnelles, il ne garantit pas leur absence."
+      production: "Contrat et région d'hébergement maîtrisés, ou modèle local pour les données sensibles."
+    no_authentication:
+      statement: "L'appli n'a pas d'authentification."
+      reason: "Elle écoute seulement sur la machine (127.0.0.1) : quiconque utilise le poste y a accès."
+      production: "Authentification et cloisonnement par utilisateur, hors du périmètre de la démo."
+    costs_estimated:
+      statement: "Les coûts sont des estimations."
+      reason: "Prix déclarés dans la configuration ; « ≈ » quand l'usage n'est pas mesuré par le fournisseur."
+      production: "Rapprochement avec la facture du fournisseur."

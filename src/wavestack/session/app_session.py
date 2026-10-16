@@ -353,6 +353,23 @@ _RESOURCE_SLOT = re.compile(r"\{(uri|content|question)\}")
 RAG_LAB_CATALOG_TTL_S = 5.0  # story 30: the validation's catalog, read again after this
 _RAG_LAB_FR = Message("session.state.rag_lab")
 _MCP_LAB_FR = Message("session.state.mcp_lab")  # story 6 of 2026-09-30
+# Story 10 (CAP-9, the page Sécurité's « Ce que le harnais ne protège pas »): one id per
+# row of `limites-harnais.md`, the order the page shows them in; the texts, per id, are
+# content (`security.limits.*`, messages.yaml), never duplicated here.
+_LIMIT_IDS = (
+    "guardrails_wrong",
+    "guardrails_scope",
+    "injection_indirect",
+    "tool_name_only",
+    "github_token_scope",
+    "github_token_storage",
+    "sandbox_not_isolated",
+    "screenshot_whole_screen",
+    "journal_not_audit",
+    "cloud_provider",
+    "no_authentication",
+    "costs_estimated",
+)
 # Story 6 of 2026-09-30: past the connection's own delay, what its closing may take.
 MCP_LAB_CLOSE_WAIT_S = CLOSE_TIMEOUT_S + 1
 # V1 finishing (#5, 2026-10-04): past the connection's own delay, what applying its outcome on
@@ -6186,6 +6203,17 @@ class AppSession:
             required=tuple(schema.get("required") or ()),
         )
 
+    @staticmethod
+    def _policy_denied_key(name: str) -> str:
+        """Story 10 (CAP-9, mcp-tools.md): a GitHub tool's refusal names GitHub explicitly
+        (« Envoyé à GitHub : non », ux/EXPERIENCE.md > Voice and Tone), read deplied in the
+        journal (flux 1, étape 7)."""
+        return (
+            "session.mcp_lab.policy_denied_github"
+            if name.startswith("github__")
+            else "session.mcp_lab.policy_denied"
+        )
+
     def _mcp_conversation_policy(self, name: str) -> None:
         """CAP-2, CAP-3: the rule of an MCP tool the conversation's model calls, journalled.
         `ask` has no « Autoriser une fois » outside the workshop, so it refuses there.
@@ -6194,7 +6222,7 @@ class AppSession:
         key = {
             "allow": "session.mcp_lab.policy_allowed",
             "ask": "session.mcp_lab.policy_ask_outside_lab",
-            "deny": "session.mcp_lab.policy_denied",
+            "deny": self._policy_denied_key(name),
         }[rule]
         decision = "allow" if rule == "allow" else "deny"
         self._emit_security(
@@ -10823,19 +10851,33 @@ class AppSession:
             "model": self.active_model() if ready else None,
         }
 
+    def _security_label_text(self, source: str, name: str) -> str:
+        """Story 10 (CAP-3, CAP-9): the journal's technical name in an RSSI-readable label
+        (`guardrails.pii` -> « Garde-fou données personnelles », `local__create_path` -> «
+        Créer fichier ou dossier »), reused by the bar's preview (story 9's report: a raw
+        technical name there) and the page Sécurité's full journal. A tool this table does
+        not name (an unmapped GitHub write) keeps its raw name rather than fail."""
+        if source == "guardrail":
+            gid = name.removeprefix("guardrails.")
+            return self._t("security.guardrail_name", guardrail=self._t(f"guardrails.labels.{gid}"))
+        key = f"security.tools.{name}"
+        return self._t(key) if key in load_messages(self._language) else name
+
+    def _journal_entry_dict(self, e: JournalEntry) -> dict[str, Any]:
+        return {
+            "ts": e.ts.isoformat(timespec="seconds"),
+            "source": e.source,
+            "name": e.name,
+            "label_text": self._security_label_text(e.source, e.name),
+            "decision": e.decision,
+            "reason_text": e.reason_text,
+            "n": e.n,
+        }
+
     def security_journal_entries(self) -> list[dict[str, Any]]:
         """CAP-3, `GET /api/security_journal`: the whole journal, oldest first; read only.
         Story 9 (barre, « Journal ») and story 10 (page Sécurité) build their screens on it."""
-        return [
-            {
-                "ts": e.ts.isoformat(timespec="seconds"),
-                "source": e.source,
-                "name": e.name,
-                "decision": e.decision,
-                "reason_text": e.reason_text,
-            }
-            for e in self._security_journal.entries()
-        ]
+        return [self._journal_entry_dict(e) for e in self._security_journal.entries()]
 
     def security_journal_denied_count(self) -> int:
         return self._security_journal.denied_count()
@@ -10847,14 +10889,10 @@ class AppSession:
         live `denied_count`, O(1) besides it)."""
         self._journal().emit(
             "security_event",
-            {
-                "ts": entry.ts.isoformat(timespec="seconds"),
-                "source": entry.source,
-                "name": entry.name,
-                "decision": entry.decision,
-                "reason_text": entry.reason_text,
-                "denied_count": self._security_journal.denied_count(),
-            },
+            # Story 10: the session's counters and the two cards they move (O(1)).
+            (counts := self._security_journal.counts())
+            | {"questions": self._security_movable_questions(counts)}
+            | self._journal_entry_dict(entry),
         )
 
     def security_journal_preview(self) -> dict[str, Any]:
@@ -10863,21 +10901,132 @@ class AppSession:
         a growing walk)."""
         return {
             "denied_count": self._security_journal.denied_count(),
-            "entries": [
-                {
-                    "ts": e.ts.isoformat(timespec="seconds"),
-                    "source": e.source,
-                    "name": e.name,
-                    "decision": e.decision,
-                    "reason_text": e.reason_text,
-                }
-                for e in self._security_journal.recent(5)
-            ],
+            "entries": [self._journal_entry_dict(e) for e in self._security_journal.recent(5)],
         }
 
     def security_journal_csv(self) -> str:
         """CAP-3: the journal as a downloadable CSV, never a secret (nothing recorded is)."""
         return self._security_journal.to_csv()
+
+    # ---------- story 10 (CAP-3, CAP-8, CAP-9): the page Sécurité ----------
+
+    def security_state(self) -> dict[str, Any]:
+        """`GET /api/security` (CAP-9): the 4 question cards, the risk matrix, the active
+        controls and the limits count, each read from the policy, the guardrails and the
+        session's journal — never a duplicated figure. The journal itself and its CSV stay
+        on their own routes (CAP-3, already there since story 1). `counts` are the session's
+        (O(1), past the 500-entry window), which a live `security_event` carries too."""
+        counts = self._security_journal.counts()
+        rows = self._mcp_policy.matrix()
+        matrix = [
+            {
+                "id": row["id"],
+                "label_text": self._t(f"security.matrix.{row['id']}.label"),
+                "nature_text": self._t(f"security.matrix.{row['id']}.nature"),
+                "risk": row["risk"],
+                "rule": row["rule"],
+                "write": row["write"],
+            }
+            for row in rows
+        ]
+        # The write tools themselves (named, or set from the MCP page), each on its own rule.
+        write_rules = [rule for row in rows if row["write"] for rule in row["rules"].values()]
+        by_rule = join(
+            [
+                self._t(f"security.questions.write_{rule}", count=write_rules.count(rule))
+                for rule in RULES
+                if rule in write_rules
+            ],
+            self._language,
+        )
+        limits = [self._limit_dict(limit_id) for limit_id in _LIMIT_IDS]
+        return {
+            "counts": counts,
+            "questions": {
+                "can_write": {
+                    "count": len(write_rules),
+                    "detail_text": self._t("security.questions.can_write_detail", rules=by_rule),
+                },
+                **self._security_movable_questions(counts),
+                "not_covered": {
+                    "count": len(limits),
+                    "detail_text": self._t("security.questions.not_covered", count=len(limits)),
+                },
+            },
+            "risk_matrix": matrix,
+            "controls": self._security_controls(rows),
+            "limits": limits,
+        }
+
+    def _security_movable_questions(self, counts: dict[str, int]) -> dict[str, Any]:
+        """The two cards a journal entry moves (« qui a autorisé », « bloqué »), from the
+        session's counters: `GET /api/security` and every `security_event` carry them."""
+        tool_denied, guardrail_blocked = (
+            counts["tool_denied_count"],
+            counts["guardrail_blocked_count"],
+        )
+        allow_once = counts["allow_once_count"]
+        return {
+            "authorized_by_you": {
+                "count": allow_once,
+                "detail_text": self._t("security.questions.authorized_by_you", count=allow_once),
+            },
+            "blocked": {
+                "count": tool_denied + guardrail_blocked,
+                "detail_text": ", ".join(
+                    filter(
+                        None,
+                        [
+                            self._t("security.questions.tool_denied", count=tool_denied)
+                            if tool_denied
+                            else None,
+                            self._t("security.questions.guardrail_blocked", count=guardrail_blocked)
+                            if guardrail_blocked
+                            else None,
+                        ],
+                    )
+                )
+                or self._t("security.questions.nothing_blocked"),
+            },
+        }
+
+    def _security_controls(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """CAP-9's « Contrôles actifs »: autorisations (every local tool's rule), the 3
+        guardrails (`_guardrails_card`, story 5), the hooks (`_hook_options`, story 8), the
+        network allowlist (`cfg.allowed_hosts`) and the GitHub connection — each read from
+        its own existing source, nothing duplicated."""
+        local_rules = [
+            rule
+            for row in rows
+            for tool, rule in row["rules"].items()
+            if tool.startswith("local__")
+        ]
+        ask_count, deny_count = local_rules.count("ask"), local_rules.count("deny")
+        github = self._github_state()
+        return {
+            "tool_rules": {
+                "count": len(local_rules),
+                "ask_count": ask_count,
+                "deny_count": deny_count,
+            },
+            "guardrails": self._guardrails_card(),
+            "hooks": self._hook_options(),
+            "network_whitelist": list(self.cfg.allowed_hosts),
+            "github": {
+                "status": github.get("status"),
+                "expires_in_s": github.get("expires_in_s"),
+                "scope": github_auth.SCOPE,
+                "server": github_auth.MCP_URL,
+            },
+        }
+
+    def _limit_dict(self, limit_id: str) -> dict[str, str]:
+        return {
+            "id": limit_id,
+            "statement_text": self._t(f"security.limits.{limit_id}.statement"),
+            "reason_text": self._t(f"security.limits.{limit_id}.reason"),
+            "production_text": self._t(f"security.limits.{limit_id}.production"),
+        }
 
     def mcp_lab_state(self) -> dict[str, Any]:
         """`GET /api/mcp_lab` (AD-1, AD-27): what the page needs before the stream, from
@@ -11516,7 +11665,7 @@ class AppSession:
             )
         else:
             reason = self._t(
-                "session.mcp_lab.policy_denied"
+                self._policy_denied_key(name)
                 if rule == "deny"
                 else "session.mcp_lab.policy_allowed",
                 tool=name,
@@ -11542,11 +11691,16 @@ class AppSession:
             }
             self._mcp_lab_after(conn, payload, cancel)
             return payload
+        mark = get_journal().last_seq()
         try:
             result = conn.call_result(tool, arguments)
         except Exception as exc:  # noqa: BLE001 - AD-16: said in the Séquence
             payload |= self._mcp_lab_failure(exc, cancel, self.cfg.mcp_call_timeout_s)
             payload["raw"] = conn.capture.received("tools/call", step_id)
+            if server_id == "github" and (status := self._refused_status(mark, step_id)):
+                # mcp-tools.md's third refusal level: GitHub's own 401/403, the call left.
+                reason = self._t("session.mcp_lab.github_refused", tool=name, status=status)
+                self._emit_security(self._security_journal.record("mcp_tool", name, "deny", reason))
         else:
             payload["raw"] = conn.capture.received("tools/call", step_id)
             text = result_text(result, self._language)
@@ -11568,6 +11722,19 @@ class AppSession:
             }
         self._mcp_lab_after(conn, payload, cancel)
         return payload
+
+    @staticmethod
+    def _refused_status(mark: int, step_id: str) -> int | None:
+        """Story 10: a 401/403 answered to this step's request, read on the network
+        factory's `outbound_response` (the MCP client keeps only a generic JSON-RPC error)."""
+        for e in get_journal().events_since(mark):
+            if (
+                e.kind == "outbound_response"
+                and e.step_id == step_id
+                and e.payload.get("status") in (401, 403)
+            ):
+                return e.payload["status"]
+        return None
 
     def _mcp_lab_read_resource(
         self, step_id: str, conn: mcp_lab.LabConnection, uri: str, cancel: CancelToken

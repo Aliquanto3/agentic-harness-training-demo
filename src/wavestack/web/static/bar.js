@@ -41,6 +41,7 @@ export function feedBar(envelope) {
         ts: payload.ts,
         source: payload.source,
         name: payload.name,
+        label_text: payload.label_text,
         decision: payload.decision,
         reason_text: payload.reason_text,
       },
@@ -275,7 +276,7 @@ function logRow(entry) {
   chevron.textContent = "▸";
   const name = document.createElement("span");
   name.className = "disclosure-row-label";
-  name.textContent = entry.name;
+  name.textContent = entry.label_text ?? entry.name; // story 10: the readable label
   const chip = document.createElement("span");
   chip.className = `status-chip status-chip-${LEVEL_OF[entry.decision] ?? "mid"}`;
   const key = `common.bar.log.decisions.${entry.decision}`;

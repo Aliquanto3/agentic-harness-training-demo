@@ -53,7 +53,7 @@ def test_diagnostic_route_still_works(monkeypatch, tmp_path):
 
 # Story 2 (2026-09-30): the bar shared by the five pages, in a fixed order.
 # Lot 3 of 2026-10-04: /models redirects to « Diagnostic et modèles ».
-SITE_PAGES = ("/", "/llm", "/rag", "/mcp", "/diagnostic")  # story 6: /mcp
+SITE_PAGES = ("/", "/llm", "/rag", "/mcp", "/security", "/diagnostic")  # story 10: /security
 BAR_PAGES = SITE_PAGES
 
 

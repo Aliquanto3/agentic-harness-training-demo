@@ -81,6 +81,8 @@ common:
     rag_title: "Atelier RAG : l'architecture RAG à manipuler (découpage, embedding, base vectorielle, recherche, reranking)"
     mcp: "MCP"
     mcp_title: "Atelier MCP : le protocole MCP à manipuler (poignée de main JSON-RPC, documentation des outils, appel)"
+    security: "Sécurité"
+    security_title: "Sécurité : matrice des risques, contrôles actifs, journal complet et limites du harnais"
   display:
     menu: "Affichage"
     theme: "Thème"
@@ -1551,3 +1553,59 @@ models:
     name: "Nom"
     window: "Fenêtre"
     state: "État"
+
+# Story 10 (CAP-3, CAP-8, CAP-9) : la page Sécurité (security.html, security.js).
+security:
+  page_title: "WaveStack — Sécurité du harnais"
+  title: "Sécurité du harnais"
+  subtitle: "Ce que le harnais contrôle, refuse et journalise pendant cette séance. Les réglages se font là où ils agissent."
+  questions:
+    can_write: "Quels outils peuvent écrire ?"
+    authorized_by_you: "Qui a autorisé quoi ?"
+    blocked: "Qu'est-ce qui a été bloqué ?"
+    not_covered: "Qu'est-ce qui n'est pas couvert ?"
+  matrix:
+    title: "Matrice des risques"
+    subtitle: "Règle appliquée à chaque appel d'outil."
+    settle_link: "Régler dans MCP"
+    column_tool: "Outil"
+    column_nature: "Nature"
+    column_risk: "Risque"
+    rule_mixed: "Mixte (selon l'outil)"
+    column_rule: "Règle"
+  controls:
+    title: "Contrôles actifs"
+    subtitle: "Dépliez pour voir le réglage exact."
+    tool_rules: "Autorisations des outils"
+    guardrails: "Garde-fous"
+    hooks: "Hooks"
+    network_whitelist: "Liste blanche réseau"
+    github: "Connexion GitHub"
+    ask_count:
+      one: "{count} sur demande"
+      other: "{count} sur demande"
+    deny_count:
+      one: "{count} refusé"
+      other: "{count} refusés"
+    domain_count:
+      one: "{count} domaine"
+      other: "{count} domaines"
+    github_states:
+      waiting: "en attente du code"
+      connected: "connecté en lecture"
+      expired: "expiré"
+      error: "erreur réseau"
+      disconnected: "non connecté"
+    github_expires: "expire dans {time}"
+    github_scope_label: "Droits"
+    github_server_label: "Serveur"
+  journal:
+    title: "Journal de sécurité"
+    subtitle: "Tous les événements de la séance, le plus récent en haut. Aucun secret n'y figure."
+    download: "Télécharger (CSV)"
+    empty: "Aucun événement pour l'instant."
+  limits:
+    title: "Ce que le harnais ne protège pas"
+    subtitle: "À dire au client. Dépliez pour la raison et ce qu'il faudrait en production."
+    reason_label: "Pourquoi"
+    production_label: "En production"

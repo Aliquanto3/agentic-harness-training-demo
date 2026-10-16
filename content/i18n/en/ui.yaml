@@ -72,6 +72,8 @@ common:
     rag_title: "RAG workshop: the RAG architecture to handle (chunking, embedding, vector database, search, reranking)"
     mcp: "MCP"
     mcp_title: "MCP workshop: the MCP protocol to handle (JSON-RPC handshake, tool documentation, call)"
+    security: "Security"
+    security_title: "Security: risk matrix, active controls, full journal and the harness's limits"
   display:
     menu: "Display"
     theme: "Theme"
@@ -1531,3 +1533,58 @@ models:
     name: "Name"
     window: "Window"
     state: "State"
+
+security:
+  page_title: "WaveStack — Harness security"
+  title: "Harness security"
+  subtitle: "What the harness controls, refuses and logs during this session. Settings live where they act."
+  questions:
+    can_write: "Which tools can write?"
+    authorized_by_you: "Who authorized what?"
+    blocked: "What got blocked?"
+    not_covered: "What is not covered?"
+  matrix:
+    title: "Risk matrix"
+    subtitle: "The rule applied to every tool call."
+    settle_link: "Settle it in MCP"
+    column_tool: "Tool"
+    column_nature: "Nature"
+    column_risk: "Risk"
+    rule_mixed: "Mixed (per tool)"
+    column_rule: "Rule"
+  controls:
+    title: "Active controls"
+    subtitle: "Unfold to see the exact setting."
+    tool_rules: "Tool authorizations"
+    guardrails: "Guardrails"
+    hooks: "Hooks"
+    network_whitelist: "Network allowlist"
+    github: "GitHub connection"
+    ask_count:
+      one: "{count} on request"
+      other: "{count} on request"
+    deny_count:
+      one: "{count} refused"
+      other: "{count} refused"
+    domain_count:
+      one: "{count} domain"
+      other: "{count} domains"
+    github_states:
+      waiting: "waiting for the code"
+      connected: "connected, read-only"
+      expired: "expired"
+      error: "network error"
+      disconnected: "not connected"
+    github_expires: "expires in {time}"
+    github_scope_label: "Rights"
+    github_server_label: "Server"
+  journal:
+    title: "Security journal"
+    subtitle: "Every event of the session, most recent first. No secret ever appears in it."
+    download: "Download (CSV)"
+    empty: "No event yet."
+  limits:
+    title: "What the harness does not protect"
+    subtitle: "To tell the client. Unfold for the reason and what production would need."
+    reason_label: "Why"
+    production_label: "In production"

@@ -72,6 +72,8 @@ common:
     rag_title: "RAG-Werkstatt: die RAG-Architektur zum Ausprobieren (Chunking, Embedding, Vektordatenbank, Suche, Reranking)"
     mcp: "MCP"
     mcp_title: "MCP-Werkstatt: das MCP-Protokoll zum Ausprobieren (JSON-RPC-Handshake, Dokumentation der Tools, Aufruf)"
+    security: "Sicherheit"
+    security_title: "Sicherheit: Risikomatrix, aktive Kontrollen, vollständiges Protokoll und die Grenzen des Harness"
   display:
     menu: "Anzeige"
     theme: "Farbschema"
@@ -1531,3 +1533,58 @@ models:
     name: "Name"
     window: "Fenster"
     state: "Status"
+
+security:
+  page_title: "WaveStack — Sicherheit des Harness"
+  title: "Sicherheit des Harness"
+  subtitle: "Was der Harness während dieser Sitzung kontrolliert, ablehnt und protokolliert. Die Einstellungen liegen dort, wo sie wirken."
+  questions:
+    can_write: "Welche Werkzeuge können schreiben?"
+    authorized_by_you: "Wer hat was autorisiert?"
+    blocked: "Was wurde blockiert?"
+    not_covered: "Was ist nicht abgedeckt?"
+  matrix:
+    title: "Risikomatrix"
+    subtitle: "Die bei jedem Werkzeugaufruf angewendete Regel."
+    settle_link: "In MCP einstellen"
+    column_tool: "Werkzeug"
+    column_nature: "Art"
+    column_risk: "Risiko"
+    rule_mixed: "Gemischt (je nach Werkzeug)"
+    column_rule: "Regel"
+  controls:
+    title: "Aktive Kontrollen"
+    subtitle: "Zum Entfalten für die genaue Einstellung."
+    tool_rules: "Autorisierungen der Werkzeuge"
+    guardrails: "Garde-fous"
+    hooks: "Hooks"
+    network_whitelist: "Netzwerk-Positivliste"
+    github: "GitHub-Verbindung"
+    ask_count:
+      one: "{count} auf Anfrage"
+      other: "{count} auf Anfrage"
+    deny_count:
+      one: "{count} abgelehnt"
+      other: "{count} abgelehnt"
+    domain_count:
+      one: "{count} Domäne"
+      other: "{count} Domänen"
+    github_states:
+      waiting: "wartet auf den Code"
+      connected: "verbunden, nur Lesen"
+      expired: "abgelaufen"
+      error: "Netzwerkfehler"
+      disconnected: "nicht verbunden"
+    github_expires: "läuft ab in {time}"
+    github_scope_label: "Rechte"
+    github_server_label: "Server"
+  journal:
+    title: "Sicherheitsprotokoll"
+    subtitle: "Alle Ereignisse der Sitzung, die neuesten zuerst. Es enthält kein Geheimnis."
+    download: "Herunterladen (CSV)"
+    empty: "Noch kein Ereignis."
+  limits:
+    title: "Was der Harness nicht schützt"
+    subtitle: "Dem Kunden zu sagen. Zum Entfalten für den Grund und was in der Produktion nötig wäre."
+    reason_label: "Warum"
+    production_label: "In der Produktion"

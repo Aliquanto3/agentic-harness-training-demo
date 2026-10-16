@@ -15853,6 +15853,77 @@ def s_bar_panels(r: Run) -> None:
     r.goto_app()
 
 
+# A journal of the session as `/api/security_journal` would give it after flux 1's GitHub
+# merge refusal (ux/EXPERIENCE.md, étape 4) : the RSSI's row (étape 7), the fusion refused by
+# the WaveStack policy, explicit about what never reached GitHub.
+SECURITY_FAKE_JOURNAL = {
+    "entries": [
+        {
+            "ts": "2026-10-16T10:36:47+00:00",
+            "source": "mcp_tool",
+            "name": "github__list_secret_scanning_alerts",
+            "label_text": "GitHub : alertes de sécurité exposées",
+            "decision": "allow",
+            "reason_text": (
+                "Autorisé par la politique de sécurité "
+                "(règle de « github__list_secret_scanning_alerts »)."
+            ),
+        },
+        {
+            "ts": "2026-10-16T10:41:51+00:00",
+            "source": "mcp_tool",
+            "name": "github__merge_pull_request",
+            "label_text": "GitHub : fusion de PR",
+            "decision": "deny",
+            "reason_text": (
+                "Refusé par la politique de sécurité : la règle de « github__merge_pull_request » "
+                "est sur Refuser. Envoyé à GitHub : non."
+            ),
+        },
+    ],
+    "denied_count": 1,
+}
+
+
+def s_security_page(r: Run) -> None:
+    """Story 10 (CAP-3, CAP-8, CAP-9): the page Sécurité, flux 1's temps fort (ux/EXPERIENCE.md,
+    étapes 7-8) : the RSSI unfolds the fusion's refused row and reads « Envoyé à GitHub : non »,
+    then the journal downloads as CSV. The refusal is injected on the journal's own route (as
+    `bar_panels` did for `/api/state`), so the scenario needs neither a live model nor a GitHub
+    OAuth connection."""
+    page = r.page
+
+    def fake_journal(route) -> None:  # noqa: ANN001
+        route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(SECURITY_FAKE_JOURNAL)
+        )
+
+    page.route("**/api/security_journal", fake_journal)
+    try:
+        page.goto(f"{r.stack.app_url}/security")
+        row = page.locator(".sec-row", has_text="GitHub : fusion de PR")
+        expect(row).to_be_visible(timeout=10_000)
+        row.get_by_role("button").click()
+        body_text = row.inner_text()
+        r.check(
+            "Envoyé à GitHub : non" in body_text,
+            "Sécurité : la ligne dépliée de la fusion refusée dit « Envoyé à GitHub : non »",
+            body_text,
+        )
+    finally:
+        page.unroute("**/api/security_journal", fake_journal)
+
+    with page.expect_download() as download_info:
+        page.get_by_role("link", name="Télécharger (CSV)").click()
+    download = download_info.value
+    r.check(
+        download.suggested_filename.endswith(".csv"),
+        "Sécurité : le journal se télécharge en CSV",
+        download.suggested_filename,
+    )
+    r.goto_app()
+
+
 SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("diagnostic", s_diagnostic),
     ("programme", s_programme),
@@ -15911,6 +15982,7 @@ SCENARIOS: list[tuple[str, Callable[[Run], None]]] = [
     ("llm_loop", s_llm_loop),  # lot 6 of 2026-10-04: the model's loop in three stages
     ("relaunch", s_relaunch),
     ("bar_panels", s_bar_panels),  # story 9 (V1.1 vague 2): the barre commune's two flyouts
+    ("security_page", s_security_page),  # story 10 (V1.1 vague 2): la page Sécurité, flux 1
 ]
 
 
