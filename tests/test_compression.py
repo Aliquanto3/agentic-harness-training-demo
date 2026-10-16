@@ -165,6 +165,8 @@ def test_big_tool_result_is_compressed_once_before_the_next_call():
     assert item["tokens_before"] == len(ORIGINAL.encode())
     assert item["tokens_after"] == len(item["text_after"].encode()) < item["tokens_before"]
     assert ended["saved_tokens"] == ended["tokens_before"] - ended["tokens_after"] > 0
+    # CAP-7, finops.md: a local model has no price, so no dollar amount (tokens only).
+    assert ended["saved_usd"] is None
 
     # The step: the harness's own, between the tool and the second call.
     order = [
@@ -688,6 +690,8 @@ def test_chat_mode_sends_the_compressed_reply_with_estimated_tokens():
 
     ended = events["compression_ended"][0]
     assert ended["estimated"] and ended["items"][0]["changed"]
+    # CAP-7, finops.md: on a cloud model, the saved tokens × its input price.
+    assert ended["saved_usd"] == pytest.approx(ended["saved_tokens"] * 0.15 / 1_000_000)
     second = json.loads(provider.requests[1].content)["messages"]
     reply = next(m for m in second if m["role"] == "tool")
     assert reply["content"] == ended["items"][0]["text_after"] and LOG not in reply["content"]

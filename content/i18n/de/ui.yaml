@@ -567,7 +567,18 @@ main:
       item_unchanged: "{before} Tokens · unverändert"
       before: "Vorher ({tokens} Tokens)"
       after: "Nachher ({tokens} Tokens)"
+      saved_usd: "{amount} gespart"
       title: "Komprimierung des Kontexts ({compressor})"
+    cache:
+      line: "Prompt-Cache: {read} Tokens wiedergelesen · {saved} gespart"
+      full: "Voller Preis"
+      paid: "Bezahlt"
+      write: "Schreiben"
+      write_tokens: "{tokens} Tokens · {cost}"
+      write_none: "0 Tokens in diesem Durchgang"
+      source: "Quelle"
+      cost: "Prompt-Cache: {read} Tokens wiedergelesen · {cost} Mehrkosten (Schreiben)"
+      unpriced: "Prompt-Cache: {read} Tokens wiedergelesen · Cache-Preis nicht angegeben"
     rows:
       overflow: "Kontext überschritten"
       sub_overflow: "Kontext des Sub-Agenten überschritten"
