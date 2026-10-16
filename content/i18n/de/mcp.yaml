@@ -9,6 +9,9 @@ servers:
   mslearn:
     label_text: Microsoft Learn
     sends_text: die gestellte Frage
+  github:
+    label_text: GitHub
+    sends_text: das aufgerufene Tool und seine Argumente, mit Ihrem Verbindungs-Token
 lazy_label_text: Lazy Loading
 load_tool_doc:
   label_text: Laden der Dokumentation

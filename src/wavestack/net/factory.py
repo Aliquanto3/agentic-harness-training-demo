@@ -32,6 +32,7 @@ from __future__ import annotations
 import ipaddress
 import ssl
 from collections.abc import Callable
+from urllib.parse import parse_qsl, urlencode
 
 import httpx
 import httpx2
@@ -53,6 +54,24 @@ REDIRECT_BODY_NOT_READ = "(corps non relu : redirection)"
 
 # The value traced in place of any header outside `PUBLIC_HEADERS`.
 MASKED = "[masqué]"
+# Story 3 (V1.1 vague 2, CAP-4): a form-encoded body field as secret as a header's value
+# (GitHub's device/refresh exchange carries them in the body, not a header). Masked the same
+# way before `emit`, so a refresh token never reaches the journal.
+_SENSITIVE_BODY_FIELDS = frozenset(
+    {"refresh_token", "access_token", "client_secret", "device_code"}
+)
+
+
+def _masked_body(raw: bytes, content_type: str) -> str:
+    text = raw.decode("utf-8", "replace")
+    if "application/x-www-form-urlencoded" not in content_type.lower():
+        return text
+    pairs = parse_qsl(text, keep_blank_values=True)
+    if not any(name in _SENSITIVE_BODY_FIELDS for name, _ in pairs):
+        return text
+    return urlencode(
+        [(name, MASKED if name in _SENSITIVE_BODY_FIELDS else value) for name, value in pairs]
+    )
 
 
 def user_agent() -> str:
@@ -78,7 +97,7 @@ def _check_and_trace(
             "method": request.method,
             "url": str(request.url),
             "headers": _headers(request),
-            "body": _body(request).decode("utf-8", "replace"),
+            "body": _masked_body(_body(request), request.headers.get("content-type", "")),
         }
         | (extra or {}),
         scope=scope,
@@ -268,6 +287,7 @@ def create_async_client(
     *,
     timeout: float = 30.0,
     annotate: Callable[[httpx2.Request], dict[str, object]] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> httpx2.AsyncClient:
     """Asynchronous httpx2 client, same configuration as `create_client`.
 
@@ -276,6 +296,9 @@ def create_async_client(
     The read timeout stays long, since a server may hold an event stream open;
     each MCP call is bounded by its own deadline. `annotate(request)` (lot 4 of 2026-10-04,
     the MCP workshop): fields added to the request's `outbound_request` (`message_seq`).
+    `headers` (story 3, CAP-4): extra default headers for every request of this client (an
+    MCP server reached with a bearer token, e.g. GitHub's); masked in the journal the same
+    way as any other header outside `config.PUBLIC_HEADERS`.
     """
 
     async def trace(request: httpx2.Request) -> None:
@@ -294,6 +317,6 @@ def create_async_client(
         trust_env=False,
         transport=transport,
         mounts=mounts,
-        headers={"User-Agent": user_agent()},
+        headers={"User-Agent": user_agent(), **(headers or {})},
         event_hooks={"request": [trace], "response": [trace_response]},
     )

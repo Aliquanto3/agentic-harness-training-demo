@@ -319,6 +319,8 @@ session:
     connecting: "Connexion au serveur MCP {server}"
     no_loop: "Connexion impossible : la boucle asyncio de WaveStack n'est pas démarrée."
     abandoned: "Connexion abandonnée : le serveur a été désactivé."
+    # Story 3 (V1.1 vague 2, CAP-4) : sans jeton GitHub, la connexion n'est même pas tentée.
+    github_not_connected: "Connectez-vous d'abord à GitHub, dans l'atelier MCP : la connexion ne peut pas s'ouvrir sans jeton."
     # AD-9 (E089): the live tools/list against content/mcp_snapshots/, beyond the threshold.
     drift:
       message: "{server} s'écarte de son instantané de {gap} % (seuil : {threshold} %) : {changes}. La jauge prévue pour ses scénarios peut ne plus tenir ; relancez scripts/snapshot_mcp.py pour mettre l'instantané à jour."
@@ -566,6 +568,9 @@ session:
     policy_ask_outside_lab: "Refusé par la politique de sécurité : la règle de « {tool} » est sur Demander, et seule la page MCP peut demander votre accord. L'outil n'a pas été exécuté."
     policy_ask_timeout: "Refusé faute de réponse : personne n'a autorisé l'appel de « {tool} » à temps. L'outil n'a pas été exécuté."
     policy_ask_cancelled: "Annulé : l'échange s'est arrêté avant votre décision sur « {tool} ». L'outil n'a pas été exécuté."
+    # Story 3 (CAP-4) : bloc GitHub de l'atelier MCP.
+    github_not_connected: "Connectez-vous d'abord à GitHub (bloc GitHub, ci-dessous) : la connexion ne peut pas s'ouvrir sans jeton."
+    github_start_failed: "Connexion à GitHub impossible : le réseau n'a pas répondu. Réessayez."
     # Lot 4 of 2026-10-04 (AD-27): the deduced arrow Hôte → Client of a connection.
     launch:
       stdio: "lance le serveur : {command}"

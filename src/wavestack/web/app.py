@@ -1101,6 +1101,22 @@ def create_app(
             ) from None
         return {"accepted": True}
 
+    @app.post("/api/intentions/github_connect")
+    def github_connect() -> dict[str, str]:
+        """CAP-4: starts (or restarts) GitHub's device flow; a network failure: 409."""
+        try:
+            return app_session.github_connect()
+        except SendRefused as refused:
+            raise HTTPException(
+                status_code=409, detail=render(refused.reason_text, app_session.language)
+            ) from None
+
+    @app.post("/api/intentions/github_disconnect")
+    def github_disconnect() -> dict[str, bool]:
+        """CAP-4: drops the token (and any open connection that used it)."""
+        app_session.github_disconnect()
+        return {"accepted": True}
+
     @app.get("/api/security_journal")
     def security_journal() -> dict[str, object]:
         """CAP-3: the whole security journal, read only (story 9's « Journal » and story

@@ -15,6 +15,9 @@ allowed_hosts = [
     # Serveurs MCP publics (story 6).
     "mcp.data.gouv.fr",
     "learn.microsoft.com",
+    # GitHub, OAuth App WaveStack par code (story 3, V1.1 vague 2, CAP-4).
+    "github.com",
+    "api.githubcopilot.com",
 ]
 # Contact envoyé dans l'User-Agent à chaque service sortant : la politique robots de Wikimedia
 # l'exige (403 sans lui). Une URL ou une adresse électronique, en ASCII ; valeur par défaut si

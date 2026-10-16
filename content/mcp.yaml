@@ -11,6 +11,9 @@ servers:
   mslearn:
     label_text: Microsoft Learn
     sends_text: la question posée
+  github:
+    label_text: GitHub
+    sends_text: l'outil appelé et ses arguments, avec votre jeton de connexion
 # Interrupteur de la carte MCP (story 6b, FR-21).
 lazy_label_text: Lazy loading
 # Méta-outil du harnais en lazy loading (AD-25). `intro` et `tool` sont lus par le modèle ;

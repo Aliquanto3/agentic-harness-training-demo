@@ -643,7 +643,10 @@ class LabConnection(McpConnection):
             )
         else:
             http = _connection.create_async_client(
-                scope=lambda: self.scope, timeout=self.connect_timeout, annotate=self._annotate
+                scope=lambda: self.scope,
+                timeout=self.connect_timeout,
+                annotate=self._annotate,
+                headers=self.server.headers,
             )
             stack.push_async_callback(http.aclose)
             inner = streamable_http_client(self.server.url, http_client=http)

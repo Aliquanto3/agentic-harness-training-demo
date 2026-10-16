@@ -24,8 +24,27 @@ _DEFAULTS: dict[str, tuple[str, str]] = {
     "local__system_info": ("low", "allow"),
     "local__create_path": ("mid", "ask"),
     "local__take_screenshot": ("high", "ask"),
+    # Story 3 (CAP-4), defaults validated in `mcp-tools.md`: GitHub acts with the connected
+    # person's own rights, so a read tool stays a deliberate choice (`ask` would need the
+    # workshop's own authorization bandeau for every alert lookup); writes are refused.
+    "github__list_secret_scanning_alerts": ("mid", "allow"),
+    "github__list_dependabot_alerts": ("mid", "allow"),
+    "github__get_file_contents": ("mid", "allow"),
+    "github__list_issues": ("mid", "allow"),
+    "github__merge_pull_request": ("high", "deny"),
+    "github__create_pull_request": ("high", "deny"),
 }
 _FALLBACK = ("low", "allow")
+# GitHub exposes 46 tools (28 read-only): one not named above is presumed to write (the
+# orchestrator's prudent default), high risk, refused until this table names it explicitly.
+_GITHUB_PREFIX = "github__"
+_GITHUB_FALLBACK = ("high", "deny")
+
+
+def _lookup(name: str) -> tuple[str, str]:
+    if name in _DEFAULTS:
+        return _DEFAULTS[name]
+    return _GITHUB_FALLBACK if name.startswith(_GITHUB_PREFIX) else _FALLBACK
 
 
 class ToolPolicy:
@@ -38,11 +57,11 @@ class ToolPolicy:
 
     @staticmethod
     def risk_of(name: str) -> str:
-        return _DEFAULTS.get(name, _FALLBACK)[0]
+        return _lookup(name)[0]
 
     @staticmethod
     def default_rule(name: str) -> str:
-        return _DEFAULTS.get(name, _FALLBACK)[1]
+        return _lookup(name)[1]
 
     def rule_of(self, name: str) -> str:
         with self._lock:

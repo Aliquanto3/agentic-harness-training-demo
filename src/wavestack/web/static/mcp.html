@@ -90,6 +90,20 @@
           <ul class="mcp-server-list" id="mcp-servers"></ul>
         </fieldset>
         <p class="mcp-note" id="mcp-server-note" hidden></p>
+        <!-- CAP-4 (vague 2, story 3): GitHub's own OAuth block, shown only while « GitHub »
+             is the chosen server; a token is required before the usual « Se connecter ». -->
+        <div class="mcp-github" id="mcp-github" hidden>
+          <div class="mcp-github-head">
+            <strong data-i18n="mcp.github.title">GitHub</strong>
+            <span class="mcp-chip" id="mcp-github-chip"></span>
+          </div>
+          <p class="mcp-note" id="mcp-github-text"></p>
+          <p class="mcp-code-box" id="mcp-github-code" hidden></p>
+          <div class="mcp-row-buttons">
+            <button type="button" class="mcp-button-primary" id="mcp-github-connect" data-i18n="mcp.github.connect">Se connecter à GitHub</button>
+            <button type="button" class="mcp-button-secondary" id="mcp-github-disconnect" hidden data-i18n="mcp.github.disconnect">Se déconnecter</button>
+          </div>
+        </div>
         <div class="mcp-row-buttons">
           <button type="button" class="mcp-button-primary" id="mcp-connect" data-i18n="mcp.servers.connect">Se connecter</button>
           <button type="button" class="mcp-button-secondary" id="mcp-stop" aria-disabled="true" data-i18n="mcp.servers.stop">Arrêter</button>

@@ -77,3 +77,67 @@ def test_security_journal_http_json_and_csv(loop):  # noqa: F811
     assert csv.headers["content-type"].startswith("text/csv")
     assert "local__define_term" in csv.text
     session.close()
+
+
+# ---------- story 3 (CAP-4): GitHub's device flow, the HTTP routes ----------
+
+
+def test_github_state_starts_disconnected(loop):  # noqa: F811
+    session = mcp_session(loop)
+    client = _client(session)
+
+    body = client.get("/api/mcp_lab").json()
+
+    assert body["github"] == {"status": "disconnected"}
+    session.close()
+
+
+def test_github_connect_http_starts_the_device_flow(loop):  # noqa: F811
+    session = mcp_session(loop)
+    session._github.start = lambda: {"user_code": "ABCD-1234", "verification_uri": "u"}
+    client = _client(session)
+
+    response = client.post("/api/intentions/github_connect", json={}, headers=HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == {"user_code": "ABCD-1234", "verification_uri": "u"}
+    session.close()
+
+
+def test_github_connect_http_refuses_on_a_network_failure(loop):  # noqa: F811
+    import httpx
+
+    session = mcp_session(loop)
+
+    def failing():
+        raise httpx.ConnectError("no route")
+
+    session._github.start = failing
+    client = _client(session)
+
+    response = client.post("/api/intentions/github_connect", json={}, headers=HEADERS)
+
+    assert response.status_code == 409
+    session.close()
+
+
+def test_github_disconnect_http_clears_the_token(loop):  # noqa: F811
+    import time
+
+    from wavestack.mcp import github_auth
+
+    session = mcp_session(loop)
+    session._github._token = github_auth.GithubToken(
+        access_token="gho_x",
+        refresh_token="r",
+        obtained_at=time.time(),
+        expires_in=28800,
+        refresh_expires_in=15897600,
+    )
+    client = _client(session)
+
+    response = client.post("/api/intentions/github_disconnect", json={}, headers=HEADERS)
+
+    assert response.status_code == 200
+    assert client.get("/api/mcp_lab").json()["github"] == {"status": "disconnected"}
+    session.close()

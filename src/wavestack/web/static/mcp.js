@@ -70,6 +70,7 @@ const store = {
   archView: "after",
   restoring: false,
   announced: new Set(), // the phases and failures already said (status, alert)
+  github: { status: "disconnected" }, // CAP-4: `GET /api/mcp_lab`'s `github`
 };
 
 // ---------- small helpers ----------
@@ -1530,6 +1531,7 @@ function renderServers() {
         store.selected = server.id;
         renderControls();
         renderHeads();
+        renderGithub();
       });
       const name = el("span", "mcp-server-name", server.label_text);
       const hosting = el("span", `mcp-hosting ${server.network ? "is-network" : "is-local"}`);
@@ -2347,6 +2349,7 @@ async function refresh() {
   store.session = body.session_state;
   store.ask = body.ask;
   store.toolRules = body.tool_rules || {};
+  store.github = body.github || { status: "disconnected" };
   if (body.open_server) store.selected = body.open_server;
   const alert = $("mcp-content-error");
   alert.hidden = !body.content_error_text;
@@ -2371,7 +2374,73 @@ async function refresh() {
   redraw({ restoring: true });
   store.openServer = body.open_server; // the session's word on the connection, after the replay
   renderControls();
+  renderGithub();
   return body;
+}
+
+// ---------- CAP-4: GitHub's device flow block (its own OAuth, not a tool's policy) ----------
+
+let githubPollTimer = null;
+
+function startGithubPoll() {
+  clearInterval(githubPollTimer);
+  if (store.github.status !== "waiting") return;
+  githubPollTimer = setInterval(async () => {
+    let body;
+    try {
+      body = await fetchState();
+    } catch {
+      return; // a transient fetch failure: the next tick tries again
+    }
+    store.github = body.github || { status: "disconnected" };
+    renderGithub();
+    if (store.github.status !== "waiting") clearInterval(githubPollTimer);
+  }, 2000);
+}
+
+function renderGithub() {
+  const box = $("mcp-github");
+  if (!box) return;
+  box.hidden = store.selected !== "github";
+  const { status } = store.github;
+  $("mcp-github-chip").textContent = t(`mcp.github.state.${status}`);
+  $("mcp-github-chip").dataset.status = status;
+  const text = $("mcp-github-text");
+  const code = $("mcp-github-code");
+  code.hidden = status !== "waiting";
+  if (status === "waiting") {
+    text.textContent = t("mcp.github.waiting_text", { uri: store.github.verification_uri });
+    code.textContent = store.github.user_code;
+  } else if (status === "connected") {
+    text.textContent = t("mcp.github.connected_text", { time: duration(store.github.expires_in_s * 1000) });
+  } else if (status === "expired") {
+    text.textContent = t("mcp.github.expired_text");
+  } else if (status === "error") {
+    text.textContent = t("mcp.github.error_text");
+  } else {
+    text.textContent = t("mcp.github.intro");
+  }
+  const connectButton = $("mcp-github-connect");
+  connectButton.hidden = status === "connected";
+  connectButton.textContent = status === "expired" ? t("mcp.github.reconnect") : t("mcp.github.connect");
+  $("mcp-github-disconnect").hidden = status !== "connected";
+  // Connecting to the server itself needs a token first.
+  setAvailable($("mcp-connect"), store.selected === "github" && status !== "connected" ? t("mcp.github.intro") : null);
+  startGithubPoll();
+}
+
+async function githubConnect() {
+  const { ok, body } = await post("/api/intentions/github_connect", {});
+  if (ok) {
+    store.github = { status: "waiting", ...body };
+    renderGithub();
+  }
+}
+
+async function githubDisconnect() {
+  await post("/api/intentions/github_disconnect", {});
+  store.github = { status: "disconnected" };
+  renderGithub();
 }
 
 function startPanes() {
@@ -2469,6 +2538,9 @@ async function main() {
   });
   $("mcp-connect").addEventListener("click", connect);
   $("mcp-stop").addEventListener("click", stop);
+  $("mcp-github-connect").addEventListener("click", githubConnect);
+  $("mcp-github-disconnect").addEventListener("click", githubDisconnect);
+  renderGithub();
   $("mcp-authorize-allow").addEventListener("click", () => authorize("allow_once"));
   $("mcp-authorize-deny").addEventListener("click", () => authorize("deny"));
   document.body.dataset.mcpReady = "true";

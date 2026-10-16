@@ -104,7 +104,9 @@ class McpConnection:
             # Languages (1/5): the session's language, as the process's only argument.
             args = ["-m", "wavestack.mcp.local_server", self.language]
             return StdioServerParameters(command=sys.executable, args=args)
-        http = create_async_client(scope=lambda: self.scope, timeout=self.connect_timeout)
+        http = create_async_client(
+            scope=lambda: self.scope, timeout=self.connect_timeout, headers=self.server.headers
+        )
         stack.push_async_callback(http.aclose)
         return streamable_http_client(self.server.url, http_client=http)
 

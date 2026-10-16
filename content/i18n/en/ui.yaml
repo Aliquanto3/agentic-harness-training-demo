@@ -1199,6 +1199,22 @@ mcp:
     deny: "Deny"
   security_journal:
     download: "Download the journal (CSV)"
+  github:
+    title: "GitHub"
+    intro: "Connect with your GitHub account (OAuth App WaveStack, device flow). WaveStack only gets the rights you accept."
+    connect: "Connect to GitHub"
+    reconnect: "Reconnect"
+    disconnect: "Disconnect"
+    waiting_text: "Open {uri} and enter this code:"
+    connected_text: "Connected, read only · expires in {time}"
+    expired_text: "The token expired: reconnect."
+    error_text: "Connection to GitHub refused."
+    state:
+      disconnected: "not connected"
+      waiting: "waiting"
+      connected: "connected"
+      expired: "expired"
+      error: "error"
   outcomes:
     no_tool: "answer without a tool"
     answer: "answer"
