@@ -21,7 +21,7 @@ class FakeInjection:
         self.classify_calls = 0
         self.fails_with: Exception | None = None
 
-    def ensure_loaded(self, on_progress=None) -> None:
+    def ensure_loaded(self, on_progress=None, cancel=None) -> None:
         if self.loaded:
             return  # like the real classifier: nothing re-downloaded once loaded
         if not self.has_token:
@@ -114,3 +114,124 @@ def test_install_injection_without_a_factory_raises_not_installed() -> None:
     m = GuardrailsManager({})
     with pytest.raises(NotInstalled):
         m.install_injection(lambda done, total: None)
+
+
+# --- Review of story 13 ---------------------------------------------------------------
+
+
+def test_install_failure_is_kept_for_the_card_but_a_stop_is_not() -> None:
+    fake = FakeInjection()
+    fake.has_token = True
+    fake.fails_with = RuntimeError("401 unauthorized")
+    m = GuardrailsManager({"injection": lambda: fake})
+    with pytest.raises(RuntimeError):
+        m.install_injection(lambda done, total: None)
+    assert m.load_error("injection") == "401 unauthorized"
+
+    stopped = RuntimeError("stopped")
+    stopped.cancelled = True  # like `DownloadError(cancelled=True)`
+    fake.fails_with = stopped
+    with pytest.raises(RuntimeError):
+        m.install_injection(lambda done, total: None)
+    assert m.load_error("injection") is None  # « Arrêter » is no failure
+
+
+def test_injection_ready_from_files_on_disk_after_unload() -> None:
+    fake = FakeInjection()
+    fake.has_token = True
+
+    def factory() -> FakeInjection:
+        return fake
+
+    factory.is_installed = lambda: True  # files and token already there
+    m = GuardrailsManager({"injection": factory})
+    assert m.injection_ready() is True  # a restart: no token asked again
+    m.unload_idle()
+    assert m.injection_ready() is True
+
+
+def test_malicious_score_is_stable_and_never_fails_open_on_nan() -> None:
+    from wavestack.guardrails.injection import malicious_score
+
+    assert malicious_score([0.0, 0.0]) == pytest.approx(0.5)
+    assert malicious_score([1000.0, 1001.0]) == pytest.approx(0.7310586)  # no overflow
+    assert malicious_score([-1000.0, 1000.0]) == pytest.approx(1.0)
+    with pytest.raises(ValueError):
+        malicious_score([float("nan"), 0.0])
+
+
+def _hub(status: int | None, seen: list):
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if status is None:
+            raise httpx.ConnectError("refused", request=request)
+        return httpx.Response(status)
+
+    return httpx.MockTransport(handler)
+
+
+def test_licence_check_accepted_asks_the_official_repo_without_weights() -> None:
+    from wavestack.guardrails.injection import check_licence
+    from wavestack.trace.journal import get_journal
+
+    seen: list = []
+    mark = get_journal().last_seq()
+    check_licence("hf_secret_token", transport=_hub(200, seen))
+    [request] = seen
+    assert request.method == "HEAD"
+    url = str(request.url)
+    assert url.startswith("https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-22M/")
+    assert url.endswith("/config.json")
+    assert request.headers["authorization"] == "Bearer hf_secret_token"
+    traced = [e.payload for e in get_journal().events_since(mark)]
+    assert traced and "hf_secret_token" not in repr(traced)  # AD-15: masked
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_licence_check_refused_says_to_accept_the_licence(status: int) -> None:
+    from wavestack.guardrails.injection import LICENCE_PAGE, check_licence
+    from wavestack.models.download import DownloadError
+
+    with pytest.raises(DownloadError) as caught:
+        check_licence("hf_x", transport=_hub(status, []))
+    assert LICENCE_PAGE in str(caught.value)
+    assert "licence" in str(caught.value)
+
+
+def test_licence_check_network_failure_is_a_download_error() -> None:
+    from wavestack.guardrails.injection import check_licence
+    from wavestack.models.download import DownloadError
+
+    with pytest.raises(DownloadError) as caught:
+        check_licence("hf_x", transport=_hub(None, []))
+    assert "huggingface.co" in str(caught.value)
+
+
+def test_ensure_loaded_downloads_nothing_when_the_licence_is_refused(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    from pydantic import SecretStr
+
+    from wavestack.guardrails import injection
+    from wavestack.models.download import DownloadError
+
+    # No real onnxruntime/tokenizers needed: the refusal comes before they are used.
+    monkeypatch.setitem(sys.modules, "onnxruntime", types.ModuleType("onnxruntime"))
+    tok = types.ModuleType("tokenizers")
+    tok.Tokenizer = object
+    monkeypatch.setitem(sys.modules, "tokenizers", tok)
+    monkeypatch.setattr(injection.config, "hf_token", lambda: SecretStr("hf_x"))
+    monkeypatch.setattr(injection, "_dest", lambda: tmp_path)
+
+    def refuse(token, **kw):
+        raise DownloadError("refused")
+
+    downloads: list = []
+    monkeypatch.setattr(injection, "check_licence", refuse)
+    monkeypatch.setattr(injection, "download_files", lambda *a, **k: downloads.append(a))
+    with pytest.raises(DownloadError):
+        injection.PromptGuardGuardrail().ensure_loaded()
+    assert downloads == []

@@ -2,10 +2,10 @@
 title: 'WaveStack V1.1 vague 2 (13/10) : installation des garde-fous depuis la brique et Prompt Guard 2 optionnel'
 type: 'feature'
 created: '2026-10-16'
-status: 'review'
+status: 'done'
 baseline_commit: '80e5567'
 route: 'dispatch'
-review_loop_iteration: 0
+review_loop_iteration: 1
 context:
   - '{project-root}/_bmad-output/specs/spec-wavestack-v1-1-vague-2/SPEC.md'
   - '{project-root}/_bmad-output/specs/spec-wavestack-v1-1-vague-2/guardrails.md'
@@ -211,3 +211,46 @@ commande à copier dans un terminal.
   ensemble sous 1,5 Go.
 
 </frozen-after-approval>
+
+## Décision licence (revue, orchestrateur, 16/10)
+
+Le miroir `gravitee-io/Llama-Prompt-Guard-2-22M-onnx` n'étant pas gated, le jeton seul ne
+prouvait pas l'acceptation de la licence Llama 4 Community. Désormais :
+(a) la brique affiche, avant « Installer », un lien vers la page officielle
+`meta-llama/Llama-Prompt-Guard-2-22M` (licence) et une case « J'ai accepté la licence Llama 4
+Community sur Hugging Face » ; sans elle le bouton reste inactif et la route répond 409
+(`licence_accepted`) ;
+(b) avant tout téléchargement, `injection.check_licence` fait un `HEAD` avec le jeton sur
+`config.json` du dépôt gated de Meta (aucun poids) : 401/403 → refus « acceptez d'abord la
+licence sur la page Meta du modèle » avec le lien, rien n'est téléchargé ;
+(c) la carte du garde-fou injection affiche « Built with Llama » une fois installé ;
+(d) cette section. Tests avec faux hub (`httpx.MockTransport`) : accès accordé, refusé
+(401, 403), réseau en échec ; aucun appel réseau réel.
+
+## Revue
+
+Revue Opus du 16/10 (rebase : déjà sur `origin/main` d46e514), liste du second avis reprise.
+
+| Sévérité | Source | Constat | Issue |
+|---|---|---|---|
+| high | second avis 1 | Aucune acceptation explicite de la licence Llama 4 Community (miroir non gated) | Corrigé : case, lien, sonde du dépôt gated de Meta avant téléchargement, « Built with Llama » (voir Décision licence) |
+| medium | second avis 2 | « Arrêter » sans effet sur `uv sync` | Corrigé : pas de jeton d'arrêt pour cette étape, `session_state.stoppable: false` (champ optionnel), bouton masqué, `stop()` renvoie `false` ; pas d'interruption à mi-chemin |
+| medium | revue | « Arrêter » sans effet non plus sur le téléchargement de Prompt Guard (`ensure_loaded` créait son propre `CancelToken`) | Corrigé : le `StopToken` de la session est transmis ; arrêt = `model_download_stopped`, pas d'erreur ; bouton « Arrêter » ajouté dans la ligne `injection` pendant le chargement |
+| medium | second avis 3 | Échec d'installation jamais mis dans `_load_errors` : état « erreur » inatteignable | Corrigé : `install_injection` l'enregistre (sauf arrêt), la carte montre la cause |
+| medium | second avis 4 | Softmax sans soustraction du max, NaN → fail-open silencieux | Corrigé : `malicious_score` stable, logits non finis → exception → verdict `error` ; testé |
+| medium | revue | Après « Éteindre » la brique (`unload_idle`) ou un redémarrage, la carte redemandait le jeton alors que fichiers et jeton sont présents | Corrigé : `PromptGuardGuardrail.is_installed()` (jeton + fichiers de bonne taille) lu par `injection_ready()` |
+| medium | revue | `uv sync` réinstallerait le projet lui-même (lanceur `wavestack.exe` verrouillé par Windows pendant l'exécution) | Corrigé : `--no-install-project` ; `UV_PROJECT_ENVIRONMENT=sys.prefix` et `UV` (l'uv qui a lancé WaveStack) ; à confirmer à l'essai réel |
+| medium | second avis 5 | Hôtes CDN de Hugging Face (`cas-bridge.xethub.hf.co`) | Rejeté pour le code : `*.hf.co` est un suffixe (`net/guard.py`), déjà couvert ; documenté pour le proxy dans `docs/installation.md` |
+| low | second avis | Jeton écrit avant le refus 409 (pas `idle`) | Corrigé : job d'abord, jeton ensuite ; état rendu si l'écriture échoue ; testé |
+| low | second avis | Analyse limitée aux 512 premiers tokens | Corrigé : `partial` = `enc.overflowing` (vérifié avec `tokenizers`), verdict « analysé en partie » ; ligne ajoutée dans `limites-harnais.md` |
+| low | second avis | `str(Message(...))` en français dans `NotInstalled` | Rejeté : inatteignable en pratique (pas de commutateur sans jeton), même traitement que les erreurs de chargement existantes (`str(exc)`) |
+| low | second avis | `cwd=config.repo_root()` avec `install.ps1` | Rejeté après lecture : projet installé en éditable, `repo_root()` = dossier d'installation ; l'environnement sous `%LOCALAPPDATA%` est désormais imposé par `UV_PROJECT_ENVIRONMENT=sys.prefix` |
+| low | revue | `tests/test_bricks.py::test_outbound_line_without_network_tool_or_public_server` échoue | Hors story : échoue déjà sans ce lot (serveur MCP GitHub, story 3) ; à corriger à part |
+
+**Reporté à l'essai réel avec Anaël** : avec un vrai jeton, vérifier (1) refus propre quand la
+licence n'est pas acceptée sur la page Meta, puis téléchargement après acceptation ; (2) que
+le `HEAD` sur le dépôt gated renvoie bien 200 (et non 302/403) pour un compte accepté ; (3) le
+bouton « Installer » de l'extra sur le poste installé par `install.ps1` (`uv sync
+--no-install-project` dans `%LOCALAPPDATA%\WaveStack`, activation sans relancer) ; (4) la RAM
+de toxicité + données personnelles + injection sous 1,5 Go. E2E à rejouer : `s_hooks`,
+`s_native_tools` (aucun scénario dédié à la brique Garde-fous).

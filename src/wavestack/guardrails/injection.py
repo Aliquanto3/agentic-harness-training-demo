@@ -30,8 +30,16 @@ from wavestack import config
 from wavestack.config import ModelFile
 from wavestack.guardrails.contract import Classification, Entity, NotInstalled
 from wavestack.messages import Message
-from wavestack.models.download import DownloadError, download_files, missing_files
+from wavestack.models.download import (
+    TIMEOUT,
+    DownloadError,
+    _network_error,
+    download_files,
+    missing_files,
+)
 from wavestack.models.engine import CancelToken
+from wavestack.net.factory import create_client
+from wavestack.trace.scope import scoped
 
 # Pinned revision, sizes and sha256 checked on 2026-10-16 (gravitee-io's conversion repo has
 # no pinned revision tag: `main`, like its README documents). `tokenizer.json` is a plain git
@@ -50,10 +58,48 @@ FILES = (
 THRESHOLD = 0.5
 MALICIOUS_LABEL = 1  # config.json: id2label.1 == "MALICIOUS"
 _WINDOW = 512  # config.json: max_position_embeddings
+# Story 13 review (licence): the gated official repo, asked once before any download with the
+# user's own token. `gravitee-io`'s mirror is not gated, so the token alone proves nothing;
+# only Meta's repo answers 401/403 to a token whose owner has not accepted the licence.
+LICENCE_PAGE = "https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-22M"
+_GATED_PROBE = LICENCE_PAGE + "/resolve/main/config.json"
+
+
+def check_licence(token: str, *, transport=None) -> None:
+    """A HEAD on a small file of Meta's gated repo (no weights fetched): 401/403 means the
+    licence is not accepted (or the token is wrong). Raises `DownloadError`."""
+    probe = ModelFile(url=_GATED_PROBE, path="config.json", size=1)  # only its host is read
+    try:
+        with scoped(origin="download"), create_client(timeout=TIMEOUT, transport=transport) as c:
+            response = c.head(_GATED_PROBE, headers={"Authorization": f"Bearer {token}"})
+    except Exception as exc:  # noqa: BLE001 - a network failure, said like a download's
+        raise _network_error(exc, probe) from None
+    if response.status_code in (401, 403):
+        raise DownloadError(Message("guardrails.injection.licence_refused", url=LICENCE_PAGE))
+    if response.status_code >= 400:
+        raise DownloadError(
+            Message(
+                "models.download.http_error",
+                status=response.status_code,
+                reason=response.reason_phrase,
+                url=_GATED_PROBE,
+            )
+        )
 
 
 def _dest() -> Path:
     return config.models_dir() / "guardrails" / "injection"
+
+
+def malicious_score(logits) -> float:
+    """A stable softmax (max subtracted: no overflow to inf/NaN). A non-finite output raises,
+    so the manager reports `error` instead of a NaN that would never reach the threshold
+    (a silent fail-open)."""
+    logits = np.asarray(logits, dtype=np.float64)
+    if not np.all(np.isfinite(logits)):
+        raise ValueError("Prompt Guard: non-finite logits")
+    exp = np.exp(logits - logits.max())
+    return float(exp[MALICIOUS_LABEL] / exp.sum())
 
 
 class PromptGuardGuardrail:
@@ -68,7 +114,17 @@ class PromptGuardGuardrail:
     def loaded(self) -> bool:
         return self._session is not None
 
-    def ensure_loaded(self, on_progress: Callable[[int, int], None] | None = None) -> None:
+    @staticmethod
+    def is_installed() -> bool:
+        """Its files on disk and a token saved: ready to load, without loading (the card
+        after a restart or after the brick freed its RAM)."""
+        return config.hf_token() is not None and not missing_files(FILES, _dest())
+
+    def ensure_loaded(
+        self,
+        on_progress: Callable[[int, int], None] | None = None,
+        cancel: CancelToken | None = None,
+    ) -> None:
         if self.loaded:
             return
         token = config.hf_token()
@@ -79,11 +135,12 @@ class PromptGuardGuardrail:
 
         dest = _dest()
         if missing_files(FILES, dest):
+            check_licence(token.get_secret_value())
             headers = {"Authorization": f"Bearer {token.get_secret_value()}"}
             download_files(
                 FILES,
                 dest,
-                CancelToken(),
+                cancel or CancelToken(),
                 on_progress or (lambda done, total: None),
                 headers=headers,
             )
@@ -101,9 +158,13 @@ class PromptGuardGuardrail:
         ids = np.array([enc.ids], dtype=np.int64)
         mask = np.array([enc.attention_mask], dtype=np.int64)
         logits = self._session.run(None, dict(zip(names, [ids, mask], strict=False)))[0][0]
-        probs = np.exp(logits) / np.exp(logits).sum()
-        score = float(probs[MALICIOUS_LABEL])
-        return Classification(detected=score >= THRESHOLD, score=score, threshold=THRESHOLD)
+        score = malicious_score(logits)
+        return Classification(
+            detected=score >= THRESHOLD,
+            score=score,
+            threshold=THRESHOLD,
+            partial=bool(enc.overflowing),  # beyond 512 tokens: not scored, said so
+        )
 
     def mask(self, text: str, entities: tuple[Entity, ...]) -> str:
         return text  # injection is never masked: "signaler" only annotates, as toxicity does

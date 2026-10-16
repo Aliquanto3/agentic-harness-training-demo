@@ -18,9 +18,11 @@ import inspect
 import json
 import logging
 import math
+import os
 import random
 import re
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -1165,11 +1167,15 @@ class AppSession:
         with self._lock:
             state, reason_text = self.state, self.reason_text
             language, locked = self._language, self._conversation_started()
+            # Review (story 13): a job without a cancel token (`uv sync`) offers no « Arrêter ».
+            jobs = ("download", "index_build")
+            stoppable = self._download_cancel is not None if state in jobs else None
         self._journal().emit(
             "session_state",
             {
                 "state": state,
                 "reason_text": reason_text,
+                "stoppable": stoppable,
                 "active_model": self.active_model(),
                 "language": language,
                 "language_locked": locked,
@@ -3503,6 +3509,12 @@ class AppSession:
                     "modes": modes,
                     "examples": examples,
                     "install_text": None,
+                    # Review (licence Llama 4 Community, 1.b.i): attribution once installed.
+                    "note_text": (
+                        self._t("guardrails.injection.built_with")
+                        if guardrail == "injection"
+                        else None
+                    ),
                 }
             )
         return cards
@@ -3520,7 +3532,9 @@ class AppSession:
         if self._guardrails_missing is None:
             raise SendRefused(self._t("guardrails.install_extra.already_installed"))
         reason = self._t("guardrails.install_extra.installing")
-        previous = self._enter_rag_job("download", reason, download_module.StopToken())
+        # Review: no cancel token, so no « Arrêter » (`stoppable: false`): killing `uv sync`
+        # midway could leave the environment half updated.
+        previous = self._enter_rag_job("download", reason, None)
         threading.Thread(
             target=self._run_install_extra,
             args=(previous,),
@@ -3533,8 +3547,20 @@ class AppSession:
         failure: str | None
         try:
             done = subprocess.run(
-                ["uv", "sync", "--extra", "guardrails", "--inexact"],
+                # `UV`: the uv that launched this process (`uv run`), else the one on PATH.
+                # `--no-install-project`: never rewrites WaveStack's own launcher, locked by
+                # Windows while it runs; `UV_PROJECT_ENVIRONMENT`: this very environment
+                # (install.ps1 puts it under %LOCALAPPDATA%, not in the project folder).
+                [
+                    os.environ.get("UV", "uv"),
+                    "sync",
+                    "--extra",
+                    "guardrails",
+                    "--inexact",
+                    "--no-install-project",
+                ],
                 cwd=config.repo_root(),
+                env={**os.environ, "UV_PROJECT_ENVIRONMENT": sys.prefix},
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -3591,29 +3617,35 @@ class AppSession:
             raise SendRefused(self._t("guardrails.injection.token_empty"))
         if self._guardrails.injection_ready():
             raise SendRefused(self._t("guardrails.install_extra.already_installed"))
+        reason = self._t("guardrails.injection.installing")
+        cancel = download_module.StopToken()
+        # Review: the job first, so a refusal (not idle) never leaves a token saved.
+        previous = self._enter_rag_job("download", reason, cancel)
         try:
             config.write_hf_token(SecretStr(token))
         except OSError as exc:
+            with self._lock:
+                self._download_cancel = None
+            self._set_state("idle", previous)
             raise SendRefused(
                 Message(
                     "guardrails.injection.token_not_saved", cause=exc.strerror or type(exc).__name__
                 )
             ) from None
-        reason = self._t("guardrails.injection.installing")
-        previous = self._enter_rag_job("download", reason, download_module.StopToken())
         with self._lock:
             self._injection_loading = True
         self._emit_bricks()
         threading.Thread(
             target=self._run_prompt_guard_install,
-            args=(previous,),
+            args=(previous, cancel),
             name="wavestack-install-prompt-guard",
             daemon=True,
         ).start()
         return reason
 
-    def _run_prompt_guard_install(self, previous: str | None) -> None:
+    def _run_prompt_guard_install(self, previous: str | None, cancel: CancelToken) -> None:
         failure: str | None = None
+        stopped = False
         try:
             with scoped(brick="guardrails", component="guardrails.injection", origin="download"):
                 self._guardrails.install_injection(
@@ -3622,16 +3654,27 @@ class AppSession:
                         lambda d, t: self._download_fr(
                             d, t, self._t("guardrails.injection.model_noun")
                         ),
-                    )
+                    ),
+                    cancel,
                 )
         except download_module.DownloadError as exc:
-            failure = self._text(exc.reason_text)
+            failure, stopped = self._text(exc.reason_text), exc.cancelled
         except Exception as exc:  # noqa: BLE001 - AD-16: a state, never a crash
             failure = f"{type(exc).__name__}: {exc}"
         with self._lock:
             self._injection_loading = False
+            self._download_cancel = None
         with scoped(brick="guardrails", component="guardrails.injection"):
-            if failure is not None:
+            if stopped:
+                noun = self._t("guardrails.injection.model_noun")
+                self._journal().emit(
+                    "effect_applied",
+                    {
+                        "effect": "model_download_stopped",
+                        "lines": [self._text(Message("session.download.stopped", noun=noun))],
+                    },
+                )
+            elif failure is not None:
                 self._error(
                     Message("guardrails.injection.install_failed", cause=failure),
                     failure,
@@ -6658,7 +6701,9 @@ class AppSession:
             "session.rag.model_noun.reranking" if rerank else "session.rag.model_noun.embedding"
         )
 
-    def _enter_rag_job(self, state: str, reason_text: str, cancel: CancelToken) -> str | None:
+    def _enter_rag_job(
+        self, state: str, reason_text: str, cancel: CancelToken | None
+    ) -> str | None:
         """`download` or `index_build`, switched under the lock from `idle` (class b). Returns
         the reason `idle` had (e.g. no model loaded), given back afterwards."""
         with self._lock:

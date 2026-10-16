@@ -1351,6 +1351,9 @@ guardrails:
     model_noun: "de Prompt Guard"
     install_done: "Garde-fou injection installé (Prompt Guard 2, 22M, quantifié ONNX)."
     install_failed: "Échec du téléchargement de Prompt Guard 2 : {cause}. Vérifiez le jeton (licence Llama 4 Community acceptée ?) et le réseau, puis cliquez de nouveau sur « Installer »."
+    licence_refused: "Accès refusé au modèle officiel de Meta : acceptez d'abord la licence Llama 4 Community sur la page Meta du modèle ({url}), connecté avec le compte de ce jeton, puis cliquez de nouveau sur « Installer »."
+    licence_unchecked: "Cochez « J'ai accepté la licence Llama 4 Community sur Hugging Face » avant d'installer Prompt Guard 2."
+    built_with: "Built with Llama"
   # CAP-6: neutral, fabricated examples (brouillon validé de guardrails.md), never real
   # dangerous content; the button never shows the example's text, only its label.
   examples:

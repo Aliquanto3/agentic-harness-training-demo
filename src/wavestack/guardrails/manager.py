@@ -134,9 +134,16 @@ class GuardrailsManager:
         instance there on the very first `check()`, token or not (AD-16: a verdict is still
         produced, so the instance is kept)."""
         instance = self._instances.get("injection")
-        return bool(instance is not None and getattr(instance, "loaded", False))
+        if instance is not None and getattr(instance, "loaded", False):
+            return True
+        # Review: files and token already there (after a restart, or `unload_idle`), so the
+        # card does not ask for the token again; a fake factory has no such check.
+        is_installed = getattr(self._factories.get("injection"), "is_installed", None)
+        return bool(is_installed is not None and is_installed())
 
-    def install_injection(self, on_progress: Callable[[int, int], None]) -> None:
+    def install_injection(
+        self, on_progress: Callable[[int, int], None], cancel: object | None = None
+    ) -> None:
         """Story 13, the brick's « Installer »: an eager, explicit load (unlike the other
         guardrails' lazy first-`classify` download), so a bad token or a network failure
         surfaces here, with progress, rather than silently as the next turn's `error`
@@ -148,7 +155,15 @@ class GuardrailsManager:
             if "injection" not in self._factories:
                 raise NotInstalled("")
             instance = self._factories["injection"]()
-        instance.ensure_loaded(on_progress)  # type: ignore[call-arg]
+        try:
+            instance.ensure_loaded(on_progress, cancel)  # type: ignore[attr-defined]
+        except NotInstalled:
+            raise
+        except Exception as exc:
+            # Review: the card's `error` state reads this; « Arrêter » is no failure.
+            if not getattr(exc, "cancelled", False):
+                self._load_errors["injection"] = str(exc)
+            raise
         self._instances["injection"] = instance
 
     def unload_idle(self) -> None:

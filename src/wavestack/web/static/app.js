@@ -1473,6 +1473,7 @@ function downloadParts(brick) {
   if (jobs[state]) {
     const progress = el("p", "brick-download-progress", store.sessionState.reason_text || t("common.in_progress"));
     progress.setAttribute("role", "status");
+    if (store.sessionState.stoppable === false) return [progress]; // story 13: `uv sync`
     const stop = el("button", "brick-edit brick-download-stop", jobs[state]);
     stop.type = "button";
     stop.dataset.focusKey = `download-stop:${brick.id}`;
@@ -1562,7 +1563,8 @@ function guardrailsParts(brick) {
       const chip = { not_installed: "is-off", loading: "is-off", error: "is-flagged" }[guardrail.status] || "is-off";
       row.appendChild(el("span", `status-chip ${chip}`, t(`main.bricks.status.${guardrail.status}`)));
       if (guardrail.install_text) row.appendChild(el("p", "brick-reason", guardrail.install_text));
-      if (guardrail.needs_token && guardrail.status !== "loading") row.appendChild(tokenForm(idle));
+      if (guardrail.status === "loading" && store.sessionState?.state === "download") row.append(...jobProgressParts("install-stop:injection"));
+      else if (guardrail.needs_token) row.appendChild(tokenForm(idle));
       list.appendChild(row);
       continue;
     }
@@ -1597,6 +1599,7 @@ function guardrailsParts(brick) {
       examples.appendChild(button);
     }
     row.appendChild(examples);
+    if (guardrail.note_text) row.appendChild(el("p", "brick-note", guardrail.note_text));
     list.appendChild(row);
   }
   parts.push(list);
@@ -1605,17 +1608,21 @@ function guardrailsParts(brick) {
 
 // Story 13: the brick's own « Installer » (the `guardrails` extra), while `state === "download"`
 // shows the same global progress line and « Arrêter » as a RAG model download (reused, AD-1).
+// Review: « Arrêter » only when the job can stop (`stoppable`, false for `uv sync`).
+function jobProgressParts(focusKey) {
+  const progress = el("p", "brick-download-progress", store.sessionState?.reason_text || t("common.in_progress"));
+  progress.setAttribute("role", "status");
+  if (store.sessionState?.stoppable === false) return [progress];
+  const stop = el("button", "brick-edit brick-download-stop", t("main.bricks.stop_download"));
+  stop.type = "button";
+  stop.dataset.focusKey = focusKey;
+  stop.addEventListener("click", () => postIntention("/api/intentions/stop", {}).catch(() => {}));
+  return [progress, stop];
+}
+
 function installExtraParts() {
   const state = store.sessionState?.state;
-  if (state === "download") {
-    const progress = el("p", "brick-download-progress", store.sessionState.reason_text || t("common.in_progress"));
-    progress.setAttribute("role", "status");
-    const stop = el("button", "brick-edit brick-download-stop", t("main.bricks.stop_download"));
-    stop.type = "button";
-    stop.dataset.focusKey = "install-stop:guardrails";
-    stop.addEventListener("click", () => postIntention("/api/intentions/stop", {}).catch(() => {}));
-    return [progress, stop];
-  }
+  if (state === "download") return jobProgressParts("install-stop:guardrails");
   const button = el("button", "brick-edit brick-install", t("main.bricks.guardrails_install"));
   button.type = "button";
   button.disabled = state !== "idle";
@@ -1635,15 +1642,31 @@ function tokenForm(idle) {
   input.placeholder = t("main.bricks.guardrails_token_placeholder");
   input.setAttribute("aria-label", t("main.bricks.guardrails_token_placeholder"));
   input.disabled = !idle;
+  // Review (licence): Meta's page and an explicit acceptance before « Installer » acts.
+  const link = el("a", "guardrail-licence-link", t("main.bricks.guardrails_licence_link"));
+  link.href = "https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-22M";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  const accept = el("label", "guardrail-licence-accept");
+  const box = el("input");
+  box.type = "checkbox";
+  box.checked = Boolean(store.licenceAccepted);
+  box.disabled = !idle;
+  box.dataset.focusKey = "licence:injection";
+  accept.append(box, el("span", null, t("main.bricks.guardrails_licence_accept")));
   const button = el("button", "brick-edit brick-install", t("main.bricks.guardrails_install"));
   button.type = "submit";
-  button.disabled = !idle;
-  form.append(input, button);
+  button.disabled = !idle || !box.checked;
+  box.addEventListener("change", () => {
+    store.licenceAccepted = box.checked;
+    button.disabled = !idle || !box.checked;
+  });
+  form.append(link, accept, input, button);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const token = input.value.trim();
-    if (!token) return;
-    ragAction("/api/intentions/install_prompt_guard", { token });
+    if (!token || !box.checked) return;
+    ragAction("/api/intentions/install_prompt_guard", { token, licence_accepted: true });
     input.value = "";
   });
   if (store.downloadError) form.appendChild(el("p", "force-error", store.downloadError));

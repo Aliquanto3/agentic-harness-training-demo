@@ -1331,6 +1331,9 @@ guardrails:
     model_noun: "Prompt Guard's"
     install_done: "Injection guardrail installed (Prompt Guard 2, 22M, ONNX quantized)."
     install_failed: "Prompt Guard 2's download failed: {cause}. Check the token (Llama 4 Community licence accepted?) and the network, then click « Install » again."
+    licence_refused: "Access to Meta's official model refused: first accept the Llama 4 Community licence on the model's Meta page ({url}), signed in with this token's account, then click « Install » again."
+    licence_unchecked: "Tick « I have accepted the Llama 4 Community licence on Hugging Face » before installing Prompt Guard 2."
+    built_with: "Built with Llama"
   examples:
     toxicity:
       trigger_label: "Try: an insulting message"

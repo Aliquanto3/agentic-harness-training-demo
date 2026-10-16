@@ -1334,6 +1334,9 @@ guardrails:
     model_noun: "von Prompt Guard"
     install_done: "Garde-fou Injection installiert (Prompt Guard 2, 22M, ONNX-quantisiert)."
     install_failed: "Der Download von Prompt Guard 2 ist fehlgeschlagen: {cause}. Prüfen Sie das Token (Llama-4-Community-Lizenz akzeptiert?) und das Netzwerk, und klicken Sie dann erneut auf « Installieren »."
+    licence_refused: "Zugriff auf das offizielle Modell von Meta verweigert: Akzeptieren Sie zuerst die Llama-4-Community-Lizenz auf der Meta-Seite des Modells ({url}), angemeldet mit dem Konto dieses Tokens, und klicken Sie dann erneut auf « Installieren »."
+    licence_unchecked: "Kreuzen Sie « Ich habe die Llama-4-Community-Lizenz auf Hugging Face akzeptiert » an, bevor Sie Prompt Guard 2 installieren."
+    built_with: "Built with Llama"
   examples:
     toxicity:
       trigger_label: "Ausprobieren: beleidigende Nachricht"

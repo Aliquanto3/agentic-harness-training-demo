@@ -140,6 +140,8 @@ main:
     edit_prompt: "Prompt bearbeiten"
     guardrails_install: Installieren
     guardrails_token_placeholder: "Fügen Sie Ihr Hugging-Face-Token ein…"
+    guardrails_licence_link: "Llama-4-Community-Lizenz und Modellseite (Meta)"
+    guardrails_licence_accept: "Ich habe die Llama-4-Community-Lizenz auf Hugging Face akzeptiert"
     groups:
       reads: "Was das Modell liest"
       acts: "Was der Harness tut"

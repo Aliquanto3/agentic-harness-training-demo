@@ -136,6 +136,9 @@ class InstallPromptGuardIntention(BaseModel):
     echoed back (AD-15)."""
 
     token: str
+    # Story 13 review: the brick's « J'ai accepté la licence » box; Meta's gated repo is then
+    # asked with the token before any download (`injection.check_licence`).
+    licence_accepted: bool = False
 
 
 class RagRerankIntention(BaseModel):
@@ -1172,6 +1175,8 @@ def create_app(
         """Story 13, class (b): saves the Hugging Face token (AD-15: never in the answer, the
         journal or the trace) and downloads Prompt Guard 2's ONNX weights."""
         _diagnostic_class_b()
+        if not intention.licence_accepted:
+            raise HTTPException(status_code=409, detail=t("guardrails.injection.licence_unchecked"))
         try:
             message_text = app_session.install_prompt_guard(intention.token)
         except KeyError:

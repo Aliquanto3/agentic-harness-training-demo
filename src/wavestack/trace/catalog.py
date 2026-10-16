@@ -125,6 +125,9 @@ class SessionStatePayload(BaseModel):
     # locks it; absent from the diagnostic session's states.
     language: Literal["fr", "en", "de"] | None = None
     language_locked: bool | None = None
+    # Story 13 review: during `download`/`index_build`, whether « Arrêter » acts (`false` for
+    # `uv sync`, never interrupted midway); absent elsewhere.
+    stoppable: bool | None = None
 
 
 class ArchitectureNode(BaseModel):
@@ -603,6 +606,8 @@ class GuardrailCard(BaseModel):
     examples: list[GuardrailExample] = []
     install_text: str | None = None
     needs_token: bool = False
+    # Story 13 review: « Built with Llama » under `injection` once installed (its licence).
+    note_text: str | None = None
 
 
 class BrickState(BaseModel):

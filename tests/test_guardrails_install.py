@@ -98,7 +98,7 @@ def test_install_prompt_guard_saves_token_then_loads_the_classifier(monkeypatch)
     class FakePromptGuard:
         loaded = False
 
-        def ensure_loaded(self, on_progress=None) -> None:
+        def ensure_loaded(self, on_progress=None, cancel=None) -> None:
             if on_progress is not None:
                 on_progress(1, 1)
             self.loaded = True
@@ -135,7 +135,7 @@ def test_install_prompt_guard_reports_a_download_failure(monkeypatch) -> None:
     session._guardrails_missing = None
 
     class Failing:
-        def ensure_loaded(self, on_progress=None) -> None:
+        def ensure_loaded(self, on_progress=None, cancel=None) -> None:
             raise RuntimeError("401 unauthorized")
 
     session._guardrails = GuardrailsManager({"injection": lambda: Failing()})
@@ -148,3 +148,123 @@ def test_install_prompt_guard_reports_a_download_failure(monkeypatch) -> None:
     assert session._guardrails.injection_ready() is False
     kinds = [e.kind for e in get_journal().events_since(mark)]
     assert "harness_error" in kinds
+
+
+# --- Review of story 13 ---------------------------------------------------------------
+
+
+def test_uv_sync_offers_no_stop_and_targets_this_environment(monkeypatch) -> None:
+    import sys
+    import threading
+
+    session = _session()
+    session._guardrails_missing = "non installés"
+    release = threading.Event()
+    calls: list = []
+
+    def fake_run(args, **kw):
+        calls.append((args, kw))
+        release.wait(5)
+        return subprocess.CompletedProcess(args, 1, "", "proxy refused")
+
+    monkeypatch.setattr("wavestack.session.app_session.subprocess.run", fake_run)
+    mark = get_journal().last_seq()
+    session.install_guardrails_extra()
+    states = [e.payload for e in get_journal().events_since(mark) if e.kind == "session_state"]
+    assert states[-1]["state"] == "download" and states[-1]["stoppable"] is False
+    assert session.stop() is False  # nothing to interrupt: `uv sync` runs to its end
+    release.set()
+    wait_idle(session)
+    [(args, kw)] = calls
+    assert args[1:] == ["sync", "--extra", "guardrails", "--inexact", "--no-install-project"]
+    assert kw["env"]["UV_PROJECT_ENVIRONMENT"] == sys.prefix
+
+
+def test_install_prompt_guard_refused_outside_idle_saves_no_token(monkeypatch) -> None:
+    session = _session()
+    session._guardrails_missing = None
+    saved: list = []
+    monkeypatch.setattr("wavestack.config.write_hf_token", lambda key: saved.append(key))
+    session.state = "turn"
+    with pytest.raises(SendRefused):
+        session.install_prompt_guard("hf_token")
+    assert saved == []
+    session.state = "idle"
+
+
+def test_install_prompt_guard_failure_shows_on_the_card(monkeypatch) -> None:
+    session = _session()
+    session._guardrails_missing = None
+
+    class Failing:
+        loaded = False
+
+        def ensure_loaded(self, on_progress=None, cancel=None) -> None:
+            raise RuntimeError("403 licence")
+
+    session._guardrails = GuardrailsManager({"injection": lambda: Failing()})
+    monkeypatch.setattr("wavestack.config.write_hf_token", lambda key: None)
+    session.install_prompt_guard("hf_token")
+    wait_idle(session)
+    [card] = [c for c in session._guardrails_card() if c["id"] == "injection"]
+    assert card["status"] == "error" and "403 licence" in card["install_text"]
+
+
+def test_install_prompt_guard_stop_reaches_the_download(monkeypatch) -> None:
+    import threading
+
+    from wavestack.models.download import DownloadError
+
+    session = _session()
+    session._guardrails_missing = None
+    started = threading.Event()
+
+    class Slow:
+        loaded = False
+
+        def ensure_loaded(self, on_progress=None, cancel=None) -> None:
+            started.set()
+            for _ in range(500):
+                if cancel.cancelled:
+                    raise DownloadError("stopped", cancelled=True)
+                time.sleep(0.01)
+
+    session._guardrails = GuardrailsManager({"injection": lambda: Slow()})
+    monkeypatch.setattr("wavestack.config.write_hf_token", lambda key: None)
+    mark = get_journal().last_seq()
+    session.install_prompt_guard("hf_token")
+    assert started.wait(5)
+    assert session.stop() is True
+    wait_idle(session)
+    events = get_journal().events_since(mark)
+    effects = [e.payload["effect"] for e in events if e.kind == "effect_applied"]
+    assert "model_download_stopped" in effects
+    assert "harness_error" not in [e.kind for e in events]
+    assert session._guardrails.load_error("injection") is None
+
+
+def test_install_prompt_guard_route_requires_the_licence_box(monkeypatch) -> None:
+    from starlette.testclient import TestClient
+
+    from wavestack import config
+    from wavestack.session.diagnostic import DiagnosticSession
+    from wavestack.web.app import create_app
+
+    session = _session()
+    session._guardrails_missing = None
+    saved: list = []
+    monkeypatch.setattr("wavestack.config.write_hf_token", lambda key: saved.append(key))
+    app = create_app(
+        DiagnosticSession(config.load_config(), port=8421),
+        port=8421,
+        version="test",
+        app_session=session,
+    )
+    client = TestClient(app, base_url="http://127.0.0.1:8421")
+    answer = client.post(
+        "/api/intentions/install_prompt_guard",
+        json={"token": "hf_x"},
+        headers={"origin": "http://127.0.0.1:8421"},
+    )
+    assert answer.status_code == 409 and saved == []
+    assert "hf_x" not in answer.text

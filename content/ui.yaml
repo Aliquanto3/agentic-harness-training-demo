@@ -152,6 +152,8 @@ main:
     # Story 13, `guardrails` brick only: the extra's and Prompt Guard's « Installer ».
     guardrails_install: Installer
     guardrails_token_placeholder: "Collez votre jeton Hugging Face…"
+    guardrails_licence_link: "Licence Llama 4 Community et page du modèle (Meta)"
+    guardrails_licence_accept: "J'ai accepté la licence Llama 4 Community sur Hugging Face"
     groups:
       reads: "Ce que le modèle lit"
       acts: "Ce que le harnais fait"
