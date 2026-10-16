@@ -7,7 +7,8 @@ explanation_text:
   - >-
     Das Kurzzeitgedächtnis verschwindet mit der Unterhaltung. Das globale Gedächtnis dagegen
     bleibt: Der Harness speichert einige Informationen in einer lokalen Datei, memory.json,
-    und setzt sie zu Beginn jeder Unterhaltung in die Systemnachricht.
+    und setzt sie zu Beginn jeder Unterhaltung in die Systemnachricht (die Anweisungen, die
+    das Modell vor Ihren Nachrichten erhält).
   - >-
     Das Modell erinnert sich an nichts: Es schreibt ins Gedächtnis, indem es ein Tool des
     Harness aufruft, remember, und der Harness schreibt die Datei. Sie können auch einen
@@ -25,5 +26,5 @@ explanation_text:
     „Gedächtnis bearbeiten“) steht sofort in der Datei, kommt aber erst in der nächsten
     Unterhaltung in die Systemnachricht: nach „Unterhaltung leeren“ oder einem
     Szenariowechsel. Löschen oder Ändern wirkt dagegen sofort. So bleibt die Systemnachricht
-    von Runde zu Runde gleich, und die Engine verwendet ihren Cache wieder, statt den ganzen
-    Kontext neu zu lesen. „Zurücksetzen“ stellt das Demo-Gedächtnis wieder her.
+    von Runde zu Runde gleich, und die Engine verwendet ihren Cache (ihre bereits erledigte
+    Lektüre des Kontextanfangs) wieder, statt den ganzen Kontext neu zu lesen. „Zurücksetzen“ stellt das Demo-Gedächtnis wieder her.

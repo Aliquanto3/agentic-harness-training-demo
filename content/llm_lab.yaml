@@ -4,6 +4,7 @@
 
 title_text: "Atelier LLM : l'intérieur du modèle"
 intro_text: >-
+  Un LLM (Large Language Model, grand modèle de langage) est le modèle qui écrit le texte.
   Ici, aucune brique : ni prompt système, ni historique, ni outil, ni mémoire. On regarde ce
   que fait le modèle lui-même : découper le texte en tokens, les transformer en vecteurs,
   puis produire une réponse, token par token. Cet écran travaille sur le modèle actif de
@@ -24,15 +25,19 @@ sections:
     questions_text:
       - "Pourquoi le modèle ne lit-il pas des mots ?"
       - "Combien de tokens pour une phrase en français, et pour un emoji ?"
-      - "Qu'est-ce qu'un token spécial, et pourquoi le gabarit en ajoute-t-il ?"
+      - "Qu'est-ce qu'un token spécial, et pourquoi le gabarit (la mise en forme des messages propre au modèle) en ajoute-t-il ?"
       - "Que devient l'identifiant d'un token dans le modèle ?"
   sampling:
     title_text: "Réglages d'échantillonnage"
     intro_text: >-
-      À chaque pas, le modèle donne une probabilité à chaque token du vocabulaire. Ces
-      réglages décident comment le token suivant est tiré parmi eux. L'ordre décrit ici est
-      celui de llama.cpp (moteur de WaveStack, llama-server, Ollama) : top-k, puis top-p, puis
-      min-p, puis la température ; un fournisseur cloud peut appliquer les siens autrement.
+      À chaque pas, le modèle donne une probabilité à chaque token du vocabulaire.
+      L'échantillonnage est le tirage au sort du token suivant parmi eux ; ces réglages
+      décident comment il se fait. L'ordre décrit ici est
+      celui de llama.cpp (moteur de WaveStack, llama-server, Ollama) : top-k (ne garder que
+      les tokens les plus probables), puis top-p (ne garder qu'un groupe de tokens qui totalise
+      une probabilité donnée), puis min-p (écarter les tokens trop improbables), puis la
+      température (resserre ou étale les probabilités) ; un fournisseur cloud peut appliquer
+      les siens autrement.
     questions_text:
       - "Pourquoi le même prompt donne-t-il deux réponses différentes ?"
       - "La température change-t-elle les probabilités du modèle, ou seulement le tirage ?"
@@ -50,7 +55,8 @@ sections:
   reading:
     title_text: "Lecture du prompt"
     intro_text: >-
-      Le prompt est rendu avec le gabarit du modèle, puis lu d'un bloc : c'est le temps
+      Le prompt est rendu avec le gabarit du modèle (la mise en forme qui encadre chaque
+      message de marqueurs propres à ce modèle), puis lu d'un bloc : c'est le temps
       d'attente avant le premier token.
     questions_text:
       - "Qu'envoie-t-on vraiment au modèle ?"
@@ -126,7 +132,7 @@ stages:
       Pour votre texte, WaveStack donne seulement l'estimation ci-contre.
   transfo:
     title_text: "TRANSFORMATION"
-    subtitle_text: "les nombres traversent les couches du modèle"
+    subtitle_text: "les nombres traversent les couches (les étages de calcul) du modèle"
     tag_text: "Illustratif · vraies dimensions"
     link_text: "le vecteur du dernier token est comparé à tout le vocabulaire"
     steps:
@@ -146,7 +152,8 @@ stages:
       mlp:
         title_text: "Couche 1 · MLP : chaque token, seul, passe dans un réseau plus large"
         text_text: >-
-          Le vecteur passe dans un petit réseau de neurones : il s'élargit (plus de neurones),
+          Le MLP (perceptron multicouche) est un petit réseau de neurones. Le vecteur y
+          passe : il s'élargit (plus de neurones),
           quelques neurones s'allument, puis il revient à sa taille. C'est là que le modèle
           ajoute des connaissances apprises. Le même réseau s'applique à chaque token,
           séparément.
@@ -189,8 +196,9 @@ stages:
       table_text: "Table d'embedding"
       table_rows_text: "{vocabulaire} lignes × {dimension}"
       attention_text: >-
-        Dessiné : ce que {dernier} regarde, pour une tête d'attention (en vrai : {tetes},
-        chaque token fait de même).
+        Dessiné : ce que {dernier} regarde, pour une seule tête d'attention (une couche
+        regarde de plusieurs façons en parallèle, une par tête ; en vrai : {tetes}, chaque
+        token fait de même).
       self_text: "{p} lui-même"
       mlp_title_text: "MLP · {entree} → {cachee} → {entree} neurones"
       mlp_real_text: "en vrai : {mlp}"
@@ -216,7 +224,7 @@ stages:
       layers_text: "{couches} couches, chacune : attention ({tetes}) puis MLP ({mlp})"
       layers_unknown_text: "chaque couche : attention ({tetes}) puis MLP ({mlp})"
       heads_text: "{tetes} têtes d'attention"
-      heads_kv_text: "{tetes} têtes d'attention, {kv} K/V"
+      heads_kv_text: "{tetes} têtes d'attention, {kv} K/V (têtes de clés et de valeurs, partagées entre elles)"
       mlp_text: "{dimension} → {largeur} → {dimension}"
       moe_text: "{experts} experts de {dimension} → {largeur} → {dimension}, {actifs} actifs par token"
       moe_any_text: "{experts} experts de {dimension} → {largeur} → {dimension}"
@@ -251,7 +259,8 @@ stages:
       Le MLP de {modele} est un mélange de {experts} experts : pour chaque token, un routeur en
       choisit quelques-uns. Le schéma en dessine 6, dont 2 actifs.
     unknown_architecture_text: >-
-      Architecture non lue pour ce modèle : schéma du transformeur décodeur dense par défaut.
+      Architecture non lue pour ce modèle : schéma par défaut du transformeur décodeur dense
+      (l'architecture la plus courante des LLM).
   output:
     title_text: "OUTPUT"
     subtitle_text: "du vecteur au token suivant"
@@ -261,7 +270,7 @@ stages:
         title_text: "Logits."
         text_text: >-
           Le vecteur du dernier token est comparé à chaque token du vocabulaire : un score
-          chacun, ramené en probabilité. Le modèle n'a encore rien choisi.
+          chacun (les logits), ramené en probabilité. Le modèle n'a encore rien choisi.
       draw:
         title_text: "Tirage."
         text_text: >-

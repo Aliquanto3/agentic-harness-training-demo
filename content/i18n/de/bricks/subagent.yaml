@@ -14,7 +14,7 @@ explanation_text:
       Nur sein Ergebnis kommt in den Hauptkontext zurück, als „Ergebnis des Sub-Agenten“:
       Die Tokens des Dokuments bleiben im Kontext des Sub-Agenten.
     - >-
-      Das Modell entscheidet zu delegieren, indem es das Meta-Tool delegate aufruft; „An
+      Das Modell entscheidet zu delegieren, indem es delegate aufruft, ein Meta-Tool (ein Tool, das die Aufgabe übergibt, ohne selbst zu handeln); „An
       den Sub-Agenten delegieren“ erzwingt die Delegation in der nächsten Runde.
     - >-
       Grenzen: Die Delegation kostet die Hauptrunde den Modellaufruf, der sie angefordert

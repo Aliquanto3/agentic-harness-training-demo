@@ -4,14 +4,18 @@ category_text: context engineering
 hosting_text: Local
 explanation_text:
   - >-
-    Le RAG, ce n'est pas le modèle qui sait : c'est le harnais qui cherche. À chaque tour,
-    avant d'appeler le modèle, le harnais cherche dans un corpus les passages les plus
-    proches de votre question, puis les place dans votre message, juste avant la question.
+    Le RAG (Retrieval-Augmented Generation : une réponse nourrie par une recherche dans des
+    documents), ce n'est pas le modèle qui sait : c'est le harnais qui cherche. À chaque tour,
+    avant d'appeler le modèle, le harnais cherche dans un corpus (l'ensemble des documents
+    fournis) les passages les plus proches de votre question, puis les place dans votre
+    message, juste avant la question.
   - >-
-    La recherche est sémantique : un petit modèle d'embedding, local, transforme la question
-    en vecteur, et l'index (rag_index.sqlite) renvoie les extraits dont le vecteur est le plus
-    proche. Le score va de 0 à 1 (1 moins la distance cosinus, ramené à 0 quand les vecteurs
-    s'opposent) ; aucun seuil n'est appliqué : les extraits partent même quand ils ne
+    La recherche est sémantique (par le sens, pas par les mots exacts) : un petit modèle
+    d'embedding, local, transforme la question en vecteur (une liste de nombres qui résume
+    son sens), et l'index (rag_index.sqlite) renvoie les extraits dont le vecteur est le plus
+    proche. Le score va de 0 à 1 : plus il est proche de 1, plus l'extrait ressemble à la
+    question (une similarité cosinus : elle monte quand les deux vecteurs pointent dans la
+    même direction) ; aucun seuil n'est appliqué : les extraits partent même quand ils ne
     répondent pas.
   - - "Gain : le modèle répond à partir de documents qu'il n'a jamais vus à l'entraînement."
     - >-

@@ -6,8 +6,9 @@ hosting_text: Lokal
 explanation_text:
   - >-
     Manche Modelle können „laut denken“, bevor sie antworten: Sie schreiben zuerst einen
-    Denkprozess, dann die Antwort. Der Harness schaltet diesen Modus lokal über eine
-    Variable der Chat-Vorlage ein, in der Cloud über einen Parameter der Anfrage.
+    Denkprozess, dann die Antwort. Der Harness (der gesamte Code rund um das Modell)
+    schaltet diesen Modus lokal über eine Variable der Chat-Vorlage (der modelleigenen
+    Formatierung der Nachrichten) ein, in der Cloud über einen Parameter der Anfrage.
   - >-
     Der Denkprozess ist im LLM-Kontext immer sichtbar. In der Nutzeransicht zeigt oder
     verbirgt ihn die Option „Denkprozess anzeigen“, wie es Chatbots tun.

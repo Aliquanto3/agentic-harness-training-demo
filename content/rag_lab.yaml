@@ -4,9 +4,13 @@
 
 title_text: "Atelier RAG : l'architecture RAG à manipuler"
 intro_text: >-
-  Un RAG en deux temps : l'indexation (build) range une fois pour toutes les chunks du corpus
-  dans un vector store ; la requête (run), à chaque question, y cherche les chunks utiles et les
-  place dans le prompt du modèle. Lancez la chaîne sur une question pour voir ce que chaque
+  Un RAG (Retrieval-Augmented Generation : le modèle répond à partir de passages retrouvés
+  dans des documents) fonctionne en deux temps. L'indexation (build) découpe une fois pour
+  toutes le corpus, l'ensemble des documents à interroger, en chunks (des morceaux de
+  quelques paragraphes), et range leurs vecteurs (des listes de nombres qui résument le
+  sens d'un texte) dans un vector store (une base qui retrouve vite les vecteurs les plus
+  proches). La requête (run), à chaque question, y cherche les chunks utiles et les place
+  dans le prompt du modèle. Lancez la chaîne sur une question pour voir ce que chaque
   étape reçoit, produit, et ce qu'elle coûte. C'est un bac à sable : la brique RAG de l'atelier
   ne change pas.
 busy_text: "Indisponible pour l'instant : {raison}"
@@ -15,8 +19,9 @@ chain_title_text: "La chaîne RAG, étape par étape"
 chain_help_text: >-
   La séquence des étapes, les composants qu'elle sollicite et le focus sur l'étape choisie. En
   mode Dérouler, les étapes et leurs composants arrivent un à un, à la main (◀ ▶) ou au fil
-  d'une exécution. En mode Composer, les étapes du segment de récupération (Dense retrieval,
-  BM25, Fusion, Reranking) se retirent, s'ajoutent et se déplacent ; la Generation envoie le
+  d'une exécution. En mode Composer, les étapes du segment de récupération (Dense retrieval :
+  recherche par le sens ; BM25 : recherche par mots-clés ; Fusion des deux classements ;
+  Reranking : nouveau tri par un second modèle) se retirent, s'ajoutent et se déplacent ; la Generation envoie le
   prompt augmenté au modèle actif de l'atelier, ou ne génère pas si vous le choisissez.
 
 question_label_text: "Question"
@@ -120,7 +125,9 @@ stages:
     label_text: "Dense retrieval"
     explain_text: >-
       Le vector store rend les chunks dont le vecteur est le plus proche de celui de la
-      question (similarité cosinus), sans seuil : les k plus proches, pertinents ou non.
+      question (similarité cosinus : un score qui monte quand les deux vecteurs pointent dans
+      la même direction), sans seuil : les k plus proches (k, le nombre de chunks demandés),
+      pertinents ou non.
   lexical_search:
     label_text: "BM25"
     explain_text: >-
@@ -153,7 +160,7 @@ stages:
   generation:
     label_text: "Generation"
     explain_text: >-
-      Le LLM lit le prompt augmenté et répond en s'appuyant sur les chunks. Une bonne réponse
+      Le LLM (le grand modèle de langage qui rédige la réponse) lit le prompt augmenté et répond en s'appuyant sur les chunks. Une bonne réponse
       dépend de ce que les étapes précédentes lui ont apporté. Ici, c'est le modèle actif de
       l'atelier qui répond, avec le prompt système de l'atelier et les bornes d'un tour (réserve
       de sortie, budget de raisonnement) ; la réponse ne rejoint pas la conversation.
@@ -242,7 +249,8 @@ steps:
     action_text: "Construire l'index lexical (BM25) des chunks"
     explain_text: >-
       BM25 n'a pas de modèle appris : c'est un algorithme statistique. À l'indexation, il
-      découpe chaque chunk en termes (casse, accents et mots vides ignorés, sigles gardés),
+      découpe chaque chunk en termes (casse — majuscules et minuscules —, accents et mots
+      vides ignorés, sigles gardés),
       compte combien de fois chaque terme y paraît et la longueur du chunk, puis, pour chaque
       terme, combien de
       chunks le contiennent (sa fréquence documentaire) : c'est l'index inversé, comme celui

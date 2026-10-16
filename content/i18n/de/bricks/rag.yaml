@@ -5,15 +5,19 @@ category_text: Context Engineering
 hosting_text: Lokal
 explanation_text:
   - >-
-    Beim RAG weiß nicht das Modell Bescheid: Der Harness sucht. In jeder Runde sucht der
-    Harness vor dem Modellaufruf in einem Korpus die Passagen, die Ihrer Frage am nächsten
+    Beim RAG (Retrieval-Augmented Generation: eine Antwort, die auf einer Suche in
+    Dokumenten beruht) weiß nicht das Modell Bescheid: Der Harness sucht. In jeder Runde
+    sucht der Harness vor dem Modellaufruf in einem Korpus (der Gesamtheit der
+    bereitgestellten Dokumente) die Passagen, die Ihrer Frage am nächsten
     sind, und setzt sie in Ihre Nachricht, direkt vor die Frage.
   - >-
-    Die Suche ist semantisch: Ein kleines, lokales Embedding-Modell wandelt die Frage in
-    einen Vektor um, und der Index (rag_index.sqlite) liefert die Auszüge, deren Vektor am
-    nächsten liegt. Der Score reicht von 0 bis 1 (1 minus die Kosinus-Distanz, auf 0
-    gesetzt, wenn die Vektoren entgegengesetzt sind); es gilt keine Schwelle: Die Auszüge
-    gehen mit, auch wenn sie die Frage nicht beantworten.
+    Die Suche ist semantisch (nach dem Sinn, nicht nach den genauen Wörtern): Ein kleines,
+    lokales Embedding-Modell wandelt die Frage in einen Vektor um (eine Liste von Zahlen, die
+    ihren Sinn zusammenfasst), und der Index (rag_index.sqlite) liefert die Auszüge, deren Vektor am
+    nächsten liegt. Der Score reicht von 0 bis 1: Je näher an 1, desto ähnlicher ist der
+    Auszug der Frage (eine Kosinus-Ähnlichkeit: Sie steigt, wenn die beiden Vektoren in
+    dieselbe Richtung zeigen); es gilt keine Schwelle: Die Auszüge gehen mit, auch wenn sie die
+    Frage nicht beantworten.
   - - "Nutzen: Das Modell antwortet anhand von Dokumenten, die es im Training nie gesehen hat."
     - >-
       Kosten: Die Auszüge belegen in jeder Runde Kontext, und ein Embedding-Modell wird

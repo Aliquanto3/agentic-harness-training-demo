@@ -12,7 +12,8 @@ explanation_text:
       déclenche pas, seuls son nom et sa description occupent le contexte, sur
       une ligne du message système.
   - >-
-    Quand une demande s'y prête, le modèle appelle le méta-outil load_skill : le
+    Quand une demande s'y prête, le modèle appelle load_skill, un méta-outil (un outil
+    qui sert à charger d'autres instructions, pas à agir) : le
     harnais lui répond avec les instructions complètes, qui s'appliquent aussitôt,
     puis les place dans le message système aux tours suivants (l'historique n'en
     garde qu'un court talon). C'est le chargement progressif : on paie les tokens

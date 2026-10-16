@@ -3,6 +3,7 @@
 
 title_text: "LLM workshop: inside the model"
 intro_text: >-
+  An LLM (Large Language Model) is the model that writes the text.
   No bricks here: no system prompt, no history, no tools, no memory. We look at what the
   model does by itself: split the text into tokens, turn them into vectors, then produce
   an answer, token by token. This screen works on the workshop's active model, without
@@ -22,15 +23,19 @@ sections:
     questions_text:
       - "Why does the model not read words?"
       - "How many tokens for a sentence in English, and for an emoji?"
-      - "What is a special token, and why does the template add some?"
+      - "What is a special token, and why does the template (the model's own formatting of messages) add some?"
       - "What becomes of a token's identifier inside the model?"
   sampling:
     title_text: "Sampling settings"
     intro_text: >-
-      At each step, the model gives a probability to every token in the vocabulary. These
-      settings decide how the next token is drawn from them. The order described here is
-      llama.cpp's (the engine of WaveStack, llama-server and Ollama): top-k, then top-p, then
-      min-p, then temperature; a cloud provider may apply its own differently.
+      At each step, the model gives a probability to every token in the vocabulary.
+      Sampling is the random draw of the next token from them; these settings decide how it
+      is done. The order described here is
+      llama.cpp's (the engine of WaveStack, llama-server and Ollama): top-k (keep only the
+      most probable tokens), then top-p (keep a group of tokens that adds up to a given
+      probability), then min-p (drop tokens that are too unlikely), then temperature
+      (flattens or sharpens the probabilities); a cloud provider may apply its own
+      differently.
     questions_text:
       - "Why does the same prompt give two different answers?"
       - "Does the temperature change the model's probabilities, or only the draw?"
@@ -48,7 +53,8 @@ sections:
   reading:
     title_text: "Reading the prompt"
     intro_text: >-
-      The prompt is rendered with the model's template, then read in one block: this is the
+      The prompt is rendered with the model's template (the formatting that frames each
+      message with markers specific to this model), then read in one block: this is the
       wait before the first token.
     questions_text:
       - "What is really sent to the model?"
@@ -122,7 +128,7 @@ stages:
       text, WaveStack only gives the estimate alongside.
   transfo:
     title_text: "TRANSFORMATION"
-    subtitle_text: "the numbers go through the model's layers"
+    subtitle_text: "the numbers go through the model's layers (its stages of computation)"
     tag_text: "Illustrative · real dimensions"
     link_text: "the last token's vector is compared with the whole vocabulary"
     steps:
@@ -142,7 +148,8 @@ stages:
       mlp:
         title_text: "Layer 1 · MLP: each token, alone, goes through a wider network"
         text_text: >-
-          The vector goes through a small neural network: it widens (more neurons), a few
+          The MLP (multilayer perceptron) is a small neural network. The vector goes
+          through it: it widens (more neurons), a few
           neurons light up, then it comes back to its size. This is where the model adds
           learned knowledge. The same network applies to each token, separately.
       attention_2:
@@ -184,8 +191,9 @@ stages:
       table_text: "Embedding table"
       table_rows_text: "{vocabulaire} rows × {dimension}"
       attention_text: >-
-        Drawn: what {dernier} looks at, for one attention head (in reality: {tetes}, every
-        token does the same).
+        Drawn: what {dernier} looks at, for a single attention head (a layer looks in
+        several ways in parallel, one per head; in reality: {tetes}, every token does the
+        same).
       self_text: "{p} itself"
       mlp_title_text: "MLP · {entree} → {cachee} → {entree} neurons"
       mlp_real_text: "in reality: {mlp}"
@@ -210,7 +218,7 @@ stages:
       layers_text: "{couches} layers, each: attention ({tetes}) then MLP ({mlp})"
       layers_unknown_text: "each layer: attention ({tetes}) then MLP ({mlp})"
       heads_text: "{tetes} attention heads"
-      heads_kv_text: "{tetes} attention heads, {kv} K/V"
+      heads_kv_text: "{tetes} attention heads, {kv} K/V (key and value heads, shared between them)"
       mlp_text: "{dimension} → {largeur} → {dimension}"
       moe_text: "{experts} experts of {dimension} → {largeur} → {dimension}, {actifs} active per token"
       moe_any_text: "{experts} experts of {dimension} → {largeur} → {dimension}"
@@ -245,7 +253,7 @@ stages:
       few. The diagram draws 6 of them, 2 active.
     unknown_architecture_text: >-
       Architecture not read for this model: the dense decoder transformer's diagram by
-      default.
+      default (the most common architecture of LLMs).
   output:
     title_text: "OUTPUT"
     subtitle_text: "from the vector to the next token"
@@ -255,7 +263,7 @@ stages:
         title_text: "Logits."
         text_text: >-
           The last token's vector is compared with each token of the vocabulary: one score
-          each, turned into a probability. The model has chosen nothing yet.
+          each (the logits), turned into a probability. The model has chosen nothing yet.
       draw:
         title_text: "Draw."
         text_text: >-

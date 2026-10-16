@@ -13,7 +13,7 @@ explanation_text:
       Only its result comes back into the main context, as “Sub-agent result”: the
       document's tokens stay in the sub-agent's context.
     - >-
-      The model decides to delegate by calling the delegate meta-tool; “Delegate to the
+      The model decides to delegate by calling delegate, a meta-tool (a tool that hands over the task without acting itself); “Delegate to the
       sub-agent” forces the delegation at the next turn.
     - >-
       Bounds: the delegation costs the main turn the model call that requested it; the

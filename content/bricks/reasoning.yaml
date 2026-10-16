@@ -5,8 +5,9 @@ hosting_text: Local
 explanation_text:
   - >-
     Certains modèles savent « réfléchir à voix haute » avant de répondre : ils écrivent
-    d'abord un raisonnement, puis la réponse. Le harnais allume ce mode en local par une
-    variable du gabarit de conversation, en cloud par un paramètre de la requête.
+    d'abord un raisonnement, puis la réponse. Le harnais (tout le code autour du modèle)
+    allume ce mode en local par une variable du gabarit de conversation (la mise en forme
+    des messages propre au modèle), en cloud par un paramètre de la requête.
   - >-
     Le raisonnement est toujours visible dans Contexte LLM. Dans la Vue humain, l'option
     « Afficher le raisonnement » le montre ou le masque, comme le font les chatbots.

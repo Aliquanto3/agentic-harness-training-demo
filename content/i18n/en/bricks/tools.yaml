@@ -16,5 +16,5 @@ explanation_text:
 # (declared network tools) and {servers} (public MCP servers).
 outbound_text: >-
   May leave the workstation: {tools}, as well as the public MCP servers ({servers}) of the
-  MCP brick. What they send (address, headers, body): Orchestration pane, “🌐 Outbound
+  MCP brick (Model Context Protocol, a common format for plugging in external tools). What they send (address, headers, body): Orchestration pane, “🌐 Outbound
   data” block of their step; a click on their 🌐 node in the diagram leads there.

@@ -12,7 +12,8 @@ explanation_text:
       Nor is it the system prompt: as long as the model does not trigger it, only its
       name and description take up context, on one line of the system message.
   - >-
-    When a request calls for it, the model calls the load_skill meta-tool: the harness
+    When a request calls for it, the model calls load_skill, a meta-tool (a tool that
+    loads other instructions, rather than acting): the harness
     answers with the full instructions, which apply at once, then places them in the
     system message at the following turns (the history keeps only a short stub of them).
     This is progressive loading: you pay for a skill's tokens only when it is used. Once

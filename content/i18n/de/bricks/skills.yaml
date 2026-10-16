@@ -12,7 +12,8 @@ explanation_text:
       Er ist auch nicht der System-Prompt: Solange das Modell ihn nicht auslöst, belegen
       nur sein Name und seine Beschreibung Kontext, in einer Zeile der Systemnachricht.
   - >-
-    Wenn eine Anfrage passt, ruft das Modell das Meta-Tool load_skill auf: Der Harness
+    Wenn eine Anfrage passt, ruft das Modell load_skill auf, ein Meta-Tool (ein Tool, das
+    weitere Anweisungen lädt, statt zu handeln): Der Harness
     antwortet ihm mit den vollständigen Anweisungen, die sofort gelten, und setzt sie in den
     folgenden Runden in die Systemnachricht (der Verlauf behält davon nur einen kurzen
     Platzhalter). Das ist das schrittweise Laden: Man bezahlt die Tokens eines Skills nur,
