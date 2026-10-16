@@ -1,0 +1,499 @@
+<title>Maquette WaveStack vague 2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Fredoka:wght@500;600&family=JetBrains+Mono&display=swap">
+<style>
+/* Jetons repris de src/wavestack/web/static/tokens.css (clair, puis sombre). */
+:root {
+  --primary: #451DC7; --primary-deep: #250F6B; --primary-soft: #EDE7FE;
+  --accent: #04F06A; --accent-soft: #CAFEE0;
+  --ink: #0A0A14; --ink-soft: #4A4A5E; --muted: #6E6E84; --line: #E6E6EC;
+  --surface: #F6F5FA; --raised: #FFFFFF; --relief: #D9D0F6;
+  --warning: #FFCA4A; --warning-soft: #FFF4D6; --danger: #D9123A; --danger-soft: #FDE8EB;
+  --ok-ink: #046B32; --on-primary: #FFFFFF; --mock: #8A8A9E;
+  --r-sm: 12px; --r-md: 18px; --r-lg: 26px;
+  --f-title: Fredoka, system-ui, sans-serif;
+  --f-body: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --f-code: 'JetBrains Mono', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --primary: #9C86FF; --primary-deep: #C9BDFF; --primary-soft: #2A2350; --accent-soft: #0F3A24;
+    --ink: #ECEBF5; --ink-soft: #B4B3C7; --muted: #9A9AAE; --line: #3A394F;
+    --surface: #12121C; --raised: #1E1D2C; --relief: #2A2156;
+    --warning-soft: #3A3014; --danger: #FF6B7F; --danger-soft: #3A1820; --ok-ink: #5BF59B; --on-primary: #0E0B1E;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --primary: #9C86FF; --primary-deep: #C9BDFF; --primary-soft: #2A2350; --accent-soft: #0F3A24;
+  --ink: #ECEBF5; --ink-soft: #B4B3C7; --muted: #9A9AAE; --line: #3A394F;
+  --surface: #12121C; --raised: #1E1D2C; --relief: #2A2156;
+  --warning-soft: #3A3014; --danger: #FF6B7F; --danger-soft: #3A1820; --ok-ink: #5BF59B; --on-primary: #0E0B1E;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--surface); color: var(--ink); font: 400 14px/1.5 var(--f-body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 12px 56px; display: grid; gap: 16px; }
+h2, h3 { font-family: var(--f-title); font-weight: 600; margin: 0; text-wrap: balance; }
+h2 { font-size: 18px; line-height: 1.15; } h3 { font-size: 15px; }
+p { margin: 0; }
+.sub { color: var(--ink-soft); font-size: 13px; }
+.note { font-size: 12px; color: var(--muted); }
+.num { font-family: var(--f-title); font-weight: 600; font-variant-numeric: tabular-nums; }
+.code { font-family: var(--f-code); font-size: 12px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent); border-radius: 8px; }
+ul.plain { list-style: none; margin: 0; padding: 0; }
+
+/* Bandeau de la maquette (hors appli) */
+.mock-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 14px; border: 1.5px dashed var(--mock); border-radius: var(--r-sm); color: var(--ink-soft); font-size: 13px; }
+.mock-bar strong { font-family: var(--f-title); color: var(--ink); font-weight: 600; }
+.mock-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.mock-tabs button { border: 1px solid var(--line); background: var(--raised); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+.mock-tabs button[aria-selected="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+
+/* Barre commune */
+.top { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; background: var(--raised); border-radius: var(--r-md); padding: 10px 16px; box-shadow: 0 4px 0 var(--relief); }
+.brand { font-family: var(--f-title); font-weight: 600; font-size: 18px; color: var(--primary); }
+.nav { display: flex; flex-wrap: wrap; gap: 4px; }
+.nav button { border: 0; background: none; padding: 4px 10px; border-radius: 999px; font-family: var(--f-title); font-weight: 500; font-size: 14px; color: var(--ink-soft); }
+.nav button.on { background: var(--primary-soft); color: var(--primary-deep); }
+.spacer { flex: 1; }
+.barbtn { border: 0; background: var(--surface); border-radius: 999px; padding: 5px 12px; font-size: 13px; color: var(--ink-soft); display: inline-flex; gap: 6px; align-items: center; }
+.barbtn[aria-expanded="true"] { box-shadow: inset 0 0 0 1.5px var(--primary); color: var(--ink); }
+.saved { color: var(--ok-ink); font-family: var(--f-title); font-weight: 600; }
+.count { background: var(--danger); color: #fff; font-family: var(--f-title); font-weight: 600; font-size: 12px; border-radius: 999px; padding: 0 7px; }
+.flyout { position: absolute; right: 12px; top: calc(100% + 8px); z-index: 10; width: min(460px, calc(100% - 24px)); background: var(--raised); border-radius: var(--r-md); padding: 14px; box-shadow: 0 0 0 1px var(--line), 0 14px 30px rgba(10,10,20,.2); display: grid; gap: 10px; }
+.flyout-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.link { border: 0; background: none; color: var(--primary); text-decoration: underline; text-underline-offset: 2px; padding: 0; font-size: 13px; }
+.new { font-family: var(--f-title); font-size: 11px; font-weight: 600; color: var(--primary); background: var(--primary-soft); border-radius: 999px; padding: 1px 8px; margin-left: 6px; vertical-align: 2px; }
+
+/* Panneaux */
+.pane { background: var(--raised); border-radius: var(--r-lg); padding: 18px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.pane-h { display: grid; gap: 2px; }
+.grid2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); align-items: start; }
+.harness { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 1000px) { .harness { grid-template-columns: 1fr; } }
+.chip { display: inline-block; font-family: var(--f-title); font-size: 12px; font-weight: 500; border-radius: 999px; padding: 1px 9px; white-space: nowrap; }
+.chip.low { background: var(--accent-soft); color: var(--ok-ink); }
+.chip.mid { background: var(--warning-soft); color: var(--ink); box-shadow: inset 0 0 0 1px var(--warning); }
+.chip.high { background: var(--danger-soft); color: var(--danger); }
+.chip.off { background: var(--surface); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
+.btn { border: 0; border-radius: 999px; padding: 7px 16px; background: var(--primary); color: var(--on-primary); font-family: var(--f-title); font-weight: 500; box-shadow: 0 3px 0 var(--primary-deep); }
+.btn.ghost { background: var(--raised); color: var(--primary); box-shadow: inset 0 0 0 1.5px var(--primary); }
+.btn.sm { padding: 3px 12px; font-size: 13px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.between { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+
+/* Dépli sur place : le motif unique de la vague 2 */
+.dl { display: grid; gap: 6px; }
+.item { border-radius: var(--r-sm); background: var(--surface); }
+.item-h { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 10px 7px 6px; }
+.chev { border: 0; background: none; width: 26px; height: 26px; border-radius: 8px; color: var(--ink); font-size: 16px; line-height: 1; }
+.chev::before { content: "▸"; display: inline-block; }
+.chev[aria-expanded="true"]::before { transform: rotate(90deg); }
+.item-b { margin: 0 10px 10px 40px; padding: 10px 12px; border-radius: 10px; background: var(--raised); box-shadow: inset 3px 0 0 var(--primary); display: grid; gap: 6px; font-size: 13px; }
+dl.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 0; font-size: 12.5px; }
+dl.kv dt { color: var(--muted); } dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+pre { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--surface); overflow-x: auto; font-family: var(--f-code); font-size: 11.5px; line-height: 1.45; }
+.t { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; margin-right: 6px; }
+
+/* Page Sécurité */
+.qs { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+.q { border-radius: var(--r-md); background: var(--surface); padding: 14px; display: grid; gap: 6px; align-content: start; }
+.q .big { font-family: var(--f-title); font-size: 26px; font-weight: 600; line-height: 1; }
+.q .ask { font-family: var(--f-title); font-weight: 500; color: var(--ink-soft); font-size: 13px; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th { text-align: left; font-family: var(--f-title); font-weight: 500; font-size: 12px; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+
+/* Harnais */
+.brick { border-radius: var(--r-md); background: var(--surface); }
+.brick.dim .item-h { opacity: .6; }
+.brick.new-brick { box-shadow: inset 0 0 0 1.5px var(--primary); }
+.seg { display: inline-flex; border-radius: 999px; background: var(--raised); border: 1px solid var(--line); padding: 2px; gap: 2px; }
+.seg button { border: 0; background: none; border-radius: 999px; padding: 2px 10px; font-family: var(--f-title); font-weight: 500; font-size: 12px; color: var(--ink-soft); }
+.seg button[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); }
+.seg.rule button[data-v="refuser"][aria-pressed="true"] { background: var(--danger); color: #fff; }
+.seg.rule button[data-v="demander"][aria-pressed="true"] { background: var(--warning); color: #0A0A14; }
+.seg.rule button[data-v="autoriser"][aria-pressed="true"] { background: var(--accent); color: #0A0A14; }
+.guard { display: grid; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.guard:last-child { border: 0; }
+.ex { display: flex; flex-wrap: wrap; gap: 6px; }
+.ex button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; }
+.msg { display: grid; gap: 4px; }
+.who { font-family: var(--f-title); font-size: 12px; font-weight: 500; color: var(--muted); }
+.bubble { border-radius: var(--r-sm); padding: 9px 12px; background: var(--surface); }
+.bubble.me { background: var(--primary-soft); justify-self: end; max-width: 92%; }
+.verdict { border-radius: var(--r-sm); background: var(--danger-soft); box-shadow: inset 3px 0 0 var(--danger); }
+.verdict.mid { background: var(--warning-soft); box-shadow: inset 3px 0 0 var(--warning); }
+mark { background: var(--warning-soft); color: var(--ink); border-radius: 4px; padding: 0 3px; box-shadow: inset 0 0 0 1px var(--warning); }
+
+/* MCP */
+.tool { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.tool:last-child { border: 0; }
+.gh { border-radius: var(--r-md); padding: 14px; background: var(--surface); display: grid; gap: 10px; }
+.code-box { font-family: var(--f-code); font-size: 22px; letter-spacing: .12em; background: var(--raised); border-radius: 10px; padding: 6px 14px; justify-self: start; }
+.seq .item-h .lbl b { font-weight: 700; }
+.from { font-family: var(--f-title); font-size: 12px; color: var(--muted); display: block; }
+.item.refused { background: var(--danger-soft); }
+.item.asking { background: var(--warning-soft); }
+
+/* FinOps */
+.tc { font-family: var(--f-title); font-weight: 500; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.tc.saving { color: var(--ok-ink); }
+.bars { display: grid; gap: 10px; }
+.bar { display: grid; grid-template-columns: 150px minmax(0, 1fr) 70px; gap: 10px; align-items: center; font-size: 13px; }
+.track { height: 18px; background: var(--surface); border-radius: 6px; overflow: hidden; display: flex; }
+.track i { display: block; height: 100%; }
+.s-in { background: var(--primary); } .s-out { background: var(--primary-deep); } .s-sub { background: var(--warning); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-soft); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--surface); padding: 8px 16px; border-radius: 999px; font-size: 13px; max-width: calc(100% - 32px); z-index: 20; }
+@media (max-width: 560px) { .bar { grid-template-columns: 1fr 60px; } .bar .track { grid-column: 1 / -1; grid-row: 2; } .item-b { margin-left: 10px; } }
+</style>
+
+<div class="wrap">
+  <div class="mock-bar" role="navigation" aria-label="Écrans de la maquette">
+    <strong>Maquette vague 2 · v2</strong>
+    <div class="mock-tabs" role="tablist">
+      <button role="tab" data-screen="secu" aria-selected="true">Page Sécurité</button>
+      <button role="tab" data-screen="harnais" aria-selected="false">Harnais : garde-fous</button>
+      <button role="tab" data-screen="mcp" aria-selected="false">MCP : règles et GitHub</button>
+      <button role="tab" data-screen="finops" aria-selected="false">Dépense et économies</button>
+    </div>
+    <span class="note">Vue unique. Détail technique : ▸ pour déplier. Chiffres fictifs.</span>
+  </div>
+
+  <!-- Barre commune -->
+  <header class="top">
+    <span class="brand">WaveStack</span>
+    <nav class="nav" aria-label="Pages">
+      <button data-go="harnais">Harnais</button><button>LLM</button><button>RAG</button><button data-go="mcp">MCP</button><button data-go="secu">Sécurité<span class="new">nouveau</span></button><button>🛠️ Diagnostic</button>
+    </nav>
+    <span class="spacer"></span>
+    <button class="barbtn" id="spend-btn" aria-expanded="false" aria-controls="spend-fly">Dépense <span class="num">💰 0,033 $</span> · <span class="saved">économisé 0,029 $</span></button>
+    <button class="barbtn" id="log-btn" aria-expanded="false" aria-controls="log-fly">Journal <span class="count">3 refus</span></button>
+
+    <div class="flyout" id="log-fly" role="dialog" aria-label="Aperçu du journal de sécurité" hidden>
+      <div class="flyout-h"><h3>Derniers événements</h3><button class="link" data-go="secu">Tout le journal</button></div>
+      <div class="dl" data-log="5"></div>
+    </div>
+    <div class="flyout" id="spend-fly" role="dialog" aria-label="Bilan de la séance" hidden>
+      <div class="flyout-h"><h3>Bilan de la séance</h3><button class="link" data-go="finops">Détail par appel</button></div>
+      <div class="bars">
+        <div class="bar"><span>Sans optimisation</span><span class="track" role="img" aria-label="0,062 dollar"><i class="s-in" style="width:62.7%"></i><i class="s-out" style="width:15.6%"></i><i class="s-sub" style="width:21.7%"></i></span><span class="num">0,062 $</span></div>
+        <div class="bar"><span>Coût réel</span><span class="track" role="img" aria-label="0,033 dollar"><i class="s-in" style="width:15.9%"></i><i class="s-out" style="width:15.6%"></i><i class="s-sub" style="width:21.7%"></i></span><span class="num">0,033 $</span></div>
+      </div>
+      <div class="legend"><span style="--c:var(--primary)">Entrée</span><span style="--c:var(--primary-deep)">Sortie</span><span style="--c:var(--warning)">Sous-agent</span></div>
+      <p class="sub"><b class="saved">−47 %</b> : 0,028 $ grâce au cache de prompt, 0,001 $ grâce à la compression. En local, le cache du modèle a évité 21 s de calcul.</p>
+    </div>
+  </header>
+
+  <!-- ============ Page Sécurité ============ -->
+  <section data-screen-panel="secu" style="display:grid;gap:16px">
+    <div class="pane">
+      <div class="pane-h"><h2>Sécurité du harnais</h2><p class="sub">Ce que le harnais contrôle, refuse et journalise pendant cette séance. Les réglages se font là où ils agissent.</p></div>
+      <div class="qs">
+        <div class="q"><span class="ask">Quels outils peuvent écrire ?</span><span class="big">3</span><span class="sub">créer fichier ou dossier, fusion et création de PR GitHub</span></div>
+        <div class="q"><span class="ask">Qui a autorisé quoi ?</span><span class="big">2</span><span class="sub">autorisations données par vous, une fois chacune</span></div>
+        <div class="q"><span class="ask">Qu'est-ce qui a été bloqué ?</span><span class="big" style="color:var(--danger)">3</span><span class="sub">2 appels d'outil refusés, 1 message bloqué</span></div>
+        <div class="q"><span class="ask">Qu'est-ce qui n'est pas couvert ?</span><span class="big">10</span><span class="sub">limites connues, en bas de page</span></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="pane">
+        <div class="between"><div class="pane-h"><h2>Matrice des risques</h2><p class="sub">Règle appliquée à chaque appel d'outil.</p></div><button class="btn ghost sm" data-go="mcp">Régler dans MCP</button></div>
+        <div class="tbl"><table>
+          <thead><tr><th>Outil</th><th>Nature</th><th>Risque</th><th>Règle</th></tr></thead>
+          <tbody>
+            <tr><td>Glossaire</td><td>lecture</td><td><span class="chip low">faible</span></td><td>autoriser</td></tr>
+            <tr><td>RAM et système</td><td>lecture</td><td><span class="chip low">faible</span></td><td>autoriser</td></tr>
+            <tr><td>Créer fichier ou dossier</td><td>écriture, bac à sable</td><td><span class="chip mid">moyen</span></td><td>demander</td></tr>
+            <tr><td>Capture d'écran</td><td>lecture sensible</td><td><span class="chip high">élevé</span></td><td>demander</td></tr>
+            <tr><td>data.gouv, Microsoft Learn</td><td>lecture, réseau</td><td><span class="chip low">faible</span></td><td>autoriser</td></tr>
+            <tr><td>GitHub : alertes, fichiers, tickets</td><td>lecture, OAuth</td><td><span class="chip mid">moyen</span></td><td>autoriser</td></tr>
+            <tr><td>GitHub : fusion, création de PR</td><td>écriture, OAuth</td><td><span class="chip high">élevé</span></td><td>refuser</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><h2>Contrôles actifs</h2><p class="sub">Dépliez pour voir le réglage exact.</p></div>
+        <div class="dl">
+          <div class="item"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="c1" aria-label="Détail"></button><span>Autorisations des outils</span><span class="sub">4 · 2 sur demande · 1 refusé</span></div>
+            <div class="item-b" id="c1" hidden><p>Réglées dans la page MCP, outil par outil.</p><dl class="kv"><dt>Fichier</dt><dd class="code">%LOCALAPPDATA%\WaveStack\policy.yaml</dd></dl></div></div>
+          <div class="item"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="c2" aria-label="Détail"></button><span>Garde-fou toxicité</span><span class="chip high">bloque</span></div>
+            <div class="item-b" id="c2" hidden><dl class="kv"><dt>Modèle</dt><dd class="code">gravitee-io/distilbert-multilingual-toxicity-classifier</dd><dt>Seuil</dt><dd>0,5</dd><dt>Mémoire</dt><dd>~140 Mo</dd></dl></div></div>
+          <div class="item"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="c3" aria-label="Détail"></button><span>Garde-fou données personnelles</span><span class="chip mid">masque</span></div>
+            <div class="item-b" id="c3" hidden><dl class="kv"><dt>Moteur</dt><dd>Presidio + presidio-fr, spaCy FR</dd><dt>Entités</dt><dd>personne, téléphone, e-mail, IBAN, NIR, SIRET</dd></dl></div></div>
+          <div class="item"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="c4" aria-label="Détail"></button><span>Garde-fou injection de prompt</span><span class="chip off">non installé</span></div>
+            <div class="item-b" id="c4" hidden><p>Optionnel : demande un jeton Hugging Face. Installation depuis la brique Garde-fous du Harnais.</p></div></div>
+          <div class="item"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="c5" aria-label="Détail"></button><span>Hooks</span><span class="sub">3 actifs</span></div>
+            <div class="item-b" id="c5" hidden><dl class="kv"><dt>H1</dt><dd>bloque le dossier confidentiel/</dd><dt>H2</dt><dd>journalise chaque appel</dd><dt>H5</dt><dd>demande confirmation avant un envoi réseau</dd></dl></div></div>
+          <div class="item"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="c6" aria-label="Détail"></button><span>Liste blanche réseau</span><span class="sub">6 domaines</span></div>
+            <div class="item-b" id="c6" hidden><p class="code">api.githubcopilot.com · github.com · www.data.gouv.fr · learn.microsoft.com · huggingface.co · generativelanguage.googleapis.com</p></div></div>
+          <div class="item"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="c7" aria-label="Détail"></button><span>Connexion GitHub</span><span class="sub">lecture · expire dans 7 h 52</span></div>
+            <div class="item-b" id="c7" hidden><dl class="kv"><dt>Application</dt><dd>OAuth App WaveStack, connexion par code</dd><dt>Droits</dt><dd class="code">read:user</dd><dt>Jeton</dt><dd>en mémoire seulement, jamais journalisé</dd></dl></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="pane">
+      <div class="between"><div class="pane-h"><h2>Journal de sécurité</h2><p class="sub">Tous les événements de la séance, le plus récent en haut. Aucun secret n'y figure.</p></div><button class="btn" id="dl-log">Télécharger (CSV)</button></div>
+      <div class="dl" data-log="all"></div>
+    </div>
+    <div class="pane">
+      <div class="pane-h"><h2>Ce que le harnais ne protège pas</h2><p class="sub">À dire au client. Dépliez pour la raison et ce qu'il faudrait en production.</p></div>
+      <div class="dl" id="limits"></div>
+    </div>
+  </section>
+
+  <!-- ============ Harnais : brique Garde-fous ============ -->
+  <section data-screen-panel="harnais" class="harness" hidden>
+    <div class="pane">
+      <div class="pane-h"><h2>Panneau des briques</h2><p class="sub">Ce que le harnais ajoute au modèle.</p></div>
+      <div class="dl">
+        <div class="brick dim"><div class="item-h"><span></span><span>Prompt système</span><span class="chip low">actif</span></div></div>
+        <div class="brick dim"><div class="item-h"><span></span><span>Outils</span><span class="chip low">actif</span></div></div>
+        <div class="brick dim"><div class="item-h"><span></span><span>Hooks</span><span class="chip low">actif</span></div></div>
+        <div class="brick new-brick">
+          <div class="item-h"><button class="chev" aria-expanded="true" aria-controls="gf" aria-label="Détail des garde-fous"></button><span><b>Garde-fous</b><span class="new">nouveau</span></span><span class="chip low">actif</span></div>
+          <div class="item-b" id="gf" style="margin-left:10px">
+            <p class="sub">Ils vérifient votre message avant le modèle, et sa réponse avant vous.</p>
+            <div class="guard" data-guard="tox">
+              <div class="between"><b>Toxicité</b><span class="seg" role="group" aria-label="Mode toxicité"><button data-mode="bloquer" aria-pressed="true">Bloquer</button><button data-mode="signaler" aria-pressed="false">Signaler</button><button data-mode="off" aria-pressed="false">Désactivé</button></span></div>
+              <div class="ex"><button data-ex="tox-hit">Essayer : message insultant</button><button data-ex="tox-pass">Essayer : critique polie</button></div>
+            </div>
+            <div class="guard" data-guard="pii">
+              <div class="between"><b>Données personnelles</b><span class="seg" role="group" aria-label="Mode données personnelles"><button data-mode="bloquer" aria-pressed="false">Bloquer</button><button data-mode="signaler" aria-pressed="true">Masquer</button><button data-mode="off" aria-pressed="false">Désactivé</button></span></div>
+              <div class="ex"><button data-ex="pii-hit">Essayer : coordonnées</button><button data-ex="pii-pass">Essayer : horaires</button></div>
+            </div>
+            <div class="guard">
+              <div class="between"><b>Injection de prompt</b><span class="chip off">non installé</span></div>
+              <div class="item" style="background:var(--surface)"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="inj" aria-label="Comment l'installer"></button><span class="sub">Comment l'installer</span><span></span></div>
+                <div class="item-b" id="inj" hidden><ol style="margin:0;padding-left:18px;display:grid;gap:4px"><li>Créez un compte sur huggingface.co.</li><li>Acceptez la licence Meta de Prompt Guard 2.</li><li>Collez votre jeton de lecture :</li></ol>
+                  <div class="row"><input id="hf-token" type="password" placeholder="hf_…" aria-label="Jeton Hugging Face" style="flex:1 1 120px;min-width:0;padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit"><button class="btn sm" id="hf-go">Installer</button></div></div></div>
+            </div>
+            <p class="note">Mémoire des garde-fous chargés : 0,4 Go sur 1,5 Go.</p>
+          </div>
+        </div>
+        <div class="brick dim"><div class="item-h"><span></span><span>Sous-agents</span><span class="chip off">inactif</span></div></div>
+      </div>
+    </div>
+    <div class="pane">
+      <div class="pane-h"><h2>Vue humain</h2><p class="sub">La conversation, avec les verdicts des garde-fous.</p></div>
+      <div id="chat" class="dl" aria-live="polite"><p class="sub">Choisissez un exemple dans la brique Garde-fous, puis changez le mode pour voir la différence.</p></div>
+    </div>
+    <div class="pane">
+      <div class="pane-h"><h2>Orchestration</h2><p class="sub">Ce que fait le harnais, étape par étape.</p></div>
+      <div id="orch" class="dl"><p class="note">Les étapes du tour apparaissent ici.</p></div>
+    </div>
+  </section>
+
+  <!-- ============ MCP ============ -->
+  <section data-screen-panel="mcp" class="grid2" hidden>
+    <div class="pane">
+      <div class="pane-h"><h2>Serveurs et outils</h2><p class="sub">Chaque outil a un niveau de risque et une règle.</p></div>
+      <div>
+        <div class="between"><h3>Sur ce poste</h3><span class="chip low">démarré</span></div>
+        <div class="tool"><span>Glossaire <span class="chip low">faible</span></span><span class="seg rule"><button data-v="autoriser" aria-pressed="true">Autoriser</button><button data-v="demander" aria-pressed="false">Demander</button><button data-v="refuser" aria-pressed="false">Refuser</button></span></div>
+        <div class="tool"><span>RAM et système <span class="chip low">faible</span></span><span class="seg rule"><button data-v="autoriser" aria-pressed="true">Autoriser</button><button data-v="demander" aria-pressed="false">Demander</button><button data-v="refuser" aria-pressed="false">Refuser</button></span></div>
+        <div class="tool"><span>Créer fichier ou dossier <span class="chip mid">moyen</span><br><span class="note">Dans le bac à sable seulement</span></span><span class="seg rule"><button data-v="autoriser" aria-pressed="false">Autoriser</button><button data-v="demander" aria-pressed="false">Demander</button><button data-v="refuser" aria-pressed="true">Refuser</button></span></div>
+        <div class="tool"><span>Capture d'écran <span class="chip high">élevé</span><br><span class="note">Reste sur le poste ; le modèle ne voit que le chemin et la taille</span></span><span class="seg rule"><button data-v="autoriser" aria-pressed="false">Autoriser</button><button data-v="demander" aria-pressed="true">Demander</button><button data-v="refuser" aria-pressed="false">Refuser</button></span></div>
+      </div>
+      <div class="gh">
+        <div class="between"><h3>GitHub</h3><span class="chip off" id="gh-state">non connecté</span></div>
+        <div id="gh-1" class="row"><p class="sub" style="flex:1 1 220px">Connexion avec votre compte GitHub. WaveStack n'obtient que les droits que vous acceptez.</p><button class="btn" id="gh-connect">Se connecter à GitHub</button></div>
+        <div id="gh-2" hidden style="display:grid;gap:8px"><p>1. Ouvrez <b>github.com/login/device</b></p><p>2. Saisissez ce code :</p><span class="code-box">BFF4-B151</span><p class="sub">En attente de votre accord… <button class="link" id="gh-done">(maquette) simuler l'accord</button></p></div>
+        <div id="gh-3" hidden class="item" style="background:var(--raised)"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="gh-d" aria-label="Détail de la connexion"></button><span>Connecté en lecture · expire dans 8 h</span><button class="link" id="gh-out">Se déconnecter</button></div>
+          <div class="item-b" id="gh-d" hidden><dl class="kv"><dt>Serveur</dt><dd class="code">https://api.githubcopilot.com/mcp/</dd><dt>Jeton</dt><dd>OAuth App, connexion par code ; en mémoire, jamais affiché ni journalisé</dd><dt>En-têtes</dt><dd class="code">X-MCP-Toolsets: repos,issues,pull_requests,code_security,secret_protection,dependabot</dd><dt>Outils</dt><dd>46 proposés par GitHub</dd></dl></div></div>
+        <div class="tool"><span>Alertes, fichiers, tickets <span class="chip mid">moyen</span></span><span class="seg rule"><button data-v="autoriser" aria-pressed="true">Autoriser</button><button data-v="demander" aria-pressed="false">Demander</button><button data-v="refuser" aria-pressed="false">Refuser</button></span></div>
+        <div class="tool"><span>Fusion et création de PR <span class="chip high">élevé</span></span><span class="seg rule"><button data-v="autoriser" aria-pressed="false">Autoriser</button><button data-v="demander" aria-pressed="false">Demander</button><button data-v="refuser" aria-pressed="true">Refuser</button></span></div>
+      </div>
+    </div>
+    <div class="pane">
+      <div class="pane-h"><h2>Séquence</h2><p class="sub">Qui parle à qui, dans l'ordre. Dépliez une étape pour voir le message exact.</p></div>
+      <div class="dl seq">
+        <div class="item"><div class="item-h"><span></span><span class="lbl"><span class="from">Vous → modèle</span>Crée un fichier notes.txt avec le résumé de la réunion.</span><span></span></div></div>
+        <div class="item"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="s2" aria-label="Détail"></button><span class="lbl"><span class="from">Modèle → WaveStack</span>Demande l'outil « Créer un fichier »</span><span></span></div>
+          <div class="item-b" id="s2" hidden><pre>{"jsonrpc":"2.0","id":7,"method":"tools/call",
+ "params":{"name":"create_file","arguments":{"path":"notes.txt"}}}</pre></div></div>
+        <div class="item refused"><div class="item-h"><button class="chev" aria-expanded="true" aria-controls="s3" aria-label="Détail"></button><span class="lbl"><span class="from">WaveStack</span><b>Refusé par la politique de sécurité</b> : règle « Refuser » sur « Créer fichier ou dossier ».</span><span class="chip high">refusé</span></div>
+          <div class="item-b" id="s3"><p class="sub">L'outil n'a pas été exécuté. Inscrit au journal à 10:38:02.</p><pre>{"jsonrpc":"2.0","id":7,"error":{"code":-32001,
+ "message":"Refusé par la politique WaveStack : create_file (règle : refuser)"}}</pre></div></div>
+        <div class="item"><div class="item-h"><span></span><span class="lbl"><span class="from">Modèle → vous</span>Je n'ai pas l'autorisation de créer ce fichier. Vous pouvez changer la règle de cet outil dans « Serveurs et outils ».</span><span></span></div></div>
+        <div class="item"><div class="item-h"><span></span><span class="lbl"><span class="from">Vous → modèle</span>Fais une capture d'écran.</span><span></span></div></div>
+        <div class="item asking" id="ask"><div class="item-h"><span></span><span class="lbl"><span class="from">WaveStack</span><b>Le modèle veut faire une capture d'écran.</b> Risque élevé : l'image contiendra tout l'écran. Elle reste sur ce poste.</span><span class="chip mid">à décider</span></div>
+          <div class="row" style="padding:0 10px 10px 40px"><button class="btn sm" id="ask-yes">Autoriser une fois</button><button class="btn ghost sm" id="ask-no">Refuser</button></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FinOps ============ -->
+  <section data-screen-panel="finops" class="grid2" hidden>
+    <div class="pane">
+      <div class="pane-h"><h2>Orchestration : appel au modèle cloud</h2><p class="sub">Le compteur sous l'appel. Dépliez une ligne pour le calcul.</p></div>
+      <div class="dl">
+        <div class="item"><div class="item-h"><span></span><span class="tc">Entrée : 12 480 tokens · Sortie : 640 tokens · Temps : 4,2 s · Débit : 152 tokens/s</span><span></span></div></div>
+        <div class="item"><div class="item-h"><span></span><span class="tc">Coût estimé : entrée 0,0098 $ · sortie 0,0096 $</span><span></span></div></div>
+        <div class="item"><div class="item-h"><button class="chev" aria-expanded="true" aria-controls="f1" aria-label="Calcul"></button><span class="tc saving">Cache de prompt : 10 240 tokens relus · 0,0276 $ économisés</span><span class="new">nouveau</span></div>
+          <div class="item-b" id="f1"><dl class="kv"><dt>Prix plein</dt><dd>12 480 × 3 $/M = 0,0374 $</dd><dt>Payé</dt><dd>2 240 × 3 $/M + 10 240 × 0,30 $/M = 0,0098 $</dd><dt>Écriture</dt><dd>0 token sur ce tour (2 048 au tour précédent, +0,0008 $)</dd><dt>Source</dt><dd class="code">usage.cache_read_input_tokens</dd></dl></div></div>
+        <div class="item"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="f2" aria-label="Calcul"></button><span class="tc saving">Compression : 428 tokens économisés ≈ 0,0013 $</span><span class="new">nouveau</span></div>
+          <div class="item-b" id="f2" hidden><dl class="kv"><dt>Avant</dt><dd>1 865 tokens de contexte</dd><dt>Envoyés</dt><dd>1 437 tokens</dd><dt>Méthode</dt><dd>Headroom, sur le journal des outils</dd></dl></div></div>
+        <div class="item"><div class="item-h"><button class="chev" aria-expanded="false" aria-controls="f3" aria-label="Calcul"></button><span class="tc">Sous-agent : 3 210 tokens · 0,0134 $ · 0,3 Wh</span><span class="new">nouveau</span></div>
+          <div class="item-b" id="f3" hidden><dl class="kv"><dt>Entrée</dt><dd>2 900 tokens · 0,0087 $</dd><dt>Sortie</dt><dd>310 tokens · 0,0047 $</dd><dt>Empreinte</dt><dd>0,3 Wh · 0,1 g CO₂e</dd><dt>Tâche</dt><dd>« résume les alertes GitHub »</dd></dl></div></div>
+        <div class="item"><div class="item-h"><span></span><span class="tc">Empreinte estimée : 0,6 Wh · 0,2 g CO₂e</span><span></span></div></div>
+      </div>
+      <p class="note">Prix d'exemple : entrée 3 $, sortie 15 $, lecture du cache 0,30 $ par million de tokens.</p>
+    </div>
+    <div class="pane">
+      <div class="pane-h"><h2>Orchestration : appel au modèle local</h2><p class="sub">Qwen3.5-2B sur ce poste : gratuit, mais pas instantané.</p></div>
+      <div class="dl">
+        <div class="item"><div class="item-h"><span></span><span class="tc">Entrée : 2 050 tokens · Sortie : 180 tokens · Temps : 9,8 s · Débit : 21 tokens/s</span><span></span></div></div>
+        <div class="item"><div class="item-h"><button class="chev" aria-expanded="true" aria-controls="f4" aria-label="Calcul"></button><span class="tc saving">Mémoire de contexte : 1 820 tokens repris sans recalcul · environ 21 s évitées</span><span class="new">nouveau</span></div>
+          <div class="item-b" id="f4"><dl class="kv"><dt>Recalculés</dt><dd>230 tokens à 85 tokens/s (2,7 s)</dd><dt>Sans cache</dt><dd>2 050 tokens à 85 tokens/s (24 s)</dd><dt>Source</dt><dd class="code">timings.cache_n = 1820 · timings.prompt_per_second = 85</dd></dl></div></div>
+        <div class="item"><div class="item-h"><span></span><span class="tc">Coût : 0 $ · Empreinte estimée : 0,4 Wh</span><span></span></div></div>
+      </div>
+      <p class="sub">Le bilan de la séance s'ouvre depuis « Dépense » dans la barre du haut.</p>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function () {
+  let toastTimer;
+  function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 3200); }
+  const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  let uid = 0;
+  function item(head, detail, cls, open) {
+    const id = 'd' + (++uid);
+    return '<div class="item ' + (cls || '') + '"><div class="item-h"><button class="chev" aria-expanded="' + !!open + '" aria-controls="' + id + '" aria-label="Détail"></button>' + head + '</div><div class="item-b" id="' + id + '"' + (open ? '' : ' hidden') + '>' + detail + '</div></div>';
+  }
+
+  // Journal (une seule source pour l'aperçu de la barre et la page Sécurité)
+  const LOG = [
+    ['10:42:08', "Capture d'écran : <b>autorisée une fois</b> par vous", 'mid', 'demandé', '<dl class="kv"><dt>Outil</dt><dd class="code">screenshot</dd><dt>Résultat</dt><dd>bac-a-sable/capture-104208.png (1,2 Mo)</dd></dl>'],
+    ['10:41:51', 'GitHub, fusionner une PR : <b>refusé</b> par la politique WaveStack', 'high', 'refusé', '<dl class="kv"><dt>Outil</dt><dd class="code">merge_pull_request</dd><dt>Règle</dt><dd>refuser</dd><dt>Envoyé à GitHub</dt><dd>non</dd></dl>'],
+    ['10:40:33', 'Votre message : <b>bloqué</b> par le garde-fou toxicité', 'high', 'bloqué', '<dl class="kv"><dt>Score</dt><dd>0,94 (seuil 0,5)</dd><dt>Envoyé au modèle</dt><dd>non</dd></dl>'],
+    ['10:39:12', 'Votre message : <b>masqué</b>, un numéro de téléphone détecté', 'mid', 'masqué', '<dl class="kv"><dt>Entité</dt><dd class="code">PHONE_NUMBER</dd><dt>Score</dt><dd>0,75</dd><dt>Envoyé au modèle</dt><dd>[TÉLÉPHONE] à la place du numéro</dd></dl>'],
+    ['10:38:02', 'Créer le fichier notes.txt : <b>refusé</b> par la politique WaveStack', 'high', 'refusé', '<pre>{"jsonrpc":"2.0","id":7,"error":{"code":-32001,\n "message":"Refusé par la politique WaveStack"}}</pre>'],
+    ['10:36:47', 'GitHub, alertes de secrets exposés : <b>autorisé</b>', 'low', 'autorisé', '<dl class="kv"><dt>Outil</dt><dd class="code">list_secret_scanning_alerts</dd><dt>Réponse</dt><dd>2 alertes ouvertes</dd></dl>']
+  ];
+  document.querySelectorAll('[data-log]').forEach(box => {
+    const n = box.dataset.log === 'all' ? LOG.length : +box.dataset.log;
+    box.innerHTML = LOG.slice(0, n).map(e => item('<span><span class="t">' + e[0] + '</span>' + e[1] + '</span><span class="chip ' + e[2] + '">' + e[3] + '</span>', e[4])).join('');
+  });
+
+  // Limites
+  const LIM = [
+    ['Les garde-fous se trompent.', 'Ce sont des classifieurs : faux positifs et faux négatifs, plus nombreux hors de l\'anglais.', 'Plusieurs couches, seuils calibrés sur ses propres données, revue humaine des cas limites.'],
+    ["L'injection indirecte passe si le détecteur est absent.", "Un document du RAG ou un résultat d'outil peut contenir des consignes.", 'Détection sur tout contenu entrant.'],
+    ["L'autorisation porte sur le nom de l'outil, pas sur ce qu'il fait.", 'Un serveur MCP peut décrire un outil de façon trompeuse.', 'Serveurs approuvés et épinglés, revue de leurs descriptions.'],
+    ['Le jeton GitHub donne tous les droits accordés.', 'WaveStack filtre les outils, mais le jeton reste valable 8 h pour tout ce qu\'il couvre.', 'GitHub App à permissions fines, jetons courts, révocation centralisée.'],
+    ["Le bac à sable n'isole pas le processus.", "C'est un contrôle de chemin dans l'application.", 'Conteneur ou VM, compte sans privilège.'],
+    ["La capture d'écran voit tout l'écran.", 'Les autres fenêtres ouvertes y figurent.', "Interdire l'outil ou le limiter à une fenêtre."],
+    ["Le journal n'a pas de valeur d'audit.", 'Local, non signé, modifiable par l\'utilisateur du poste.', 'Envoi vers un SIEM, intégrité garantie.'],
+    ['Le harnais ne contrôle pas ce que fait le fournisseur cloud.', 'Conservation et usage selon ses conditions ; Presidio détecte, il ne garantit pas.', 'Contrat et région maîtrisés, ou modèle local.'],
+    ["L'appli n'a pas d'authentification.", 'Elle écoute sur 127.0.0.1 : quiconque utilise le poste y a accès.', 'Authentification et cloisonnement par utilisateur.'],
+    ['Les coûts sont des estimations.', 'Prix déclarés ; « ≈ » quand l\'usage n\'est pas mesuré.', 'Rapprochement avec la facture.']
+  ];
+  document.getElementById('limits').innerHTML = LIM.map(l => item('<span><b>' + l[0] + '</b></span><span></span>', '<dl class="kv"><dt>Pourquoi</dt><dd>' + l[1] + '</dd><dt>En production</dt><dd>' + l[2] + '</dd></dl>')).join('');
+
+  // Dépli (délégué : marche aussi pour le contenu ajouté plus tard)
+  document.addEventListener('click', e => {
+    const b = e.target.closest('.chev'); if (!b) return;
+    const open = b.getAttribute('aria-expanded') !== 'true';
+    b.setAttribute('aria-expanded', String(open));
+    const t = document.getElementById(b.getAttribute('aria-controls')); if (t) t.hidden = !open;
+  });
+
+  // Écrans et navigation
+  const valid = ['secu', 'harnais', 'mcp', 'finops'];
+  function closeFly() { ['log', 'spend'].forEach(k => { document.getElementById(k + '-fly').hidden = true; document.getElementById(k + '-btn').setAttribute('aria-expanded', 'false'); }); }
+  function setScreen(s) {
+    if (!valid.includes(s)) s = 'secu';
+    document.querySelectorAll('[data-screen-panel]').forEach(p => { p.hidden = p.dataset.screenPanel !== s; });
+    document.querySelectorAll('.mock-tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.screen === s)));
+    const navFor = s === 'finops' ? 'harnais' : s;
+    document.querySelectorAll('.nav button').forEach(n => n.classList.toggle('on', n.dataset.go === navFor));
+    closeFly();
+    try { localStorage.setItem('maquette.v2.screen', s); } catch (e) {}
+  }
+  document.querySelectorAll('.mock-tabs button').forEach(b => b.addEventListener('click', () => setScreen(b.dataset.screen)));
+  document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => setScreen(b.dataset.go)));
+  let saved = null; try { saved = localStorage.getItem('maquette.v2.screen'); } catch (e) {}
+  setScreen((location.hash || '').slice(1) || saved || 'secu');
+
+  // Panneaux de la barre (non modaux)
+  ['log', 'spend'].forEach(k => {
+    const btn = document.getElementById(k + '-btn'), fly = document.getElementById(k + '-fly');
+    btn.addEventListener('click', ev => { ev.stopPropagation(); const open = fly.hidden; closeFly(); fly.hidden = !open; btn.setAttribute('aria-expanded', String(open)); });
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { const o = document.querySelector('.flyout:not([hidden])'); if (o) { closeFly(); document.getElementById(o.id.replace('-fly', '-btn')).focus(); } } });
+  document.addEventListener('click', e => { if (!e.target.closest('.flyout') && !e.target.closest('.barbtn') && !e.target.closest('.chev')) closeFly(); });
+
+  // Règles MCP
+  document.querySelectorAll('.seg.rule').forEach(g => g.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    g.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    toast('Règle « ' + b.textContent + ' » enregistrée et inscrite au journal.');
+  }));
+
+  // GitHub
+  const g1 = document.getElementById('gh-1'), g2 = document.getElementById('gh-2'), g3 = document.getElementById('gh-3'), gs = document.getElementById('gh-state');
+  document.getElementById('gh-connect').onclick = () => { g1.hidden = true; g2.hidden = false; gs.textContent = 'en attente'; gs.className = 'chip mid'; };
+  document.getElementById('gh-done').onclick = () => { g2.hidden = true; g3.hidden = false; gs.textContent = 'connecté'; gs.className = 'chip low'; };
+  document.getElementById('gh-out').onclick = () => { g3.hidden = true; g1.hidden = false; gs.textContent = 'non connecté'; gs.className = 'chip off'; };
+
+  // Demande d'autorisation
+  const ask = document.getElementById('ask');
+  document.getElementById('ask-yes').onclick = () => { ask.className = 'item'; ask.innerHTML = '<div class="item-h"><span></span><span class="lbl"><span class="from">WaveStack</span><b>Autorisé une fois par vous.</b> Capture enregistrée : bac-a-sable/capture-104208.png (1,2 Mo). Le modèle reçoit seulement ce chemin et cette taille.</span><span class="chip mid">autorisé</span></div>'; };
+  document.getElementById('ask-no').onclick = () => { ask.className = 'item refused'; ask.innerHTML = '<div class="item-h"><span></span><span class="lbl"><span class="from">WaveStack</span><b>Refusé par vous.</b> L\'outil n\'a pas été exécuté.</span><span class="chip high">refusé</span></div>'; };
+
+  // Garde-fous : conversation et orchestration
+  const EX = {
+    'tox-hit':  { g: 'tox', name: 'toxicité', text: "Franchement, t'es un abruti, ton tableau est nul.", hit: true, score: 0.94, what: 'propos insultant' },
+    'tox-pass': { g: 'tox', name: 'toxicité', text: 'Ton tableau a une erreur en colonne C, je te propose une correction.', hit: false, score: 0.03 },
+    'pii-hit':  { g: 'pii', name: 'données personnelles', text: 'Je suis Camille Martin, joignable au 06 12 34 56 78 ou à camille.martin@example.com.', hit: true, score: 0.85, what: 'nom, téléphone et e-mail', masked: 'Je suis <mark>[PERSONNE]</mark>, joignable au <mark>[TÉLÉPHONE]</mark> ou à <mark>[E-MAIL]</mark>.', ents: 'PERSON, PHONE_NUMBER, EMAIL_ADDRESS' },
+    'pii-pass': { g: 'pii', name: 'données personnelles', text: 'Le service client répond du lundi au vendredi, de 9 h à 18 h.', hit: false, score: 0 }
+  };
+  let last = null;
+  const mode = g => { const b = document.querySelector('[data-guard="' + g + '"] [aria-pressed="true"]'); return b ? b.dataset.mode : 'off'; };
+  const fmt = x => x.toFixed(2).replace('.', ',');
+  function render() {
+    if (!last) return;
+    const ex = EX[last], m = mode(ex.g);
+    let chat = '<div class="msg"><span class="who" style="justify-self:end">Vous</span><div class="bubble me">' + esc(ex.text) + '</div></div>';
+    let orch = '';
+    const tech = '<dl class="kv"><dt>Garde-fou</dt><dd>' + ex.name + '</dd><dt>Score</dt><dd>' + fmt(ex.score) + ' (seuil 0,5)</dd>' + (ex.ents ? '<dt>Entités</dt><dd class="code">' + ex.ents + '</dd>' : '') + '<dt>Mode</dt><dd>' + m + '</dd></dl>';
+    if (m === 'off') {
+      orch = item('<span>Garde-fou ' + ex.name + ' désactivé : rien vérifié</span><span class="chip off">désactivé</span>', tech);
+      chat += '<div class="msg"><span class="who">Modèle</span><div class="bubble">(réponse du modèle)</div></div>';
+    } else if (!ex.hit) {
+      orch = item('<span>Garde-fou ' + ex.name + ' : rien détecté</span><span class="chip low">passé</span>', tech);
+      chat += '<div class="msg"><span class="who">Modèle</span><div class="bubble">(réponse du modèle)</div></div>';
+    } else if (m === 'bloquer') {
+      orch = item('<span>Garde-fou ' + ex.name + ' : message bloqué avant le modèle</span><span class="chip high">bloqué</span>', tech, '', true);
+      chat += item('<span><b>Message bloqué par le harnais.</b> Le garde-fou ' + ex.name + ' a détecté : ' + ex.what + '. Le modèle ne l\'a pas reçu.</span><span class="chip high">bloqué</span>', tech, 'verdict');
+    } else {
+      orch = item('<span>Garde-fou ' + ex.name + ' : ' + ex.what + ' masqués avant envoi</span><span class="chip mid">masqué</span>', tech, '', true);
+      chat += item('<span><b>Message masqué par le harnais.</b> Le modèle a reçu :<br>' + ex.masked + '</span><span class="chip mid">masqué</span>', tech, 'verdict mid');
+      chat += '<div class="msg"><span class="who">Modèle</span><div class="bubble">(réponse du modèle)</div></div>';
+    }
+    document.getElementById('chat').innerHTML = chat;
+    document.getElementById('orch').innerHTML = orch + '<p class="note">Inscrit au journal de sécurité.</p>';
+  }
+  document.querySelectorAll('[data-ex]').forEach(b => b.addEventListener('click', () => { last = b.dataset.ex; render(); }));
+  document.querySelectorAll('[data-guard] .seg').forEach(g => g.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    g.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); render();
+  }));
+  document.getElementById('hf-go').onclick = () => toast("Dans l'appli : vérification du jeton, puis téléchargement de Prompt Guard 2 (~300 Mo).");
+  document.getElementById('dl-log').onclick = () => toast("Dans l'appli : téléchargement de journal-securite-2026-10-16.csv (6 événements).");
+  last = 'tox-hit'; render();
+})();
+</script>
