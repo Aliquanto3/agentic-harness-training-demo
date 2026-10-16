@@ -384,7 +384,7 @@ Vérifications ajoutées aux scénarios existants :
 
 ## Sélecteur regroupé et tableau des capacités (story 25)
 
-- `local_server` : le faux Ollama est « Local · Ollama · faux-ollama:latest · 0.6B
+- `local_server` : le faux Ollama est « 🏠 Local · Ollama · faux-ollama:latest · 0.6B
   (incompatible) » (sa taille vient de `details`) ; le faux llama-server garde son libellé.
 - `model_catalog`, joué après `local_server` : la deuxième option de `#model-picker` est la
   légende, désactivée (« où tourne le modèle », « qui le sert »), reprise dans l'infobulle ;
@@ -397,7 +397,7 @@ Vérifications ajoutées aux scénarios existants :
   cloud) ; lignes des préréglages Gemini (éditeur « Gemini (Google) », raisonnement
   « activable », prix « 0,30 $ / 2,50 $ ») et Gemma (éditeur « Gemma (Google) », « 26 B »,
   prix « — » sans `pricing`) ; dans le groupe Qwen, le faux Ollama (0.6B) avant le faux llama-server
-  (taille inconnue) ; chaque modèle commence par « Local · » ou « RÉSEAU · » ; « Tableau des
+  (taille inconnue) ; chaque modèle commence par « 🏠 Local · » ou « ☁️ RÉSEAU · » (story 5 de la V1.1) ; « Tableau des
   modèles et de leurs capacités… » puis « Autre fichier ou clé API… » en dernier. « Ouvrir le
   tableau » mène à `/models` : onglet « 🛠️ Diagnostic » courant, aucun onglet « Modèles »,
   « 🛠️ Diagnostic » vers `/diagnostic` (mêmes onglets) ; lignes du faux llama-server (Qwen, outils « oui », « activable »,

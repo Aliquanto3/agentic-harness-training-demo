@@ -3947,6 +3947,28 @@ body.focus-mode .pane.is-focused .pane-body-orch {
   outline-offset: 2px;
 }
 
+/* CAP-5: the picker's two hosting groups (local 🏠, cloud ☁️, app.js rebuildModelPicker) get
+   distinct backgrounds, AA-contrasted in both themes; « Ajouter d'autres modèles… » and
+   « Autre fichier… » stay outside any optgroup, so plain (no false hosting). */
+.model-optgroup-local,
+.model-optgroup-local > option {
+  background: var(--color-discipline-context-soft);
+  color: var(--color-ink);
+}
+
+.model-optgroup-network,
+.model-optgroup-network > option {
+  background: var(--color-discipline-network-soft);
+  color: var(--color-ink);
+}
+
+/* The color above would otherwise erase the UA grey of « (actif) », « (incompatible) »,
+   « (indisponible) » options. */
+.model-optgroup-local > option:disabled,
+.model-optgroup-network > option:disabled {
+  color: var(--color-muted);
+}
+
 /* Story 31 and languages (1/5, 2/5): the theme and language pickers are in « Affichage ▾ » of
    the shared bar, styled by pages.css (story 2 of 2026-09-30). */
 
