@@ -107,6 +107,27 @@ def test_unknown_guardrail_rejected() -> None:
         m.set_mode("made_up", "block")  # type: ignore[arg-type]
 
 
+def test_failed_load_is_cached_never_retried_every_turn() -> None:
+    """Story 5 (review of story 4): a construction failure (e.g. a failed download) is
+    cached, reported as `error`, never retries the factory on the next `check`."""
+    attempts = 0
+
+    def broken() -> FakeClassifier:
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("download failed")
+
+    m = GuardrailsManager({"toxicity": broken, "pii": lambda: FakeClassifier("PII", "E-MAIL")})
+    m.set_mode("toxicity", "block")
+    [v1] = m.check("input", "t'es TOXIC")
+    [v2] = m.check("input", "t'es TOXIC")
+    assert v1.status == "error" and v2.status == "error"
+    assert attempts == 1  # not retried on the second turn
+    m.unload_idle()
+    m.check("input", "t'es TOXIC")
+    assert attempts == 2  # a fresh try after the brick is switched off and on again
+
+
 def test_unload_idle_clears_instances_and_calls_unload() -> None:
     fake = FakeClassifier()
     m = manager(toxicity=fake)

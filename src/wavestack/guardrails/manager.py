@@ -36,6 +36,10 @@ class GuardrailsManager:
             classifier_factories if classifier_factories is not None else _default_classifiers()
         )
         self._instances: dict[GuardrailId, Classifier] = {}
+        # Story 5 (review of story 4): a failed first load (e.g. the 135 MB download) is
+        # cached here, never retried on every turn; cleared by `unload_idle` (a fresh brick
+        # restart is the only way back, as for a classify-time failure, AD-16).
+        self._load_errors: dict[GuardrailId, str] = {}
 
     def set_mode(self, guardrail: GuardrailId, mode: GuardrailMode) -> None:
         if guardrail not in DEFAULT_MODES:
@@ -43,11 +47,15 @@ class GuardrailsManager:
         self.modes[guardrail] = mode
 
     def _classifier(self, guardrail: GuardrailId) -> Classifier | None:
-        if guardrail not in self._factories:
+        if guardrail not in self._factories or guardrail in self._load_errors:
             return None
         instance = self._instances.get(guardrail)
         if instance is None:
-            instance = self._factories[guardrail]()
+            try:
+                instance = self._factories[guardrail]()
+            except Exception as exc:  # noqa: BLE001 - cached, never retried every turn
+                self._load_errors[guardrail] = str(exc)
+                return None
             self._instances[guardrail] = instance
         return instance
 
@@ -71,6 +79,10 @@ class GuardrailsManager:
     ) -> Verdict:
         classifier = self._classifier(guardrail)
         if classifier is None:
+            if guardrail in self._load_errors:
+                return Verdict(
+                    guardrail, direction, mode, "error", detail_text=self._load_errors[guardrail]
+                )
             return Verdict(guardrail, direction, mode, "not_installed")
         try:
             result = classifier.classify(text)
@@ -97,3 +109,4 @@ class GuardrailsManager:
         for classifier in self._instances.values():
             classifier.unload()
         self._instances.clear()
+        self._load_errors.clear()  # story 5: a fresh try next time (off, then on again)

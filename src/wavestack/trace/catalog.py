@@ -564,6 +564,33 @@ class RerankOption(BaseModel):
     download: DownloadOffer | None = None
 
 
+class GuardrailModeOption(BaseModel):
+    """Story 5 (CAP-5): one segment of a guardrail's `guard-mode-switch`."""
+
+    id: Literal["block", "flag", "off"]
+    label_text: str
+
+
+class GuardrailExample(BaseModel):
+    """Story 5 (CAP-6): one « Essayer : … » button, sent as the user's message."""
+
+    id: Literal["trigger", "pass"]
+    label_text: str
+    message: str
+
+
+class GuardrailCard(BaseModel):
+    """Story 5 (CAP-5, CAP-6): one guardrail's row in the `guardrails` brick."""
+
+    id: Literal["toxicity", "pii", "injection"]
+    label_text: str
+    status: Literal["active", "off", "not_installed"]
+    mode: Literal["block", "flag", "off"]
+    modes: list[GuardrailModeOption] = []
+    examples: list[GuardrailExample] = []
+    install_text: str | None = None
+
+
 class BrickState(BaseModel):
     """One brick card: its content, and `available`/`pending` as computed by the session."""
 
@@ -601,6 +628,8 @@ class BrickState(BaseModel):
     rerank: RerankOption | None = None
     # Story 23, `tools` and `mcp` bricks: what leaves the workstation and where to read it.
     outbound_text: str | None = None
+    # Story 5, `guardrails` brick only: one row per guardrail (mode switch, examples).
+    guardrails: list[GuardrailCard] | None = None
 
 
 class SystemPromptState(BaseModel):
@@ -745,6 +774,28 @@ class HookDecidedPayload(BaseModel):
     # French labels from content/hooks.yaml, so the front formats without a table (AD-1).
     hook_text: str
     point_text: str
+
+
+class GuardrailVerdictPayload(BaseModel):
+    """Story 5 (CAP-5): one guardrail's verdict on one direction of one turn (the
+    verdict-banner of Vue humain, the disclosure-row of Orchestration)."""
+
+    guardrail: Literal["toxicity", "pii", "injection"]
+    guardrail_text: str
+    direction: Literal["input", "output"]
+    direction_text: str
+    mode: Literal["block", "flag", "off"]
+    mode_text: str
+    status: Literal["active", "off", "not_installed", "loading", "error"]
+    detected: bool
+    score: float | None = None
+    threshold: float | None = None
+    entities: list[str] = []
+    masked_text: str | None = None
+    detail_text: str = ""
+    verdict_text: str
+    # `None`: nothing worth a banner (mode active, nothing detected).
+    banner_text: str | None = None
 
 
 class EffectAppliedPayload(BaseModel):
@@ -1657,6 +1708,7 @@ PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "mcp_connect_started": McpConnectStartedPayload,
     "mcp_connect_ended": McpConnectEndedPayload,
     "hook_decided": HookDecidedPayload,
+    "guardrail_verdict": GuardrailVerdictPayload,
     "effect_applied": EffectAppliedPayload,
     "approval_requested": ApprovalRequestedPayload,
     "approval_resolved": ApprovalResolvedPayload,

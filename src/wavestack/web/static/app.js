@@ -611,6 +611,10 @@ function applyEnvelope(envelope) {
         turn.steps.push({ type: "hook", payload: p, component: envelope.component, trigger: envelope.trigger, lines: [] });
       }
       break;
+    case "guardrail_verdict":
+      // Story 5 (CAP-5): one step per guardrail checked, input or output.
+      if (turn) turn.steps.push({ type: "guardrail", payload: p, component: envelope.component });
+      break;
     case "effect_applied": {
       // Correction A (2026-10-05): a key saved at the diagnostic changes the picker's rows.
       if (p.effect === "api_key_set") {
@@ -1284,6 +1288,7 @@ function renderBricks() {
 
     if (!brick.available && brick.reason_text) card.appendChild(el("p", "brick-reason", brick.reason_text));
     if (brick.id === "rag") card.append(...downloadParts(brick), ...rerankParts(brick, offReason));
+    if (brick.id === "guardrails") card.append(...guardrailsParts(brick));
     if (always) {
       const why = el("p", "brick-reason brick-always", brick.always_text);
       why.id = `always-${brick.id}`;
@@ -1537,6 +1542,55 @@ function rerankParts(brick, offReason = null) {
     if (store.downloadError && !brick.download && !brick.build_index) box.appendChild(el("p", "force-error", store.downloadError));
   }
   return [box];
+}
+
+// Story 5 (CAP-5, CAP-6): the `guardrails` brick's rows — a guard-mode-switch per installed
+// guardrail (`injection` stays « non installé », story 13) and its « Essayer : … » buttons.
+function guardrailsParts(brick) {
+  const list = el("ul", "guardrail-list");
+  for (const guardrail of brick.guardrails || []) {
+    const row = el("li", "guardrail-row");
+    row.appendChild(el("span", "guardrail-name", guardrail.label_text));
+    if (guardrail.status === "not_installed") {
+      row.appendChild(el("span", "status-chip is-off", t("main.bricks.status.not_installed")));
+      if (guardrail.install_text) row.appendChild(el("p", "brick-reason", guardrail.install_text));
+      list.appendChild(row);
+      continue;
+    }
+    const switchBox = el("div", "guard-mode-switch");
+    switchBox.setAttribute("role", "radiogroup");
+    switchBox.setAttribute("aria-label", guardrail.label_text);
+    for (const mode of guardrail.modes) {
+      const button = el("button", "guard-mode-option", mode.label_text);
+      button.type = "button";
+      button.setAttribute("role", "radio");
+      const selected = mode.id === guardrail.mode;
+      button.setAttribute("aria-checked", String(selected));
+      button.classList.toggle("is-selected", selected);
+      button.dataset.focusKey = `guardmode:${guardrail.id}:${mode.id}`;
+      button.addEventListener("click", () => setGuardrailMode(guardrail.id, mode.id));
+      switchBox.appendChild(button);
+    }
+    row.append(switchBox);
+    const examples = el("div", "guardrail-examples");
+    for (const example of guardrail.examples) {
+      const button = el("button", "guardrail-try", example.label_text);
+      button.type = "button";
+      button.dataset.focusKey = `guardexample:${guardrail.id}:${example.id}`;
+      button.addEventListener("click", async () => {
+        const response = await postIntention("/api/intentions/send", { message: example.message }).catch(() => null);
+        if (!response || !response.ok) {
+          const body = response ? await response.json().catch(() => ({})) : {};
+          store.composerError = typeof body.detail === "string" ? body.detail : t("main.composer.refused");
+          render();
+        }
+      });
+      examples.appendChild(button);
+    }
+    row.appendChild(examples);
+    list.appendChild(row);
+  }
+  return [list];
 }
 
 async function ragAction(path, body) {
@@ -2023,6 +2077,18 @@ async function setOption(brickId, id, enabled) {
             : ["/api/intentions/tool", { tool: id, enabled }];
   try {
     const response = await postIntention(path, body);
+    if (response.ok) return; // `bricks_changed` redraws the card
+  } catch {
+    // Fall through: redraw from the last state the session sent.
+  }
+  renderedBricks = null;
+  scheduleRender();
+}
+
+// Story 5 (CAP-5): a guardrail's mode (guard-mode-switch), effective at the next check.
+async function setGuardrailMode(guardrail, mode) {
+  try {
+    const response = await postIntention("/api/intentions/guardrail_mode", { guardrail, mode });
     if (response.ok) return; // `bricks_changed` redraws the card
   } catch {
     // Fall through: redraw from the last state the session sent.
@@ -3181,6 +3247,11 @@ function renderChat() {
       answer.appendChild(el("div", "working-indicator", `${label}… ${seconds(Date.now() - since)}`));
     }
     for (const notice of turn.notices) answer.appendChild(el("div", "bubble-note", notice));
+    // Story 5 (CAP-5): verdict-banner, under the message, for every guardrail with
+    // something to say (detected or failed; nothing shown when it found nothing).
+    for (const step of turn.steps) {
+      if (step.type === "guardrail" && step.payload.banner_text) answer.appendChild(verdictBanner(step.payload));
+    }
     if (turn.status !== "error") {
       // e.g. attribution checks 4/6: the turn completed, but the harness reports it.
       for (const error of turn.errors) answer.appendChild(el("div", "bubble-note is-error", error));
@@ -5225,6 +5296,50 @@ function hookCard(step) {
   return harnessEvent(title, block ? "error" : "info", lines);
 }
 
+// Story 5 (CAP-5, DESIGN verdict-banner): red when blocked, yellow when masked or merely
+// flagged; the masked text highlights its `[LABEL]` tokens (EXPERIENCE: aria-live region).
+function verdictBanner(p) {
+  const blocked = p.mode === "block" && p.detected;
+  const masked = p.mode === "flag" && p.detected && p.masked_text != null;
+  const banner = el("div", `verdict-banner ${blocked ? "is-blocked" : masked ? "is-masked" : p.status === "error" ? "is-blocked" : "is-flagged"}`);
+  banner.setAttribute("role", "status");
+  banner.setAttribute("aria-live", "polite");
+  banner.appendChild(el("p", "verdict-banner-text", p.banner_text));
+  if (masked && p.masked_text) {
+    const line = el("p", "verdict-banner-masked");
+    for (const part of p.masked_text.split(/(\[[^[\]]+\])/g)) {
+      line.append(/^\[[^[\]]+\]$/.test(part) ? el("mark", "verdict-mask-token", part) : part);
+    }
+    banner.appendChild(line);
+  }
+  return banner;
+}
+
+function guardrailCard(step) {
+  // Story 5 (CAP-5): disclosure-row detail — guardrail, mode, score/threshold, entities.
+  const p = step.payload;
+  const blocked = p.mode === "block" && p.detected;
+  const lines = [
+    el("p", "", t("main.orch.guardrail.direction", { direction: p.direction_text })),
+    el("p", "", t("main.orch.guardrail.mode", { mode: p.mode_text })),
+    el("p", "", t("main.orch.guardrail.decision", { verdict: p.verdict_text, detail: p.detail_text })),
+  ];
+  if (p.score != null) {
+    lines.push(
+      el(
+        "p",
+        "step-code",
+        t("main.orch.guardrail.score", { score: p.score.toFixed(2), threshold: p.threshold?.toFixed(2) ?? "?" })
+      )
+    );
+  }
+  if (p.entities.length) lines.push(el("p", "step-code", p.entities.join(", ")));
+  if (p.masked_text) lines.push(el("p", "", p.masked_text));
+  if (blocked) lines.push(el("p", "", t("main.orch.hook.effect_turn")));
+  lines.push(el("p", "label", t("main.orch.decision_by_harness")));
+  return harnessEvent(`${p.guardrail_text} · ${p.direction_text}`, blocked || p.status === "error" ? "error" : "info", lines);
+}
+
 function malformedCard(p) {
   // The raw output with the faulty part marked (EXPERIENCE: malformed tool call).
   const raw = el("pre", "step-code");
@@ -5469,6 +5584,23 @@ function stepRows(turn, step, i, calls, rows) {
         sticky: block || pending,
         sig: [p, step.approval, step.resolved, step.lines.length, toolLabel(step.approval?.tool ?? "")],
         body: () => [hookCard(step)],
+      });
+    } else if (step.type === "guardrail") {
+      // Story 5 (CAP-5): a disclosure-row per guardrail checked; the blocking verdict
+      // arrives already open (EXPERIENCE: « le verdict bloquant d'Orchestration »).
+      const p = step.payload;
+      const blocked = p.mode === "block" && p.detected;
+      const masked = p.mode === "flag" && p.detected && p.masked_text != null;
+      rows.push({
+        key,
+        icon: "🛡",
+        title: `${p.guardrail_text} · ${p.direction_text}`,
+        actor: "harness",
+        figure: p.verdict_text,
+        tone: blocked || p.status === "error" ? "error" : masked || p.detected ? "pending" : "hook",
+        sticky: blocked,
+        sig: [p],
+        body: () => [guardrailCard(step)],
       });
     } else if (step.type === "rag") {
       const ended = step.ended;
@@ -6421,6 +6553,8 @@ function eventSummary(group) {
       return labelValue(mcpServerLabel(p.server), p.cause);
     case "hook_decided":
       return `${p.hook.toUpperCase()} · ${p.point_text} · ${HOOK_DECISIONS[p.decision]}`;
+    case "guardrail_verdict":
+      return `${p.guardrail_text} · ${p.direction_text} · ${p.verdict_text}`;
     case "effect_applied":
       if (p.effect === "memory_write") return `${MEMORY_OPS[p.op] ?? p.op} · ${quote(p.text)}`;
       if (["model_download", "model_download_stopped", "rag_index_write"].includes(p.effect)) return p.lines.join(" · ");

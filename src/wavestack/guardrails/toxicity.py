@@ -48,6 +48,10 @@ TOXIC_LABEL = 1  # config.json: id2label.1 == "toxic"
 # worst one wins; padding is off so a short sentence costs a short run.
 _SENTENCES = re.compile(r"(?<=[.!?…])\s+|\n+")
 _WINDOW = 256
+# shortcut: ~25 ms/window measured 2026-10-16 (story 4's review); an unbounded message could
+# cost ~10 s (400 sentences). Bounded at 64 windows (~1.6 s): a toxic sentence past that point
+# in a very long message is missed — upgrade: stream the score, or run windows in parallel.
+_MAX_WINDOWS = 64
 _STRIDE = 32
 
 
@@ -89,7 +93,9 @@ class ToxicityGuardrail:
         score = 0.0
         # The ONNX export has a fixed batch size of 1: one run per window, the worst one wins.
         windows = (w for e in self._tokenizer.encode_batch(sentences) for w in (e, *e.overflowing))
-        for window in windows:
+        for i, window in enumerate(windows):
+            if i >= _MAX_WINDOWS:
+                break
             ids = np.array([window.ids], dtype=np.int64)
             mask = np.array([window.attention_mask], dtype=np.int64)
             inputs = dict(zip(names, [ids, mask], strict=False))

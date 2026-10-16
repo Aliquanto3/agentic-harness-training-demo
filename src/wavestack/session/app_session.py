@@ -927,6 +927,7 @@ class AppSession:
         # models (toxicity, personal data) load lazily, at the manager's first `check`.
         self._guardrails_missing = guardrails_availability.missing_fr()
         self._guardrails = GuardrailsManager()
+        self._guardrail_steps = 0  # story 5: its own step counter, like `_hook_steps`
         self._compression_content: CompressionContent | None = None
         self._compressor: Compressor | None = None
         self._compression_loading = False
@@ -1617,6 +1618,8 @@ class AppSession:
                         self._mcp_content.lazy_label_text if self._mcp_content else "Lazy loading"
                     ),
                 }
+            if brick.id == "guardrails":
+                bricks[-1]["guardrails"] = self._guardrails_card()
         text = custom if custom is not None else self._default_prompt
         self._journal().emit(
             "bricks_changed",
@@ -3392,6 +3395,64 @@ class AppSession:
             "download": download,
         }
 
+    def _guardrails_card(self) -> list[dict[str, Any]]:
+        """Story 5 (CAP-5, CAP-6): one entry per guardrail, for the brick's mode switches
+        and « Essayer : … » buttons. `injection` always `not_installed` (story 13, Prompt
+        Guard, out of this story's scope)."""
+        cards = []
+        installed = self._guardrails_missing is None
+        for guardrail in ("toxicity", "pii", "injection"):
+            label = self._t(f"guardrails.labels.{guardrail}")
+            if guardrail == "injection" or not installed:
+                install_text = (
+                    self._t("guardrails.injection_not_installed")
+                    if guardrail == "injection"
+                    else self._guardrails_missing
+                )
+                cards.append(
+                    {
+                        "id": guardrail,
+                        "label_text": label,
+                        "status": "not_installed",
+                        "mode": "off",
+                        "modes": [],
+                        "examples": [],
+                        "install_text": install_text,
+                    }
+                )
+                continue
+            mode = self._guardrails.modes[guardrail]
+            flag_key = "flag_pii" if guardrail == "pii" else "flag"
+            modes = [
+                {"id": "block", "label_text": self._t("guardrails.modes.block")},
+                {"id": "flag", "label_text": self._t(f"guardrails.modes.{flag_key}")},
+                {"id": "off", "label_text": self._t("guardrails.modes.off")},
+            ]
+            examples = [
+                {
+                    "id": "trigger",
+                    "label_text": self._t(f"guardrails.examples.{guardrail}.trigger_label"),
+                    "message": self._t(f"guardrails.examples.{guardrail}.trigger_text"),
+                },
+                {
+                    "id": "pass",
+                    "label_text": self._t(f"guardrails.examples.{guardrail}.pass_label"),
+                    "message": self._t(f"guardrails.examples.{guardrail}.pass_text"),
+                },
+            ]
+            cards.append(
+                {
+                    "id": guardrail,
+                    "label_text": label,
+                    "status": "off" if mode == "off" else "active",
+                    "mode": mode,
+                    "modes": modes,
+                    "examples": examples,
+                    "install_text": None,
+                }
+            )
+        return cards
+
     def set_rag_rerank(self, enabled: bool) -> None:
         """Class (a), story 16: the RAG brick's reranking sub-option, effective from the next
         turn; its model loads or leaves on the worker. `KeyError` without a RAG brick."""
@@ -4710,6 +4771,8 @@ class AppSession:
             self._request_rag_sync()
         if brick_id == "compression":  # story 20: Headroom loads or leaves on the worker
             self._request_compression_sync()
+        if brick_id == "guardrails" and not wanted:  # story 5: RAM budget, freed at once
+            self._executor.submit(self._guardrails.unload_idle)
         self._emit_bricks()
         self._emit_architecture()
         self._refresh_preview()
@@ -5554,6 +5617,15 @@ class AppSession:
         if rule not in RULES:
             raise ValueError(rule)
         self._mcp_policy.set_rule(tool, rule)
+
+    def set_guardrail_mode(self, guardrail: str, mode: str) -> None:
+        """CAP-5, class (a): a guardrail's mode (`block`, `flag` or `off`), effective from
+        the next check; `injection` stays `off` until it has a model (story 13, Prompt
+        Guard). `ValueError` on an unknown guardrail or mode: no mode is silently ignored."""
+        if guardrail == "injection" or mode not in ("block", "flag", "off"):
+            raise ValueError(f"{guardrail}:{mode}")
+        self._guardrails.set_mode(guardrail, mode)  # type: ignore[arg-type]
+        self._emit_bricks()
 
     def answer_mcp_authorization(self, request_id: str, decision: str) -> None:
         """CAP-2: resolves a pending `ask` (« Autoriser une fois » or « Refuser »), without a
@@ -6601,6 +6673,7 @@ class AppSession:
         status = "error"
         journal = self._journal()
         self._hook_steps = 0
+        self._guardrail_steps = 0
         self._approvals = 0
         self._turn_called = False  # lot A: set by `_keep_cache`
         self._turn_costs = []
@@ -6707,6 +6780,10 @@ class AppSession:
         state = _with_loaded(state, defined)
         if stopped:
             return "cancelled", "", ""
+        if "guardrails" in state.effective:  # story 5 (CAP-5): once per turn, before any call
+            message, blocked = self._guardrail_check(turn_id, "input", message)
+            if blocked:
+                return "blocked", "", ""
         if "rag" in state.effective:  # story 15: once per turn, main context, before any call
             step += 1
             excerpts = self._rag_search(
@@ -6763,7 +6840,12 @@ class AppSession:
             if not out.calls and out.malformed is None:
                 # Native providers 3/5: the answer's reasoning blocks join the history.
                 self._final_thinking = (tuple(out.thinking), out.extra_for)
-                return "completed", out.text, out.reasoning
+                text = out.text
+                if "guardrails" in state.effective:  # story 5 (CAP-5): the model's own answer
+                    text, blocked = self._guardrail_check(turn_id, "output", text)
+                    if blocked:
+                        return "blocked", "", ""
+                return "completed", text, out.reasoning
             if isinstance(rendered, RenderedContext):
                 previous = (rendered.ids, out.raw)
 
@@ -7032,6 +7114,79 @@ class AppSession:
             "error_text": error_text,
             "estimated": estimated or estimate_after,
         }
+
+    def _guardrail_check(self, turn_id: str, direction: str, text: str) -> tuple[str, bool]:
+        """Story 5 (CAP-5): runs every active guardrail (toxicity, pii; `injection` stays
+        `off`, story 13) on `text`, once, for this `direction`. Each verdict is a step of
+        its own (as a hook's, AD-13) and a security journal entry (CAP-3); masked, if any
+        guardrail masked it, never loses what was not: the manager decides, this method
+        only applies it. Returns the text to use downstream, and whether a guardrail
+        blocks (the turn ends there, fail-closed only on a real detection; a classifier's
+        own failure reports `error` and never blocks, AD-16)."""
+        journal = self._journal()
+        blocked = False
+        for v in self._guardrails.check(direction, text):  # type: ignore[arg-type]
+            if v.masks and v.masked_text is not None:
+                text = v.masked_text
+            blocked = blocked or v.blocks
+            label = self._t(f"guardrails.labels.{v.guardrail}")
+            mode_key = "flag_pii" if v.guardrail == "pii" and v.mode == "flag" else v.mode
+            decision = (
+                "blocked"
+                if v.blocks
+                else "masked"
+                if v.masks
+                else "error"
+                if v.status == "error"
+                else "flagged"
+                if v.detected
+                else "passed"
+            )
+            if v.status == "error":
+                banner_text = self._t(
+                    "guardrails.banner.error", guardrail=label, detail=v.detail_text
+                )
+            elif v.blocks:
+                banner_text = self._t(f"guardrails.banner.blocked_{v.direction}", guardrail=label)
+            elif v.masks:
+                banner_text = self._t("guardrails.banner.masked", guardrail=label)
+            elif v.detected:
+                banner_text = self._t("guardrails.banner.flagged", guardrail=label)
+            else:
+                banner_text = None
+            self._guardrail_steps += 1
+            with scoped(
+                step_id=f"{turn_id}.main.g{self._guardrail_steps}",
+                brick="guardrails",
+                component=f"guardrails.{v.guardrail}",
+            ):
+                journal.emit(
+                    "guardrail_verdict",
+                    {
+                        "guardrail": v.guardrail,
+                        "guardrail_text": label,
+                        "direction": v.direction,
+                        "direction_text": self._t(f"guardrails.directions.{v.direction}"),
+                        "mode": v.mode,
+                        "mode_text": self._t(f"guardrails.modes.{mode_key}"),
+                        "status": v.status,
+                        "detected": v.detected,
+                        "score": v.score,
+                        "threshold": v.threshold,
+                        "entities": list(v.entities),
+                        "masked_text": v.masked_text,
+                        "detail_text": v.detail_text,
+                        "verdict_text": self._t(f"guardrails.verdicts.{decision}"),
+                        "banner_text": banner_text,
+                    },
+                )
+            self._security_journal.record(
+                "guardrail",
+                f"guardrails.{v.guardrail}",
+                decision,
+                self._t(f"guardrails.decisions.{decision}", guardrail=label, detail=v.detail_text),
+            )
+        return text, blocked
 
     def _rag_current_retriever(self) -> SqliteVecRetriever:
         """The loaded retriever, on the index as it is now. An index replaced since it was
