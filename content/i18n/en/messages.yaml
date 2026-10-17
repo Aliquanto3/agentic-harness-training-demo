@@ -1616,8 +1616,8 @@ net:
 security:
   guardrail_name: "{guardrail} guardrail"
   tools:
-    local__list_terms: Glossary
-    local__define_term: Glossary
+    local__list_terms: "Glossary: list of terms"
+    local__define_term: "Glossary: definition"
     local__system_info: RAM and system
     local__create_path: Create a file or folder
     local__take_screenshot: Screenshot

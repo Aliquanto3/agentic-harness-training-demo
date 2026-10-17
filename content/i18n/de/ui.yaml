@@ -1560,6 +1560,9 @@ security:
     hooks: "Hooks"
     network_whitelist: "Netzwerk-Positivliste"
     github: "GitHub-Verbindung"
+    allow_count:
+      one: "{count} erlaubt"
+      other: "{count} erlaubt"
     ask_count:
       one: "{count} auf Anfrage"
       other: "{count} auf Anfrage"
@@ -1569,6 +1572,15 @@ security:
     domain_count:
       one: "{count} Domäne"
       other: "{count} Domänen"
+    hook_active: "aktiv"
+    hook_inactive: "inaktiv"
+    hooks_empty: "Noch kein Hook."
+    guardrail_mode_label: "Modus"
+    change_in_bricks: "In der Kachel „Schutzmechanismen“ ändern, Startseite."
+    network_whitelist_empty: "Noch kein zugelassener Host: kein Cloud-Modell aktiv."
+    group_local: "Auf diesem Rechner"
+    group_github: "GitHub"
+    github_write_other: "Jede andere Schreibaktion"
     github_states:
       waiting: "wartet auf den Code"
       connected: "verbunden, nur Lesen"

@@ -1560,6 +1560,9 @@ security:
     hooks: "Hooks"
     network_whitelist: "Network allowlist"
     github: "GitHub connection"
+    allow_count:
+      one: "{count} allowed"
+      other: "{count} allowed"
     ask_count:
       one: "{count} on request"
       other: "{count} on request"
@@ -1569,6 +1572,15 @@ security:
     domain_count:
       one: "{count} domain"
       other: "{count} domains"
+    hook_active: "active"
+    hook_inactive: "inactive"
+    hooks_empty: "No hook yet."
+    guardrail_mode_label: "Mode"
+    change_in_bricks: "Change it in the Guardrails brick, home page."
+    network_whitelist_empty: "No allowed host yet: no cloud model is active."
+    group_local: "On this machine"
+    group_github: "GitHub"
+    github_write_other: "Any other write"
     github_states:
       waiting: "waiting for the code"
       connected: "connected, read-only"

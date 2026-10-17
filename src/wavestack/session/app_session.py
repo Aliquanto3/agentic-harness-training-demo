@@ -10954,7 +10954,7 @@ class AppSession:
                 },
             },
             "risk_matrix": matrix,
-            "controls": self._security_controls(rows),
+            "controls": self._security_controls(rows, matrix),
             "limits": limits,
         }
 
@@ -10990,24 +10990,49 @@ class AppSession:
             },
         }
 
-    def _security_controls(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
-        """CAP-9's « Contrôles actifs »: autorisations (every local tool's rule), the 3
-        guardrails (`_guardrails_card`, story 5), the hooks (`_hook_options`, story 8), the
-        network allowlist (`cfg.allowed_hosts`) and the GitHub connection — each read from
-        its own existing source, nothing duplicated."""
-        local_rules = [
-            rule
+    def _security_controls(
+        self, rows: list[dict[str, Any]], matrix: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """CAP-9's « Contrôles actifs »: autorisations (every tool's effective rule, grouped
+        by server: this machine, GitHub's named tools — the matrix's live overrides included,
+        a reviewer's fix: the list used to name only local tools), the network row's own rule
+        for data.gouv.fr/Microsoft Learn (no tool individually named there), the 3 guardrails
+        (`_guardrails_card`, story 5), the hooks (`_hook_options`, story 8), the network
+        allowlist (`cfg.allowed_hosts`) and the GitHub connection — each read from its own
+        existing source, nothing duplicated."""
+        by_id = {row["id"]: row for row in rows}
+        local_tools = [
+            (tool, rule)
             for row in rows
             for tool, rule in row["rules"].items()
             if tool.startswith("local__")
         ]
-        ask_count, deny_count = local_rules.count("ask"), local_rules.count("deny")
+        github_tools = [
+            (tool, rule)
+            for row_id in ("github_read", "github_write")
+            for tool, rule in by_id[row_id]["rules"].items()
+        ]
+        all_tools = local_tools + github_tools
+        all_rules = [rule for _, rule in all_tools]
         github = self._github_state()
         return {
             "tool_rules": {
-                "count": len(local_rules),
-                "ask_count": ask_count,
-                "deny_count": deny_count,
+                "count": len(all_rules),
+                "allow_count": all_rules.count("allow"),
+                "ask_count": all_rules.count("ask"),
+                "deny_count": all_rules.count("deny"),
+                "tools": [
+                    {
+                        "id": tool,
+                        "label_text": self._security_label_text("tool", tool),
+                        "rule": rule,
+                    }
+                    for tool, rule in all_tools
+                ],
+                # The network row stands for data.gouv.fr/Microsoft Learn as a whole; its own
+                # rule, reusing the matrix's label (never a duplicated text).
+                "network_label_text": next(m["label_text"] for m in matrix if m["id"] == "network"),
+                "network_rule": by_id["network"]["rule"],
             },
             "guardrails": self._guardrails_card(),
             "hooks": self._hook_options(),
