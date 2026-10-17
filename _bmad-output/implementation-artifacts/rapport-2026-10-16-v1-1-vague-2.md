@@ -4,10 +4,10 @@ Plan : [plan-2026-10-16-v1-1-vague-2.md](plan-2026-10-16-v1-1-vague-2.md). Spec 
 
 ## En bref
 
-- **13 stories sur 13 fusionnées** sur `main`, plus 8 correctifs. Chaque story : dev-story (Sonnet) → second avis (Haiku) → reviewer (Opus) → E2E par l'orchestrateur → fusion.
+- **13 stories sur 13 fusionnées** sur `main`, plus 9 correctifs (dont #72 le 17/10). Chaque story : dev-story (Sonnet) → second avis (Haiku) → reviewer (Opus) → E2E par l'orchestrateur → fusion.
 - **Suite pytest complète** en quatre quarts : 6 707 réussis ; un seul échec restant, `test_rag_lab_rerankers::test_the_reasons_are_translated[en]`, antérieur à la vague 2 (rejoué rouge sur 447f26d : dépend des modèles présents sur le poste).
 - **E2E finaux** sur `main` (5 tranches, 30 scénarios) : **tous verts** (66, 112, 255, 167 et 108 vérifications) après les correctifs #66 et #67.
-- **Coût de la V1.1** : 191 $ mesurés (vague 1 : 39 $, vague 2 : 153 $). Une story de la vague 2 coûte environ **9 $ médian**, contre 16,57 $ en V1.
+- **Coût final de la V1.1** : **221 $** (vague 1 : 39 $, vague 2 : 183 $). Une story de la vague 2 coûte environ **9 $ médian** hors orchestration, contre 16,57 $ en V1 (−45 %) ; environ 14 $ tout compris.
 
 ## Stories
 
@@ -59,29 +59,57 @@ Correctifs : #67 (message détaillé de la vérification RAG), #49 (guillemets),
 6. **Relire le texte des 12 limites** (`limites-harnais.md`) et le valider.
 7. Rendu des nouveaux écrans en thème sombre et en projection.
 
-## Coûts (mesurés par `mesurer_couts.py`)
+## Coûts finaux (mesurés le 17/10 par `mesurer_couts.py`)
 
-| Périmètre | Coût |
-|---|---|
-| Projet entier (V1 + V1.1) | 1 580 $, 391 agents |
-| V1.1 (15-16/10) | 191 $, 75 agents |
-| dont vague 1 (15/10) | 39 $ |
-| dont vague 2 (16/10) | 153 $ (session principale incluse, au moment de la mesure) |
+Coût en équivalent API, sortie réestimée (réflexion masquée non comptée). Les sessions sont rattachées à leur jour de démarrage.
 
-Vague 2 par rôle : dev-story (Sonnet) 84 $ ; orchestration (Opus) 43 $ ; reviewer (Opus) 36 $, 1,7 $ médian ; second avis (Haiku) **0,39 $ en tout** ; lookup (Haiku) 0,12 $.
+| Périmètre | Coût | Contenu |
+|---|---|---|
+| Projet entier (V1 + V1.1) | 1 610 $, 396 agents | |
+| **V1.1** | **221 $, 80 agents** | |
+| dont sessions démarrées le 15/10 (vague 1) | 38,7 $ | cadrage, 5 stories, 3 recherches, recette, rapport |
+| dont session de la vague 2 | 182,6 $ | spec, UX et maquettes, 13 stories, 9 correctifs, GIF, audit des docs |
+| — orchestration (session principale, Opus) | 67,8 $ | 427 appels, contexte jusqu'à 866 k tokens |
+| — sous-agents du 16/10 | 110,7 $ | |
+| — sous-agents du 17/10 | 4,1 $ | correctif #72, audit des docs, second avis |
 
-Par story (dev + second avis + reviewer), vague 2 : de 2,9 $ (docs) à 14 $ (story 4), **médiane ≈ 9 $**, contre 16,57 $ par story en V1 (tout sur Opus) : **−45 %**. Contexte médian du premier appel des sous-agents : 35 k (pas de skill ni de serveur MCP superflu). Expirations médianes par agent : 0 ; le TTL d'une heure ne serait pas rentable.
+Par rôle, sur toute la V1.1 :
+
+| Rôle | Modèle | Agents | Coût | Médiane |
+|---|---|---|---|---|
+| Orchestration (sessions principales) | Opus | 7 | 94,2 $ (43 %) | — |
+| Développement (dev-story) | Sonnet | 24 | 89,7 $ (41 %) | 2,35 $ |
+| Relecture (reviewer) | Opus | 19 | 35,8 $ (16 %) | 1,67 $ |
+| Recherches (deep-recon) | Sonnet | 3 | 1,1 $ | 0,36 $ |
+| Second avis | Haiku | 21 | 0,41 $ | 0,02 $ |
+| Recherche dans le code (lookup) | Haiku | 5 | 0,12 $ | 0,01 $ |
+
+Par story (dev + second avis + reviewer), vague 2 : de 2,9 $ (docs) à 14 $ (story 4), **médiane ≈ 9 $**, contre 16,57 $ par story en V1 (tout sur Opus) : **−45 %**. Tout compris (cadrage, orchestration, correctifs, GIF) : 182,6 $ pour 13 stories, soit environ 14 $ par story. Contexte médian du premier appel des sous-agents : 35 k (pas de skill ni de serveur MCP superflu). Expirations médianes par agent : 0 ; le TTL d'une heure ne serait pas rentable.
+
+## Recommandations pour optimiser les prochains projets
+
+Classées par gain estimé, sur la base des mesures de la V1.1.
+
+1. **Couper la session principale entre le cadrage et l'exécution** (gain estimé : 25 à 35 $ sur une vague comme celle-ci, soit environ 15 % du total). La session de la vague 2 a enchaîné spec, UX, orchestration de 13 stories et correctifs sans `/clear` : son contexte a fini à 866 k tokens et chaque appel le relisait. Faire le cadrage dans une session, écrire le plan et `stories.yaml`, puis `/rename` et `/clear` (ou une nouvelle session) pour orchestrer à partir de ces fichiers ; recommencer pour la phase de correctifs et de recette. Le plan, les specs de story et la mémoire suffisent à reprendre.
+2. **Garder la chaîne Sonnet → Haiku → Opus** (déjà −45 % par story contre la V1). Le second avis Haiku coûte 2 centimes et trouve l'essentiel des défauts graves : ne jamais le supprimer. Le reviewer Opus reste justifié (1,7 $ médian) : il a trouvé et corrigé des défauts graves que le second avis avait manqués (flux rejoué en double, jeton figé après 8 h).
+3. **Relire la spec des stories à risque avant le code** (`spec_checkpoint`, 10 à 15 min d'humain par story). Les deux passes de textes trop légères, la story 4 livrée à moitié et l'écart de licence de Prompt Guard ont coûté une relecture ou une story de plus chacun (3 à 14 $ et une à deux heures).
+4. **Lancer la suite complète à mi-parcours, pas seulement à la fin.** Trois défauts croisés entre stories (libellés du journal, fenêtre de 4 096 tokens, fuite de français) n'ont été vus qu'à la fin et ont demandé des correctifs séparés. Une suite après 3 ou 4 fusions coûte environ 30 min de machine et aucun token.
+5. **Donner les attentes E2E à mettre à jour dans le prompt de toute story qui change une structure partagée** (barre commune, liste d'outils, schéma de trace). Quatre correctifs de la vague 2 étaient des attentes E2E périmées (#53, #59, #65/#66 et l'attente « Outils 5 »).
+6. **Consigne de complexité : seulement chez le reviewer** (voir l'expérience plus bas) ; elle n'a rien changé chez le dev-story.
+7. **Vérifier l'état de `main` avant chaque série d'E2E** (`git log -1`) : deux fusions ratées non vérifiées ont fait perdre 30 min d'E2E.
+8. **Paralléliser une story et sa documentation**, la doc décrivant la spec puis réalignée après fusion : environ une heure gagnée sur la fin de la vague 2.
+9. **Ne pas activer le TTL d'une heure** du cache : 0 expiration médiane par agent, il coûterait plus qu'il ne rapporterait.
 
 ## Comparaison estimative avec la chaîne BMAD complète
 
 Le cadrage de la vague 2 a déjà utilisé BMAD (`bmad-spec`, `bmad-ux`). La comparaison porte sur le développement et la relecture. Référence : la V1, développée avec la chaîne BMAD (dev, puis `bmad-code-review` à trois relecteurs Opus en parallèle : « cas limites », « chasseur aveugle », « trous de vérification ») et tout sur Opus.
 
-- **Coût** : environ 16,6 $ par story en V1 contre 9 $ ici, soit **7 à 8 $ d'écart par story, environ 100 $ sur les 13 stories**. L'écart vient surtout du modèle de l'implémenteur (Sonnet au lieu d'Opus) et de la relecture : trois relecteurs Opus parallèles (environ 2 $ chacun en V1) remplacés par un second avis Haiku (2 centimes) et un seul reviewer Opus (1,7 $). Estimation, pas un A/B : les stories ne sont pas les mêmes.
+- **Coût** : environ 16,6 $ par story en V1 contre 9 $ ici (dev, second avis, reviewer), soit **7 à 8 $ d'écart par story, environ 100 $ sur les 13 stories**. L'écart vient surtout du modèle de l'implémenteur (Sonnet au lieu d'Opus) et de la relecture : trois relecteurs Opus parallèles (environ 2 $ chacun en V1) remplacés par un second avis Haiku (2 centimes) et un seul reviewer Opus (1,7 $). Estimation, pas un A/B : les stories ne sont pas les mêmes.
 - **Vitesse** : comparable. Le goulot était la relecture séquentielle et l'E2E unique, pas l'implémentation. BMAD aurait parallélisé les trois lentilles de relecture (plus rapide par story), mais au prix fort.
 - **Qualité du code** : pas de perte visible. Le second avis Haiku, pour 2 centimes, a trouvé l'essentiel des défauts graves (outil refusé exécuté, texte bloqué affiché, cartes faussées, licence non acceptée), et le reviewer Opus en a ajouté sur presque chaque story (flux rejoué en double, jeton figé après 8 h). Trois défauts sont passés malgré tout et n'ont été vus qu'aux E2E finaux ou à la suite complète (libellés du journal, fenêtre de 4 096 tokens, fuite de français), soit des effets croisés entre stories qu'aucune relecture par story ne voit : une suite complète plus tôt (après 3 ou 4 fusions) les aurait attrapés avant, quelle que soit la chaîne.
 - **Qualité du cadrage** : BMAD a bien servi là où il a été utilisé. La maquette et les options cliquables ont fait trancher Anaël tôt (vue unique au lieu de deux vues, page Sécurité + compteur, dépli sur place), et le test réel du device flow avant le code a évité un mauvais choix technique. Ce qui a manqué : une spec par story revue avant le code (`spec_checkpoint` de BMAD, refusé au cadrage pour aller vite). Elle aurait probablement évité les deux passes trop légères (stories 8 et 11), la story 4 livrée à moitié et l'écart de licence de Prompt Guard ; coût estimé : 10 à 15 min d'Anaël par story à risque.
 
-**Recommandation** : garder cette chaîne (Sonnet + Haiku + Opus), mettre un `spec_checkpoint` sur les stories à risque (sécurité, licence, refonte d'UI) et lancer la suite complète à mi-parcours.
+**Recommandation** : voir la section « Recommandations pour optimiser les prochains projets » (points 2 à 4).
 
 ## Expérience : consigne de complexité
 
