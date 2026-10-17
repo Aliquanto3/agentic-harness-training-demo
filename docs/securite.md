@@ -11,8 +11,9 @@ Quelques mots utilisés ici :
 
 - **Outil MCP** : une action que le modèle peut demander au harnais (lire un glossaire, créer
   un fichier, lire des alertes GitHub…). MCP est le protocole qui relie le harnais à ces outils.
-- **Séquence** et **Orchestration** : deux volets de l'écran principal. La Séquence montre
-  chaque échange pas à pas ; l'Orchestration détaille chaque appel au modèle.
+- **Vue humain** et **Orchestration** : deux volets de l'écran principal. La Vue humain montre
+  chaque échange pas à pas ; l'Orchestration détaille chaque appel au modèle. (L'Atelier MCP a son
+  propre volet nommé « Séquence », décrit dans le [guide d'utilisation](guide.md#atelier-mcp).)
 - **Token** : un morceau de mot. Les modèles comptent leur lecture et leur écriture en tokens,
   et les fournisseurs cloud facturent au token.
 
@@ -71,7 +72,7 @@ Le **bac à sable** est un dossier réservé de WaveStack. Les outils locaux n'�
 dedans. Un fichier créé y fait au plus 1 Mo. Seules les 20 dernières captures d'écran sont
 gardées.
 
-- **Refuser** : l'outil n'est jamais exécuté. La Séquence montre le refus et sa raison. Le
+- **Refuser** : l'outil n'est jamais exécuté. La Vue humain montre le refus et sa raison. Le
   modèle reçoit un message d'erreur, qu'il vous restitue.
 - **Demander**, dans l'Atelier MCP : l'appel attend votre décision. Une étape « à décider »
   apparaît dans la Séquence, avec deux boutons, « Autoriser une fois » et « Refuser ». Sans
@@ -89,7 +90,7 @@ Vous le saisissez sur `github.com/login/device`. Une fois connecté, le jeton (l
 donnée par GitHub) reste valable 8 h. Il est renouvelé tout seul pendant 6 mois. Ensuite, il
 passe à l'état « expiré », avec un bouton « Se reconnecter ». Un appel GitHub sans jeton
 valable est refusé avec un message clair, avant tout envoi. Le jeton est enregistré sur ce
-poste seulement, hors du dépôt. Il n'apparaît jamais dans le journal ni dans la Séquence.
+poste seulement, hors du dépôt. Il n'apparaît jamais dans le journal ni dans la Vue humain.
 
 Un appel d'outil GitHub peut être refusé à trois niveaux :
 
