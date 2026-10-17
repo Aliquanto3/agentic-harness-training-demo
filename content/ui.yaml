@@ -1595,9 +1595,13 @@ security:
       other: "{count} domaines"
     hook_active: "actif"
     hook_inactive: "inactif"
+    hooks_empty: "Aucun hook pour l'instant."
     guardrail_mode_label: "Mode"
     change_in_bricks: "Modifier dans la brique Garde-fous, page d'accueil."
     network_whitelist_empty: "Aucun hôte autorisé pour l'instant : aucun modèle cloud actif."
+    group_local: "Sur ce poste"
+    group_github: "GitHub"
+    github_write_other: "Toute autre écriture"
     github_states:
       waiting: "en attente du code"
       connected: "connecté en lecture"

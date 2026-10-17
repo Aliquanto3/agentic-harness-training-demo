@@ -15929,9 +15929,11 @@ def s_security_page(r: Run) -> None:
             label = button.inner_text()
             button.click()
             body_text = control_row.locator(".disclosure-row-body").inner_text().strip()
-            r.check(len(body_text) > 0, f"Sécurité : le dépli « {label} » n'est pas vide", body_text)
+            r.check(
+                len(body_text) > 0, f"Sécurité : le dépli « {label} » n'est pas vide", body_text
+            )
 
-        row = page.locator(".sec-row", has_text="GitHub : fusion de PR")
+        row = page.locator("#sec-journal .sec-row", has_text="GitHub : fusion de PR")
         expect(row).to_be_visible(timeout=10_000)
         row.get_by_role("button").click()
         body_text = row.inner_text()

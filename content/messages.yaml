@@ -1649,8 +1649,8 @@ security:
   # Le nom technique du journal, en libellé RSSI (`guardrails.pii`, `local__create_path`).
   guardrail_name: "Garde-fou {guardrail}"
   tools:
-    local__list_terms: Glossaire
-    local__define_term: Glossaire
+    local__list_terms: "Glossaire : liste des termes"
+    local__define_term: "Glossaire : définition"
     local__system_info: RAM et système
     local__create_path: Créer fichier ou dossier
     local__take_screenshot: Capture d'écran

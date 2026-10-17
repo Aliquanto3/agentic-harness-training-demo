@@ -27,14 +27,17 @@ maquette vague 2, écran Sécurité) demande que chaque dépli dise le réglage 
 contrôle non installé ou non connecté, quoi faire.
 
 **Approach:** Côté serveur, `_security_controls` (`app_session.py`) renvoie en plus, pour
-« Autorisations des outils », la liste de chaque outil local avec sa règle effective
-(`tools: [{id, label_text, rule}]`) et le compte `allow_count`, en plus des compteurs existants.
-Côté page, `security.js` : le dépli des autorisations liste chaque outil et sa règle puis le lien
-« Régler dans MCP » (texte déjà utilisé sous la matrice) ; le dépli d'un garde-fou montre toujours
-soit la raison d'installation (déjà le cas), soit le mode courant, puis un lien « Modifier dans la
-brique Garde-fous, page d'accueil » ; le dépli des hooks liste tous les hooks (actif/inactif), pas
-seulement les actifs ; le dépli de la liste blanche réseau affiche un texte explicatif quand la
-liste est vide. Textes nouveaux en fr/en/de sous `security.controls.*`.
+« Autorisations des outils », la liste de chaque outil **local et GitHub** avec sa règle
+effective (`tools: [{id, label_text, rule}]`, le compte `allow_count`, et `network_rule` /
+`network_label_text` pour la ligne data.gouv.fr/Microsoft Learn, qui n'a pas de tool nommé un par
+un). Côté page, `security.js` : le dépli des autorisations groupe la liste par serveur (« Sur ce
+poste », data.gouv.fr/Microsoft Learn, « GitHub » avec « Toute autre écriture : Refuser ») puis le
+lien « Régler dans MCP » ; le dépli d'un garde-fou montre toujours soit la raison d'installation
+(déjà le cas), soit le mode courant, puis un lien « Modifier dans la brique Garde-fous, page
+d'accueil » ; le dépli des hooks liste tous les hooks (actif/inactif), avec un texte s'il n'y en a
+aucun ; le dépli de la liste blanche réseau affiche un texte explicatif quand la liste est vide.
+Deux outils locaux de même libellé (« Glossaire » pour `list_terms` et `define_term`) sont
+distingués. Textes nouveaux en fr/en/de sous `security.controls.*`.
 
 ## Boundaries & Constraints
 
@@ -55,7 +58,8 @@ corrects, pas de changement de `security.html` (motif disclosure-row inchangé),
 
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |----------|--------------|---------------------------|----------------|
-| Autorisations des outils | Politique par défaut (5 outils locaux) | Dépli : 5 lignes outil → règle, puis « Régler dans MCP » | N/A |
+| Autorisations des outils | Politique par défaut (5 locaux + 6 GitHub) | Dépli : 3 groupes (Sur ce poste, data.gouv.fr/Microsoft Learn, GitHub + « Toute autre écriture : Refuser »), puis « Régler dans MCP » | N/A |
+| Règle réglée dans MCP | `set_rule("github__list_issues", "deny")` | La règle du dépli change en même temps que la matrice (même source) | N/A |
 | Garde-fous non installés | `_guardrails_missing` renseigné | Dépli : raison d'installation + lien | N/A (déjà correct avant le correctif) |
 | Garde-fou installé, mode désactivé | `installed=True`, `mode="off"` | Dépli : « Mode : Désactivé » + lien vers la brique | Avant le correctif : corps vide |
 | Hooks, aucun actif | `_hooks_enabled` vide | Dépli : les N hooks, chacun « inactif » | Avant le correctif : corps vide |
@@ -68,21 +72,29 @@ corrects, pas de changement de `security.html` (motif disclosure-row inchangé),
 
 ## Code Map
 
-- `src/wavestack/session/app_session.py` -- `_security_controls` (L10993) : `tool_rules` gagne
-  `allow_count` et `tools` (liste `{id, label_text, rule}` par outil `local__*`, via
-  `_security_label_text`).
-- `src/wavestack/web/static/security.js` -- `renderControls` (L147) : dépli des autorisations
-  (liste des outils + lien `security.matrix.settle_link` vers `/mcp`) ; dépli d'un garde-fou
-  (corps jamais vide : raison ou mode courant, + lien vers `/`) ; dépli des hooks (tous les
-  hooks, pas seulement les actifs) ; dépli de la liste blanche réseau (texte si vide). Nouvelle
-  fonction `link(text, href)`.
-- `content/ui.yaml`, `content/i18n/en/ui.yaml`, `content/i18n/de/ui.yaml` -- `security.controls.*` :
-  `allow_count`, `hook_active`, `hook_inactive`, `guardrail_mode_label`, `change_in_bricks`,
-  `network_whitelist_empty`.
-- `tests/test_security_page.py` -- nouveau test API (`controls` carrying enough detail) et mise à
-  jour de l'assertion existante sur la forme de `tool_rules`.
+- `src/wavestack/session/app_session.py` -- `_security_controls(rows, matrix)` : `tool_rules`
+  gagne `allow_count`, `tools` (liste `{id, label_text, rule}` sur les outils `local__*` et
+  `github__*`, ces derniers absents avant le correctif) et `network_rule`/`network_label_text`
+  (la ligne `network` de la matrice, réutilisée, jamais dupliquée). `security_state` lui passe
+  désormais `matrix` en plus de `rows`.
+- `src/wavestack/web/static/security.js` -- `renderControls` : dépli des autorisations groupé par
+  serveur (« Sur ce poste », data.gouv.fr/Microsoft Learn, « GitHub » + « Toute autre écriture »),
+  lien `security.matrix.settle_link` vers `/mcp` ; dépli d'un garde-fou (corps jamais vide : raison
+  ou mode courant, + lien vers `/`) ; dépli des hooks (tous les hooks, texte si la liste est vide) ;
+  dépli de la liste blanche réseau (texte si vide). Nouvelles fonctions `link`, `ruleText`
+  (factorisée avec `renderMatrix`), `groupHeading`.
+- `content/ui.yaml`, `content/i18n/{en,de}/ui.yaml` -- `security.controls.*` : `allow_count`,
+  `hook_active`, `hook_inactive`, `hooks_empty`, `guardrail_mode_label`, `change_in_bricks` (texte
+  allemand corrigé : « Schutzmechanismen », le nom de la brique), `network_whitelist_empty`,
+  `group_local`, `group_github`, `github_write_other`.
+- `content/messages.yaml`, `content/i18n/{en,de}/messages.yaml` -- `security.tools.local__list_terms`
+  et `local__define_term` distingués (« Glossaire : liste des termes » / « Glossaire : définition »).
+- `tests/test_security_page.py` -- test API `tool_rules` (groupes local+GitHub, 11 outils, règle
+  réglée dans MCP reflétée) et assertions non vacueuses sur les garde-fous/hooks.
 - `tools/e2e/run_e2e.py` -- `s_security_page` : déplie les 7 contrôles et vérifie qu'aucun corps
-  n'est vide, avant le flux existant (fusion refusée, CSV).
+  n'est vide, avant le flux existant (fusion refusée, CSV) ; la ligne « fusion de PR » du journal
+  est maintenant cherchée sous `#sec-journal` (évite un conflit avec le texte du même outil dans
+  le dépli des autorisations).
 
 ## Tasks & Acceptance
 
@@ -104,17 +116,41 @@ corrects, pas de changement de `security.html` (motif disclosure-row inchangé),
 ## Implementation Notes
 
 - `uv run pytest -q --tb=short tests/test_security_page.py tests/test_web_app.py
-  tests/test_ui_texts.py tests/test_i18n.py` : tous verts (10, 27, 42, 137 tests).
+  tests/test_ui_texts.py tests/test_i18n.py` : tous verts (10, 27, 42, 137 tests), les deux
+  passes (avant et après le second avis).
 - `python .claude/cost-kit/controle_rapide.py` : propre (ruff check + format).
 - `node --check src/wavestack/web/static/security.js` : propre.
 - E2E (`--channel msedge --only security_page bar_panels`) : 37 vérifications réussies, 0 échec,
   les 7 contrôles vérifiés non vides dans l'état par défaut (garde-fous non installés, GitHub non
-  connecté). `settings.json`/`memory.json` sauvegardés puis restaurés ; captures d'écran
-  restaurées à l'état du dépôt après coup.
+  connecté), les 11 outils (local + GitHub) visibles groupés. `settings.json`/`memory.json`
+  sauvegardés puis restaurés à chaque passe ; captures d'écran restaurées à l'état du dépôt après
+  coup.
 
 ## Spec Change Log
 
+- 2026-10-17 : second avis — élargissement de « Autorisations des outils » aux outils GitHub
+  (groupés), libellés distincts pour les deux outils du glossaire, texte allemand de
+  `change_in_bricks` corrigé, texte explicite si la liste des hooks est vide.
+
 ## Review Triage Log
+
+Second avis (1 passe) :
+
+- [MEDIUM] « Autorisations des outils » ne listait que les outils `local__*` ; la matrice et
+  « Quels outils peuvent écrire ? » comptent aussi GitHub et les serveurs publics, incohérent avec
+  le résumé replié. → corrigé : `tool_rules.tools` couvre local + GitHub (11 outils, cohérent avec
+  les décomptes du résumé), groupés par serveur côté page, avec la ligne `network` de la matrice
+  réutilisée pour data.gouv.fr/Microsoft Learn ; test qui règle un outil GitHub dans MCP et vérifie
+  qu'il apparaît avec sa règle.
+- [MEDIUM] `tests/test_security_page.py` : `g["install_text"] or g.get("mode")` ne pouvait pas
+  échouer, et `all(... for h in hooks)` passait sur une liste vide. → corrigé : assertions par
+  branche (garde-fou non installé/en erreur exige `install_text` ; sinon le mode doit être un des
+  modes offerts) et `assert controls["hooks"]`/`assert controls["guardrails"]` avant les `all(...)`.
+- [LOW] `local__list_terms` et `local__define_term` partageaient le libellé « Glossaire ». →
+  distingués (« Glossaire : liste des termes » / « Glossaire : définition », fr/en/de).
+- [LOW] `security.controls.change_in_bricks` en allemand ne nommait pas la brique. → corrigé avec
+  le nom allemand de la brique (`content/i18n/de/bricks/guardrails.yaml` : « Schutzmechanismen »).
+- [LOW] Hooks : corps vide si la liste est vide. → texte `security.controls.hooks_empty` en repli.
 
 ## Verification
 

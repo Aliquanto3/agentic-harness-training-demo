@@ -35,14 +35,19 @@ def test_security_state_computes_the_question_cards_from_policy_and_journal(loop
     assert can_write["count"] == 3
     assert "1 sur demande" in can_write["detail_text"]
     assert "2 refusés" in can_write["detail_text"]
-    # Every local tool, `define_term` included, each with its own rule (never an empty detail).
+    # Every local and GitHub tool, each with its own rule (never an empty detail, never just
+    # the local ones: GitHub and the matrix's live overrides must show too).
     tool_rules = state["controls"]["tool_rules"]
-    assert tool_rules["count"] == 5
+    assert tool_rules["count"] == 11  # 5 local + 4 GitHub reads + 2 GitHub writes
     assert tool_rules["ask_count"] == 2
-    assert tool_rules["deny_count"] == 0
-    assert tool_rules["allow_count"] == 3
-    assert len(tool_rules["tools"]) == 5
+    assert tool_rules["deny_count"] == 2  # the 2 GitHub writes, denied by default
+    assert tool_rules["allow_count"] == 7
+    assert len(tool_rules["tools"]) == 11
     assert all(tool["label_text"] and tool["rule"] for tool in tool_rules["tools"])
+    tool_ids = {tool["id"] for tool in tool_rules["tools"]}
+    assert "github__merge_pull_request" in tool_ids and "local__define_term" in tool_ids
+    assert tool_rules["network_rule"] == "allow"
+    assert tool_rules["network_label_text"]
 
     assert state["questions"]["authorized_by_you"]["count"] == 1
     assert state["questions"]["blocked"]["count"] == 2  # 1 tool deny + 1 guardrail blocked
@@ -143,18 +148,32 @@ def test_github_write_refusal_names_what_did_not_reach_github(loop):  # noqa: F8
 
 def test_api_security_controls_carry_enough_detail_to_render(loop):  # noqa: F811
     """Dépli vide corrigé (rapport vague 2) : chaque contrôle a de quoi afficher un détail,
-    jamais un corps vide. « Autorisations des outils » doit lister chaque outil et sa règle
-    effective, pas seulement des compteurs."""
+    jamais un corps vide. « Autorisations des outils » doit lister chaque outil (local et
+    GitHub, le second avis l'a signalé manquant) et sa règle effective, y compris une règle
+    réglée dans MCP, pas seulement des compteurs."""
     session = mcp_session(loop)
+    session._mcp_policy.set_rule("github__list_issues", "deny")  # réglé dans MCP
+
     controls = session.security_state()["controls"]
 
     tr = controls["tool_rules"]
-    assert tr["tools"], "tool_rules must list each local tool and its rule, not just counts"
+    assert tr["tools"], "tool_rules must list each tool and its rule, not just counts"
     assert all(tool["label_text"] and tool["rule"] for tool in tr["tools"])
+    by_id = {tool["id"]: tool["rule"] for tool in tr["tools"]}
+    assert by_id["github__list_issues"] == "deny"  # the MCP-page override, reflected here too
+    assert "local__list_terms" in by_id  # GitHub present, but local tools not dropped either
+    assert tr["network_label_text"] and tr["network_rule"]
 
+    # A guardrail card never leaves its body with nothing to show: either a reason to install,
+    # or a concrete current mode among the ones it offers.
+    assert controls["guardrails"], "at least one guardrail must be listed"
     for g in controls["guardrails"]:
-        assert g["install_text"] or g.get("mode")  # a reason to install, or the active mode
+        if g["install_text"]:
+            continue
+        assert g["mode"] in ("block", "flag", "off")
+        assert any(m["id"] == g["mode"] for m in g["modes"])
 
+    assert controls["hooks"], "at least one hook must be listed"
     assert all(h["label_text"] for h in controls["hooks"])
 
     gh = controls["github"]

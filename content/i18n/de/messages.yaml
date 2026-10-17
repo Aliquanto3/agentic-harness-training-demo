@@ -1619,8 +1619,8 @@ net:
 security:
   guardrail_name: "Garde-fou {guardrail}"
   tools:
-    local__list_terms: Glossar
-    local__define_term: Glossar
+    local__list_terms: "Glossar: Liste der Begriffe"
+    local__define_term: "Glossar: Definition"
     local__system_info: RAM und System
     local__create_path: Datei oder Ordner erstellen
     local__take_screenshot: Bildschirmfoto
