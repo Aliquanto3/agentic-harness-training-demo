@@ -274,6 +274,27 @@ def build(frames: Path) -> Film:
         ],
     )
 
+    def sec(name: str) -> list[Path]:
+        return film.phase("security", name)
+
+    security = "La page Sécurité : ce que le harnais contrôle, refuse et journalise"
+    film.run(
+        sec("sec_intro") + sec("sec_control"),
+        "6",
+        security,
+        3.2,
+        "🛡",
+        [("questions", "Les questions d'un RSSI, calculées sur la séance", ORANGE, "below")],
+    )
+    film.run(
+        sec("sec_limit")[-1:],
+        "6",
+        security,
+        2.2,
+        "🛡",
+        [("limit", "Ce que le harnais ne protège pas", PRIMARY, "below")],
+    )
+
     end = [
         ("uv run wavestack", "consolab.ttf", 64, ACCENT),
         ("6 modules de formation · 5 h 15 · 3 ateliers", "seguisb.ttf", 36, "white"),

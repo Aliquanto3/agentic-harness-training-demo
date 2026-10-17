@@ -5,10 +5,10 @@ raisonnement, mémoire, prompt système, outils, RAG, MCP, skills, hooks, sous-a
 compression du contexte. Démonstrateur pédagogique local, qui tourne sur CPU, sans GPU ;
 interface en français, en anglais et en allemand.
 
-![Démonstration de WaveStack : le LLM nu ne connaît pas l'heure ; avec la brique Outils, le modèle appelle get_datetime et chaque étape s'affiche ; puis les ateliers LLM, RAG et MCP](docs/assets/wavestack-demo.gif)
+![Démonstration de WaveStack : le LLM nu ne connaît pas l'heure ; avec la brique Outils, le modèle appelle get_datetime et chaque étape s'affiche ; puis les ateliers LLM, RAG et MCP, et la page Sécurité](docs/assets/wavestack-demo.gif)
 
 *Même question, sans puis avec outils : le LLM nu avoue ne pas connaître l'heure ; avec les outils,
-il appelle `get_datetime` et chaque étape s'affiche. Puis l'Atelier LLM, l'Atelier RAG et l'Atelier MCP. [Version vidéo (MP4)](docs/assets/wavestack-demo.mp4).*
+il appelle `get_datetime` et chaque étape s'affiche. Puis l'Atelier LLM, l'Atelier RAG, l'Atelier MCP et la page Sécurité. [Version vidéo (MP4)](docs/assets/wavestack-demo.mp4).*
 
 ## Comment ça marche
 
