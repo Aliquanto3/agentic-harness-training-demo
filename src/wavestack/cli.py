@@ -57,7 +57,7 @@ from wavestack.session.diagnostic import (  # noqa: E402
 from wavestack.trace.journal import get_journal  # noqa: E402
 from wavestack.web.app import create_app  # noqa: E402
 
-VERSION = "0.1.0"
+VERSION = "1.1.0"
 BROWSER_DELAY_S = 1.0  # the page opens 1 s after the start at the earliest
 LAUNCH_WAIT_S = 30.0  # past this, the diagnostic page opens while the checks go on
 # Story 7 of the deferred leftovers (E077): an open page keeps its SSE stream, which uvicorn

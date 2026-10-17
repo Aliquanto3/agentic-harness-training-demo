@@ -1,6 +1,6 @@
 [project]
 name = "wavestack"
-version = "0.1.0"
+version = "1.1.0"
 description = "Démonstrateur pédagogique d'un harnais agentique, brique par brique, en local sur CPU."
 readme = "README.md"
 license = "Apache-2.0"

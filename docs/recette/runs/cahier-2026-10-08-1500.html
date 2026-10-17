@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cahier de tests WaveStack</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --text: #1b1f24; --muted: #5b6470; --border: #d9dde3;
+    --accent: #4b2bd6; --ok: #1f7a3d; --ok-bg: #e3f4e8; --ko: #b42318; --ko-bg: #fde7e5;
+    --blocked: #8a5a00; --blocked-bg: #fdf1d8; --todo-bg: #eef0f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151a; --surface: #1b1f26; --text: #e7eaee; --muted: #9aa3ae; --border: #2e343d;
+      --accent: #a594ff; --ok: #6fd28f; --ok-bg: #173323; --ko: #ff8a80; --ko-bg: #3a1c1a;
+      --blocked: #f2c25b; --blocked-bg: #3a2e12; --todo-bg: #262b33;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151a; --surface: #1b1f26; --text: #e7eaee; --muted: #9aa3ae; --border: #2e343d;
+    --accent: #a594ff; --ok: #6fd28f; --ok-bg: #173323; --ko: #ff8a80; --ko-bg: #3a1c1a;
+    --blocked: #f2c25b; --blocked-bg: #3a2e12; --todo-bg: #262b33;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 20px; }
+  .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 16px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .meta div > span:first-child { display: block; font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .summary { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    margin: 16px 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+  .summary strong { margin-right: auto; }
+  .pill { padding: 2px 10px; border-radius: 999px; font-size: .85rem; font-weight: 600; }
+  .pill.todo { background: var(--todo-bg); color: var(--muted); }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .pill.ko { background: var(--ko-bg); color: var(--ko); }
+  .pill.blocked { background: var(--blocked-bg); color: var(--blocked); }
+  .case { background: var(--surface); border: 1px solid var(--border); border-left: 5px solid var(--border);
+    border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+  .case[data-status="ok"] { border-left-color: var(--ok); }
+  .case[data-status="ko"] { border-left-color: var(--ko); }
+  .case[data-status="blocked"] { border-left-color: var(--blocked); }
+  .case header { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+  .case h2 { font-size: 1.1rem; margin: 0; }
+  .id { font-family: ui-monospace, Consolas, monospace; color: var(--accent); font-weight: 700; }
+  .tag { font-size: .75rem; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; padding: 0 6px; }
+  .case h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 4px; }
+  .case p, .case ol { margin: 0; }
+  .case ol { padding-left: 22px; }
+  .beyond { margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: var(--todo-bg); font-size: .92rem; }
+  .verdict { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); }
+  .buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .buttons button { font: inherit; font-weight: 600; padding: 4px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  .buttons button[aria-pressed="true"][data-value="ok"] { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
+  .buttons button[aria-pressed="true"][data-value="ko"] { background: var(--ko-bg); color: var(--ko); border-color: var(--ko); }
+  .buttons button[aria-pressed="true"][data-value="blocked"] { background: var(--blocked-bg); color: var(--blocked); border-color: var(--blocked); }
+  .buttons button[aria-pressed="true"][data-value="todo"] { background: var(--todo-bg); }
+  textarea { width: 100%; min-height: 64px; font: inherit; padding: 8px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; }
+  label.obs { font-size: .8rem; color: var(--muted); display: block; margin-bottom: 4px; }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 24px; }
+  #reset { font: inherit; font-size: .85rem; background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 8px; padding: 2px 10px; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Cahier de tests fonctionnels : WaveStack</h1>
+  <p class="lead">Campagne de démonstration exécutée par Claude in Chrome. Chaque cas cible ce qu'un test
+    unitaire, d'intégration ou E2E scripté vérifie mal : un jugement sur le sens, un recoupement entre
+    sources, un avis visuel ou une exploration.</p>
+
+  <section class="meta" aria-label="Contexte de la campagne">
+    <div><span>Application</span>WaveStack, http://127.0.0.1:8420</div>
+    <div><span>Version</span><span id="meta-version">main @ d239b09</span></div>
+    <div><span>Campagne</span><span id="meta-run">2026-10-08-1500</span></div>
+    <div><span>Environnement</span>Windows 11, Chrome, modèle local sur CPU</div>
+    <div><span>Testeur</span>Claude in Chrome (supervisé)</div>
+  </section>
+
+  <div class="summary" role="status" aria-live="polite">
+    <strong>Avancement</strong>
+    <span class="pill todo" id="count-todo">0 à exécuter</span>
+    <span class="pill ok" id="count-ok">0 OK</span>
+    <span class="pill ko" id="count-ko">0 KO</span>
+    <span class="pill blocked" id="count-blocked">0 bloqué</span>
+  </div>
+
+  <article class="case" id="CT-01">
+    <header><span class="id">CT-01</span><h2>Parcours des cinq écrans et cohérence des titres</h2><span class="tag">Exploratoire</span></header>
+    <h3>Étapes</h3>
+    <ol>
+      <li>Ouvrir l'Atelier Harnais, puis cliquer successivement sur LLM, RAG, MCP et Diagnostic dans la barre de navigation.</li>
+      <li>Sur chaque écran, comparer le titre de l'onglet du navigateur au titre affiché dans la page.</li>
+      <li>Relever les erreurs de la console JavaScript.</li>
+    </ol>
+    <h3>Résultat attendu</h3>
+    <p>Chaque écran s'affiche sans erreur, l'onglet actif est mis en évidence dans la barre, et le titre du navigateur correspond à celui de la page (« WaveStack — Atelier LLM », etc.).</p>
+    <p class="beyond"><strong>Au-delà de l'E2E :</strong> le testeur juge si l'écran « a l'air cassé » (zone vide, texte tronqué) sans sélecteur prévu à l'avance.</p>
+    <div class="verdict" data-case="CT-01"></div>
+  </article>
+
+  <article class="case" id="CT-02">
+    <header><span class="id">CT-02</span><h2>Le LLM nu n'invente pas l'heure</h2><span class="tag">Oracle sémantique</span></header>
+    <h3>Étapes</h3>
+    <ol>
+      <li>Dans la barre du bas, choisir le scénario « LLM nu ».</li>
+      <li>Envoyer le message : « Quelle heure est-il ? »</li>
+      <li>Lire la réponse dans ① Vue humain, puis les volets ② Contexte LLM et ③ Orchestration.</li>
+    </ol>
+    <h3>Résultat attendu</h3>
+    <p>La réponse dit, sous une forme ou une autre, que le modèle ne peut pas connaître l'heure. Elle ne donne pas une heure précise présentée comme vraie. Le Contexte LLM contient la question, l'Orchestration montre un seul appel au modèle et aucun outil.</p>
+    <p class="beyond"><strong>Au-delà de l'E2E :</strong> la formulation du modèle change à chaque exécution ; seul un lecteur peut dire si elle respecte l'intention.</p>
+    <div class="verdict" data-case="CT-02"></div>
+  </article>
+
+  <article class="case" id="CT-03">
+    <header><span class="id">CT-03</span><h2>Avec les outils, l'heure annoncée est la bonne</h2><span class="tag">Recoupement</span></header>
+    <h3>Étapes</h3>
+    <ol>
+      <li>Choisir le scénario « Outils natifs ».</li>
+      <li>Envoyer « Quelle heure est-il ? ». Si le modèle n'appelle pas d'outil, utiliser l'action forcée prévue pour <code>get_datetime</code>.</li>
+      <li>Comparer l'heure annoncée à l'heure réelle du poste.</li>
+    </ol>
+    <h3>Résultat attendu</h3>
+    <p>L'Orchestration montre l'appel à <code>get_datetime</code> puis la réinjection du résultat. L'heure de la réponse est à moins de deux minutes de l'heure du poste.</p>
+    <p class="beyond"><strong>Au-delà de l'E2E :</strong> l'oracle est extérieur à l'application (l'horloge du poste) et la réponse est en langage naturel.</p>
+    <div class="verdict" data-case="CT-03"></div>
+  </article>
+
+  <article class="case" id="CT-04">
+    <header><span class="id">CT-04</span><h2>Ce que l'écran affiche sur le réseau correspond aux requêtes réelles</h2><span class="tag">Recoupement</span></header>
+    <h3>Étapes</h3>
+    <ol>
+      <li>Après CT-02 et CT-03, lire le volet ④ Schéma d'architecture : que dit-il de ce qui sort du poste ?</li>
+      <li>Lire les requêtes réseau émises par l'onglet du navigateur.</li>
+    </ol>
+    <h3>Résultat attendu</h3>
+    <p>Avec un modèle local, le schéma n'affiche aucun composant côté réseau, et toutes les requêtes du navigateur visent 127.0.0.1 ou localhost.</p>
+    <p class="beyond"><strong>Au-delà de l'E2E :</strong> on confronte ce que l'interface affiche à ce qui se passe vraiment, deux sources qu'aucun test ne relie aujourd'hui.</p>
+    <div class="verdict" data-case="CT-04"></div>
+  </article>
+
+  <article class="case" id="CT-05">
+    <header><span class="id">CT-05</span><h2>Thème sombre et mode projection lisibles</h2><span class="tag">Revue visuelle</span></header>
+    <h3>Étapes</h3>
+    <ol>
+      <li>Ouvrir le menu « Affichage », passer au thème sombre et activer le mode projection.</li>
+      <li>Observer l'Atelier Harnais avec la conversation de CT-03 à l'écran.</li>
+      <li>Revenir ensuite au thème et au mode d'origine.</li>
+    </ol>
+    <h3>Résultat attendu</h3>
+    <p>Aucun texte illisible (contraste trop faible), aucun libellé tronqué ou superposé, les volets restent utilisables avec les textes agrandis.</p>
+    <p class="beyond"><strong>Au-delà de l'E2E :</strong> une capture comparée pixel à pixel signale tout changement ; ici on juge si c'est lisible pour une salle.</p>
+    <div class="verdict" data-case="CT-05"></div>
+  </article>
+
+  <article class="case" id="CT-06">
+    <header><span class="id">CT-06</span><h2>Interface en allemand sans reste de français</h2><span class="tag">Exploratoire</span></header>
+    <h3>Étapes</h3>
+    <ol>
+      <li>Dans « Affichage », passer la langue en allemand (DE).</li>
+      <li>Parcourir l'Atelier Harnais et l'Atelier LLM, menus déroulants compris.</li>
+      <li>Revenir au français.</li>
+    </ol>
+    <h3>Résultat attendu</h3>
+    <p>Tous les libellés visibles sont en allemand. Les noms propres (WaveStack, MCP, RAG) et les contenus générés par le modèle sont hors périmètre.</p>
+    <p class="beyond"><strong>Au-delà de l'E2E :</strong> repérer une phrase française dans une page allemande demande de lire la langue, pas de comparer des clés.</p>
+    <div class="verdict" data-case="CT-06"></div>
+  </article>
+
+  <footer>
+    Statuts et constats enregistrés dans ce navigateur. <button id="reset" type="button">Remettre la campagne à zéro</button>
+  </footer>
+</main>
+<!-- Results embedded by scripts/new_recette_run.py --seed (an archived campaign); {} for a blank copy. -->
+<script id="seed" type="application/json">{"CT-01": {"status": "ko", "note": "KO mineur, intermittent. 5 écrans OK : titre du navigateur = titre de page (Atelier LLM, Atelier RAG, Atelier MCP, Diagnostic et modèles), onglet actif marqué (aria-current), 0 erreur console. Anomalie : au 1er passage sur Diagnostic, les 43 logos d'éditeurs restent vides (img.complete=false, largeur 0) alors que /static/logos/qwen.png répond 200. Non reproduit après rechargement ni au 2e passage. Piste : connexions HTTP saturées (flux SSE d'autres onglets) juste après le lancement."}, "CT-02": {"status": "ok", "note": "OK. Réponse (bonsai:8b-q1_0) : « Je n'ai pas accès à la date ou à l'heure actuelle… consulter les horaires ou le calendrier » : aveu d'ignorance, aucune heure inventée. Contexte LLM : gabarit + « Quelle heure est-il ? » (18 tokens). Orchestration : Tour 1, 1 appel au modèle, 18 tokens en entrée, 45 en sortie, 2,7 s, aucun outil."}, "CT-03": {"status": "ok", "note": "OK. Le modèle appelle get_datetime de lui-même (« Déclenché par le modèle », aucune action forcée). Orchestration : appel modèle (626 lus) > demande d'outil get_datetime > exécution OK 0 s > réinjection +28 tokens > réponse (683 lus, 11 écrits). Réponse : « Il est 15 heures et 8 minutes », lien « Outils consultés : Heure et date ». Horloge du poste relevée juste après : 15:09:10, écart < 1 min."}, "CT-04": {"status": "ok", "note": "OK. Schéma : zone RÉSEAU « Aucun composant réseau : rien ne sort du poste » et « aucune donnée n'a quitté le poste ». Navigateur : 115 requêtes, toutes vers 127.0.0.1:8420 (ou URI data:). Recoupement supplémentaire côté serveur (Get-NetTCPConnection sur le processus WaveStack) : 4 connexions établies, toutes vers 127.0.0.1. Ce que dit l'écran est conforme au trafic réel."}, "CT-05": {"status": "ko", "note": "KO mineur (fenêtre 1912x863, thème sombre + projection). Contrastes corrects en sombre. 1) Vue humain : la zone de conversation n'a que 127 px visibles pour 182 px de contenu, la réponse « Il est 15 heures et 8 minutes » est coupée à mi-hauteur ; les 3 prompts suggérés mangent la place. 2) Barre du bas : « Changer de modèl… » tronqué (select natif : invisible pour scrollWidth, vu seulement à l'œil). 3) Panneau des briques : barre de défilement horizontale (débordement mesuré sur #bricks). Faux positif écarté : volets grisés = effet de survol voulu (souris sur une étape), normal une fois la souris retirée. Thème et mode remis à l'origine."}, "CT-06": {"status": "ko", "note": "KO mineur. 443 textes balayés sur le Harnais (texte, title, aria-label, placeholder), puis l’Atelier LLM ; l’interface visible est en allemand. 1) VISIBLE, Atelier LLM, section « ④ Laden des Modells » : les intitulés (FREIGABE, BUDGET, ENGINE, BEREIT) sont en allemand mais les messages restent en français (« Aucun modèle à libérer… », « Prêt : bonsai:8b-q1_0 est actif. », ligne Mémoire vive). La traduction existe (de/messages.yaml : « Bereit: {label} ist aktiv. ») : messages figés dans la langue active au chargement du modèle, jamais retraduits. 2) Infobulles des modèles cloud du menu « Modell wechseln » en français (« Google (hébergement non précisé) », « États-Unis (Groq) »…) : limite CONNUE et documentée (wavestack.toml l. 326-331, décision du 2026-10-01), pas un défaut. Faux positifs écartés : « Français » (nom de langue), recette_crepes.txt (nom de fichier), article allemand « des »."}}</script>
+<script>
+  const STATUSES = [["todo", "À exécuter"], ["ok", "OK"], ["ko", "KO"], ["blocked", "Bloqué"]];
+  // One state per copy: each campaign file starts blank, whatever the other copies hold.
+  const KEY = "wavestack-cahier:" + location.pathname;
+  let state = null;
+  try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) { state = null; }
+  if (!state) { try { state = JSON.parse(document.getElementById("seed").textContent) || {}; } catch (e) { state = {}; } }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+
+  function refresh() {
+    const counts = { todo: 0, ok: 0, ko: 0, blocked: 0 };
+    document.querySelectorAll(".verdict").forEach((v) => {
+      const id = v.dataset.case;
+      const status = (state[id] && state[id].status) || "todo";
+      counts[status]++;
+      v.closest(".case").dataset.status = status;
+      v.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.value === status)));
+    });
+    document.getElementById("count-todo").textContent = counts.todo + " à exécuter";
+    document.getElementById("count-ok").textContent = counts.ok + " OK";
+    document.getElementById("count-ko").textContent = counts.ko + " KO";
+    document.getElementById("count-blocked").textContent = counts.blocked + (counts.blocked > 1 ? " bloqués" : " bloqué");
+  }
+
+  document.querySelectorAll(".verdict").forEach((v) => {
+    const id = v.dataset.case;
+    const group = document.createElement("div");
+    group.className = "buttons";
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "Statut " + id);
+    STATUSES.forEach(([value, label]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.value = value;
+      b.textContent = label;
+      b.setAttribute("aria-label", id + " : " + label);
+      b.addEventListener("click", () => {
+        state[id] = { ...(state[id] || {}), status: value };
+        save(); refresh();
+      });
+      group.appendChild(b);
+    });
+    const label = document.createElement("label");
+    label.className = "obs";
+    label.htmlFor = "obs-" + id;
+    label.textContent = "Constat " + id;
+    const area = document.createElement("textarea");
+    area.id = "obs-" + id;
+    area.placeholder = "Ce qui a été observé, écarts, captures…";
+    area.value = (state[id] && state[id].note) || "";
+    area.addEventListener("input", () => { state[id] = { ...(state[id] || {}), note: area.value }; save(); });
+    v.append(group, label, area);
+  });
+
+  document.getElementById("reset").addEventListener("click", () => {
+    state = {}; save();
+    document.querySelectorAll("textarea").forEach((t) => (t.value = ""));
+    refresh();
+  });
+  refresh();
+</script>
+</body>
+</html>
