@@ -27,7 +27,35 @@ Pour chaque décision System One, l'affichage montre :
 - le seuil réglable ;
 - la cascade vers le juge sous le seuil.
 
-Jev est une option cloud (`content/cloud.yaml`), sans être un prérequis.
+**Candidats du banc préalable** (story 2), repris du cadrage et de `decision-model-candidates.md` :
+
+| Candidat | Où il tourne | Rôle visé | Remarque |
+|---|---|---|---|
+| `deberta_xsmall` | Local, ONNX, 87 Mo, MIT | Routeur | Déjà retenu par le banc CAP-6 de la V2 |
+| Strands Decider 2B | Local | Routeur, filtre, ancrage | Cité par le cadrage, à mesurer (format, licence, RAM) |
+| [AnyJev (Nokia)](https://github.com/nokia-applied-research/AnyJev) | Local | Filtre, ancrage | Cité par le cadrage, à mesurer |
+| Reranker déjà livré | Local | Filtre de passages | Seuil sur son score |
+| Petit NLI en ONNX | Local | Contrôle d'ancrage | À choisir dans le banc |
+| Jev (TypeSafe AI) | Cloud, API de décision | Routeur, filtre, ancrage | Voir ci-dessous |
+| Microsoft-Decision-1 | Cloud, Azure AI Foundry | Routeur, filtre, ancrage | Cité par le cadrage ; budget Azure à confirmer |
+| Qwen3.5-2B + GBNF | Local | Juge de repli de la cascade | Déjà mesuré (CAP-6 de la V2) |
+
+**Jev**, d'après la recherche du 2026-10-17 :
+- **Éditeur** : TypeSafe AI ; modèle propriétaire, sans poids publiés ni hébergement local.
+- **Accès** :
+  - accès anticipé sur liste d'attente depuis le 2026-09-15 ;
+  - aussi servi par Eden AI à `POST /v3/alpha/decisions` (modèle `typesafe/jev-latest`), un endpoint alpha dont la forme peut changer.
+- **Questions** :
+  - `Choice` : renvoie une étiquette, `confidence` et `probabilities` ;
+  - `Score` : grille de 2 à 10 niveaux ;
+  - `Noul` : renvoie la probabilité du oui.
+- **Prix et performances** : 0,042 $ par million de tokens d'entrée, sortie gratuite ; 70 à 500 ms par appel ; environ 32 000 tokens par requête.
+- **Intégration** :
+  - un adaptateur dédié à l'API de décision, qui n'est pas un modèle de chat ;
+  - clé dans une variable d'environnement, sur le modèle de `key_env` des `[[cloud.models]]` ;
+  - désactivé sans clé.
+- **Sources** : [Eden AI](https://www.edenai.co/post/jev-a-new-kind-of-ai-model-built-for-decisions-not-conversation), [eesel.ai](https://www.eesel.ai/blog/typesafe-jev-pricing), [Layer3Labs](https://www.layer3labs.io/guides/jev-pricing). Aucune page de prix officielle trouvée.
+- **Limite connue** (H7) : il accepte 23 % d'affirmations non étayées, contre 13 % pour un LLM. C'est la raison de la cascade vers un juge sous le seuil.
 
 ## Architectures
 

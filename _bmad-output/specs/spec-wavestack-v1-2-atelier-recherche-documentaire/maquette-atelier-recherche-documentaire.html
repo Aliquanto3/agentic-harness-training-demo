@@ -300,8 +300,9 @@
     <section class="doc-panel" id="tab-eval" role="tabpanel" hidden>
       <p class="doc-banner">Démonstration, pas un banc : n = 21 questions, 2 architectures, 2 juges. Ces chiffres n'établissent aucun classement général.</p>
       <div class="doc-toolbar">
-        <label>Juge A <select><option>Qwen3.5-2B (local)</option></select></label>
-        <label>Juge B <select><option>Second SLM local</option><option>Modèle cloud</option></select></label>
+        <label>Juge local <select><option>SLM local (famille ≠ Qwen)</option><option disabled>Qwen3.5-2B : écarté, même famille que le modèle jugé</option></select></label>
+        <label>Juge cloud <select><option>Mistral Small (Mistral AI)</option><option>Gemini Flash-Lite (Google)</option><option>Claude Haiku (Anthropic)</option></select></label>
+        <span class="doc-badge">Dépense cloud : 0,03 $ / plafond 5 $</span>
       </div>
       <table class="doc-table">
         <thead><tr><th>Question</th><th>Critère</th><th>Juge A</th><th>Juge B</th><th>Humain</th></tr></thead>
@@ -381,7 +382,8 @@
             <section class="doc-card"><h3>À quoi il sert</h3><p>Répondre aux questions globales (« quels grands thèmes ? ») en résumant des communautés d'entités liées.</p></section>
             <section class="doc-card"><h3>Quand l'utiliser, quand l'éviter</h3><p>Corpus stable, questions de synthèse. À éviter si le corpus change souvent ou si les questions sont factuelles.</p></section>
             <section class="doc-card"><h3>Ce qu'il coûte</h3><p>Plus cher à toutes les étapes : construction (extraction par LLM), mise à jour (communautés à recalculer), requête (contexte plus long).</p></section>
-            <section class="doc-card"><h3>Ce que dit la littérature</h3><p>Sources du cadrage à reprendre (question ouverte).</p></section>
+            <section class="doc-card"><h3>Ce que dit la littérature</h3><p>H2, soutenue : perd sur les faits simples, gagne en raisonnement complexe ; prompt global ~331 000 tokens contre ~880 (<a href="https://arxiv.org/html/2506.05690v3">GraphRAG-Bench</a>) ; mise à jour ~100× plus coûteuse (<a href="https://arxiv.org/pdf/2506.20963v1.pdf">EraRAG</a>).</p></section>
+            <section class="doc-card"><h3>Ce qu'a mesuré le banc</h3><p class="rag-note">Pas encore mesuré.</p></section>
           </div>
           <h3>Fiche conformité</h3>
           <table class="doc-table">
@@ -391,6 +393,7 @@
             <tr><th>Droits d'accès</th><td><span class="doc-level medium">moyen</span> Un résumé de communauté peut mêler des documents de profils différents.</td></tr>
             <tr><th>Injection</th><td><span class="doc-level high">élevé</span> Une relation fausse persiste dans le graphe. <a href="#" data-goto="tab-attack">Démonstration</a></td></tr>
             <tr><th>Traçabilité</th><td><span class="doc-level medium">moyen</span> Citation au niveau de l'entité, pas toujours du passage.</td></tr>
+            <tr><th>Cadre réglementaire</th><td><span class="doc-level medium">moyen</span> RGPD : le graphe est un traitement dérivé à inscrire au registre ; dépendance fournisseur nulle en local.</td></tr>
           </table>
         </article>
       </div>

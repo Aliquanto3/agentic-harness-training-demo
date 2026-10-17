@@ -7,6 +7,7 @@ companions:
   - corpus-et-questions.md
   - evaluation.md
   - attaques-et-conformite.md
+  - litterature.md
   - ../spec-lot-5-atelier-rag-2026-10-04/vues-atelier-rag.md
   - ../spec-langues/i18n-conventions.md
   - ../spec-wavestack-v2/decision-model-candidates.md
@@ -64,7 +65,7 @@ Le banc de mesure à grande échelle et l'optimiseur vivent dans un autre projet
     - Un banc préalable choisit les modèles du filtre et de l'ancrage ; son rapport est versionné.
     - Chaque décision affiche son auteur (classifieur ou juge), sa probabilité et le seuil.
     - Baisser le seuil change l'auteur d'au moins une décision du jeu de questions.
-    - Jev est proposé comme option cloud dès que sa référence d'API est fournie.
+    - Jev (TypeSafe AI, API de décision) est proposé comme option cloud, active seulement avec une clé ; sans clé, l'option est grisée avec sa raison.
 - **CAP-7** Architectures supplémentaires
   - **intent:** Le participant applique en un clic huit architectures de plus, comparables aux trois préréglages : contexte long, CAG, recherche agentique, PageIndex, RAPTOR, GraphRAG, LLM Wiki, Corrective RAG.
   - **success:** Chaque architecture de `architectures.md` s'applique, se valide et s'exécute sur le jeu de questions. Ses étapes apparaissent dans les vues séquence, architecture et focus du lot 5. GraphRAG, LLM Wiki et RAPTOR tournent sur leur contenu précalculé, et leur bouton « reconstruire » est disponible.
@@ -89,7 +90,9 @@ Le banc de mesure à grande échelle et l'optimiseur vivent dans un autre projet
   - **intent:** Le participant apprend à évaluer une architecture : verdicts de juges LLM par question et par critère face à une annotation humaine, métriques agrégées, et pièges des juges et des outils.
   - **success:**
     - Les métriques de `evaluation.md` sont calculées en interne et affichées avec la taille de l'échantillon et le bandeau « démonstration, pas un banc ».
-    - Les trois pièges de `evaluation.md` se démontrent sur des cas livrés.
+    - Les quatre pièges de `evaluation.md` se démontrent sur des cas livrés.
+    - Le panel compte un juge local et un juge cloud. Un juge n'est jamais de la même famille que le modèle jugé.
+    - Le piège « le juge change le classement » oppose le juge local et le juge cloud. Sans clé cloud, il s'affiche depuis un résultat enregistré, marqué comme tel.
     - Les adaptateurs Ragas et DeepEval restent absents de l'installation par défaut.
 
 **D. Observabilité**
@@ -113,14 +116,18 @@ Le banc de mesure à grande échelle et l'optimiseur vivent dans un autre projet
   - **intent:** Le formateur bascule entre deux profils et montre la fuite quand le filtrage se fait après la recherche, et son absence quand le contrôle d'accès est déterministe et passe avant le LLM.
   - **success:** Une question du jeu fait apparaître un passage RH au profil « tous » en mode filtrage après recherche, et jamais en mode contrôle avant recherche (vérifié par pytest et E2E).
 - **CAP-16** Fiche conformité par architecture
-  - **intent:** Le participant lit, pour chaque architecture, ses risques sur six axes : localisation des données, copies et contenu dérivé, effacement, droits d'accès, injection, traçabilité.
+  - **intent:** Le participant lit, pour chaque architecture, ses risques sur sept axes : localisation des données, copies et contenu dérivé, effacement, droits d'accès, injection et outils, traçabilité, cadre réglementaire.
   - **success:** Chaque architecture a sa fiche en fr, en et de, alimentée par les mêmes données que la matrice des risques de la page Sécurité et reliée aux démonstrations de CAP-13 à CAP-15.
 
 **F. Fiches pédagogiques**
 
 - **CAP-17** Fiche par composant et par architecture
   - **intent:** Le participant lit à quoi sert chaque composant ou architecture, quand l'utiliser ou l'éviter, ce qu'il coûte et ce qu'en dit la littérature, avec les liens.
-  - **success:** Chaque option de `OPTIONS` et chaque préréglage a sa fiche déclarée dans `content/`, en fr, en et de. Un test vérifie que les clés sont exhaustives et qu'il y a au moins une source par fiche.
+  - **success:**
+    - Chaque option de `OPTIONS` et chaque préréglage a sa fiche déclarée dans `content/`, en fr, en et de.
+    - La littérature reprend les hypothèses de `litterature.md` avec leurs liens, ou à défaut une source primaire ouverte et citée.
+    - Un bloc « ce qu'a mesuré le banc » reste vide tant que le projet de banc ne publie rien.
+    - Un test vérifie que les clés sont exhaustives et qu'il y a au moins une source par fiche.
 
 **G. Optionnel, en fin de lot**
 
@@ -136,6 +143,7 @@ Le banc de mesure à grande échelle et l'optimiseur vivent dans un autre projet
 - **Matériel cible.**
   - CPU seul, 4 Go de budget mémoire, un seul modèle génératif chargé à la fois (`LoadRegistry`), fonctionnement hors ligne, installation sans droits administrateur.
   - Un modèle cloud est toujours une option, jamais un prérequis.
+  - Un modèle cloud (génération, juge, décision) ne reçoit que le corpus fictif Exemplia. Sa dépense est plafonnée par `[finops] max_session_usd`.
 - **Contenu précalculé.** Les étapes trop lourdes pour le CPU sont livrées précalculées comme contenu, avec un bouton « reconstruire » : graphe, wiki, arbre RAPTOR, contextes de chunks.
 - **Contexte long et CAG.** Ils exigent la fenêtre de 16 384 tokens (`config.WINDOW_CHOICES`). Le corpus enrichi doit y tenir.
 - **Outillage.**
@@ -186,9 +194,4 @@ Tout cela sans écrire de code. L'E2E complet de l'atelier est vert.
 - Le corpus enrichi fait environ 12 000 tokens par langue.
 - Qwen3.5-2B avec une fenêtre de 16 384 tokens tient dans 4 Go ; c'est mesuré dans la story de banc.
 - L'export OpenTelemetry passe par `opentelemetry-sdk` et l'exporteur OTLP HTTP (pur Python), dans un extra `otel`.
-
-## Open Questions
-
-- Fiches composant : le tableau des hypothèses et les sources du cadrage (artifact `9e18cbd9…`) n'ont pas pu être lus le 2026-10-17. Faut-il réessayer, ou Anaël en fournit-il un export ?
-- Jev : quelle est sa référence d'API (fournisseur, URL, modèle, prix) pour `content/cloud.yaml` ?
-- Vue Évaluer : deux juges locaux suffisent-ils pour montrer que « le juge change le classement », ou un juge cloud est-il attendu ?
+- L'accès à Jev (accès anticipé de TypeSafe, ou Eden AI en alpha) sera obtenu d'ici la story 2. Sinon, le banc le mesure sur les seuls chiffres publiés, et le reporte dans `deferred-work.md`.

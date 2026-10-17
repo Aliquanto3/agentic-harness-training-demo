@@ -26,9 +26,17 @@
 - par question et par critère : le verdict de chaque juge, l'annotation humaine quand elle existe, l'accord ou le désaccord ;
 - puis les agrégats, avec n (taille de l'échantillon) et le bandeau « démonstration, pas un banc ».
 
-**Les juges** :
-- le SLM local par défaut (Qwen3.5-2B, sortie contrainte par GBNF) ;
-- un second juge local ou cloud, au choix (question ouverte de la SPEC).
+**Les juges** : un panel de deux juges de familles différentes, chacun critère par critère, sans score global par question.
+- **Juge local** : un SLM GGUF, sortie contrainte par GBNF.
+- **Juge cloud**, pris parmi les `[[cloud.models]]` déjà déclarés (Mistral Small, Gemini Flash-Lite, Claude Haiku…) :
+  - requis pour le piège 4 ;
+  - choisi par le formateur ;
+  - activé seulement avec sa clé ;
+  - dépense plafonnée par `[finops] max_session_usd`.
+- **Règle du cadrage** : un juge ne note jamais un modèle de sa propre famille. Le modèle génératif par défaut est un Qwen, donc le juge local n'est pas un Qwen.
+  - Le juge de même famille est écarté avec un message.
+  - La fiche de la vue cite ce biais d'auto-préférence.
+- **Sans clé cloud**, les pièges qui l'exigent s'affichent depuis un résultat enregistré, livré et marqué « enregistré le … avec … ».
 
 ## Pièges à démontrer (cas livrés)
 
@@ -37,6 +45,6 @@
 | Deux juges, deux verdicts | Même question, même réponse : le juge A dit « fidèle », le juge B dit « non fidèle » ; on montre les deux justifications |
 | Variance d'un même juge | Deux passages du même juge sur le même cas donnent deux verdicts (température, ordre des passages) |
 | Deux outils, deux définitions | La « fidélité » de Ragas (affirmations soutenues par le contexte) et celle de DeepEval (contradictions avec le contexte) notent différemment la même réponse ; la vue affiche les deux définitions côte à côte, recalculées en interne |
-| Le juge change le classement | Deux architectures classées A > B par un juge et B > A par l'autre, sur le même jeu |
+| Le juge change le classement | Deux architectures classées A > B par le juge local et B > A par le juge cloud, sur le même jeu (H15 de `litterature.md`) |
 
 **Adaptateurs Ragas et DeepEval** : ils sont facultatifs, dans l'extra `eval-adapters`, et servent à recouper les recalculs internes. Ils ne sont jamais requis pour afficher la vue.

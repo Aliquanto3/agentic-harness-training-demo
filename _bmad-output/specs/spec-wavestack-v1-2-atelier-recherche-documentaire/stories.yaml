@@ -19,9 +19,12 @@
   done_checkpoint: true
   invoke_dev_with: >-
     Sur le modèle de tools/bench/v2s6_decision_bench.py et decision-model-candidates.md.
-    Candidats : reranker déjà livré utilisé comme filtre, petits NLI en ONNX, SLM juge
-    Qwen3.5-2B + GBNF. Ni torch ni service. Rapport versionné dans le dossier de la spec ;
-    l'hypothèse 16 384 tokens / 4 Go est confirmée ou infirmée dans .memlog.md.
+    Candidats : le tableau de architectures.md (deberta_xsmall, Strands Decider 2B, AnyJev,
+    reranker comme filtre, petit NLI ONNX, Jev, Microsoft-Decision-1, SLM juge Qwen3.5-2B +
+    GBNF). Ni torch ni service en local. Jev et Microsoft-Decision-1 seulement si une clé est
+    disponible (sinon chiffres publiés, marqués comme tels). Mesurer le taux d'affirmations non
+    étayées acceptées (H7). Rapport versionné dans le dossier de la spec ; l'hypothèse
+    16 384 tokens / 4 Go est confirmée ou infirmée dans .memlog.md.
 - id: "3"
   title: Coûts en trois temps et mesure de l'embedding, du reranking et de l'indexation
   description: >-
@@ -78,8 +81,9 @@
   done_checkpoint: true
   invoke_dev_with: >-
     Modèles choisis par le rapport de la story 2 ; routeur sur deberta_xsmall. Jev en option
-    cloud dans content/cloud.yaml seulement si sa référence d'API est fournie, sinon noté dans
-    deferred-work.md. Fiches composant en fr, en, de.
+    cloud par un adaptateur d'API de décision (Choice, Score, Noul ; probabilités et
+    confiance), clé en variable d'environnement, grisé sans clé ; testé avec une fausse API.
+    Fiches composant en fr, en, de, littérature selon litterature.md (H6, H7).
 - id: "9"
   title: Diagnostic du bon extrait et « Où naît l'erreur »
   description: >-
@@ -146,8 +150,9 @@
   done_checkpoint: true
   invoke_dev_with: >-
     Métriques recalculées en interne selon evaluation.md. Adaptateurs Ragas et DeepEval dans
-    l'extra eval-adapters, à écarter s'ils tirent torch ou un service. Choix du second juge selon
-    la réponse d'Anaël à la question ouverte.
+    l'extra eval-adapters, à écarter s'ils tirent torch ou un service. Panel : un juge local
+    non Qwen et un juge cloud parmi les [[cloud.models]] ; règle de famille appliquée ;
+    résultat enregistré livré pour les pièges qui exigent le cloud. Tests avec faux juges.
 - id: "16"
   title: Arbre des étapes et export OpenTelemetry
   description: >-
@@ -179,13 +184,12 @@
 - id: "19"
   title: Fiches conformité et onglet Fiches
   description: >-
-    CAP-16 et fin de CAP-17 : fiche conformité sur six axes par architecture, onglet Fiches,
-    sources de la littérature reprises du cadrage, test d'exhaustivité des fiches.
+    CAP-16 et fin de CAP-17 : fiche conformité sur sept axes par architecture, onglet Fiches,
+    littérature reprise de litterature.md, test d'exhaustivité des fiches.
   done_checkpoint: true
   invoke_dev_with: >-
     Données au format des niveaux de la matrice des risques (mcp/policy.py RISKS), servies par
-    la session (AD-1). Sources : tableau des hypothèses du cadrage, selon la réponse à la
-    question ouverte.
+    la session (AD-1). Bloc « ce qu'a mesuré le banc » vide, mention « pas encore mesuré ».
 - id: "20"
   title: Optionnel, architecture exposée en MCP
   description: >-

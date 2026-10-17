@@ -38,6 +38,7 @@ C'est l'onglet par défaut : les vues séquence, architecture et focus du lot 5 
 ## Onglet Évaluer (CAP-11, `evaluation.md`)
 
 - Un bandeau permanent : « Démonstration, pas un banc : n = … questions ».
+- Le choix des deux juges, un local et un cloud. Un juge de la même famille que le modèle jugé est écarté avec sa raison. La dépense cloud est affichée.
 - Un tableau questions × critères : verdict de chaque juge, annotation humaine, désaccords marqués.
 - Les agrégats par architecture évaluée (rappel@k, MRR, fidélité…), avec n.
 - Un panneau « Pièges », avec les quatre cas livrés.
@@ -54,8 +55,13 @@ Chaque carte relance la question cible et montre l'effet dans le focus.
 ## Onglet Fiches (CAP-16, CAP-17)
 
 - Une liste des composants et des architectures.
-- Une fiche en quatre blocs : à quoi il sert, quand l'utiliser ou l'éviter, ce qu'il coûte, ce que dit la littérature (avec les liens).
-- Pour une architecture, la fiche conformité sur six axes, avec liens vers les démonstrations de l'onglet Attaquer.
+- Une fiche en cinq blocs :
+  - à quoi il sert ;
+  - quand l'utiliser ou l'éviter ;
+  - ce qu'il coûte ;
+  - ce que dit la littérature (hypothèses de `litterature.md`, avec les liens) ;
+  - ce qu'a mesuré le banc (vide pour l'instant, avec la mention « pas encore mesuré »).
+- Pour une architecture, la fiche conformité sur sept axes, avec liens vers les démonstrations de l'onglet Attaquer.
 
 ## Règles UX conservées
 

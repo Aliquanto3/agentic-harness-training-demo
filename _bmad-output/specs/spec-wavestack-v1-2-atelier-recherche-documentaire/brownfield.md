@@ -58,7 +58,11 @@
   - rendu : `security.js:75-78, 318` ;
   - libellés : `ui.yaml` `security.matrix` :1567.
 - **Outils et MCP** : `src/wavestack/mcp/`, réutilisés par la recherche agentique (CAP-7).
-- **Modèles cloud** : `content/cloud.yaml`.
+- **Modèles cloud** :
+  - déclarés dans `[[cloud.models]]` de `wavestack.toml` : groq (gpt-oss-120b), mistral (mistral-small-latest), gemini (gemini-3.5-flash-lite), gemma (gemma-4-26b), claude_haiku (claude-haiku-4-5), claude_sonnet ;
+  - chacun porte `provider`, `model`, `key_env`, `hosting_text`, `pricing` et `impacts` ;
+  - `content/cloud.yaml` ne porte que les textes communs ;
+  - le juge cloud de la vue Évaluer est pris parmi eux.
 - **Fenêtre de contexte** : `config.WINDOW_CHOICES = (4096, 8192, 16384)`, 4 096 par défaut.
 
 ## Modèles de décision (banc CAP-6 de la V2)

@@ -31,14 +31,17 @@ Deux profils : « Tous » et « RH ». Deux modes :
 
 ## Fiche conformité par architecture (CAP-16)
 
+Ces sept axes reprennent ceux de la section Conformité du cadrage.
+
 | Axe | Question posée |
 |---|---|
-| Localisation des données | Où vivent le corpus, les index et les dérivés ? Quelque chose quitte-t-il le poste (modèle cloud, export OTel) ? |
-| Copies et contenu dérivé | Combien de copies ou de dérivés (chunks, résumés, graphe, wiki, cache) ? |
-| Effacement | Que faut-il reconstruire pour effacer un document ? Résultat de CAP-14 |
-| Droits d'accès | Le contrôle peut-il passer avant la recherche ? Résultat de CAP-15 |
-| Injection | Surface d'injection : passages, résumés, graphe, outils (agentique) |
-| Traçabilité | Peut-on citer la source exacte d'une affirmation ? Arbre et export (CAP-12) |
+| Localisation des données | Où transitent documents, index, dérivés et prompts ? Quatre classes : local, cloud UE, SecNumCloud, hors UE. Déclaratif par composant, tiré de la configuration (modèle cloud, juge, Jev, export OTel) |
+| Copies et contenu dérivé | Nombre et nature des copies (chunks, résumés, graphe, wiki, cache) : un contenu synthétisé se protège comme sa source |
+| Effacement | Que faut-il reconstruire pour effacer un document ? Résultat de CAP-14, coût et durée de remise en conformité |
+| Droits d'accès | Le contrôle peut-il passer avant la recherche ? Un filtre de sortie ne suffit pas. Résultat de CAP-15 |
+| Injection et outils | Surface d'injection : passages, résumés, graphe ; permissions des outils de la recherche agentique ; exfiltration |
+| Traçabilité | Peut-on citer la source exacte d'une affirmation ? Journaux, arbre et export (CAP-12) |
+| Cadre réglementaire | Grille qualitative : RGPD, AI Act selon l'usage, DORA ou NIS2 selon le secteur, dépendance fournisseur (Jev, par exemple, est propriétaire et sans hébergement local) |
 
 **Données de la fiche** :
 - elles sont déclarées dans `content/`, à côté de la matrice des risques de la page Sécurité (`mcp/policy.py` `RISKS`), dans le même format de niveaux ;
