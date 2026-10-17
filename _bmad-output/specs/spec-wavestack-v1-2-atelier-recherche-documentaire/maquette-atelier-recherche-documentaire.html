@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Maquette V1.2 — Atelier recherche documentaire</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Maquette statique de la V1.2 : les vrais tokens et styles du dépôt, des données fictives.
+       S'ouvre directement dans Edge ou Chrome (file://). Les vues séquence, architecture et focus
+       de l'onglet Construire sont celles du lot 5 (../spec-lot-5-atelier-rag-2026-10-04/
+       maquette-atelier-rag.html) : ici, seuls les ajouts de la V1.2 sont dessinés. Les règles
+       « doc-* » sont celles proposées pour rag.css. -->
+  <link rel="stylesheet" href="../../../src/wavestack/web/static/fonts.css" />
+  <link rel="stylesheet" href="../../../src/wavestack/web/static/tokens.css" />
+  <link rel="stylesheet" href="../../../src/wavestack/web/static/pages.css" />
+  <link rel="stylesheet" href="../../../src/wavestack/web/static/rag.css" />
+  <style>
+    /* ---------- maquette seulement ---------- */
+    body { background: var(--color-surface); color: var(--color-ink); }
+    .mock-bar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-2);
+      padding: var(--spacing-2) var(--spacing-3); margin-bottom: var(--spacing-3);
+      background: var(--color-primary-soft); border: 1px dashed var(--color-primary);
+      border-radius: var(--rounded-md);
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1.4 var(--typography-label-font-family);
+    }
+    .mock-bar p { margin: 0; flex: 1 1 30rem; }
+    .mock-bar button {
+      min-height: 32px; padding: 0 var(--spacing-3); border-radius: var(--rounded-full);
+      border: 1px solid var(--color-primary); background: var(--color-surface-raised);
+      color: var(--color-primary); font: inherit; cursor: pointer;
+    }
+
+    /* ---------- proposé pour rag.css ---------- */
+    .doc-tabs { display: flex; flex-wrap: wrap; gap: var(--spacing-1); margin: var(--spacing-3) 0; border-bottom: 2px solid var(--color-line); }
+    .doc-tabs button {
+      min-height: var(--spacing-hit-target-min); padding: 0 var(--spacing-4); border: 0; border-bottom: 3px solid transparent;
+      margin-bottom: -2px; background: none; color: var(--color-ink-soft); cursor: pointer;
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1 var(--typography-label-font-family);
+    }
+    .doc-tabs button[aria-selected="true"] { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+    .doc-panel[hidden] { display: none; }
+
+    .doc-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-3); margin: var(--spacing-3) 0; }
+    .doc-toolbar select, .doc-toolbar input[type="text"] {
+      min-height: var(--spacing-hit-target-min); padding: 0 var(--spacing-3); border: 1px solid var(--color-line);
+      border-radius: var(--rounded-sm); background: var(--color-surface-raised); color: var(--color-ink); font: inherit;
+    }
+    .doc-toolbar input[type="text"] { flex: 1 1 24rem; }
+    .doc-badge {
+      display: inline-block; padding: 2px var(--spacing-2); border-radius: var(--rounded-full);
+      background: var(--color-accent-soft); color: var(--color-ink);
+      font: var(--typography-label-font-weight) var(--typography-label-font-size) / 1.4 var(--typography-label-font-family);
+    }
+
+    .doc-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--spacing-3); margin: var(--spacing-3) 0; }
+    .doc-family { padding: var(--spacing-2) var(--spacing-3); border: 1px solid var(--color-line); border-radius: var(--rounded-md); background: var(--color-surface-raised); }
+    .doc-family h3 { margin: 0 0 var(--spacing-2); font-size: var(--typography-label-font-size); color: var(--color-ink-soft); text-transform: uppercase; letter-spacing: .04em; }
+    .doc-family div { display: flex; flex-wrap: wrap; gap: var(--spacing-1); }
+    .doc-chip {
+      min-height: 32px; padding: 0 var(--spacing-3); border-radius: var(--rounded-full); cursor: pointer;
+      border: 1px solid var(--color-primary); background: var(--color-surface-raised); color: var(--color-primary); font: inherit;
+    }
+    .doc-chip[aria-pressed="true"] { background: var(--color-primary); color: var(--color-on-primary); }
+    .doc-chip[aria-disabled="true"] {
+      border-style: dashed; border-color: var(--color-state-unavailable); color: var(--color-ink-soft); cursor: not-allowed;
+      background: repeating-linear-gradient(135deg, var(--color-surface-raised) 0 6px, var(--color-discipline-neutral-soft) 6px 12px);
+    }
+
+    .doc-placeholder {
+      padding: var(--spacing-4); border: 1px dashed var(--color-line); border-radius: var(--rounded-md);
+      color: var(--color-ink-soft); background: var(--color-surface-raised);
+    }
+    .doc-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--spacing-4); margin-top: var(--spacing-3); }
+    @media (max-width: 1100px) { .doc-grid { grid-template-columns: 1fr; } }
+
+    .doc-costs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--spacing-3); margin: var(--spacing-3) 0; }
+    @media (max-width: 800px) { .doc-costs { grid-template-columns: 1fr; } }
+    .doc-cost { padding: var(--spacing-3); border: 1px solid var(--color-line); border-radius: var(--rounded-md); background: var(--color-surface-raised); }
+    .doc-cost h4 { margin: 0 0 var(--spacing-2); }
+    .doc-cost dl { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--spacing-3); margin: 0; }
+    .doc-cost dt { color: var(--color-ink-soft); }
+    .doc-cost dd { margin: 0; text-align: right; font-family: var(--typography-number-font-family); }
+    .doc-cost .doc-measured { margin: var(--spacing-2) 0 0; font-size: var(--typography-label-font-size); color: var(--color-ink-soft); }
+    .doc-cost .doc-actions { display: flex; flex-wrap: wrap; gap: var(--spacing-1); margin-top: var(--spacing-2); }
+    .doc-warning { margin: 0; padding: var(--spacing-2) var(--spacing-3); background: var(--color-warning-soft); border-left: 3px solid var(--color-warning); border-radius: var(--rounded-sm); }
+    .doc-banner { margin: var(--spacing-3) 0; padding: var(--spacing-2) var(--spacing-3); background: var(--color-primary-soft); border-left: 4px solid var(--color-primary); border-radius: var(--rounded-sm); font-weight: 700; }
+
+    .doc-focus { padding: var(--spacing-3); border: 1px solid var(--color-line); border-radius: var(--rounded-md); background: var(--color-surface-raised); }
+    .doc-focus h3 { margin: 0 0 var(--spacing-2); }
+    .doc-decision { display: grid; grid-template-columns: 1fr auto; gap: var(--spacing-1) var(--spacing-3); align-items: center; margin: var(--spacing-2) 0; }
+    .doc-meter { position: relative; height: 10px; border-radius: var(--rounded-full); background: var(--color-discipline-neutral-soft); grid-column: 1 / -1; }
+    .doc-meter span { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--color-primary); }
+    .doc-meter i { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--color-ink); }
+    .doc-author { font-size: var(--typography-label-font-size); }
+
+    table.doc-table { width: 100%; border-collapse: collapse; margin: var(--spacing-2) 0; background: var(--color-surface-raised); }
+    .doc-table th, .doc-table td { padding: var(--spacing-1) var(--spacing-2); border-bottom: 1px solid var(--color-line); text-align: left; vertical-align: top; }
+    .doc-table th { color: var(--color-ink-soft); font-weight: 700; }
+    .doc-table td.num { text-align: right; font-family: var(--typography-number-font-family); }
+    .doc-ok { color: var(--color-state-ok); font-weight: 700; }
+    .doc-ko { color: var(--color-state-error); font-weight: 700; }
+    .doc-diff { background: var(--color-warning-soft); }
+    .doc-mark { font-weight: 700; }
+
+    .doc-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-3); }
+    @media (max-width: 800px) { .doc-compare { grid-template-columns: 1fr; } }
+    .doc-col { padding: var(--spacing-3); border: 1px solid var(--color-line); border-radius: var(--rounded-md); background: var(--color-surface-raised); }
+    .doc-col h3 { margin: 0 0 var(--spacing-1); }
+    .doc-col p.doc-meta { margin: 0 0 var(--spacing-2); color: var(--color-ink-soft); }
+
+    .doc-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: var(--spacing-3); }
+    .doc-card { padding: var(--spacing-3); border: 1px solid var(--color-line); border-radius: var(--rounded-md); background: var(--color-surface-raised); }
+    .doc-card h3 { margin: 0 0 var(--spacing-2); }
+    .doc-card label { display: flex; align-items: center; gap: var(--spacing-2); margin: var(--spacing-1) 0; }
+
+    .doc-sheets { display: grid; grid-template-columns: 16rem minmax(0, 1fr); gap: var(--spacing-4); }
+    @media (max-width: 900px) { .doc-sheets { grid-template-columns: 1fr; } }
+    .doc-sheet-list { margin: 0; padding: 0; list-style: none; }
+    .doc-sheet-list li button { width: 100%; text-align: left; padding: var(--spacing-1) var(--spacing-2); border: 0; background: none; color: var(--color-primary); cursor: pointer; font: inherit; }
+    .doc-sheet-list li button[aria-current="true"] { background: var(--color-primary-soft); border-radius: var(--rounded-sm); font-weight: 700; }
+    .doc-sheet-list h4 { margin: var(--spacing-3) 0 var(--spacing-1); color: var(--color-ink-soft); font-size: var(--typography-label-font-size); text-transform: uppercase; }
+    .doc-sheet-blocks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-3); }
+    @media (max-width: 700px) { .doc-sheet-blocks { grid-template-columns: 1fr; } }
+    .doc-level { display: inline-block; min-width: 4.5rem; padding: 0 var(--spacing-2); border-radius: var(--rounded-sm); text-align: center; font-weight: 700; }
+    .doc-level.high { background: var(--color-danger-soft); color: var(--color-ink); border: 1px solid var(--color-danger); }
+    .doc-level.medium { background: var(--color-warning-soft); color: var(--color-ink); border: 1px solid var(--color-warning); }
+    .doc-level.low { background: var(--color-accent-soft); color: var(--color-ink); border: 1px solid var(--color-accent); }
+
+    details.doc-tree { margin-top: var(--spacing-3); }
+    details.doc-tree summary { cursor: pointer; color: var(--color-primary); font-weight: 700; }
+    .doc-tree ul { margin: var(--spacing-1) 0 0; padding-left: var(--spacing-4); list-style: "└ "; font-family: var(--typography-number-font-family); font-size: var(--typography-body-sm-font-size); }
+  </style>
+</head>
+<body class="rag-page">
+  <main class="rag-main">
+    <div class="mock-bar">
+      <strong>Maquette V1.2</strong>
+      <p>Seuls les ajouts de la V1.2 sont dessinés. La séquence, l'architecture et le focus de l'onglet Construire sont ceux du lot 5. Données fictives.</p>
+      <button type="button" id="mock-theme">◐ Thème : clair</button>
+    </div>
+
+    <header class="rag-header">
+      <h1>Atelier recherche documentaire</h1>
+      <p class="rag-intro">Assemblez une architecture de recherche documentaire, relancez la même question et regardez ce qui change : passages retrouvés, prompt final, réponse, coûts et risques. Rien à coder.</p>
+    </header>
+
+    <div class="doc-toolbar">
+      <label for="mock-prepared">Question préparée</label>
+      <select id="mock-prepared">
+        <option>Q-MH-02 · Qui prévenir pour un incident de niveau 2 sur une sauvegarde ?</option>
+        <option>Q-TP-01 · Combien de jours de télétravail sont autorisés aujourd'hui ?</option>
+        <option>Q-GL-01 · Quels sont les grands thèmes de la sécurité chez Exemplia ?</option>
+        <option>Q-NA-03 · Quelle est la politique de vote électronique ?</option>
+      </select>
+      <span class="doc-badge">Multi-sauts</span>
+      <input type="text" aria-label="Question libre" value="Qui prévenir pour un incident de niveau 2 sur une sauvegarde ?" />
+      <button type="button" class="rag-button-primary">Lancer</button>
+    </div>
+
+    <div class="doc-presets" id="mock-presets">
+      <section class="doc-family"><h3>Recherche</h3><div>
+        <button type="button" class="doc-chip" aria-pressed="false">RAG dense</button>
+        <button type="button" class="doc-chip" aria-pressed="true">RAG hybride</button>
+        <button type="button" class="doc-chip" aria-pressed="false">RAG + reranking</button>
+        <button type="button" class="doc-chip" aria-pressed="false">Corrective RAG</button>
+      </div></section>
+      <section class="doc-family"><h3>Structure</h3><div>
+        <button type="button" class="doc-chip" aria-pressed="false">PageIndex</button>
+        <button type="button" class="doc-chip" aria-pressed="false">RAPTOR</button>
+        <button type="button" class="doc-chip" aria-pressed="false">GraphRAG</button>
+        <button type="button" class="doc-chip" aria-pressed="false">LLM Wiki</button>
+      </div></section>
+      <section class="doc-family"><h3>Sans index</h3><div>
+        <button type="button" class="doc-chip" aria-disabled="true" title="Indisponible : réglez la fenêtre de contexte sur 16 384 tokens (Diagnostic et modèles).">Contexte long</button>
+        <button type="button" class="doc-chip" aria-disabled="true" title="Indisponible : réglez la fenêtre de contexte sur 16 384 tokens (Diagnostic et modèles).">CAG</button>
+        <button type="button" class="doc-chip" aria-pressed="false">Recherche agentique</button>
+      </div></section>
+    </div>
+
+    <nav class="doc-tabs" role="tablist" aria-label="Vues de l'atelier">
+      <button type="button" role="tab" aria-selected="true" aria-controls="tab-build">Construire</button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="tab-compare">Comparer</button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="tab-eval">Évaluer</button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="tab-attack">Attaquer</button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="tab-sheets">Fiches</button>
+    </nav>
+
+    <!-- ============================================================ Construire -->
+    <section class="doc-panel" id="tab-build" role="tabpanel">
+      <div class="doc-grid">
+        <div>
+          <div class="doc-placeholder">
+            <strong>Séquence · Architecture</strong> du lot 5 (inchangées). Nouvelles étapes possibles : <em>Query rewriting</em>, <em>Query decomposition</em>, <em>Follow-up rewriting</em>, <em>HyDE</em>, <em>Semantic / Parent-child / Contextual chunking</em>, <em>Context budget</em>, <em>Passage ordering</em>, <em>Compression</em>, <em>Strategy router</em>, <em>Passage filter</em>, <em>Grounding check</em>.
+          </div>
+
+          <h3>Coûts en trois temps · RAG hybride</h3>
+          <div class="doc-costs">
+            <article class="doc-cost">
+              <h4>Construction</h4>
+              <dl><dt>Tokens</dt><dd>14 820</dd><dt>Durée</dt><dd>38 s</dd><dt>Coût</dt><dd>0,00 $</dd><dt>CO₂e</dt><dd>0,4 g</dd></dl>
+              <p class="doc-measured">Embedding de 214 chunks + index BM25.</p>
+            </article>
+            <article class="doc-cost">
+              <h4>Mise à jour</h4>
+              <dl><dt>Tokens</dt><dd>612</dd><dt>Durée</dt><dd>1,6 s</dd><dt>Coût</dt><dd>0,00 $</dd><dt>CO₂e</dt><dd>0,02 g</dd></dl>
+              <p class="doc-measured">Dernière opération : modification de « Télétravail v2 ».</p>
+              <div class="doc-actions">
+                <button type="button" class="rag-button-secondary">Ajouter</button>
+                <button type="button" class="rag-button-secondary">Modifier</button>
+                <button type="button" class="rag-button-secondary">Supprimer un document</button>
+              </div>
+            </article>
+            <article class="doc-cost">
+              <h4>Requête</h4>
+              <dl><dt>Tokens</dt><dd>1 284</dd><dt>Durée</dt><dd>9,8 s</dd><dt>Coût</dt><dd>0,00 $</dd><dt>CO₂e</dt><dd>0,11 g</dd></dl>
+              <p class="doc-measured">Embedding de la question, recherche, reranking, génération.</p>
+            </article>
+          </div>
+          <p class="doc-warning">Deux périmètres de mesure : en local, l'électricité du poste (estimation) ; en cloud, le cycle de vie complet (EcoLogits). Les chiffres ne s'additionnent pas.</p>
+
+          <details class="doc-tree" open>
+            <summary>Arbre des étapes de l'exécution</summary>
+            <ul>
+              <li>run r-0412 · 11,2 s
+                <ul>
+                  <li>query_decomposition · 2,1 s · 96 → 41 tokens
+                    <ul><li>llm.call qwen3.5-2b · 2,0 s</li></ul>
+                  </li>
+                  <li>dense_retrieval × 2 · 0,3 s</li>
+                  <li>bm25 × 2 · 0,02 s</li>
+                  <li>fusion_rrf · 0,01 s</li>
+                  <li>passage_filter · 0,4 s · 6 → 4 passages</li>
+                  <li>generation · 6,9 s · 1 120 → 88 tokens</li>
+                </ul>
+              </li>
+            </ul>
+            <p class="rag-note">Export OTLP : installez l'extra <code>otel</code> et réglez l'URL de votre Langfuse ou Phoenix. Rien ne sort du poste sinon.</p>
+          </details>
+        </div>
+
+        <aside class="doc-focus" aria-live="polite">
+          <h3>Focus · Passage filter</h3>
+          <p>Garde ou rejette chaque passage avant le contexte. <a href="#" data-goto="tab-sheets">Fiche</a></p>
+          <div class="doc-decision">
+            <span>« Incidents, niveau 2 : prévenir le RSSI… »</span><span class="doc-ok">Gardé</span>
+            <div class="doc-meter" aria-label="Probabilité 0,91, seuil 0,70"><span style="width:91%"></span><i style="left:70%"></i></div>
+            <span class="doc-author">Classifieur · p = 0,91 · seuil 0,70</span>
+          </div>
+          <div class="doc-decision">
+            <span>« Sauvegardes : rétention de 30 jours… »</span><span class="doc-ok">Gardé</span>
+            <div class="doc-meter" aria-label="Probabilité 0,58, seuil 0,70"><span style="width:58%"></span><i style="left:70%"></i></div>
+            <span class="doc-author">Sous le seuil → <strong>SLM juge</strong> (Qwen3.5-2B) : gardé</span>
+          </div>
+          <div class="doc-decision">
+            <span>« Déplacements : réserver via l'agence… »</span><span class="doc-ko">Rejeté</span>
+            <div class="doc-meter" aria-label="Probabilité 0,08, seuil 0,70"><span style="width:8%"></span><i style="left:70%"></i></div>
+            <span class="doc-author">Classifieur · p = 0,08</span>
+          </div>
+          <label>Seuil de confiance <input type="range" min="0" max="100" value="70" aria-label="Seuil de confiance" /></label>
+          <p class="rag-note">Passage attendu « incidents.md §3 » : rang 1 après la fusion, gardé par le filtre.</p>
+          <button type="button" class="rag-button-secondary">📌 Épingler cette exécution</button>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ============================================================ Comparer -->
+    <section class="doc-panel" id="tab-compare" role="tabpanel" hidden>
+      <div class="doc-compare">
+        <article class="doc-col">
+          <h3>📌 Épinglée · GraphRAG (requête locale)</h3>
+          <p class="doc-meta">Q-MH-02 · 14:02</p>
+          <table class="doc-table">
+            <tr><th>Recherche</th><td>Entités : RSSI, Incident N2, Sauvegarde · 3 relations</td></tr>
+            <tr><th>Passage attendu</th><td>incidents.md §3 · présent (résumé de communauté)</td></tr>
+            <tr class="doc-diff"><th>Contexte</th><td class="num">2 310 tokens</td></tr>
+            <tr><th>Réponse</th><td>« Prévenir le RSSI sous 4 h et l'équipe d'astreinte. » <span class="doc-ok">2 citations</span></td></tr>
+            <tr class="doc-diff"><th>Construction</th><td class="num">412 000 tokens · 3 h 10 (précalculé)</td></tr>
+            <tr class="doc-diff"><th>Mise à jour</th><td class="num">18 400 tokens · 7 min</td></tr>
+            <tr class="doc-diff"><th>Requête</th><td class="num">3 050 tokens · 21 s</td></tr>
+          </table>
+        </article>
+        <article class="doc-col">
+          <h3>Courante · RAG hybride</h3>
+          <p class="doc-meta">Q-MH-02 · 14:05</p>
+          <table class="doc-table">
+            <tr><th>Recherche</th><td>Top 6 : dense + BM25, fusion RRF</td></tr>
+            <tr><th>Passage attendu</th><td>incidents.md §3 · rang 1</td></tr>
+            <tr class="doc-diff"><th>Contexte</th><td class="num">1 120 tokens</td></tr>
+            <tr><th>Réponse</th><td>« Prévenir le RSSI sous 4 h. » <span class="doc-ok">1 citation</span> · astreinte <span class="doc-ko">manquante</span></td></tr>
+            <tr class="doc-diff"><th>Construction</th><td class="num">14 820 tokens · 38 s</td></tr>
+            <tr class="doc-diff"><th>Mise à jour</th><td class="num">612 tokens · 1,6 s</td></tr>
+            <tr class="doc-diff"><th>Requête</th><td class="num">1 284 tokens · 9,8 s</td></tr>
+          </table>
+        </article>
+      </div>
+      <p class="rag-note">Les lignes surlignées diffèrent entre les deux exécutions. Aucune synthèse rédigée : à vous de lire les écarts.</p>
+    </section>
+
+    <!-- ============================================================ Évaluer -->
+    <section class="doc-panel" id="tab-eval" role="tabpanel" hidden>
+      <p class="doc-banner">Démonstration, pas un banc : n = 21 questions, 2 architectures, 2 juges. Ces chiffres n'établissent aucun classement général.</p>
+      <div class="doc-toolbar">
+        <label>Juge A <select><option>Qwen3.5-2B (local)</option></select></label>
+        <label>Juge B <select><option>Second SLM local</option><option>Modèle cloud</option></select></label>
+      </div>
+      <table class="doc-table">
+        <thead><tr><th>Question</th><th>Critère</th><th>Juge A</th><th>Juge B</th><th>Humain</th></tr></thead>
+        <tbody>
+          <tr><td>Q-MH-02</td><td>Fidélité</td><td class="doc-ok">fidèle</td><td class="doc-ko">non fidèle</td><td class="doc-ok">fidèle</td></tr>
+          <tr><td>Q-MH-02</td><td>Exactitude</td><td class="doc-ko">partielle</td><td class="doc-ko">partielle</td><td class="doc-ko">partielle</td></tr>
+          <tr><td>Q-TP-01</td><td>Exactitude</td><td class="doc-ok">exacte</td><td class="doc-ok">exacte</td><td class="doc-ko">périmée (v1)</td></tr>
+          <tr><td>Q-NA-03</td><td>Refus correct</td><td class="doc-ok">oui</td><td class="doc-ok">oui</td><td class="doc-ok">oui</td></tr>
+        </tbody>
+      </table>
+      <h3>Agrégats</h3>
+      <table class="doc-table">
+        <thead><tr><th>Architecture</th><th>Rappel@5</th><th>MRR</th><th>Fidélité (A)</th><th>Fidélité (B)</th></tr></thead>
+        <tbody>
+          <tr><td>RAG hybride</td><td class="num">0,81</td><td class="num">0,67</td><td class="num doc-mark">0,86 ▲</td><td class="num">0,71</td></tr>
+          <tr><td>GraphRAG</td><td class="num">0,76</td><td class="num">0,59</td><td class="num">0,79</td><td class="num doc-mark">0,83 ▲</td></tr>
+        </tbody>
+      </table>
+      <div class="doc-cards">
+        <article class="doc-card"><h3>Piège 1 · Deux juges, deux verdicts</h3><p>Q-MH-02 : A dit « fidèle », B dit « non fidèle ». Lire leurs justifications.</p></article>
+        <article class="doc-card"><h3>Piège 2 · Même juge, deux passages</h3><p>Ordre des passages inversé : le verdict change.</p></article>
+        <article class="doc-card"><h3>Piège 3 · Deux outils, deux « fidélités »</h3><p>Ragas : part des affirmations soutenues. DeepEval : contradictions avec le contexte. Même réponse, 0,67 contre 1,00.</p></article>
+        <article class="doc-card"><h3>Piège 4 · Le juge change le classement</h3><p>Selon A, hybride ▲ ; selon B, GraphRAG ▲.</p></article>
+      </div>
+    </section>
+
+    <!-- ============================================================ Attaquer -->
+    <section class="doc-panel" id="tab-attack" role="tabpanel" hidden>
+      <div class="doc-cards">
+        <article class="doc-card">
+          <h3>Document piégé</h3>
+          <label><input type="checkbox" checked /> Activer « note-fournisseurs.md » (piégé)</label>
+          <label>Scénario <select><option>Injection indirecte</option><option>Empoisonnement (PoisonedRAG)</option><option>Empoisonnement du graphe</option></select></label>
+          <label><input type="checkbox" /> Garde-fous actifs</label>
+          <p class="doc-warning">Sans garde-fou : la réponse obéit à l'instruction cachée du document.</p>
+          <button type="button" class="rag-button-primary">Relancer la question cible</button>
+        </article>
+        <article class="doc-card">
+          <h3>Effacement</h3>
+          <button type="button" class="rag-button-secondary">Supprimer la sentinelle « projet-orion.md »</button>
+          <table class="doc-table">
+            <tr><th>Chunks et vecteurs</th><td class="doc-ok">effacé</td></tr>
+            <tr><th>Index BM25</th><td class="doc-ok">effacé</td></tr>
+            <tr><th>Résumés de communautés</th><td class="doc-ko">présent · à reconstruire</td></tr>
+            <tr><th>Pages du wiki</th><td class="doc-ko">présent · à reconstruire</td></tr>
+            <tr><th>Cache de prompt (CAG)</th><td class="doc-ko">présent · à recharger</td></tr>
+          </table>
+        </article>
+        <article class="doc-card">
+          <h3>Droits d'accès</h3>
+          <label>Profil <select><option>Tous</option><option>RH</option></select></label>
+          <label>Contrôle <select><option>Filtrage après la recherche</option><option>Contrôle avant la recherche</option></select></label>
+          <p class="doc-warning">Profil « Tous », filtrage après recherche : le passage « rémunérations-2026.md » a été lu par la réécriture de requête avant d'être retiré.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============================================================ Fiches -->
+    <section class="doc-panel" id="tab-sheets" role="tabpanel" hidden>
+      <div class="doc-sheets">
+        <nav aria-label="Fiches">
+          <ul class="doc-sheet-list">
+            <li><h4>Architectures</h4></li>
+            <li><button type="button">RAG hybride</button></li>
+            <li><button type="button" aria-current="true">GraphRAG</button></li>
+            <li><button type="button">CAG</button></li>
+            <li><button type="button">LLM Wiki</button></li>
+            <li><h4>Composants</h4></li>
+            <li><button type="button">HyDE</button></li>
+            <li><button type="button">Contextual retrieval</button></li>
+            <li><button type="button">Passage filter</button></li>
+          </ul>
+        </nav>
+        <article>
+          <h2>GraphRAG</h2>
+          <div class="doc-sheet-blocks">
+            <section class="doc-card"><h3>À quoi il sert</h3><p>Répondre aux questions globales (« quels grands thèmes ? ») en résumant des communautés d'entités liées.</p></section>
+            <section class="doc-card"><h3>Quand l'utiliser, quand l'éviter</h3><p>Corpus stable, questions de synthèse. À éviter si le corpus change souvent ou si les questions sont factuelles.</p></section>
+            <section class="doc-card"><h3>Ce qu'il coûte</h3><p>Plus cher à toutes les étapes : construction (extraction par LLM), mise à jour (communautés à recalculer), requête (contexte plus long).</p></section>
+            <section class="doc-card"><h3>Ce que dit la littérature</h3><p>Sources du cadrage à reprendre (question ouverte).</p></section>
+          </div>
+          <h3>Fiche conformité</h3>
+          <table class="doc-table">
+            <tr><th>Localisation des données</th><td><span class="doc-level low">faible</span> Tout reste sur le poste en local.</td></tr>
+            <tr><th>Copies et contenu dérivé</th><td><span class="doc-level high">élevé</span> Entités, relations, résumés de communautés.</td></tr>
+            <tr><th>Effacement</th><td><span class="doc-level high">élevé</span> Reconstruction des communautés nécessaire. <a href="#" data-goto="tab-attack">Démonstration</a></td></tr>
+            <tr><th>Droits d'accès</th><td><span class="doc-level medium">moyen</span> Un résumé de communauté peut mêler des documents de profils différents.</td></tr>
+            <tr><th>Injection</th><td><span class="doc-level high">élevé</span> Une relation fausse persiste dans le graphe. <a href="#" data-goto="tab-attack">Démonstration</a></td></tr>
+            <tr><th>Traçabilité</th><td><span class="doc-level medium">moyen</span> Citation au niveau de l'entité, pas toujours du passage.</td></tr>
+          </table>
+        </article>
+      </div>
+    </section>
+  </main>
+
+<script>
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+function show(id) {
+  tabs.forEach((t) => {
+    const on = t.getAttribute("aria-controls") === id;
+    t.setAttribute("aria-selected", String(on));
+    document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+  });
+}
+tabs.forEach((t) => t.addEventListener("click", () => show(t.getAttribute("aria-controls"))));
+document.querySelectorAll("[data-goto]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); show(a.dataset.goto); }));
+document.querySelectorAll(".doc-chip:not([aria-disabled])").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll(".doc-chip[aria-pressed]").forEach((o) => o.setAttribute("aria-pressed", "false"));
+  b.setAttribute("aria-pressed", "true");
+}));
+document.querySelectorAll(".doc-sheet-list button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll(".doc-sheet-list button").forEach((o) => o.removeAttribute("aria-current"));
+  b.setAttribute("aria-current", "true");
+}));
+let dark = false;
+document.getElementById("mock-theme").addEventListener("click", (e) => {
+  dark = !dark;
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  e.target.textContent = `◐ Thème : ${dark ? "sombre" : "clair"}`;
+});
+document.documentElement.dataset.theme = "light";
+</script>
+</body>
+</html>
