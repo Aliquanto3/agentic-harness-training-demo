@@ -46,7 +46,8 @@ Correctifs : #67 (message détaillé de la vérification RAG), #49 (guillemets),
 - **Réponse réelle de GitHub à un compte sans droit** : 403 HTTP (géré) ou `isError` (pas encore distingué) : à vérifier.
 - **`/api/state`** parcourt tout le journal de séance à chaque appel ; la barre l'appelle à l'ouverture des panneaux : à indexer si une séance devient très longue.
 - **`limites-harnais.md`** porte encore « brouillon à valider par Anaël ».
-- **GIF du README non refait** : il faut lancer WaveStack sur 8420 avec un vrai modèle (ce qui modifie les réglages d'Anaël) et ajouter une séquence Sécurité à `tools/demo/drive.py` ; reporté à la recette avec Anaël. Le GIF actuel reste juste sur le fond (seules la barre et l'onglet Sécurité manquent).
+- **GIF du README refait le 17/10** (#69), avec une 6e séquence sur la page Sécurité, capturé sur un dossier de données jetable.
+- **Défaut vu pendant la capture** : sur la page Sécurité, le contrôle « Autorisations des outils » se déplie sur un corps vide (les autres contrôles sont à vérifier à la recette).
 
 ## Recette d'Anaël
 
