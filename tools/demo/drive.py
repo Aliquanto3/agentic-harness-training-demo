@@ -30,6 +30,11 @@ LAB_BOXES = {
 }
 RAG_BOXES = {"seq": "#rag-seq", "arch": "#rag-arch", "focus": "#rag-focus"}
 MCP_BOXES = {"seq": "#mcp-seq-body", "model": "#mcp-model-body"}
+SEC_BOXES = {
+    "questions": "#sec-questions",
+    "control": "#sec-controls .sec-row:first-child",
+    "limit": "#sec-limits .sec-row:first-child",
+}
 
 
 class Recorder:
@@ -217,12 +222,30 @@ def mcp_sequence(page: Page, folder: Path) -> None:
     rec.save()
 
 
+def security_sequence(page: Page, folder: Path) -> None:
+    """V1.1 vague 2: the Sécurité page, a control then a limit unfolded in place."""
+    rec = Recorder(page, folder, SEC_BOXES)
+    page.goto(BASE + "/security")
+    page.wait_for_selector("#sec-questions .sec-question-card", timeout=15000)
+    page.wait_for_timeout(1500)
+    rec.hold("sec_intro", 1.5)
+    page.locator("#sec-controls .disclosure-row-head").first.click()
+    page.wait_for_timeout(400)
+    rec.hold("sec_control", 1.5)
+    page.locator("#sec-limits").scroll_into_view_if_needed()
+    page.locator("#sec-limits .disclosure-row-head").first.click()
+    page.wait_for_timeout(400)
+    rec.hold("sec_limit", 1.5)
+    rec.save()
+
+
 if __name__ == "__main__":
     sequences = {
         "main": main_sequence,
         "llm": llm_sequence,
         "rag": rag_sequence,
         "mcp": mcp_sequence,
+        "security": security_sequence,
     }
     if len(sys.argv) not in (2, 3) or sys.argv[2:] and sys.argv[2] not in sequences:
         names = "|".join(sequences)

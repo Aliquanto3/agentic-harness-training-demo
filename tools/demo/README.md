@@ -7,7 +7,8 @@ Les scripts de ce dossier régénèrent `docs/assets/wavestack-demo.gif` et
 « Outils natifs » sur « Quelle heure est-il ? », puis les trois étapes de l'Atelier LLM (INPUT,
 TRANSFORMATION, OUTPUT) sur « La capitale de la France est », jusqu'au token tiré, la visite
 guidée de l'Atelier RAG (« Dérouler », sans exécution : aucun modèle du RAG n'est nécessaire) et
-la poignée de main de l'Atelier MCP avec le glossaire local (sans réseau). À refaire quand
+la poignée de main de l'Atelier MCP avec le glossaire local (sans réseau), puis la page
+Sécurité (un contrôle et une limite dépliés). À refaire quand
 l'interface change.
 
 ## Prérequis
@@ -45,13 +46,13 @@ l'interface change.
 
 4. Regardez le résultat avant de le committer. Le modèle ne répond pas deux fois pareil : si une
    prise est ratée (réponse du LLM nu qui ne montre pas qu'il ignore l'heure, token tiré peu
-   parlant), refaites-la seule, `main`, `llm`, `rag` ou `mcp`, en ajoutant son nom à la commande
+   parlant), refaites-la seule, `main`, `llm`, `rag`, `mcp` ou `security`, en ajoutant son nom à la commande
    de `drive.py`, puis relancez `compose.py`. Les cadres de mise en évidence nommés (réponse du
    modèle, sélecteur de scénario, éléments des ateliers) sont mesurés sur chaque capture ;
    ceux de l'écran principal après le tour avec outils sont placés en pixels, et les nombres de
    leurs étiquettes (17 et 271 tokens de contexte) sont écrits dans `compose.py` (fonction
    `build`) : vérifiez-les si la mise en page, le modèle ou les descriptions d'outils ont changé.
 
-Le GIF pèse environ 2,5 Mo et dure 59 s. La dernière capture de l'écran principal (dossier
+Le GIF pèse environ 2,4 Mo et dure 61 s. La dernière capture de l'écran principal (dossier
 `main`, phase `tools_final`) sert aussi d'illustration au guide : `docs/assets/atelier.jpg`,
 en 1280 × 720.
