@@ -47,7 +47,7 @@ Correctifs : #67 (message détaillé de la vérification RAG), #49 (guillemets),
 - **`/api/state`** parcourt tout le journal de séance à chaque appel ; la barre l'appelle à l'ouverture des panneaux : à indexer si une séance devient très longue.
 - **`limites-harnais.md`** porte encore « brouillon à valider par Anaël ».
 - **GIF du README refait le 17/10** (#69), avec une 6e séquence sur la page Sécurité, capturé sur un dossier de données jetable.
-- **Défaut vu pendant la capture** : sur la page Sécurité, le contrôle « Autorisations des outils » se déplie sur un corps vide (les autres contrôles sont à vérifier à la recette).
+- **Défaut vu pendant la capture, corrigé le 17/10** (#72) : les contrôles actifs de la page Sécurité se dépliaient parfois sur un corps vide (« Autorisations des outils », hooks inactifs, garde-fou désactivé) ; chaque contrôle montre maintenant son réglage exact, testé en pytest et en E2E. Documentation auditée pour toute la V1.1 (#71). Après correction : suite pytest 6 710 réussis (2 échecs sous charge, verts rejoués seuls), E2E des 5 tranches verts ; GIF refait (#73).
 
 ## Recette d'Anaël
 

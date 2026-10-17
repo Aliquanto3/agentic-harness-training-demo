@@ -292,7 +292,7 @@ def build(frames: Path) -> Film:
         security,
         2.2,
         "🛡",
-        [("limit", "Ce que le harnais ne protège pas", PRIMARY, "below")],
+        [("limit", "Ce que le harnais ne protège pas", PRIMARY, "above")],
     )
 
     end = [
