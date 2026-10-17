@@ -1,0 +1,205 @@
+- id: "1"
+  title: Corpus Exemplia enrichi et jeu de questions
+  description: >-
+    CAP-1 et CAP-2 : 25 à 30 documents (renvois multi-sauts, versions datées, monolingues,
+    piégé et sentinelle inactifs, marquage d'audience) et au moins 3 questions par type en fr, en, de.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Contenu seulement, pas de nouvelle étape. Suivre corpus-et-questions.md. Mesurer les tokens
+    par langue (cible ~12 000, plafond 16 384 avec question et réponse). Exempter nommément les
+    documents monolingues du contrôle de miroir. Test : chaque extrait attendu existe dans son
+    document, dans chaque langue de la question. Les 8 documents existants restent.
+- id: "2"
+  title: Banc préalable System One et fenêtre de 16 384 tokens
+  description: >-
+    Préalable à CAP-6 et CAP-7 : mesurer des candidats filtre de passages et contrôle d'ancrage
+    sur le jeu de questions, et vérifier que Qwen3.5-2B avec 16 384 tokens tient dans 4 Go.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Sur le modèle de tools/bench/v2s6_decision_bench.py et decision-model-candidates.md.
+    Candidats : le tableau de architectures.md (deberta_xsmall, Strands Decider 2B, AnyJev,
+    reranker comme filtre, petit NLI ONNX, Jev, Microsoft-Decision-1, SLM juge Qwen3.5-2B +
+    GBNF). Ni torch ni service en local. Jev et Microsoft-Decision-1 seulement si une clé est
+    disponible (sinon chiffres publiés, marqués comme tels). Mesurer le taux d'affirmations non
+    étayées acceptées (H7). Rapport versionné dans le dossier de la spec ; l'hypothèse
+    16 384 tokens / 4 Go est confirmée ou infirmée dans .memlog.md.
+- id: "3"
+  title: Coûts en trois temps et mesure de l'embedding, du reranking et de l'indexation
+  description: >-
+    CAP-8 : coûts de construction, de mise à jour et de requête par exécution, embedding,
+    reranking et indexation compris, avertissement des deux périmètres conservé.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Fondation des stories d'architecture. Étendre RagLabStageEndedPayload et greenops.py ;
+    retirer la limite de docs/guide.md:750. Boutons Ajouter, Modifier et Supprimer un document
+    sur les documents versionnés de la story 1. Notion de coût « mesuré à la construction »
+    pour le contenu précalculé.
+- id: "4"
+  title: Onglets de vue et comparaison de deux exécutions
+  description: >-
+    CAP-9 et la coquille de vues.md : onglets Construire, Comparer, Évaluer, Attaquer, Fiches
+    sur /rag renommée, épingle d'une exécution, colonnes Épinglée et Courante avec écarts.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Les onglets Évaluer, Attaquer et Fiches restent vides (« à venir ») jusqu'à leurs stories.
+    Pas de retour de LANES_MAX ni de compare() : deux runs successifs. L'épingle survit au
+    rechargement. Sélecteurs E2E du lot 5 conservés. Sélecteur de question préparée (story 1).
+- id: "5"
+  title: Compréhension de la requête
+  description: >-
+    CAP-3 : options rewrite, decompose, follow_up et hyde, requêtes produites visibles dans le
+    focus.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Chaque story qui ajoute une option écrit sa fiche composant (CAP-17) en fr, en, de. Faux
+    moteur en test. E2E : décomposition d'une question multi-sauts en au moins 2 sous-requêtes.
+- id: "6"
+  title: Découpage sémantique, parent-enfant et contextual retrieval
+  description: >-
+    CAP-4 : trois options de découpage, chunks visibles dans le focus, contextes précalculés
+    pour le contextual retrieval ; late chunking fait ou reporté.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Contextes livrés sous content/ avec la mesure de leur construction ; bouton « reconstruire ».
+    Fiches composant en fr, en, de.
+- id: "7"
+  title: Construction du contexte
+  description: >-
+    CAP-5 : budget de tokens signalé, ordre « extrémités d'abord », compression avec tokens
+    avant et après, prompt final visible.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Compression via l'extra compression existant (headroom), indisponibilité affichée sinon.
+    Fiches composant en fr, en, de.
+- id: "8"
+  title: Couche de décision System One
+  description: >-
+    CAP-6 : routeur de stratégie, filtre de passages, contrôle d'ancrage, avec auteur,
+    probabilité, seuil réglable et cascade vers le SLM juge.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Modèles choisis par le rapport de la story 2 ; routeur sur deberta_xsmall. Jev en option
+    cloud par un adaptateur d'API de décision (Choice, Score, Noul ; probabilités et
+    confiance), clé en variable d'environnement, grisé sans clé ; testé avec une fausse API.
+    Fiches composant en fr, en, de, littérature selon litterature.md (H6, H7).
+- id: "9"
+  title: Diagnostic du bon extrait et « Où naît l'erreur »
+  description: >-
+    CAP-10 : rang du passage attendu à chaque étape, étape fautive désignée, trois cas d'échec
+    rejoués sans appel au modèle.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Reprend les CAP-2 à CAP-4 de la spec V2 (stories 2 à 4 en brouillon) : les marquer
+    absorbées dans la spec V2. Aucune moyenne hors de l'onglet Évaluer.
+- id: "10"
+  title: Architectures sans index, contexte long et CAG
+  description: >-
+    CAP-7 (partie) : préréglages long_context et cag, avec coûts en trois temps et refus
+    expliqué si la fenêtre n'est pas sur 16 384 tokens.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    CAG par le préfixe en cache : engine.snapshot/restore pour le moteur intégré, cache_prompt
+    pour llama-server (brownfield.md). Mise à jour du CAG = rechargement complet, mesuré. Fiches
+    d'architecture en fr, en, de.
+- id: "11"
+  title: Recherche agentique et PageIndex
+  description: >-
+    CAP-7 (partie) : agent qui lit les fichiers avec des outils, et navigation dans un arbre de
+    sections sans vecteurs.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Agentique : réutiliser la brique outils et MCP (list_files, grep, read_file limités au
+    corpus). Arbre PageIndex précalculé avec bouton « reconstruire ». Fiches en fr, en, de.
+- id: "12"
+  title: RAPTOR et Corrective RAG
+  description: >-
+    CAP-7 (partie) : arbre de résumés hiérarchiques précalculé, et filtre de passages suivi d'un
+    repli.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    CRAG réutilise le passage_filter de la story 8. Arbre RAPTOR précalculé avec la mesure de
+    sa construction. Fiches en fr, en, de.
+- id: "13"
+  title: GraphRAG simplifié
+  description: >-
+    CAP-7 (partie) : extraction d'entités et de relations, communautés, requête locale et
+    globale, sur un graphe précalculé, avec bouton « reconstruire ».
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Implémentation maison, LightRAG en inspiration seulement. Trancher networkx (extra épinglé)
+    ou union-find maison pour les communautés, et le consigner. Le coût mesuré doit montrer
+    « plus cher à toutes les étapes ». Fiche en fr, en, de.
+- id: "14"
+  title: LLM Wiki
+  description: >-
+    CAP-7 (partie) : compilation d'un wiki Markdown depuis les sources, requête sur le wiki,
+    passe de lint, wiki précalculé.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Pattern de Karpathy, implémentation maison. Mise à jour = recompilation des pages touchées
+    puis lint, mesurée. Fiche en fr, en, de.
+- id: "15"
+  title: Vue Évaluer
+  description: >-
+    CAP-11 : verdicts des juges par question et critère face à l'annotation humaine, agrégats
+    avec n et bandeau, quatre pièges démontrés sur des cas livrés.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Métriques recalculées en interne selon evaluation.md. Adaptateurs Ragas et DeepEval dans
+    l'extra eval-adapters, à écarter s'ils tirent torch ou un service. Panel : un juge local
+    non Qwen et un juge cloud parmi les [[cloud.models]] ; règle de famille appliquée ;
+    résultat enregistré livré pour les pièges qui exigent le cloud. Tests avec faux juges.
+- id: "16"
+  title: Arbre des étapes et export OpenTelemetry
+  description: >-
+    CAP-12 : arbre étape, sous-étape, appel de modèle dans l'onglet Construire ; export OTLP aux
+    conventions GenAI derrière l'extra otel, rien ne sort sans URL réglée.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Renseigner parent_step dans les événements de l'atelier. Test avec un faux collecteur OTLP
+    HTTP local. Aucun service embarqué.
+- id: "17"
+  title: Document piégé
+  description: >-
+    CAP-13 : injection indirecte, PoisonedRAG et empoisonnement du graphe, avec et sans
+    garde-fous, dans l'onglet Attaquer.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Garde-fous existants (injection.py, manager.py) ; verdicts dans le Journal de sécurité.
+    PoisonedRAG : montrer la limite des garde-fous de contenu, comme le dit
+    attaques-et-conformite.md.
+- id: "18"
+  title: Effacement et droits d'accès
+  description: >-
+    CAP-14 et CAP-15 : suppression de la sentinelle et tableau de ses restes par architecture ;
+    profils Tous et RH, filtrage après ou avant la recherche.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Le contrôle avant recherche est déterministe et sans LLM. Tests pytest et E2E sur la fuite
+    au profil « Tous » en mode après recherche.
+- id: "19"
+  title: Fiches conformité et onglet Fiches
+  description: >-
+    CAP-16 et fin de CAP-17 : fiche conformité sur sept axes par architecture, onglet Fiches,
+    littérature reprise de litterature.md, test d'exhaustivité des fiches.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Données au format des niveaux de la matrice des risques (mcp/policy.py RISKS), servies par
+    la session (AD-1). Bloc « ce qu'a mesuré le banc » vide, mention « pas encore mesuré ».
+- id: "20"
+  title: Optionnel, architecture exposée en MCP
+  description: >-
+    CAP-18 : exposer l'architecture composée comme serveur MCP, vérifié par un client MCP de
+    test.
+  spec_checkpoint: true
+  done_checkpoint: true
+- id: "21"
+  title: Optionnel, recherche visuelle sans OCR
+  description: >-
+    CAP-19 : note mesurée sur ColPali ou ColQwen (mémoire, latence, dépendances) et décision
+    consignée.
+  done_checkpoint: true
