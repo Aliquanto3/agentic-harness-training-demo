@@ -142,6 +142,14 @@ function sub(text) {
   return span;
 }
 
+function link(text, href) {
+  const a = document.createElement("a");
+  a.className = "button-secondary";
+  a.href = href;
+  a.textContent = text;
+  return a;
+}
+
 // ---------- the active controls ----------
 
 function renderControls(controls) {
@@ -151,9 +159,19 @@ function renderControls(controls) {
 
   const tr = controls.tool_rules;
   const trBits = [`${tr.count}`];
+  if (tr.allow_count) trBits.push(t("security.controls.allow_count", { count: tr.allow_count }));
   if (tr.ask_count) trBits.push(t("security.controls.ask_count", { count: tr.ask_count }));
   if (tr.deny_count) trBits.push(t("security.controls.deny_count", { count: tr.deny_count }));
-  rows.push(discRow(t("security.controls.tool_rules"), sub(trBits.join(" · ")), kv([])));
+  rows.push(
+    discRow(
+      t("security.controls.tool_rules"),
+      sub(trBits.join(" · ")),
+      [
+        ...kv(tr.tools.map((tool) => [tool.label_text, t(`mcp.policy.rule.${tool.rule}`)])),
+        link(t("security.matrix.settle_link"), "/mcp"),
+      ],
+    ),
+  );
 
   for (const g of controls.guardrails) {
     const level = g.status === "active" ? (g.mode === "block" ? "high" : "mid") : "off";
@@ -161,7 +179,10 @@ function renderControls(controls) {
     // never a raw key.
     const statusKey = has(`main.bricks.status.${g.status}`) ? `main.bricks.status.${g.status}` : "main.bricks.status.unavailable";
     const text = (g.modes ?? []).find((m) => m.id === g.mode)?.label_text ?? t(statusKey);
-    rows.push(discRow(g.label_text, chip(text, level), g.install_text ? kv([[t("security.limits.reason_label"), g.install_text]]) : []));
+    const body = g.install_text
+      ? kv([[t("security.limits.reason_label"), g.install_text]])
+      : kv([[t("security.controls.guardrail_mode_label"), text]]);
+    rows.push(discRow(g.label_text, chip(text, level), [...body, link(t("security.controls.change_in_bricks"), "/")]));
   }
 
   const enabledHooks = controls.hooks.filter((h) => h.enabled);
@@ -169,15 +190,23 @@ function renderControls(controls) {
     discRow(
       t("security.controls.hooks"),
       sub(String(enabledHooks.length)),
-      kv(enabledHooks.map((h) => [h.id.toUpperCase(), h.label_text])),
+      kv(
+        controls.hooks.map((h) => [
+          h.label_text,
+          t(h.enabled ? "security.controls.hook_active" : "security.controls.hook_inactive"),
+        ]),
+      ),
     ),
   );
 
+  const whitelistBody = controls.network_whitelist.length
+    ? kv([[t("security.controls.network_whitelist"), controls.network_whitelist.join(" · ")]])
+    : kv([[t("security.controls.network_whitelist"), t("security.controls.network_whitelist_empty")]]);
   rows.push(
     discRow(
       t("security.controls.network_whitelist"),
       sub(t("security.controls.domain_count", { count: controls.network_whitelist.length })),
-      kv([[t("security.controls.network_whitelist"), controls.network_whitelist.join(" · ")]]),
+      whitelistBody,
     ),
   );
 

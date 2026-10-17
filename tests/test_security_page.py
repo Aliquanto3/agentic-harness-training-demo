@@ -35,8 +35,14 @@ def test_security_state_computes_the_question_cards_from_policy_and_journal(loop
     assert can_write["count"] == 3
     assert "1 sur demande" in can_write["detail_text"]
     assert "2 refusés" in can_write["detail_text"]
-    # Every local tool, `define_term` included.
-    assert state["controls"]["tool_rules"] == {"count": 5, "ask_count": 2, "deny_count": 0}
+    # Every local tool, `define_term` included, each with its own rule (never an empty detail).
+    tool_rules = state["controls"]["tool_rules"]
+    assert tool_rules["count"] == 5
+    assert tool_rules["ask_count"] == 2
+    assert tool_rules["deny_count"] == 0
+    assert tool_rules["allow_count"] == 3
+    assert len(tool_rules["tools"]) == 5
+    assert all(tool["label_text"] and tool["rule"] for tool in tool_rules["tools"])
 
     assert state["questions"]["authorized_by_you"]["count"] == 1
     assert state["questions"]["blocked"]["count"] == 2  # 1 tool deny + 1 guardrail blocked
@@ -132,6 +138,27 @@ def test_github_write_refusal_names_what_did_not_reach_github(loop):  # noqa: F8
         session._mcp_conversation_policy("github__merge_pull_request")
     entries = session.security_journal_entries()
     assert "Envoyé à GitHub : non" in entries[-1]["reason_text"]
+    session.close()
+
+
+def test_api_security_controls_carry_enough_detail_to_render(loop):  # noqa: F811
+    """Dépli vide corrigé (rapport vague 2) : chaque contrôle a de quoi afficher un détail,
+    jamais un corps vide. « Autorisations des outils » doit lister chaque outil et sa règle
+    effective, pas seulement des compteurs."""
+    session = mcp_session(loop)
+    controls = session.security_state()["controls"]
+
+    tr = controls["tool_rules"]
+    assert tr["tools"], "tool_rules must list each local tool and its rule, not just counts"
+    assert all(tool["label_text"] and tool["rule"] for tool in tr["tools"])
+
+    for g in controls["guardrails"]:
+        assert g["install_text"] or g.get("mode")  # a reason to install, or the active mode
+
+    assert all(h["label_text"] for h in controls["hooks"])
+
+    gh = controls["github"]
+    assert gh["scope"] and gh["server"]
     session.close()
 
 

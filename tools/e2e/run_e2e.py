@@ -15915,6 +15915,22 @@ def s_security_page(r: Run) -> None:
     page.route("**/api/security_journal", fake_journal)
     try:
         page.goto(f"{r.stack.app_url}/security")
+        # Rapport vague 2 (défaut du GIF) : aucun des 7 contrôles actifs ne se déplie sur un
+        # corps vide (données neuves, garde-fous non installés, GitHub non connecté).
+        control_rows = page.locator("#sec-controls .sec-row")
+        expect(control_rows.first).to_be_visible(timeout=10_000)
+        control_count = control_rows.count()
+        r.check(
+            control_count == 7, "Sécurité : les 7 contrôles actifs sont listés", str(control_count)
+        )
+        for i in range(control_count):
+            control_row = control_rows.nth(i)
+            button = control_row.get_by_role("button")
+            label = button.inner_text()
+            button.click()
+            body_text = control_row.locator(".disclosure-row-body").inner_text().strip()
+            r.check(len(body_text) > 0, f"Sécurité : le dépli « {label} » n'est pas vide", body_text)
+
         row = page.locator(".sec-row", has_text="GitHub : fusion de PR")
         expect(row).to_be_visible(timeout=10_000)
         row.get_by_role("button").click()

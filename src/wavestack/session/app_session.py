@@ -10995,19 +10995,28 @@ class AppSession:
         guardrails (`_guardrails_card`, story 5), the hooks (`_hook_options`, story 8), the
         network allowlist (`cfg.allowed_hosts`) and the GitHub connection — each read from
         its own existing source, nothing duplicated."""
-        local_rules = [
-            rule
+        local_tools = [
+            (tool, rule)
             for row in rows
             for tool, rule in row["rules"].items()
             if tool.startswith("local__")
         ]
-        ask_count, deny_count = local_rules.count("ask"), local_rules.count("deny")
+        local_rules = [rule for _, rule in local_tools]
         github = self._github_state()
         return {
             "tool_rules": {
                 "count": len(local_rules),
-                "ask_count": ask_count,
-                "deny_count": deny_count,
+                "allow_count": local_rules.count("allow"),
+                "ask_count": local_rules.count("ask"),
+                "deny_count": local_rules.count("deny"),
+                "tools": [
+                    {
+                        "id": tool,
+                        "label_text": self._security_label_text("tool", tool),
+                        "rule": rule,
+                    }
+                    for tool, rule in local_tools
+                ],
             },
             "guardrails": self._guardrails_card(),
             "hooks": self._hook_options(),

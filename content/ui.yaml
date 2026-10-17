@@ -1581,6 +1581,9 @@ security:
     hooks: "Hooks"
     network_whitelist: "Liste blanche réseau"
     github: "Connexion GitHub"
+    allow_count:
+      one: "{count} autorisé"
+      other: "{count} autorisés"
     ask_count:
       one: "{count} sur demande"
       other: "{count} sur demande"
@@ -1590,6 +1593,11 @@ security:
     domain_count:
       one: "{count} domaine"
       other: "{count} domaines"
+    hook_active: "actif"
+    hook_inactive: "inactif"
+    guardrail_mode_label: "Mode"
+    change_in_bricks: "Modifier dans la brique Garde-fous, page d'accueil."
+    network_whitelist_empty: "Aucun hôte autorisé pour l'instant : aucun modèle cloud actif."
     github_states:
       waiting: "en attente du code"
       connected: "connecté en lecture"
